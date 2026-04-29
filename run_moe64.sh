@@ -37,7 +37,7 @@ export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
 # Log & Analysis Configuration
 # ============================================================
 # Log directory
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/personal/zds/4.29/bsr/log}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/4.29}"
 # Run incremental analysis every N iterations (0 = only at end)
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-100}"
 # Run analysis when training ends (1 = yes)
@@ -66,8 +66,8 @@ run_training() {
     --nproc_per_node=8 \
     --nnodes=${NNODES:-8} \
     --node_rank=${NODE_RANK:-0} \
-    --master_addr=${MASTER_ADDR:-33.215.192.36} \
-    --master_port=${MASTER_PORT:-20115} \
+    --master_addr=${MASTER_ADDR:-127.0.0.1} \
+    --master_port=${MASTER_PORT:-6000} \
     ./Megatron-LM/pretrain_gpt.py \
     --use-mcore-models \
     --transformer-impl transformer_engine \
