@@ -138,7 +138,7 @@ run_training() {
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 1000 \
     --moe-bsr-degraded-s-max 500 \
-    --data-path "/mnt/exp/moe-plus/zhenghuihuang/workspace/reproduce_nv_dsv3/wudao_llama3bpe/wudao_llama3bpe_content_document" \
+    --data-path "/mnt/ais-c1/dataset/zds/datasets/64/my_gpt_data" \
     --split 100,0,0 \
     --save "${CKPT_DIR}" \
     --save-interval 40 \
