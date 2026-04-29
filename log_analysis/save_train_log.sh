@@ -82,8 +82,8 @@ run_incremental_analysis() {
 
 if [ "${ANALYZE_INTERVAL}" -gt 0 ]; then
     # 带增量分析模式: 用 pipe + 后台监控
-    # 创建命名管道
-    PIPE_FILE=$(mktemp -u "${LOG_DIR}/pipe_XXXXXX")
+    # 创建命名管道 (放在 /tmp 避免网络文件系统不支持 mkfifo)
+    PIPE_FILE=$(mktemp -u "/tmp/train_pipe_XXXXXX")
     mkfifo "${PIPE_FILE}"
 
     # 后台: 从管道读取，写入日志文件 + 终端，同时监控 iteration
