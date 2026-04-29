@@ -60,8 +60,8 @@ run_training() {
     --nproc_per_node=8 \
     --nnodes=${NNODES:-8} \
     --node_rank=${NODE_RANK:-0} \
-    --master_addr=${MASTER_ADDR:-127.0.0.1} \
-    --master_port=${MASTER_PORT:-6000} \
+    --master_addr=${MASTER_ADDR:-33.215.192.36} \
+    --master_port=${MASTER_PORT:-20115} \
     ./Megatron-LM/pretrain_gpt.py \
     --use-mcore-models \
     --transformer-impl transformer_engine \
