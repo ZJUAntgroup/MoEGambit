@@ -138,7 +138,7 @@ run_training() {
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 1000 \
     --moe-bsr-degraded-s-max 500 \
-    --data-path "/mnt/ais-c1/dataset/zds/datasets/64/my_gpt_data" \
+    --data-path "/mnt/ais-c1/dataset/zds/datasets/64/my_gpt_data_text_document" \
     --split 100,0,0 \
     --save "${CKPT_DIR}" \
     --save-interval 40 \
