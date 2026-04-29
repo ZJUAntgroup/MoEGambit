@@ -122,6 +122,75 @@ from megatron.core.optimizer_param_scheduler import OptimizerParamScheduler
 from megatron.core.transformer.moe import upcycling_utils
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
+
+
+# ============================================================
+# Lightweight crash injection for checkpoint-restart baseline
+# ============================================================
+# Controlled by environment variables:
+#   CRASH_AT_STEP       — first step to crash (default: disabled / -1)
+#   CRASH_INTERVAL      — interval between crashes (0 = single crash)
+#   CRASH_RANK          — which rank to crash (-1 = random rank per crash, seeded)
+#   CRASH_SEED          — random seed for reproducible fault rank sequence (default: 42)
+_CRASH_INJECT_NEXT_STEP: int = int(os.environ.get('CRASH_AT_STEP', '-1'))
+_CRASH_INJECT_INTERVAL: int = int(os.environ.get('CRASH_INTERVAL', '0'))
+_CRASH_INJECT_RANK: int = int(os.environ.get('CRASH_RANK', '0'))
+_CRASH_INJECT_SEED: int = int(os.environ.get('CRASH_SEED', '42'))
+_CRASH_INJECT_COUNT: int = 0
+
+import random as _crash_random
+_CRASH_RNG = _crash_random.Random(_CRASH_INJECT_SEED)
+
+
+def _maybe_crash_inject(step: int) -> None:
+    """Crash the process at the configured step for checkpoint-restart baseline.
+
+    This provides a simple, BSR-independent fault injection mechanism.
+    When triggered, the process exits with code 1, causing the outer
+    retry loop to restart training from the latest checkpoint.
+
+    When CRASH_RANK=-1, a random rank is selected for each crash using
+    a seeded RNG (CRASH_SEED), so the fault sequence is reproducible
+    across runs and matches the BSR script's fault pattern.
+    """
+    global _CRASH_INJECT_NEXT_STEP, _CRASH_INJECT_COUNT
+
+    if _CRASH_INJECT_NEXT_STEP < 0:
+        return  # disabled
+
+    if step < _CRASH_INJECT_NEXT_STEP:
+        return
+
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
+
+    # Determine which rank should crash this time
+    if _CRASH_INJECT_RANK < 0:
+        # Random rank mode: pick from [0, world_size) using seeded RNG.
+        # Uses choice() (not randint) to match BSR's fault_rng.choice(ep_group_ranks)
+        # — both produce identical sequences when the candidate list is [0..N-1].
+        target_rank = _CRASH_RNG.choice(range(world_size))
+    else:
+        target_rank = _CRASH_INJECT_RANK
+
+    _CRASH_INJECT_COUNT += 1
+    print(
+        f"[CRASH INJECT #{_CRASH_INJECT_COUNT}] target_rank={target_rank}, "
+        f"my_rank={rank}, step={step} — "
+        f"{'I am the victim, exiting!' if rank == target_rank else 'I am not the victim, but will exit due to NCCL timeout.'}",
+        flush=True,
+    )
+
+    # Schedule next crash (must happen before exit so the state is
+    # consistent if this were ever made non-fatal)
+    if _CRASH_INJECT_INTERVAL > 0:
+        _CRASH_INJECT_NEXT_STEP = step + _CRASH_INJECT_INTERVAL
+    else:
+        _CRASH_INJECT_NEXT_STEP = -1  # disable after single crash
+
+    # Force exit — all ranks crash, outer retry loop restarts from checkpoint
+    import sys
+    sys.exit(1)
 from megatron.core.parallel_state import (
     destroy_global_memory_buffer,
     destroy_model_parallel,
@@ -2330,6 +2399,9 @@ def train(
                     model, optimizer, iteration, ref_state_dict, buffered_rollouts
                 )
                 buffered_rollouts = train_data_iterator
+
+        # Crash injection for checkpoint-restart baseline (BSR-independent).
+        _maybe_crash_inject(iteration)
 
         # BSR-MoE: safe-point hook (before forward pass).
         bsr_before_iteration(iteration)

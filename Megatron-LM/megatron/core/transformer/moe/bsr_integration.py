@@ -346,11 +346,19 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             else os.environ.get('BSR_FAULT_INJECT_TYPE', 'quarantine')
         )
 
+        _fault_inject_seed = int(os.environ.get('BSR_FAULT_INJECT_SEED', '42'))
+        _fault_inject_rank = int(os.environ.get('BSR_FAULT_INJECT_RANK', '0'))
+        import random as _fi_random
+        _fault_rng = _fi_random.Random(_fault_inject_seed)
+
         _FAULT_INJECTOR_CONFIG = {
             'enabled': True,
             'inject_step': int(os.environ.get('BSR_FAULT_INJECT_STEP', '50')),
+            'inject_interval': int(os.environ.get('BSR_FAULT_INJECT_INTERVAL', '0')),
             'inject_type': inject_type,
-            'inject_rank': int(os.environ.get('BSR_FAULT_INJECT_RANK', '0')),
+            'inject_rank': _fault_inject_rank,
+            'random_rank': _fault_inject_rank < 0,
+            'fault_rng': _fault_rng,
             'replacement_step': int(os.environ.get('BSR_FAULT_REPLACEMENT_STEP', '60')),
             'replacement_rank': int(os.environ.get('BSR_FAULT_REPLACEMENT_RANK', '-1')),
             'num_experts': num_experts,
@@ -359,12 +367,18 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             'dp_group_ranks': dp_group_ranks,
             'injected': False,
             'replacement_injected': False,
+            'next_inject_step': int(os.environ.get('BSR_FAULT_INJECT_STEP', '50')),
+            'inject_count': 0,
         }
         logger.warning(
-            "BSR-MoE: fault injection configured — type=%s, rank=%d, step=%d",
+            "BSR-MoE: fault injection configured — type=%s, rank=%s, step=%d, "
+            "interval=%d, random_rank=%s, seed=%d",
             _FAULT_INJECTOR_CONFIG['inject_type'],
-            _FAULT_INJECTOR_CONFIG['inject_rank'],
+            'random' if _FAULT_INJECTOR_CONFIG['random_rank'] else str(_FAULT_INJECTOR_CONFIG['inject_rank']),
             _FAULT_INJECTOR_CONFIG['inject_step'],
+            _FAULT_INJECTOR_CONFIG['inject_interval'],
+            _FAULT_INJECTOR_CONFIG['random_rank'],
+            _fault_inject_seed,
         )
 
         # ---- 5b. Wire restart-in-place tensor invalidation callback ----
@@ -2877,7 +2891,14 @@ def _wire_recovery_callbacks(
 # =====================================================================
 
 def _maybe_inject_fault(step: int) -> None:
-    """Check if a scheduled fault should be injected at this step."""
+    """Check if a scheduled fault should be injected at this step.
+
+    Supports periodic fault injection: if ``BSR_FAULT_INJECT_INTERVAL`` > 0,
+    faults are injected every ``interval`` steps starting from ``inject_step``.
+    Each injection is a full cycle: fault → recovery → next fault.
+    The next fault is only injected after the previous recovery completes
+    (i.e., ``injected`` and ``replacement_injected`` are both reset).
+    """
     global _FAULT_INJECTOR_CONFIG
 
     if _FAULT_INJECTOR_CONFIG is None or not _FAULT_INJECTOR_CONFIG['enabled']:
@@ -2889,15 +2910,22 @@ def _maybe_inject_fault(step: int) -> None:
     if ctrl is None:
         return
 
-    # Inject fault at the configured step
-    if not cfg['injected'] and step >= cfg['inject_step']:
+    # Inject fault at the configured step (or next periodic step)
+    if not cfg['injected'] and step >= cfg['next_inject_step']:
         cfg['injected'] = True
+        cfg['inject_count'] += 1
         inject_type = cfg['inject_type']
-        inject_rank = cfg['inject_rank']
         ep_group_ranks = cfg['ep_group_ranks']
         dp_group_ranks = cfg['dp_group_ranks']
         num_experts = cfg['num_experts']
         ep_size = len(ep_group_ranks)
+
+        # Determine which rank to fault
+        if cfg['random_rank']:
+            inject_rank = cfg['fault_rng'].choice(ep_group_ranks)
+        else:
+            inject_rank = cfg['inject_rank']
+        cfg['current_failed_rank'] = inject_rank
 
         # Compute expert IDs on the target rank
         if inject_rank in ep_group_ranks:
@@ -2908,8 +2936,8 @@ def _maybe_inject_fault(step: int) -> None:
             expert_ids = []
 
         logger.warning(
-            "[%s] BSR-MoE FAULT INJECTION: type=%s, rank=%d, step=%d, experts=%s",
-            _ts(), inject_type, inject_rank, step, expert_ids,
+            "[%s] BSR-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, experts=%s",
+            _ts(), cfg['inject_count'], inject_type, inject_rank, step, expert_ids,
         )
 
         if inject_type in ('quarantine', 'hard_failure'):
@@ -2934,6 +2962,8 @@ def _maybe_inject_fault(step: int) -> None:
             # restart_in_place fast path auto-assigns replacement and
             # marks it ready, so skip the separate replacement injection.
             cfg['replacement_injected'] = True
+            # Schedule next periodic injection if interval > 0
+            _schedule_next_injection(cfg, step)
         else:
             logger.error("BSR-MoE: unknown fault injection type: %s", inject_type)
 
@@ -2941,7 +2971,7 @@ def _maybe_inject_fault(step: int) -> None:
     if (cfg['injected'] and not cfg['replacement_injected']
             and step >= cfg['replacement_step']):
         cfg['replacement_injected'] = True
-        inject_rank = cfg['inject_rank']
+        inject_rank = cfg.get('current_failed_rank', cfg['inject_rank'])
         replacement_rank = cfg['replacement_rank']
 
         if replacement_rank < 0:
@@ -2977,6 +3007,29 @@ def _maybe_inject_fault(step: int) -> None:
             failed_rank=inject_rank,
             step=step,
         )
+        # Schedule next periodic injection if interval > 0
+        _schedule_next_injection(cfg, step)
+
+
+def _schedule_next_injection(cfg: dict, current_step: int) -> None:
+    """Reset injection flags and schedule the next periodic fault.
+
+    If ``inject_interval`` > 0, computes the next injection step and
+    resets ``injected`` / ``replacement_injected`` so the next fault
+    can fire.  If interval is 0, this is a no-op (single injection only).
+    """
+    interval = cfg.get('inject_interval', 0)
+    if interval <= 0:
+        return
+
+    cfg['next_inject_step'] = current_step + interval
+    cfg['injected'] = False
+    cfg['replacement_injected'] = False
+    logger.warning(
+        "[%s] BSR-MoE FAULT INJECTION: next periodic fault scheduled at step %d "
+        "(interval=%d, total_injections=%d)",
+        _ts(), cfg['next_inject_step'], interval, cfg['inject_count'],
+    )
 
 
 def _maybe_poll_deferred_optimizer(step: int) -> None:

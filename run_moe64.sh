@@ -1,7 +1,7 @@
 set -euo pipefail
 set -x
 
-export PYTHONPATH=$PYTHONPATH:/ossfs/workspace/Megatron-LM
+export PYTHONPATH=$PYTHONPATH:./Megatron-LM
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -19,9 +19,14 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 #   - restart_in_place:   NaN-sentinel restart simulation (replacement=self)
 export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
 # Which rank to inject the fault on (0-based global rank)
-export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:-0}"
+# Set to -1 to enable random rank selection per fault (seeded)
+export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
 # At which training step to inject the fault
 export BSR_FAULT_INJECT_STEP="${BSR_FAULT_INJECT_STEP:-70}"
+# Interval between repeated fault injections (0 = single injection only)
+export BSR_FAULT_INJECT_INTERVAL="${BSR_FAULT_INJECT_INTERVAL:-40}"
+# Random seed for fault rank selection (ensures reproducible fault sequence)
+export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
 # At which training step the replacement rank becomes ready
 # (ignored for restart_in_place mode — replacement is immediate)
 export BSR_FAULT_REPLACEMENT_STEP="${BSR_FAULT_REPLACEMENT_STEP:-70}"
@@ -32,7 +37,7 @@ export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
 # Log & Analysis Configuration
 # ============================================================
 # Log directory
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/ossfs/workspace/log}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/personal/zds/4.29/bsr/log}"
 # Run incremental analysis every N iterations (0 = only at end)
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-100}"
 # Run analysis when training ends (1 = yes)
@@ -41,7 +46,7 @@ export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
-export CKPT_DIR="/mnt/ais-c1/dataset/zds/4.25/1"
+export CKPT_DIR="/mnt/ais-c1/dataset/zds/4.29/bsr"
 mkdir -p "${CKPT_DIR}"
 
 MAX_RETRIES=100
@@ -59,26 +64,33 @@ run_training() {
 
   torchrun \
     --nproc_per_node=8 \
-    --nnodes=1 \
-    --node_rank=0 \
-    --master_addr=127.0.0.1 \
-    --master_port=6000 \
-    /ossfs/workspace/Megatron-LM/pretrain_gpt.py \
+    --nnodes=${NNODES:-8} \
+    --node_rank=${NODE_RANK:-0} \
+    --master_addr=${MASTER_ADDR:-127.0.0.1} \
+    --master_port=${MASTER_PORT:-6000} \
+    ./Megatron-LM/pretrain_gpt.py \
     --use-mcore-models \
     --transformer-impl transformer_engine \
     --tensor-model-parallel-size 1 \
-    --pipeline-model-parallel-size 2 \
-    --expert-model-parallel-size 4 \
+    --pipeline-model-parallel-size 8 \
+    --expert-model-parallel-size 8 \
+    --sequence-parallel \
     --legacy-tokenizer \
     --tokenizer-type GPT2BPETokenizer \
-    --vocab-file "/ossfs/workspace/tokenizer/vocab.json" \
-    --merge-file "/ossfs/workspace/tokenizer/merges.txt" \
-    --num-layers 40 \
-    --hidden-size 768 \
-    --ffn-hidden-size 3072 \
-    --num-attention-heads 6 \
-    --seq-length 512 \
-    --max-position-embeddings 512 \
+    --vocab-file "./tokenizer/vocab.json" \
+    --merge-file "./tokenizer/merges.txt" \
+    --num-layers 48 \
+    --hidden-size 2048 \
+    --ffn-hidden-size 6144 \
+    --num-attention-heads 32 \
+    --group-query-attention \
+    --num-query-groups 4 \
+    --kv-channels 128 \
+    --qk-layernorm \
+    --seq-length 4096 \
+    --max-position-embeddings 40960 \
+    --rotary-base 1000000 \
+    --rotary-percent 1.0 \
     --micro-batch-size 1 \
     --global-batch-size 8 \
     --train-iters 2000 \
@@ -94,13 +106,17 @@ run_training() {
     --normalization RMSNorm \
     --disable-bias-linear \
     --position-embedding-type rope \
+    --no-rope-fusion \
     --swiglu \
+    --no-bias-swiglu-fusion \
     --untie-embeddings-and-output-weights \
     --bf16 \
-    --num-experts 8 \
-    --moe-router-topk 2 \
+    --num-experts 128 \
+    --moe-ffn-hidden-size 768 \
+    --moe-router-topk 8 \
+    --moe-router-dtype fp32 \
     --moe-router-load-balancing-type aux_loss \
-    --moe-aux-loss-coeff 1e-2 \
+    --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
     --moe-bsr-enable \
     --moe-bsr-health-mask \
@@ -122,7 +138,7 @@ run_training() {
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 1000 \
     --moe-bsr-degraded-s-max 500 \
-    --data-path "/ossfs/workspace/datasets/my_gpt_data_text_document" \
+    --data-path "/mnt/exp/moe-plus/zhenghuihuang/workspace/reproduce_nv_dsv3/wudao_llama3bpe/wudao_llama3bpe_content_document" \
     --split 100,0,0 \
     --save "${CKPT_DIR}" \
     --save-interval 40 \
