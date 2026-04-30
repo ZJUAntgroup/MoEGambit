@@ -1,6 +1,8 @@
 set -euo pipefail
 set -x
 
+exportNCCL_IB_DISABLE=1
+export NCCL_DEBUG=WARN
 export PYTHONPATH=$PYTHONPATH:./Megatron-LM
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -37,7 +39,7 @@ export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
 # Log & Analysis Configuration
 # ============================================================
 # Log directory
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/4.29}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-./zds/log/4.30}"
 # Run incremental analysis every N iterations (0 = only at end)
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-100}"
 # Run analysis when training ends (1 = yes)
@@ -46,7 +48,9 @@ export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
-export CKPT_DIR="/mnt/ais-c1/dataset/zds/4.29/bsr"
+export CKPT_DIR="/mnt/ais-c1/dataset/zds/4.30/bsr"
+
+
 mkdir -p "${CKPT_DIR}"
 
 MAX_RETRIES=100
@@ -67,7 +71,7 @@ run_training() {
     --nnodes=${NNODES:-8} \
     --node_rank=${NODE_RANK:-0} \
     --master_addr=${MASTER_ADDR:-127.0.0.1} \
-    --master_port=${MASTER_PORT:-6000} \
+    --master_port=${MASTER_PORT:-20115} \
     ./Megatron-LM/pretrain_gpt.py \
     --use-mcore-models \
     --transformer-impl transformer_engine \
@@ -91,8 +95,8 @@ run_training() {
     --max-position-embeddings 40960 \
     --rotary-base 1000000 \
     --rotary-percent 1.0 \
-    --micro-batch-size 1 \
-    --global-batch-size 8 \
+    --micro-batch-size 8 \
+    --global-batch-size 64 \
     --train-iters 2000 \
     --lr 1e-4 \
     --min-lr 1e-5 \

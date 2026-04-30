@@ -1,6 +1,8 @@
 set -euo pipefail
 set -x
 
+exportNCCL_IB_DISABLE=1
+export NCCL_DEBUG=WARN
 export PYTHONPATH=$PYTHONPATH:./Megatron-LM
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -31,7 +33,7 @@ export CRASH_SEED="${CRASH_SEED:-42}"
 # Log & Analysis Configuration
 # ============================================================
 # Log directory
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/4.29}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-.//zds/4.30/baseline/log}"
 # Run incremental analysis every N iterations (0 = only at end)
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-100}"
 # Run analysis when training ends (1 = yes)
@@ -85,8 +87,8 @@ run_training() {
     --max-position-embeddings 40960 \
     --rotary-base 1000000 \
     --rotary-percent 1.0 \
-    --micro-batch-size 1 \
-    --global-batch-size 8 \
+    --micro-batch-size 8 \
+    --global-batch-size 64 \
     --train-iters 2000 \
     --lr 1e-4 \
     --min-lr 1e-5 \
