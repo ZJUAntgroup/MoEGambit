@@ -89,7 +89,7 @@ run_training() {
     --rotary-percent 1.0 \
     --micro-batch-size 8 \
     --global-batch-size 64 \
-    --train-iters 2000 \
+    --train-iters 20000 \
     --lr 1e-4 \
     --min-lr 1e-5 \
     --lr-decay-style cosine \
