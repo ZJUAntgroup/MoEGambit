@@ -2424,7 +2424,9 @@ def _wire_recovery_callbacks(
             # Fallback: at minimum mark experts as STALE_RUNNABLE
             try:
                 if expert_ids:
-                    hm_mod.mark_stale_runnable_all_layers(expert_ids, step=step)
+                    from megatron.core.transformer.moe.recovery_controller import get_recovery_controller
+                    _ctrl = get_recovery_controller()
+                    _ctrl._expert_tracker.mark_stale_runnable(expert_ids, step=step)
                     logger.warning(
                         "BSR-MoE expert_restore_fn: fallback — experts %s "
                         "marked STALE_RUNNABLE at step %d",
@@ -2577,9 +2579,8 @@ def _wire_recovery_callbacks(
             )
 
         logger.warning(
-            "[%s] BSR-MoE checkpoint_restart_fn: loading full model + "
-            "optimizer from checkpoint %s (step=%d, failed_rank=%d, "
-            "replacement_rank=%d, gap=%d, ckpt_iter=%d)",
+            "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  START loading checkpoint from %s "
+            "(step=%d, failed_rank=%d, replacement_rank=%d, gap=%d, ckpt_iter=%d)",
             _ts(), checkpoint_dir, step, failed_rank, replacement_rank,
             decision.gap if decision else -1,
             decision.checkpoint_iteration if decision else -1,
@@ -2592,6 +2593,12 @@ def _wire_recovery_callbacks(
             # including optimizer and lr scheduler so the replacement rank
             # can resume training from the checkpoint iteration without
             # any optimizer warmup penalty.
+            t_step1_start = time.time()
+            logger.warning(
+                "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  [Step 1/4] Preparing to load checkpoint...",
+                _ts(),
+            )
+            
             from megatron.training.global_vars import get_args
             from megatron.training.checkpointing import load_checkpoint as _megatron_load_checkpoint
 
@@ -2628,11 +2635,11 @@ def _wire_recovery_callbacks(
                     optimizer,          # optimizer — load state
                     opt_param_scheduler,  # lr scheduler — load state
                 )
+                t_load_elapsed = time.time() - t_step1_start
                 logger.warning(
-                    "[%s] BSR-MoE checkpoint_restart_fn: full checkpoint "
-                    "loaded (model + optimizer + scheduler) from iter %s "
-                    "(elapsed=%.3fs)",
-                    _ts(), _ckpt_iter, time.time() - t_start,
+                    "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  [Step 1/4] CHECKPOINT LOADED "
+                    "from iter %s (load_time=%.3fs, total_elapsed=%.3fs)",
+                    _ts(), _ckpt_iter, t_load_elapsed, time.time() - t_start,
                 )
             finally:
                 # Restore original load path
@@ -2641,6 +2648,12 @@ def _wire_recovery_callbacks(
             # ---- Restore training-loop state overwritten by load_checkpoint ----
             # The iteration counter, consumed_samples, and lr scheduler step
             # must reflect the CURRENT training position, not the checkpoint.
+            t_step2_start = time.time()
+            logger.warning(
+                "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  [Step 2/4] Restoring training-loop state...",
+                _ts(),
+            )
+            
             args.consumed_train_samples = _saved_consumed_train_samples
             args.consumed_valid_samples = _saved_consumed_valid_samples
 
@@ -2648,18 +2661,24 @@ def _wire_recovery_callbacks(
                     and _saved_scheduler_num_steps is not None):
                 opt_param_scheduler.num_steps = _saved_scheduler_num_steps
 
+            t_step2_elapsed = time.time() - t_step2_start
             logger.warning(
-                "[%s] BSR-MoE checkpoint_restart_fn: restored training-loop "
-                "state after load_checkpoint (consumed_train_samples=%d, "
-                "scheduler_num_steps=%s)",
+                "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  [Step 2/4] Training-loop state restored "
+                "(consumed_train_samples=%d, scheduler_num_steps=%s, restore_time=%.3fs, total_elapsed=%.3fs)",
                 _ts(), args.consumed_train_samples,
-                _saved_scheduler_num_steps,
+                _saved_scheduler_num_steps, t_step2_elapsed, time.time() - t_start,
             )
 
             # ---- Step 2: Mark experts as STALE_RUNNABLE ----
             # The loaded weights are from the checkpoint iteration, which
             # is behind the current training iteration.  Mark all experts
             # on this rank as STALE_RUNNABLE via ExpertRecoveryTracker.
+            t_step3_start = time.time()
+            logger.warning(
+                "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  [Step 3/4] Marking experts as STALE_RUNNABLE...",
+                _ts(),
+            )
+            
             expert_ids = []
             if replacement_rank in ep_group_ranks:
                 ep_rank_idx = ep_group_ranks.index(replacement_rank)
@@ -2679,10 +2698,11 @@ def _wire_recovery_callbacks(
                         ctrl._expert_tracker.mark_stale_runnable(
                             expert_ids, step=step,
                         )
+                    t_step3_elapsed = time.time() - t_step3_start
                     logger.warning(
-                        "[%s] BSR-MoE checkpoint_restart_fn: marked experts %s "
-                        "as STALE_RUNNABLE (checkpoint version, step=%d)",
-                        _ts(), expert_ids, step,
+                        "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  [Step 3/4] Marked %d experts as STALE_RUNNABLE "
+                        "(experts=%s, mark_time=%.3fs, total_elapsed=%.3fs)",
+                        _ts(), len(expert_ids), expert_ids, t_step3_elapsed, time.time() - t_start,
                     )
                 except Exception as e:
                     logger.error(
@@ -2694,6 +2714,12 @@ def _wire_recovery_callbacks(
             # Run the same post-recovery steps as the hybrid path so that
             # directory / health-manager / dispatch-topology / preferential
             # routing / two-phase state machine are all consistent.
+            t_step4_start = time.time()
+            logger.warning(
+                "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  [Step 4/4] Running unified convergence...",
+                _ts(),
+            )
+            
             try:
                 from megatron.core.transformer.moe.unified_reintegration import (
                     get_post_recovery_convergence,
@@ -2725,15 +2751,16 @@ def _wire_recovery_callbacks(
                     step=step,
                     config=_config,
                 )
+                t_step4_elapsed = time.time() - t_step4_start
                 logger.warning(
-                    "[%s] BSR-MoE checkpoint_restart_fn: unified convergence "
-                    "completed (consistent=%s, pref_routing=%d, "
-                    "two_phase=%s, elapsed=%.3fs)",
+                    "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  [Step 4/4] CONVERGENCE COMPLETED "
+                    "(consistent=%s, pref_routing=%d, two_phase=%s, convergence_time=%.3fs, total_elapsed=%.3fs)",
                     _ts(),
                     conv_result.consistency_verified,
                     conv_result.preferential_routing_activated,
                     conv_result.two_phase_driven,
-                    conv_result.elapsed_seconds,
+                    t_step4_elapsed,
+                    time.time() - t_start,
                 )
             except Exception as conv_e:
                 logger.error(
@@ -2749,13 +2776,16 @@ def _wire_recovery_callbacks(
 
             elapsed = time.time() - t_start
             logger.warning(
-                "[%s] BSR-MoE checkpoint_restart_fn: COMPLETED — "
-                "full checkpoint loaded (model + optimizer) in %.3fs "
-                "(step=%d, ckpt_iter=%d, failed_rank=%d, "
-                "replacement_rank=%d, ckpt_dir=%s)",
+                "[%s] BSR-MoE checkpoint_restart_fn: ⏱️  ✅ TOTAL RECOVERY TIME: %.3fs "
+                "(step=%d, ckpt_iter=%d, failed_rank=%d, replacement_rank=%d) "
+                "| Breakdown: load=%.3fs, restore_state=%.3fs, mark_experts=%.3fs, convergence=%.3fs",
                 _ts(), elapsed, step,
                 decision.checkpoint_iteration if decision else -1,
-                failed_rank, replacement_rank, checkpoint_dir,
+                failed_rank, replacement_rank,
+                t_load_elapsed if 't_load_elapsed' in locals() else 0.0,
+                t_step2_elapsed if 't_step2_elapsed' in locals() else 0.0,
+                t_step3_elapsed if 't_step3_elapsed' in locals() else 0.0,
+                t_step4_elapsed if 't_step4_elapsed' in locals() else 0.0,
             )
 
         except Exception as e:
@@ -3295,8 +3325,9 @@ def _wire_async_recovery_callbacks(
 
         # Mark experts as STALE_RUNNABLE in health managers
         try:
-            from megatron.core.transformer.moe import expert_health_manager as hm_mod
-            hm_mod.mark_stale_runnable_all_layers(expert_ids, step=step)
+            from megatron.core.transformer.moe.recovery_controller import get_recovery_controller
+            ctrl = get_recovery_controller()
+            ctrl._expert_tracker.mark_stale_runnable(expert_ids, step=step)
         except Exception as e:
             logger.warning(
                 "BSR-MoE async_expert_restore_fn: failed to mark "

@@ -1269,7 +1269,7 @@ class RecoveryController:
 
         repair_start = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: executing safe-point repair at step %d "
+            "[%s] BSR-MoE controller: ⏱️  START safe-point repair at step %d "
             "(failed=%d, replacement=%d)",
             _ts(), step, failed_rank, replacement_rank,
         )
@@ -1277,6 +1277,11 @@ class RecoveryController:
         # =============================================================
         # Phase A: Shared pre-repair (infrastructure)
         # =============================================================
+        phase_a_start = time.time()
+        logger.warning(
+            "[%s] BSR-MoE controller: ⏱️  [Phase A] Starting infrastructure repair...",
+            _ts(),
+        )
 
         # A1. Integrate replacement rank
         t0 = time.time()
@@ -1371,10 +1376,22 @@ class RecoveryController:
             "[%s] BSR-MoE controller: step5 topology_refresh elapsed=%.3fs (step=%d)",
             _ts(), t1 - t0, step,
         )
+        
+        phase_a_elapsed = time.time() - phase_a_start
+        logger.warning(
+            "[%s] BSR-MoE controller: ⏱️  [Phase A] Infrastructure repair COMPLETED (elapsed=%.3fs)",
+            _ts(), phase_a_elapsed,
+        )
 
         # =============================================================
         # Phase B: Path-specific parameter recovery
         # =============================================================
+        phase_b_start = time.time()
+        logger.warning(
+            "[%s] BSR-MoE controller: ⏱️  [Phase B] Starting parameter recovery...",
+            _ts(),
+        )
+        
         # Evaluate gap-aware policy to choose between checkpoint restart
         # and hybrid recovery.  Only applies to hard failures when the
         # gap-aware policy manager is configured and enabled.
@@ -1472,6 +1489,13 @@ class RecoveryController:
                 step=step,
             )
 
+        phase_b_elapsed = time.time() - phase_b_start
+        logger.warning(
+            "[%s] BSR-MoE controller: ⏱️  [Phase B] Parameter recovery COMPLETED "
+            "(path=%s, elapsed=%.3fs)",
+            _ts(), recovery_path_name, phase_b_elapsed,
+        )
+
         # _last_recovery_path is now set inside _execute_checkpoint_restart_path
         # and _execute_hybrid_recovery_path, so no outer assignment needed.
 
@@ -1493,7 +1517,7 @@ class RecoveryController:
                     expert_ids=ready_record.expert_ids or [],
                 )
                 logger.warning(
-                    "[%s] BSR-MoE controller: post-recovery convergence "
+                    "[%s] BSR-MoE controller: ⏱️  [Phase B→C] Post-recovery convergence "
                     "completed (path=%s, elapsed=%.3fs, step=%d)",
                     _ts(), self._last_recovery_path, time.time() - t0, step,
                 )
@@ -1506,6 +1530,11 @@ class RecoveryController:
         # =============================================================
         # Phase C: Shared post-repair
         # =============================================================
+        phase_c_start = time.time()
+        logger.warning(
+            "[%s] BSR-MoE controller: ⏱️  [Phase C] Starting post-repair...",
+            _ts(),
+        )
 
         # C1. PP group repair + P2P rebinding (PP>1 only)
         has_pp = (bool(ready_record.pp_group_ranks)
@@ -1554,10 +1583,13 @@ class RecoveryController:
             self._pipeline_rollback_completed = False
 
             repair_elapsed = time.time() - repair_start
+            phase_c_elapsed = time.time() - phase_c_start
             logger.warning(
-                "[%s] BSR-MoE controller: safe-point repair COMPLETED "
-                "(PP>1, path=%s) total_elapsed=%.3fs (step=%d)",
-                _ts(), recovery_path_name, repair_elapsed, step,
+                "[%s] BSR-MoE controller: ⏱️  ✅ SAFE-POINT REPAIR COMPLETED "
+                "(PP>1, path=%s, step=%d) "
+                "| Total=%.3fs | Breakdown: PhaseA=%.3fs, PhaseB=%.3fs, PhaseC=%.3fs",
+                _ts(), recovery_path_name, step,
+                repair_elapsed, phase_a_elapsed, phase_b_elapsed, phase_c_elapsed,
             )
             return True
 
@@ -1609,11 +1641,13 @@ class RecoveryController:
         )
 
         repair_elapsed = time.time() - repair_start
+        phase_c_elapsed = time.time() - phase_c_start
         logger.warning(
-            "[%s] BSR-MoE controller: safe-point repair COMPLETED "
-            "(path=%s) total_elapsed=%.3fs (step=%d, failed=%d, replacement=%d)",
-            _ts(), recovery_path_name, repair_elapsed,
-            step, failed_rank, replacement_rank,
+            "[%s] BSR-MoE controller: ⏱️  ✅ SAFE-POINT REPAIR COMPLETED "
+            "(path=%s, step=%d, failed=%d, replacement=%d) "
+            "| Total=%.3fs | Breakdown: PhaseA=%.3fs, PhaseB=%.3fs, PhaseC=%.3fs",
+            _ts(), recovery_path_name, step, failed_rank, replacement_rank,
+            repair_elapsed, phase_a_elapsed, phase_b_elapsed, phase_c_elapsed,
         )
 
         return True

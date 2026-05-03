@@ -183,21 +183,37 @@ class PostRecoveryConvergence:
         )
 
         # ---- Step 1: Mark experts STALE_RUNNABLE (idempotent) ----
+        t_s1 = time.time()
         result.experts_marked_stale = self._step_mark_stale(
             expert_ids=expert_ids,
             step=step,
             result=result,
             mark_stale_fn=mark_stale_fn,
         )
+        t_s1_elapsed = time.time() - t_s1
+        logger.warning(
+            "[%s] BSR-MoE unified convergence: ⏱️  [1/5] mark_stale_runnable "
+            "done (marked=%d, time=%.3fs)",
+            _ts(), result.experts_marked_stale, t_s1_elapsed,
+        )
 
         # ---- Step 2: Verify consistency ----
+        t_s2 = time.time()
         result.consistency_issues = self._step_verify_consistency(
             result=result,
             verify_consistency_fn=verify_consistency_fn,
         )
         result.consistency_verified = len(result.consistency_issues) == 0
+        t_s2_elapsed = time.time() - t_s2
+        logger.warning(
+            "[%s] BSR-MoE unified convergence: ⏱️  [2/5] verify_consistency "
+            "done (consistent=%s, issues=%d, time=%.3fs)",
+            _ts(), result.consistency_verified,
+            len(result.consistency_issues), t_s2_elapsed,
+        )
 
         # ---- Step 3: Activate preferential routing (if enabled) ----
+        t_s3 = time.time()
         _pref_enabled = _get_flag(cfg, 'moe_bsr_preferential_routing', False)
         if _pref_enabled and restored_experts:
             result.preferential_routing_activated = self._step_preferential_routing(
@@ -207,8 +223,16 @@ class PostRecoveryConvergence:
                 result=result,
                 activate_preferential_fn=activate_preferential_fn,
             )
+        t_s3_elapsed = time.time() - t_s3
+        logger.warning(
+            "[%s] BSR-MoE unified convergence: ⏱️  [3/5] preferential_routing "
+            "done (enabled=%s, activated=%d, time=%.3fs)",
+            _ts(), _pref_enabled,
+            result.preferential_routing_activated, t_s3_elapsed,
+        )
 
         # ---- Step 4: Submit deferred optimizer loads (if applicable) ----
+        t_s4 = time.time()
         _opt_restore = _get_flag(cfg, 'moe_bsr_expert_opt_restore', True)
         _defer_opt = _get_flag(cfg, 'moe_bsr_defer_optimizer_load', True)
         # Only for hybrid path — checkpoint restart loads optimizer inline
@@ -224,8 +248,15 @@ class PostRecoveryConvergence:
                 result=result,
                 submit_optimizer_fn=submit_optimizer_fn,
             )
+        t_s4_elapsed = time.time() - t_s4
+        logger.warning(
+            "[%s] BSR-MoE unified convergence: ⏱️  [4/5] deferred_optimizer "
+            "done (submitted=%d, time=%.3fs)",
+            _ts(), result.optimizer_loads_submitted, t_s4_elapsed,
+        )
 
         # ---- Step 5: Drive two-phase recovery state machine ----
+        t_s5 = time.time()
         _two_phase = _get_flag(cfg, 'moe_bsr_weights_first_recovery', True)
         if _two_phase and restored_experts:
             result.two_phase_driven = self._step_drive_two_phase(
@@ -235,21 +266,23 @@ class PostRecoveryConvergence:
                 result=result,
                 drive_two_phase_fn=drive_two_phase_fn,
             )
+        t_s5_elapsed = time.time() - t_s5
+        logger.warning(
+            "[%s] BSR-MoE unified convergence: ⏱️  [5/5] two_phase_recovery "
+            "done (driven=%s, time=%.3fs)",
+            _ts(), result.two_phase_driven, t_s5_elapsed,
+        )
 
         result.elapsed_seconds = time.time() - t_start
 
         logger.warning(
-            "[%s] BSR-MoE unified convergence: COMPLETED "
-            "(path=%s, stale=%d, consistent=%s, pref_routing=%d, "
-            "opt_submitted=%d, two_phase=%s, elapsed=%.3fs, step=%d)",
-            _ts(), path.name,
-            result.experts_marked_stale,
-            result.consistency_verified,
-            result.preferential_routing_activated,
-            result.optimizer_loads_submitted,
-            result.two_phase_driven,
-            result.elapsed_seconds,
-            step,
+            "[%s] BSR-MoE unified convergence: ⏱️  ✅ COMPLETED "
+            "(path=%s, total=%.3fs, step=%d) "
+            "| Breakdown: mark_stale=%.3fs, verify=%.3fs, pref_routing=%.3fs, "
+            "deferred_opt=%.3fs, two_phase=%.3fs",
+            _ts(), path.name, result.elapsed_seconds, step,
+            t_s1_elapsed, t_s2_elapsed, t_s3_elapsed,
+            t_s4_elapsed, t_s5_elapsed,
         )
 
         return result
@@ -278,9 +311,10 @@ class PostRecoveryConvergence:
                 count = mark_stale_fn(expert_ids, step)
                 return count if isinstance(count, int) else len(expert_ids)
 
-            # Default: use the health manager module
-            from megatron.core.transformer.moe import expert_health_manager as hm_mod
-            hm_mod.mark_stale_runnable_all_layers(expert_ids, step=step)
+            # Default: use the recovery controller's expert tracker
+            from megatron.core.transformer.moe.recovery_controller import get_recovery_controller
+            ctrl = get_recovery_controller()
+            ctrl._expert_tracker.mark_stale_runnable(expert_ids, step=step)
             return len(expert_ids)
         except Exception as e:
             msg = f"mark_stale_runnable failed: {e}"
