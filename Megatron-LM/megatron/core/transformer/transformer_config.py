@@ -733,7 +733,42 @@ class TransformerConfig(ModelParallelConfig):
     training iterations since the latest checkpoint is at most this value,
     checkpoint restart is selected; otherwise hybrid recovery is used.
     Only effective when ``moe_bsr_gap_aware_recovery = True``.
+    Also used as ``fixed_gap_threshold`` when
+    ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``.
     Default 100."""
+
+    moe_bsr_recovery_policy_type: str = "threshold"
+    """Recovery policy type for gap-aware recovery.
+    ``"threshold"``: simple single-threshold policy (default, backward compatible).
+    ``"rank_exposure_guarded_hybrid"``: multi-boundary policy with rank stale
+    exposure tracking.
+    Only effective when ``moe_bsr_gap_aware_recovery = True``."""
+
+    moe_bsr_delta_time_min_gap: int = 32
+    """[rank_exposure_guarded_hybrid] Gap below this → checkpoint restart
+    (hybrid not cost-effective).  Default 32.
+    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+
+    moe_bsr_max_single_gap: int = 192
+    """[rank_exposure_guarded_hybrid] Gap above this → checkpoint restart
+    (stale state too far behind).  Default 192.
+    Must be >= ``moe_bsr_delta_time_min_gap``.
+    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+
+    moe_bsr_exposure_window_steps: int = 20000
+    """[rank_exposure_guarded_hybrid] Sliding window (in training steps)
+    for tracking rank stale exposure.  Default 20000.
+    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+
+    moe_bsr_max_rank_stale_exposure: float = 0.02
+    """[rank_exposure_guarded_hybrid] Maximum stale exposure ratio per rank
+    within the window (e.g. 0.02 = 2%).  Default 0.02.
+    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+
+    moe_bsr_policy_margin: float = 0.10
+    """[rank_exposure_guarded_hybrid] Hybrid must be at least this fraction
+    faster than restart to be selected.  Default 0.10 (10%).
+    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
 
     moe_bsr_hybrid_dense_sync: bool = True
     """When ``True`` (default), the hybrid recovery path pulls

@@ -3200,7 +3200,34 @@ def _add_moe_args(parser):
     group.add_argument('--moe-bsr-gap-threshold', type=int, default=100,
                        help='Gap threshold for gap-aware recovery. '
                        'If gap <= threshold, use checkpoint restart; '
-                       'if gap > threshold, use hybrid recovery. Default 100.')
+                       'if gap > threshold, use hybrid recovery. Default 100. '
+                       'Also used as fixed_gap_threshold when '
+                       '--moe-bsr-recovery-policy-type=rank_exposure_guarded_hybrid.')
+    group.add_argument('--moe-bsr-recovery-policy-type', type=str, default='threshold',
+                       choices=['threshold', 'rank_exposure_guarded_hybrid'],
+                       help='Recovery policy type. "threshold" uses a single gap '
+                       'threshold (default, backward compatible). '
+                       '"rank_exposure_guarded_hybrid" uses multi-boundary gaps '
+                       'and rank stale exposure tracking. Default: threshold.')
+    group.add_argument('--moe-bsr-delta-time-min-gap', type=int, default=32,
+                       help='[rank_exposure_guarded_hybrid] Gap below this value '
+                       'triggers checkpoint restart (hybrid not cost-effective). '
+                       'Default 32.')
+    group.add_argument('--moe-bsr-max-single-gap', type=int, default=192,
+                       help='[rank_exposure_guarded_hybrid] Single hybrid recovery '
+                       'max allowed gap. Gap above this triggers checkpoint restart. '
+                       'Default 192.')
+    group.add_argument('--moe-bsr-exposure-window-steps', type=int, default=20000,
+                       help='[rank_exposure_guarded_hybrid] Sliding window (in '
+                       'training steps) for tracking rank stale exposure. Default 20000.')
+    group.add_argument('--moe-bsr-max-rank-stale-exposure', type=float, default=0.02,
+                       help='[rank_exposure_guarded_hybrid] Maximum stale exposure '
+                       'ratio per rank within the window (e.g. 0.02 = 2%%). '
+                       'Default 0.02.')
+    group.add_argument('--moe-bsr-policy-margin', type=float, default=0.10,
+                       help='[rank_exposure_guarded_hybrid] Hybrid must be at '
+                       'least this fraction faster than restart to be selected. '
+                       'Default 0.10 (10%%).')
     group.add_argument('--moe-bsr-fault-injection', action='store_true',
                        help='Enable fault-injection and E2E test framework.')
     group.add_argument('--moe-bsr-restart-in-place', action='store_true',

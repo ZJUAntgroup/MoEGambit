@@ -236,8 +236,28 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             from megatron.core.transformer.moe import gap_aware_recovery_policy as garp_mod
 
             gap_threshold = getattr(args, 'moe_bsr_gap_threshold', 100)
+            policy_type = getattr(args, 'moe_bsr_recovery_policy_type', 'threshold')
+
+            # Build RankExposureGuardedConfig if needed
+            rank_exposure_config = None
+            if policy_type == 'rank_exposure_guarded_hybrid':
+                rank_exposure_config = garp_mod.RankExposureGuardedConfig(
+                    delta_time_min_gap=getattr(args, 'moe_bsr_delta_time_min_gap', 32),
+                    max_single_gap=getattr(args, 'moe_bsr_max_single_gap', 192),
+                    exposure_window_steps=getattr(args, 'moe_bsr_exposure_window_steps', 20000),
+                    max_rank_stale_exposure=getattr(args, 'moe_bsr_max_rank_stale_exposure', 0.02),
+                    policy_margin=getattr(args, 'moe_bsr_policy_margin', 0.10),
+                    fixed_gap_threshold=gap_threshold,
+                )
+                logger.warning(
+                    "BSR-MoE: rank-exposure-guarded hybrid policy config: %s",
+                    rank_exposure_config.to_dict(),
+                )
+
             policy_mgr = garp_mod.initialize_gap_aware_recovery_policy(
                 gap_threshold=gap_threshold,
+                policy_type=policy_type,
+                rank_exposure_config=rank_exposure_config,
                 get_checkpoint_iteration_fn=_get_latest_checkpoint_iteration,
                 enabled=True,
             )
@@ -247,7 +267,7 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             # No separate register_callbacks call needed here.
             logger.warning(
                 "BSR-MoE: gap-aware recovery policy wired to recovery controller "
-                "(threshold=%d)", gap_threshold,
+                "(type=%s, threshold=%d)", policy_type, gap_threshold,
             )
 
     # ---- 4b. Initialize HardFailureDetector and IterationInvalidator ----
