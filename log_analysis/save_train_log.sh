@@ -2,9 +2,10 @@
 # save_train_log.sh — Megatron + BSR-MoE 训练日志保存与增量分析
 #
 # 功能:
-#   1. 将训练 stdout+stderr 实时写入日志文件
-#   2. 每隔 N 个 iteration 自动运行一次日志分析 (可配置)
-#   3. 训练结束后自动运行完整分析
+#   1. 只保留最后一次运行的日志 (固定文件名 train_latest.log)
+#   2. 训练过程中实时写入日志文件，随时可查看
+#   3. 每隔 N 个 iteration 自动运行一次日志分析 (可配置)
+#   4. 训练结束后自动运行完整分析
 #
 # 用法:
 #   bash save_train_log.sh <训练命令...>
@@ -19,7 +20,7 @@
 #   LOG_ANALYZE_INTERVAL=100 bash save_train_log.sh torchrun ... pretrain_gpt.py ...
 #   LOG_ANALYZE_INTERVAL=50 LOG_ANALYZE_ON_EXIT=1 bash save_train_log.sh ./run_moe.sh
 
-set -euo pipefail
+set -uo pipefail
 
 # ============================================================
 # 配置
@@ -34,9 +35,13 @@ ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/analyze_train_log.py}"
 
 mkdir -p "${LOG_DIR}"
 
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE="${LOG_DIR}/train_${TIMESTAMP}.log"
-ANALYSIS_DIR="${LOG_DIR}/analysis_${TIMESTAMP}"
+# 固定文件名: 只保留最后一次运行的日志
+LOG_FILE="${LOG_DIR}/train_latest.log"
+ANALYSIS_DIR="${LOG_DIR}/analysis_latest"
+
+# 清空上一次的日志，开始新的记录
+> "${LOG_FILE}"
+rm -rf "${ANALYSIS_DIR}"
 
 echo "============================================================"
 echo " Megatron + BSR-MoE 训练日志保存"
@@ -90,7 +95,7 @@ if [ "${ANALYZE_INTERVAL}" -gt 0 ]; then
     (
         iter_count=0
         while IFS= read -r line; do
-            # 写入日志文件
+            # 写入日志文件 (实时刷新)
             echo "${line}" >> "${LOG_FILE}"
             # 写入终端
             echo "${line}"
@@ -120,8 +125,8 @@ if [ "${ANALYZE_INTERVAL}" -gt 0 ]; then
     wait "${READER_PID}" 2>/dev/null || true
     rm -f "${PIPE_FILE}"
 else
-    # 简单模式: 直接 tee
-    "$@" 2>&1 | tee "${LOG_FILE}"
+    # 简单模式: 使用 unbuffered tee 实时写入
+    "$@" 2>&1 | stdbuf -oL tee "${LOG_FILE}"
     EXIT_CODE=${PIPESTATUS[0]}
 fi
 
