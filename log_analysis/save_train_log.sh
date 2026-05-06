@@ -35,17 +35,27 @@ ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/analyze_train_log.py}"
 
 mkdir -p "${LOG_DIR}"
 
-# 固定文件名: 只保留最后一次运行的日志
-LOG_FILE="${LOG_DIR}/train_latest.log"
+# 两个日志文件:
+# 1. train_latest.log - 只保留最后一次运行（覆盖）
+# 2. train_full.log - 从头累积所有运行（追加）
+LOG_FILE_LATEST="${LOG_DIR}/train_latest.log"
+LOG_FILE_FULL="${LOG_DIR}/train_full.log"
 ANALYSIS_DIR="${LOG_DIR}/analysis_latest"
 
-# 清空上一次的日志，开始新的记录
-> "${LOG_FILE}"
+# 清空 latest 日志，开始新的记录
+> "${LOG_FILE_LATEST}"
 rm -rf "${ANALYSIS_DIR}"
+
+# 在 full 日志中添加分隔符
+echo "" >> "${LOG_FILE_FULL}"
+echo "============================================================" >> "${LOG_FILE_FULL}"
+echo " 新的训练运行开始: $(date)" >> "${LOG_FILE_FULL}"
+echo "============================================================" >> "${LOG_FILE_FULL}"
 
 echo "============================================================"
 echo " Megatron + BSR-MoE 训练日志保存"
-echo " 日志文件:     ${LOG_FILE}"
+echo " 最新日志:     ${LOG_FILE_LATEST} (覆盖)"
+echo " 完整日志:     ${LOG_FILE_FULL} (追加)"
 echo " 分析间隔:     ${ANALYZE_INTERVAL} iterations (0=仅结束时分析)"
 echo " 结束时分析:   ${ANALYZE_ON_EXIT}"
 echo " 分析脚本:     ${ANALYZE_SCRIPT}"
@@ -73,7 +83,7 @@ run_incremental_analysis() {
 
     echo "[save_train_log] 运行${label}分析 (iteration ${current_iter})..."
 
-    python3 "${ANALYZE_SCRIPT}" "${LOG_FILE}" \
+    python3 "${ANALYZE_SCRIPT}" "${LOG_FILE_LATEST}" \
         --csv "${csv_file}" \
         > "${out_file}" 2>&1 || true
 
@@ -95,8 +105,9 @@ if [ "${ANALYZE_INTERVAL}" -gt 0 ]; then
     (
         iter_count=0
         while IFS= read -r line; do
-            # 写入日志文件 (实时刷新)
-            echo "${line}" >> "${LOG_FILE}"
+            # 写入两个日志文件 (实时刷新)
+            echo "${line}" >> "${LOG_FILE_LATEST}"
+            echo "${line}" >> "${LOG_FILE_FULL}"
             # 写入终端
             echo "${line}"
 
@@ -125,8 +136,8 @@ if [ "${ANALYZE_INTERVAL}" -gt 0 ]; then
     wait "${READER_PID}" 2>/dev/null || true
     rm -f "${PIPE_FILE}"
 else
-    # 简单模式: 使用 unbuffered tee 实时写入
-    "$@" 2>&1 | stdbuf -oL tee "${LOG_FILE}"
+    # 简单模式: 使用 unbuffered tee 实时写入两个文件
+    "$@" 2>&1 | stdbuf -oL tee "${LOG_FILE_LATEST}" | stdbuf -oL tee -a "${LOG_FILE_FULL}"
     EXIT_CODE=${PIPESTATUS[0]}
 fi
 
@@ -135,13 +146,14 @@ echo "============================================================"
 echo " 训练结束"
 echo " 退出码:   ${EXIT_CODE}"
 echo " 结束时间: $(date)"
-echo " 日志文件: ${LOG_FILE}"
+echo " 最新日志: ${LOG_FILE_LATEST}"
+echo " 完整日志: ${LOG_FILE_FULL}"
 echo "============================================================"
 
 # ============================================================
 # 训练结束后自动分析
 # ============================================================
-if [ "${ANALYZE_ON_EXIT}" = "1" ] && [ -f "${ANALYZE_SCRIPT}" ] && [ -s "${LOG_FILE}" ]; then
+if [ "${ANALYZE_ON_EXIT}" = "1" ] && [ -f "${ANALYZE_SCRIPT}" ] && [ -s "${LOG_FILE_LATEST}" ]; then
     echo ""
     echo "[save_train_log] 运行最终分析..."
     mkdir -p "${ANALYSIS_DIR}"
@@ -151,12 +163,12 @@ if [ "${ANALYZE_ON_EXIT}" = "1" ] && [ -f "${ANALYZE_SCRIPT}" ] && [ -s "${LOG_F
     BSR_REPORT="${ANALYSIS_DIR}/analysis_bsr_only.txt"
 
     # 完整分析
-    python3 "${ANALYZE_SCRIPT}" "${LOG_FILE}" \
+    python3 "${ANALYZE_SCRIPT}" "${LOG_FILE_LATEST}" \
         --csv "${FINAL_CSV}" \
         > "${FINAL_REPORT}" 2>&1 || true
 
     # BSR-only 分析
-    python3 "${ANALYZE_SCRIPT}" "${LOG_FILE}" \
+    python3 "${ANALYZE_SCRIPT}" "${LOG_FILE_LATEST}" \
         --bsr-only \
         > "${BSR_REPORT}" 2>&1 || true
 
