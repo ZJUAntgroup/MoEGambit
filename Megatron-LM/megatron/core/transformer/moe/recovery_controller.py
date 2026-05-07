@@ -1502,6 +1502,27 @@ class RecoveryController:
         # and _execute_hybrid_recovery_path, so no outer assignment needed.
 
         # =============================================================
+        # Post-hybrid-success: record stale exposure in tracker
+        # =============================================================
+        # We record ONLY after hybrid recovery SUCCEEDS (Phase B
+        # completed without exception).  If hybrid recovery fails and
+        # falls back to checkpoint restart the exception propagates and
+        # this code is never reached — exactly the desired semantics:
+        # a failed hybrid that restarts from checkpoint produces zero
+        # additional stale iterations because all ranks reload uniformly.
+        #
+        # Also covers the case where checkpoint_restart_fn throws and
+        # execution falls back to hybrid: _last_recovery_path will be
+        # "HYBRID_RECOVERY" in that case, so we correctly record the
+        # stale exposure introduced by the fallback hybrid recovery.
+        if self._last_recovery_path == "HYBRID_RECOVERY":
+            self._record_hybrid_stale_exposure(
+                step=step,
+                failed_rank=failed_rank,
+                decision=decision,
+            )
+
+        # =============================================================
         # Phase B→C convergence: unified post-recovery verification
         # =============================================================
         # Both paths have now completed their parameter loading.  Before
@@ -1818,31 +1839,12 @@ class RecoveryController:
             _ts(), step, failed_rank, replacement_rank,
         )
 
-        # Record this hybrid recovery event in the RankExposureTracker
-        # so that the RankExposureGuardedPolicy can track per-rank
-        # stale iterations and decide whether future faults on this rank
-        # should trigger a checkpoint restart instead.
-        if decision is not None:
-            try:
-                from megatron.core.transformer.moe.rank_exposure_tracker import (
-                    get_rank_exposure_tracker,
-                )
-                tracker = get_rank_exposure_tracker()
-                tracker.record_hybrid_recovery(
-                    step=step,
-                    rank=failed_rank,
-                    gap=decision.gap,
-                )
-                logger.info(
-                    "[%s] BSR-MoE controller: recorded hybrid recovery "
-                    "in RankExposureTracker (step=%d, rank=%d, gap=%d)",
-                    _ts(), step, failed_rank, decision.gap,
-                )
-            except Exception as e:
-                logger.warning(
-                    "BSR-MoE controller: failed to record hybrid recovery "
-                    "in RankExposureTracker: %s", e,
-                )
+        # NOTE: Recording of hybrid recovery events to the
+        # RankExposureTracker is deferred to the caller
+        # (``_execute_safe_point_repair``), which records ONLY AFTER
+        # the hybrid path completes successfully.  This prevents
+        # fictitious stale-iteration counts if the hybrid path later
+        # fails and falls back to checkpoint restart.
 
         # B2a. Pull dense params from healthy DP peer
         t0 = time.time()
@@ -1914,6 +1916,97 @@ class RecoveryController:
 
         # Mark the recovery path for external query
         self._last_recovery_path = "HYBRID_RECOVERY"
+
+    # -----------------------------------------------------------------
+    # Post-hybrid-success: stale-exposure recording
+    # -----------------------------------------------------------------
+
+    def _record_hybrid_stale_exposure(
+        self,
+        step: int,
+        failed_rank: int,
+        decision: Optional[Any] = None,
+    ) -> None:
+        """Record a hybrid recovery event ONLY after it succeeds.
+
+        Called from ``_execute_safe_point_repair`` after Phase B
+        completes without exception and ``_last_recovery_path`` is
+        ``"HYBRID_RECOVERY"`` (covers both the direct-hybrid path and
+        the checkpoint-restart-fallback-to-hybrid path).
+
+        This method:
+        1. Calls ``RankExposureTracker.record_hybrid_recovery()`` so
+           that future ``RankExposureGuardedPolicy`` decisions can
+           account for the accumulated stale iterations on this rank.
+        2. Emits a structured log with ``event=rank_stale_exposure_recorded``
+           containing all fields needed for offline analysis.
+
+        Args:
+            step: Training iteration at time of fault (current_step).
+            failed_rank: Logical rank that failed (NOT the physical
+                spare GPU id).
+            decision: The ``RecoveryDecision`` from gap-aware policy
+                evaluation, if available.  When ``None`` (soft-failure
+                path with no gap-aware policy), a minimal record is
+                created with gap=-1.
+        """
+        gap = decision.gap if decision is not None else -1
+        exposure_window_steps = (
+            decision.exposure_window_steps if decision is not None else -1
+        )
+        max_rank_stale_exposure = (
+            decision.max_rank_stale_exposure if decision is not None else -1.0
+        )
+
+        try:
+            from megatron.core.transformer.moe.rank_exposure_tracker import (
+                get_rank_exposure_tracker,
+            )
+            tracker = get_rank_exposure_tracker()
+        except (ImportError, ModuleNotFoundError):
+            logger.debug(
+                "BSR-MoE controller: RankExposureTracker not available, "
+                "skipping stale-exposure recording (step=%d, rank=%d)",
+                step, failed_rank,
+            )
+            return
+
+        # Record the event in the tracker
+        tracker.record_hybrid_recovery(
+            step=step,
+            rank=failed_rank,
+            gap=gap,
+        )
+
+        # Query post-recording stale metrics
+        rank_stale_iters_after = 0
+        rank_stale_exposure_after = 0.0
+        if exposure_window_steps > 0:
+            rank_stale_iters_after = tracker.get_rank_stale_iters(
+                rank=failed_rank,
+                current_step=step,
+                window_steps=exposure_window_steps,
+            )
+            rank_stale_exposure_after = tracker.get_rank_stale_exposure(
+                rank=failed_rank,
+                current_step=step,
+                window_steps=exposure_window_steps,
+            )
+
+        # Structured log — event name and fields per specification
+        logger.warning(
+            "rank_stale_exposure_recorded: "
+            "step=%d | failed_rank=%d | gap=%d | "
+            "rank_stale_iters_after=%d | rank_stale_exposure_after=%.6f | "
+            "exposure_window_steps=%d | max_rank_stale_exposure=%.4f",
+            step,
+            failed_rank,
+            gap,
+            rank_stale_iters_after,
+            rank_stale_exposure_after,
+            exposure_window_steps,
+            max_rank_stale_exposure,
+        )
 
     def _finalize_reintegration(self, step: int = -1) -> None:
         """Finalize reintegration: move fault records to completed list.

@@ -341,15 +341,30 @@ class TestRankExposureGuardedPolicy(unittest.TestCase):
         self.assertEqual(d.exposure_window_steps, 10000)
         self.assertEqual(d.max_rank_stale_exposure, 0.05)
 
-    def test_hybrid_records_in_tracker(self):
-        """Choosing hybrid records the event in tracker."""
+    def test_hybrid_does_not_record_in_tracker_automatically(self):
+        """Choosing hybrid does NOT auto-record in tracker.
+
+        Recording is deferred to the RecoveryController, which calls
+        tracker.record_hybrid_recovery() only AFTER hybrid recovery
+        succeeds.  The policy's choose() method is a pure decision
+        function and must not have side effects on the tracker.
+        """
         self.assertEqual(self.tracker.get_event_count(), 0)
         d = self.policy.choose(current_step=200, latest_checkpoint_step=100, failed_rank=3)
         self.assertEqual(d.path, RecoveryPath.HYBRID_RECOVERY)
+        # choose() no longer records — the controller does after success
+        self.assertEqual(self.tracker.get_event_count(), 0)
+        # Simulate post-success recording (what the controller does)
+        self.tracker.record_hybrid_recovery(step=d.current_step, rank=d.failed_rank, gap=d.gap)
         self.assertEqual(self.tracker.get_event_count(), 1)
 
     def test_restart_does_not_record_in_tracker(self):
-        """Choosing checkpoint restart does NOT record in tracker."""
+        """Choosing checkpoint restart does NOT record in tracker.
+
+        Checkpoint restart never introduces stale iterations (all ranks
+        reload uniformly), so even the controller-side recording will
+        never happen for restart decisions.
+        """
         d = self.policy.choose(current_step=150, latest_checkpoint_step=130, failed_rank=3)
         self.assertEqual(d.path, RecoveryPath.CHECKPOINT_RESTART)
         self.assertEqual(self.tracker.get_event_count(), 0)

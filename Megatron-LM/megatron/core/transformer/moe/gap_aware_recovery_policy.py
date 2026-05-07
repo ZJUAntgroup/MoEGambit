@@ -712,16 +712,11 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
                     f"hybrid recovery (cost-effective and safe)"
                 )
 
-        # Record hybrid recovery events for future exposure tracking.
-        # Only hybrid recovery produces stale iterations for the failed rank;
-        # checkpoint restart reloads all ranks uniformly, so no rank is
-        # relatively "stale".  Note: recording happens AFTER the decision.
-        if path == RecoveryPath.HYBRID_RECOVERY and failed_rank >= 0:
-            self._tracker.record_hybrid_recovery(
-                step=current_step,
-                rank=failed_rank,
-                gap=gap,
-            )
+        # NOTE: Recording of hybrid recovery events is deferred to the
+        # RecoveryController, which calls tracker.record_hybrid_recovery()
+        # only AFTER hybrid recovery SUCCEEDS.  This ensures that failed
+        # hybrid attempts that fall back to checkpoint restart do not
+        # pollute the exposure tracker with fictitious stale iterations.
 
         decision = RecoveryDecision(
             path=path,
