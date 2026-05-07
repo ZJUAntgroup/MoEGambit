@@ -1481,6 +1481,44 @@ class RecoveryController:
                     e, recovery_path_name,
                 )
 
+        # Emit one stable JSON record after all policy/force overrides have
+        # resolved the final path choice.  This is intentionally before path
+        # execution: fallback outcomes are logged separately by execution events.
+        if decision is not None:
+            try:
+                from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+                    log_recovery_path_chosen_json,
+                )
+                policy_type = (
+                    self._gap_aware_policy_manager.policy_type
+                    if self._gap_aware_policy_manager is not None
+                    else decision.metadata.get("policy", "unknown")
+                )
+                run_id = (
+                    self._gap_aware_policy_manager.run_id
+                    if self._gap_aware_policy_manager is not None
+                    else None
+                )
+                decision_payload = log_recovery_path_chosen_json(
+                    decision,
+                    run_id=run_id,
+                    policy_type=policy_type,
+                )
+                self._event_log.append(RecoveryEvent(
+                    event_type="recovery_path_chosen",
+                    phase_from=self._phase.name,
+                    phase_to=self._phase.name,
+                    step=step,
+                    timestamp=time.time(),
+                    details=decision_payload,
+                ))
+            except Exception as e:
+                logger.debug(
+                    "BSR-MoE controller: failed to emit recovery_path_chosen "
+                    "JSON log: %s",
+                    e,
+                )
+
         if recovery_path_name == "CHECKPOINT_RESTART":
             self._execute_checkpoint_restart_path(
                 ready_record=ready_record,

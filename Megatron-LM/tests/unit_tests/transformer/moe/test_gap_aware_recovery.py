@@ -38,6 +38,8 @@ from megatron.core.transformer.moe.gap_aware_recovery_policy import (
     RankExposureGuardedHybridPolicy,
     # Manager
     GapAwareRecoveryPolicyManager,
+    build_recovery_path_chosen_log,
+    normalize_decision_reason,
     # Singleton
     get_gap_aware_recovery_policy_manager,
     initialize_gap_aware_recovery_policy,
@@ -111,6 +113,117 @@ class TestRecoveryDecision(unittest.TestCase):
         self.assertEqual(d["max_single_gap"], 192)
         self.assertIn("timestamp", d)
         self.assertIsInstance(d["metadata"], dict)
+
+
+# =====================================================================
+# Test: structured recovery_path_chosen JSON payload
+# =====================================================================
+
+
+class TestRecoveryPathChosenJson(unittest.TestCase):
+
+    def test_rank_exposure_payload_has_stable_fields(self):
+        d = RecoveryDecision(
+            path=RecoveryPath.HYBRID_RECOVERY,
+            current_step=500,
+            latest_checkpoint_step=420,
+            gap=80,
+            failed_rank=7,
+            reason="within_rank_exposure_safe_region",
+            reason_detail="safe",
+            delta_time_min_gap=32,
+            max_single_gap=192,
+            exposure_window_steps=20000,
+            max_rank_stale_exposure=0.02,
+            rank_stale_iters_before=100,
+            rank_stale_iters_after=180,
+            rank_stale_exposure_before=0.005,
+            rank_stale_exposure_after=0.009,
+            metadata={
+                "policy": "rank_exposure_guarded",
+                "estimated_restart_cost": 120.0,
+                "estimated_hybrid_cost": 15.0,
+                "policy_margin": 105.0,
+            },
+        )
+
+        payload = build_recovery_path_chosen_log(
+            d,
+            run_id="run-1",
+            policy_type="rank_exposure_guarded",
+        )
+
+        self.assertEqual(payload["event"], "recovery_path_chosen")
+        self.assertEqual(payload["run_id"], "run-1")
+        self.assertEqual(payload["current_step"], 500)
+        self.assertEqual(payload["latest_checkpoint_step"], 420)
+        self.assertEqual(payload["checkpoint_gap"], 80)
+        self.assertEqual(payload["failed_rank"], 7)
+        self.assertEqual(payload["policy_type"], "rank_exposure_guarded")
+        self.assertEqual(payload["selected_path"], "hybrid_recovery")
+        self.assertEqual(
+            payload["decision_reason"],
+            "within_rank_exposure_safe_region",
+        )
+        self.assertEqual(payload["rank_stale_iters_before"], 100)
+        self.assertEqual(payload["rank_stale_iters_after"], 180)
+        self.assertEqual(payload["rank_stale_exposure_before"], 0.005)
+        self.assertEqual(payload["rank_stale_exposure_after"], 0.009)
+        self.assertEqual(payload["estimated_restart_cost"], 120.0)
+        self.assertEqual(payload["estimated_hybrid_cost"], 15.0)
+        self.assertEqual(payload["policy_margin"], 105.0)
+
+    def test_fixed_gap_reasons_are_normalized(self):
+        restart = RecoveryDecision(
+            path=RecoveryPath.CHECKPOINT_RESTART,
+            current_step=10,
+            latest_checkpoint_step=5,
+            gap=5,
+            failed_rank=1,
+            reason="gap_below_threshold",
+            reason_detail="restart",
+        )
+        hybrid = RecoveryDecision(
+            path=RecoveryPath.HYBRID_RECOVERY,
+            current_step=100,
+            latest_checkpoint_step=5,
+            gap=95,
+            failed_rank=1,
+            reason="gap_at_or_above_threshold",
+            reason_detail="hybrid",
+        )
+
+        self.assertEqual(normalize_decision_reason(restart), "fixed_gap_restart")
+        self.assertEqual(normalize_decision_reason(hybrid), "fixed_gap_hybrid")
+
+    def test_forced_reasons_are_normalized(self):
+        forced_restart = RecoveryDecision(
+            path=RecoveryPath.CHECKPOINT_RESTART,
+            current_step=10,
+            latest_checkpoint_step=5,
+            gap=5,
+            failed_rank=1,
+            reason="forced_checkpoint_restart",
+            reason_detail="forced",
+        )
+        forced_hybrid = RecoveryDecision(
+            path=RecoveryPath.HYBRID_RECOVERY,
+            current_step=10,
+            latest_checkpoint_step=-1,
+            gap=11,
+            failed_rank=1,
+            reason="no_checkpoint_available",
+            reason_detail="forced",
+        )
+
+        self.assertEqual(
+            normalize_decision_reason(forced_restart),
+            "forced_restart",
+        )
+        self.assertEqual(
+            normalize_decision_reason(forced_hybrid),
+            "forced_hybrid",
+        )
 
 
 # =====================================================================

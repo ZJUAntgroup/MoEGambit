@@ -914,6 +914,7 @@ class GapAwareRecoveryPolicyManager:
         gap_threshold: int = 100,
         policy: Optional[RecoveryPolicyBase] = None,
         get_checkpoint_iteration_fn: Optional[Callable[[], int]] = None,
+        run_id: Optional[str] = None,
     ) -> None:
         if policy is not None:
             self._policy = policy
@@ -925,6 +926,7 @@ class GapAwareRecoveryPolicyManager:
         self._get_checkpoint_iteration_fn = get_checkpoint_iteration_fn
         self._decision_history: list[RecoveryDecision] = []
         self._enabled: bool = True
+        self._run_id = run_id or _default_run_id()
 
     @property
     def enabled(self) -> bool:
@@ -941,6 +943,14 @@ class GapAwareRecoveryPolicyManager:
     @policy.setter
     def policy(self, value: RecoveryPolicyBase) -> None:
         self._policy = value
+
+    @property
+    def policy_type(self) -> str:
+        return _policy_type_from_policy(self._policy)
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
 
     @property
     def decision_history(self) -> list[RecoveryDecision]:
@@ -1013,6 +1023,8 @@ class GapAwareRecoveryPolicyManager:
         result: Dict[str, Any] = {
             "enabled": self._enabled,
             "policy_type": type(self._policy).__name__,
+            "structured_policy_type": self.policy_type,
+            "run_id": self._run_id,
             "num_decisions": len(self._decision_history),
             "last_decision": (
                 self.last_decision.to_dict()
@@ -1084,6 +1096,7 @@ def initialize_gap_aware_recovery_policy(
     max_single_gap: Optional[int] = None,
     get_checkpoint_iteration_fn: Optional[Callable[[], int]] = None,
     enabled: bool = True,
+    run_id: Optional[str] = None,
 ) -> GapAwareRecoveryPolicyManager:
     """Initialize the global policy manager with configuration.
 
@@ -1106,6 +1119,7 @@ def initialize_gap_aware_recovery_policy(
         max_single_gap: Override for TwoThreshold / RankExposureGuarded.
         get_checkpoint_iteration_fn: Callback to query checkpoint iteration.
         enabled: Whether gap-aware recovery is enabled.
+        run_id: Optional stable run id for structured JSON decision logs.
 
     Returns:
         The initialized ``GapAwareRecoveryPolicyManager``.
@@ -1117,6 +1131,7 @@ def initialize_gap_aware_recovery_policy(
             gap_threshold=gap_threshold,
             policy=policy,
             get_checkpoint_iteration_fn=get_checkpoint_iteration_fn,
+            run_id=run_id,
         )
         _POLICY_MANAGER.enabled = enabled
         return _POLICY_MANAGER
@@ -1172,6 +1187,7 @@ def initialize_gap_aware_recovery_policy(
         gap_threshold=gap_threshold,
         policy=policy,
         get_checkpoint_iteration_fn=get_checkpoint_iteration_fn,
+        run_id=run_id,
     )
     _POLICY_MANAGER.enabled = enabled
     logger.warning(
