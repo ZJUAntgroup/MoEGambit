@@ -716,59 +716,63 @@ class TransformerConfig(ModelParallelConfig):
     moe_bsr_gap_aware_recovery: bool = False
     """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
     gap-aware recovery policy.  On hard failure, the system computes
-    ``gap = current_iteration - latest_checkpoint_iteration`` and selects
-    the recovery path:
-
-    * ``gap <= moe_bsr_gap_threshold`` → **checkpoint restart** (stop
-      training, reload from checkpoint).
-    * ``gap > moe_bsr_gap_threshold`` → **hybrid recovery** (online
-      repair: dense params from DP peer, expert weights from checkpoint).
+    ``gap = current_iteration - latest_checkpoint_iteration`` and delegates
+    to the configured policy (see ``moe_bsr_recovery_policy_type``) to
+    select between checkpoint restart and hybrid recovery.
 
     When ``False``, the system always uses hybrid recovery (existing
     behaviour).
     Requires ``moe_bsr_enable = True`` and ``moe_bsr_recovery_controller = True``."""
 
     moe_bsr_gap_threshold: int = 100
-    """Gap threshold for the gap-aware recovery policy.  If the number of
-    training iterations since the latest checkpoint is at most this value,
-    checkpoint restart is selected; otherwise hybrid recovery is used.
+    """Gap threshold for the gap-aware recovery policy.
+    Used as ``fixed_gap_threshold`` for ``fixed_gap_threshold`` and
+    ``threshold`` policy types.
     Only effective when ``moe_bsr_gap_aware_recovery = True``.
-    Also used as ``fixed_gap_threshold`` when
-    ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``.
     Default 100."""
 
     moe_bsr_recovery_policy_type: str = "threshold"
-    """Recovery policy type for gap-aware recovery.
-    ``"threshold"``: simple single-threshold policy (default, backward compatible).
-    ``"rank_exposure_guarded_hybrid"``: multi-boundary policy with rank stale
-    exposure tracking.
+    """Recovery policy type for gap-aware recovery.  One of:
+    ``"restart_and_spare"``: always checkpoint restart (most conservative).
+    ``"always_hybrid"``: always hybrid recovery (most aggressive).
+    ``"fixed_gap_threshold"``: single gap threshold (``moe_bsr_gap_threshold``).
+    ``"threshold"``: alias for ``fixed_gap_threshold`` (backward compatible).
+    ``"two_threshold"``: gap lower bound + upper bound
+        (``moe_bsr_delta_time_min_gap``, ``moe_bsr_max_single_gap``).
+    ``"rank_exposure_guarded"``: gap bounds + per-rank stale exposure tracking
+        (uses ``moe_bsr_delta_time_min_gap``, ``moe_bsr_max_single_gap``,
+        ``moe_bsr_exposure_window_steps``, ``moe_bsr_max_rank_stale_exposure``).
+    ``"rank_exposure_guarded_hybrid"``: alias for ``rank_exposure_guarded``
+        (backward compatible).
     Only effective when ``moe_bsr_gap_aware_recovery = True``."""
 
     moe_bsr_delta_time_min_gap: int = 32
-    """[rank_exposure_guarded_hybrid] Gap below this → checkpoint restart
-    (hybrid not cost-effective).  Default 32.
-    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+    """[two_threshold / rank_exposure_guarded] Gap below this → checkpoint
+    restart (hybrid not cost-effective).  Default 32.
+    Effective when ``moe_bsr_recovery_policy_type`` is ``two_threshold`` or
+    ``rank_exposure_guarded``."""
 
     moe_bsr_max_single_gap: int = 192
-    """[rank_exposure_guarded_hybrid] Gap above this → checkpoint restart
-    (stale state too far behind).  Default 192.
+    """[two_threshold / rank_exposure_guarded] Gap above this → checkpoint
+    restart (stale state too far behind).  Default 192.
     Must be >= ``moe_bsr_delta_time_min_gap``.
-    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+    Effective when ``moe_bsr_recovery_policy_type`` is ``two_threshold`` or
+    ``rank_exposure_guarded``."""
 
     moe_bsr_exposure_window_steps: int = 20000
-    """[rank_exposure_guarded_hybrid] Sliding window (in training steps)
-    for tracking rank stale exposure.  Default 20000.
-    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+    """[rank_exposure_guarded] Sliding window (in training steps) for
+    tracking rank stale exposure.  Default 20000.
+    Effective when ``moe_bsr_recovery_policy_type`` is ``rank_exposure_guarded``."""
 
     moe_bsr_max_rank_stale_exposure: float = 0.02
-    """[rank_exposure_guarded_hybrid] Maximum stale exposure ratio per rank
-    within the window (e.g. 0.02 = 2%).  Default 0.02.
-    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+    """[rank_exposure_guarded] Maximum stale exposure ratio per rank within
+    the window (e.g. 0.02 = 2%).  Default 0.02.
+    Effective when ``moe_bsr_recovery_policy_type`` is ``rank_exposure_guarded``."""
 
     moe_bsr_policy_margin: float = 0.10
-    """[rank_exposure_guarded_hybrid] Hybrid must be at least this fraction
-    faster than restart to be selected.  Default 0.10 (10%).
-    Only effective when ``moe_bsr_recovery_policy_type = 'rank_exposure_guarded_hybrid'``."""
+    """[DEPRECATED] Kept for backward compatibility but no longer used by
+    any policy.  Will be removed in a future release.
+    Previously: hybrid must be at least this fraction faster than restart."""
 
     moe_bsr_hybrid_dense_sync: bool = True
     """When ``True`` (default), the hybrid recovery path pulls

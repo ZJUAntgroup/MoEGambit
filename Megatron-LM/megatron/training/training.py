@@ -2420,8 +2420,8 @@ def train(
         if bsr_is_checkpoint_restart_requested():
             _bsr_decision = bsr_get_checkpoint_restart_decision()
             _bsr_ckpt_iter = (
-                _bsr_decision.checkpoint_iteration
-                if _bsr_decision is not None and _bsr_decision.checkpoint_iteration >= 0
+                _bsr_decision.latest_checkpoint_step
+                if _bsr_decision is not None and _bsr_decision.latest_checkpoint_step >= 0
                 else -1
             )
             logger.warning(

@@ -1417,9 +1417,9 @@ class RecoveryController:
             recovery_path_name = decision.path.name
             logger.warning(
                 "[%s] BSR-MoE controller: gap-aware policy selected %s "
-                "(gap=%d, threshold=%d, step=%d, failed=%d, replacement=%d)",
+                "(gap=%d, step=%d, failed=%d, replacement=%d, reason=%s)",
                 _ts(), recovery_path_name, decision.gap,
-                decision.gap_threshold, step, failed_rank, replacement_rank,
+                step, failed_rank, replacement_rank, decision.reason,
             )
 
         # Override: force CHECKPOINT_RESTART if the registered callback
@@ -1450,12 +1450,13 @@ class RecoveryController:
                     )
                     decision = RecoveryDecision(
                         path=RecoveryPath.CHECKPOINT_RESTART,
-                        current_iteration=step,
-                        checkpoint_iteration=_force_ckpt_iter,
+                        current_step=step,
+                        latest_checkpoint_step=_force_ckpt_iter,
                         gap=(step - _force_ckpt_iter
                              if _force_ckpt_iter >= 0 else -1),
-                        gap_threshold=-1,
-                        reason=_force_reason,
+                        failed_rank=failed_rank,
+                        reason="forced_checkpoint_restart",
+                        reason_detail=_force_reason,
                         metadata={
                             "forced": True,
                             "failed_rank": failed_rank,
@@ -1694,7 +1695,7 @@ class RecoveryController:
 
         gap = decision.gap if decision is not None else -1
         ckpt_iter = (
-            decision.checkpoint_iteration if decision is not None else -1
+            decision.latest_checkpoint_step if decision is not None else -1
         )
 
         logger.warning(
@@ -1818,7 +1819,7 @@ class RecoveryController:
         )
 
         # Record this hybrid recovery event in the RankExposureTracker
-        # so that the RankExposureGuardedHybridPolicy can track per-rank
+        # so that the RankExposureGuardedPolicy can track per-rank
         # stale iterations and decide whether future faults on this rank
         # should trigger a checkpoint restart instead.
         if decision is not None:

@@ -240,17 +240,15 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
 
             # Build RankExposureGuardedConfig if needed
             rank_exposure_config = None
-            if policy_type == 'rank_exposure_guarded_hybrid':
+            if policy_type in ('rank_exposure_guarded', 'rank_exposure_guarded_hybrid'):
                 rank_exposure_config = garp_mod.RankExposureGuardedConfig(
                     delta_time_min_gap=getattr(args, 'moe_bsr_delta_time_min_gap', 32),
                     max_single_gap=getattr(args, 'moe_bsr_max_single_gap', 192),
                     exposure_window_steps=getattr(args, 'moe_bsr_exposure_window_steps', 20000),
                     max_rank_stale_exposure=getattr(args, 'moe_bsr_max_rank_stale_exposure', 0.02),
-                    policy_margin=getattr(args, 'moe_bsr_policy_margin', 0.10),
-                    fixed_gap_threshold=gap_threshold,
                 )
                 logger.warning(
-                    "BSR-MoE: rank-exposure-guarded hybrid policy config: %s",
+                    "BSR-MoE: rank-exposure-guarded policy config: %s",
                     rank_exposure_config.to_dict(),
                 )
 
@@ -258,6 +256,8 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
                 gap_threshold=gap_threshold,
                 policy_type=policy_type,
                 rank_exposure_config=rank_exposure_config,
+                delta_time_min_gap=getattr(args, 'moe_bsr_delta_time_min_gap', None),
+                max_single_gap=getattr(args, 'moe_bsr_max_single_gap', None),
                 get_checkpoint_iteration_fn=_get_latest_checkpoint_iteration,
                 enabled=True,
             )
@@ -2603,7 +2603,7 @@ def _wire_recovery_callbacks(
             "(step=%d, failed_rank=%d, replacement_rank=%d, gap=%d, ckpt_iter=%d)",
             _ts(), checkpoint_dir, step, failed_rank, replacement_rank,
             decision.gap if decision else -1,
-            decision.checkpoint_iteration if decision else -1,
+            decision.latest_checkpoint_step if decision else -1,
         )
 
         try:
@@ -2800,7 +2800,7 @@ def _wire_recovery_callbacks(
                 "(step=%d, ckpt_iter=%d, failed_rank=%d, replacement_rank=%d) "
                 "| Breakdown: load=%.3fs, restore_state=%.3fs, mark_experts=%.3fs, convergence=%.3fs",
                 _ts(), elapsed, step,
-                decision.checkpoint_iteration if decision else -1,
+                decision.latest_checkpoint_step if decision else -1,
                 failed_rank, replacement_rank,
                 t_load_elapsed if 't_load_elapsed' in locals() else 0.0,
                 t_step2_elapsed if 't_step2_elapsed' in locals() else 0.0,

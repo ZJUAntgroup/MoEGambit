@@ -1,53 +1,52 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""BSR-MoE Gap-Aware Recovery Policy.
+"""BSR-MoE Recovery Policy Framework.
 
 This module implements a **recovery path selector** that chooses between
-checkpoint restart and hybrid recovery based on the "gap" between the
-current training iteration and the latest available checkpoint.
+checkpoint restart and hybrid recovery based on policy-specific criteria.
 
-Gap definition
+Supported policies
+------------------
+1. ``RestartAndSparePolicy``  — always CHECKPOINT_RESTART (baseline).
+2. ``AlwaysHybridPolicy``     — always HYBRID_RECOVERY (baseline).
+3. ``FixedGapThresholdPolicy`` — single gap threshold (baseline).
+4. ``TwoThresholdPolicy``     — gap lower bound + upper bound (baseline).
+5. ``RankExposureGuardedPolicy`` — gap bounds + rank stale exposure (main).
+
+Decision input
 --------------
 ::
 
-    gap = current_iteration - latest_checkpoint_iteration
+    gap = current_step - latest_checkpoint_step
+    rank = failed_logical_rank
 
-Decision logic (v1: simple threshold)
---------------------------------------
+Decision logic (RankExposureGuardedPolicy)
+------------------------------------------
 ::
 
-    if gap <= gap_threshold:
-        -> CHECKPOINT_RESTART   (small gap: cheaper to restart from ckpt)
-    else:
-        -> HYBRID_RECOVERY      (large gap: online recovery is cheaper)
+    rank_stale_iters_before =
+        tracker.get_rank_stale_iters(rank, current_step, window_steps)
+    rank_stale_iters_after = rank_stale_iters_before + gap
+    rank_exposure_after = rank_stale_iters_after / window_steps
 
-The threshold-based policy is the default.  A ``CostModelPolicy`` base
-class is provided for future extensions (e.g., cost-model-based selection
-that considers checkpoint I/O bandwidth, number of affected experts,
-recomputation cost, etc.).
+    if gap < delta_time_min_gap:
+        path = checkpoint_restart
+    elif gap > max_single_gap:
+        path = checkpoint_restart
+    elif rank_exposure_after > max_rank_stale_exposure:
+        path = checkpoint_restart
+    else:
+        path = hybrid_recovery
 
 Integration
 -----------
 The policy is consulted by ``RecoveryController._execute_safe_point_repair``
-when a hard failure is being repaired.  The selected path determines
-whether the controller:
-
-* **CHECKPOINT_RESTART**: signals the training loop to stop and reload
-  from the latest checkpoint (full restart).
-* **HYBRID_RECOVERY**: proceeds with the existing online repair sequence
-  (group rebuild -> topology refresh -> dense sync -> expert restore).
-
-Scope (v1)
-----------
-* Simple threshold policy
-* Structured decision logging
-* Extension point for cost-model policy
-* Does NOT implement the actual checkpoint restart logic (that is in
-  ``bsr_integration.py`` and ``training.py``)
+when a hard failure is being repaired.
 """
 
 from __future__ import annotations
 
+import abc
 import enum
 import logging
 import time
@@ -66,17 +65,17 @@ class RecoveryPath(enum.Enum):
     """The two recovery paths available after a hard failure."""
 
     CHECKPOINT_RESTART = "checkpoint_restart"
-    """Small gap: stop training and restart from the latest checkpoint.
+    """Stop training and restart from the latest checkpoint.
     All ranks reload model + optimizer state from disk."""
 
     HYBRID_RECOVERY = "hybrid_recovery"
-    """Large gap: online recovery without full restart.
+    """Online recovery without full restart.
     Dense/shared/router params synced from healthy DP peer;
     MoE expert weights restored from distributed checkpoint."""
 
 
 # =====================================================================
-# Recovery decision
+# Structured decision
 # =====================================================================
 
 @dataclass
@@ -85,54 +84,89 @@ class RecoveryDecision:
 
     Attributes:
         path: The selected recovery path.
-        current_iteration: Training iteration when the decision was made.
-        checkpoint_iteration: Iteration of the latest available checkpoint.
-        gap: ``current_iteration - checkpoint_iteration``.
-        gap_threshold: The threshold used for the decision.
-        reason: Human-readable explanation.
+        current_step: Training step when the decision was made.
+        latest_checkpoint_step: Step of the latest available checkpoint.
+        gap: ``current_step - latest_checkpoint_step``.
+        failed_rank: The logical rank that failed.
+        reason: Short machine-readable reason string.
+        reason_detail: Human-readable explanation.
         timestamp: ISO-format timestamp of the decision.
+
+        delta_time_min_gap: Gap lower bound (TwoThreshold / RankExposureGuarded).
+        max_single_gap: Gap upper bound (TwoThreshold / RankExposureGuarded).
+        exposure_window_steps: Window size for exposure tracking.
+        rank_stale_iters_before: Stale iters for this rank *before* this recovery.
+        rank_stale_iters_after: Stale iters for this rank *after* this recovery.
+        rank_stale_exposure_before: Exposure ratio before.
+        rank_stale_exposure_after: Exposure ratio after.
+        max_rank_stale_exposure: Maximum allowed exposure ratio.
+
         metadata: Arbitrary extra info (for cost-model extensions).
     """
 
+    # --- Core fields (always populated) ---
     path: RecoveryPath
-    current_iteration: int
-    checkpoint_iteration: int
+    current_step: int
+    latest_checkpoint_step: int
     gap: int
-    gap_threshold: int
+    failed_rank: int
     reason: str
+    reason_detail: str
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    # --- Policy-specific fields (populated by relevant policies) ---
+    delta_time_min_gap: int = -1
+    max_single_gap: int = -1
+    exposure_window_steps: int = -1
+    rank_stale_iters_before: int = 0
+    rank_stale_iters_after: int = 0
+    rank_stale_exposure_before: float = 0.0
+    rank_stale_exposure_after: float = 0.0
+    max_rank_stale_exposure: float = -1.0
+
+    # --- Arbitrary metadata ---
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-friendly dict (for logging / manifest)."""
         return {
             "selected_path": self.path.value,
-            "current_iteration": self.current_iteration,
-            "checkpoint_iteration": self.checkpoint_iteration,
+            "current_step": self.current_step,
+            "latest_checkpoint_step": self.latest_checkpoint_step,
             "gap": self.gap,
-            "gap_threshold": self.gap_threshold,
+            "failed_rank": self.failed_rank,
             "reason": self.reason,
+            "reason_detail": self.reason_detail,
             "timestamp": self.timestamp,
+            "delta_time_min_gap": self.delta_time_min_gap,
+            "max_single_gap": self.max_single_gap,
+            "exposure_window_steps": self.exposure_window_steps,
+            "rank_stale_iters_before": self.rank_stale_iters_before,
+            "rank_stale_iters_after": self.rank_stale_iters_after,
+            "rank_stale_exposure_before": self.rank_stale_exposure_before,
+            "rank_stale_exposure_after": self.rank_stale_exposure_after,
+            "max_rank_stale_exposure": self.max_rank_stale_exposure,
             "metadata": self.metadata,
         }
 
 
 # =====================================================================
-# Base policy (extension point)
+# Abstract base policy
 # =====================================================================
 
-class RecoveryPolicyBase:
+class RecoveryPolicyBase(abc.ABC):
     """Abstract base for recovery path selection policies.
 
-    Subclass this and override ``select_path`` to implement custom
-    decision logic (e.g., cost-model-based).
+    Subclass this and override ``choose`` to implement custom
+    decision logic.
     """
 
-    def select_path(
+    @abc.abstractmethod
+    def choose(
         self,
         *,
-        current_iteration: int,
-        checkpoint_iteration: int,
+        current_step: int,
+        latest_checkpoint_step: int,
         failed_rank: int = -1,
         replacement_rank: int = -1,
         num_affected_experts: int = 0,
@@ -141,154 +175,333 @@ class RecoveryPolicyBase:
         """Choose a recovery path.
 
         Args:
-            current_iteration: Current training step.
-            checkpoint_iteration: Step of the latest available checkpoint.
-            failed_rank: The rank that failed.
+            current_step: Current training step.
+            latest_checkpoint_step: Step of the latest available checkpoint.
+            failed_rank: The logical rank that failed.
             replacement_rank: The replacement rank.
             num_affected_experts: Number of experts on the failed rank.
-            **kwargs: Reserved for future cost-model inputs.
 
         Returns:
             A ``RecoveryDecision`` describing the chosen path.
         """
-        raise NotImplementedError
+        ...
+
+    # Backward compatibility alias
+    def select_path(self, **kwargs: Any) -> RecoveryDecision:
+        """Alias for ``choose`` (backward compatibility)."""
+        return self.choose(**kwargs)
 
 
 # =====================================================================
-# Threshold policy (v1 default)
+# Baseline 1: Restart+Spare (always checkpoint restart)
 # =====================================================================
 
-class ThresholdRecoveryPolicy(RecoveryPolicyBase):
-    """Simple threshold-based recovery path selector.
+class RestartAndSparePolicy(RecoveryPolicyBase):
+    """Always selects CHECKPOINT_RESTART.
 
-    If ``gap <= gap_threshold``, select CHECKPOINT_RESTART.
-    Otherwise, select HYBRID_RECOVERY.
-
-    Args:
-        gap_threshold: The gap threshold.  Default 100.
+    This is the most conservative baseline: on any hard failure,
+    roll the entire training job back to the latest checkpoint.
     """
 
-    def __init__(self, gap_threshold: int = 100) -> None:
-        if gap_threshold < 0:
-            raise ValueError(
-                f"gap_threshold must be >= 0, got {gap_threshold}"
-            )
-        self._gap_threshold = gap_threshold
-
-    @property
-    def gap_threshold(self) -> int:
-        """The configured gap threshold."""
-        return self._gap_threshold
-
-    def select_path(
+    def choose(
         self,
         *,
-        current_iteration: int,
-        checkpoint_iteration: int,
+        current_step: int,
+        latest_checkpoint_step: int,
         failed_rank: int = -1,
         replacement_rank: int = -1,
         num_affected_experts: int = 0,
         **kwargs: Any,
     ) -> RecoveryDecision:
-        """Select recovery path based on gap vs threshold.
+        gap = current_step - latest_checkpoint_step
 
-        Returns:
-            A ``RecoveryDecision`` with the selected path.
-        """
-        gap = current_iteration - checkpoint_iteration
-
-        if checkpoint_iteration < 0:
-            # No checkpoint available — must use hybrid recovery
-            path = RecoveryPath.HYBRID_RECOVERY
-            reason = (
-                f"no checkpoint available (checkpoint_iteration={checkpoint_iteration}), "
-                f"forced hybrid recovery"
-            )
-        elif gap <= self._gap_threshold:
-            path = RecoveryPath.CHECKPOINT_RESTART
-            reason = (
-                f"gap={gap} <= threshold={self._gap_threshold}, "
-                f"checkpoint restart is cheaper"
-            )
-        else:
-            path = RecoveryPath.HYBRID_RECOVERY
-            reason = (
-                f"gap={gap} > threshold={self._gap_threshold}, "
-                f"hybrid recovery avoids full restart"
+        if latest_checkpoint_step < 0:
+            # No checkpoint: forced hybrid recovery (cannot restart)
+            return RecoveryDecision(
+                path=RecoveryPath.HYBRID_RECOVERY,
+                current_step=current_step,
+                latest_checkpoint_step=latest_checkpoint_step,
+                gap=gap,
+                failed_rank=failed_rank,
+                reason="no_checkpoint_available",
+                reason_detail="no checkpoint available, forced hybrid recovery",
+                metadata={
+                    "policy": "restart_and_spare",
+                    "replacement_rank": replacement_rank,
+                    "num_affected_experts": num_affected_experts,
+                },
             )
 
-        decision = RecoveryDecision(
-            path=path,
-            current_iteration=current_iteration,
-            checkpoint_iteration=checkpoint_iteration,
+        return RecoveryDecision(
+            path=RecoveryPath.CHECKPOINT_RESTART,
+            current_step=current_step,
+            latest_checkpoint_step=latest_checkpoint_step,
             gap=gap,
-            gap_threshold=self._gap_threshold,
-            reason=reason,
+            failed_rank=failed_rank,
+            reason="always_restart",
+            reason_detail="restart_and_spare policy: always checkpoint restart",
             metadata={
-                "failed_rank": failed_rank,
+                "policy": "restart_and_spare",
                 "replacement_rank": replacement_rank,
                 "num_affected_experts": num_affected_experts,
-                "policy": "threshold",
             },
         )
 
-        # Structured decision log
-        logger.warning(
-            "BSR-MoE gap-aware recovery decision: "
-            "path=%s | current_iteration=%d | checkpoint_iteration=%d | "
-            "gap=%d | threshold=%d | reason=%s | "
-            "failed_rank=%d | replacement_rank=%d",
-            decision.path.value,
-            decision.current_iteration,
-            decision.checkpoint_iteration,
-            decision.gap,
-            decision.gap_threshold,
-            decision.reason,
-            failed_rank,
-            replacement_rank,
-        )
 
-        return decision
+# =====================================================================
+# Baseline 2: AlwaysHybrid (always hybrid recovery)
+# =====================================================================
+
+class AlwaysHybridPolicy(RecoveryPolicyBase):
+    """Always selects HYBRID_RECOVERY.
+
+    This is the most aggressive baseline: on any hard failure,
+    attempt online recovery without full checkpoint restart.
+    """
+
+    def choose(
+        self,
+        *,
+        current_step: int,
+        latest_checkpoint_step: int,
+        failed_rank: int = -1,
+        replacement_rank: int = -1,
+        num_affected_experts: int = 0,
+        **kwargs: Any,
+    ) -> RecoveryDecision:
+        gap = current_step - latest_checkpoint_step
+
+        return RecoveryDecision(
+            path=RecoveryPath.HYBRID_RECOVERY,
+            current_step=current_step,
+            latest_checkpoint_step=latest_checkpoint_step,
+            gap=gap,
+            failed_rank=failed_rank,
+            reason="always_hybrid",
+            reason_detail="always_hybrid policy: always hybrid recovery",
+            metadata={
+                "policy": "always_hybrid",
+                "replacement_rank": replacement_rank,
+                "num_affected_experts": num_affected_experts,
+            },
+        )
 
 
 # =====================================================================
-# Rank-Exposure Guarded Hybrid Policy
+# Baseline 3: FixedGapThreshold (single gap threshold)
+# =====================================================================
+
+class FixedGapThresholdPolicy(RecoveryPolicyBase):
+    """Single fixed gap threshold policy.
+
+    Decision logic::
+
+        if gap < fixed_gap_threshold:  checkpoint_restart
+        else:                          hybrid_recovery
+
+    Args:
+        fixed_gap_threshold: The gap threshold.  Default 32.
+    """
+
+    def __init__(self, fixed_gap_threshold: int = 32) -> None:
+        if fixed_gap_threshold < 0:
+            raise ValueError(
+                f"fixed_gap_threshold must be >= 0, got {fixed_gap_threshold}"
+            )
+        self._fixed_gap_threshold = fixed_gap_threshold
+
+    @property
+    def gap_threshold(self) -> int:
+        """Backward-compatible property."""
+        return self._fixed_gap_threshold
+
+    @property
+    def fixed_gap_threshold(self) -> int:
+        return self._fixed_gap_threshold
+
+    def choose(
+        self,
+        *,
+        current_step: int,
+        latest_checkpoint_step: int,
+        failed_rank: int = -1,
+        replacement_rank: int = -1,
+        num_affected_experts: int = 0,
+        **kwargs: Any,
+    ) -> RecoveryDecision:
+        gap = current_step - latest_checkpoint_step
+
+        if latest_checkpoint_step < 0:
+            path = RecoveryPath.HYBRID_RECOVERY
+            reason = "no_checkpoint_available"
+            reason_detail = "no checkpoint available, forced hybrid recovery"
+        elif gap < self._fixed_gap_threshold:
+            path = RecoveryPath.CHECKPOINT_RESTART
+            reason = "gap_below_threshold"
+            reason_detail = (
+                f"gap={gap} < threshold={self._fixed_gap_threshold}, "
+                f"checkpoint restart"
+            )
+        else:
+            path = RecoveryPath.HYBRID_RECOVERY
+            reason = "gap_at_or_above_threshold"
+            reason_detail = (
+                f"gap={gap} >= threshold={self._fixed_gap_threshold}, "
+                f"hybrid recovery"
+            )
+
+        return RecoveryDecision(
+            path=path,
+            current_step=current_step,
+            latest_checkpoint_step=latest_checkpoint_step,
+            gap=gap,
+            failed_rank=failed_rank,
+            reason=reason,
+            reason_detail=reason_detail,
+            delta_time_min_gap=self._fixed_gap_threshold,
+            metadata={
+                "policy": "fixed_gap_threshold",
+                "fixed_gap_threshold": self._fixed_gap_threshold,
+                "replacement_rank": replacement_rank,
+                "num_affected_experts": num_affected_experts,
+            },
+        )
+
+
+# =====================================================================
+# Baseline 4: TwoThreshold (gap lower + upper bound)
+# =====================================================================
+
+class TwoThresholdPolicy(RecoveryPolicyBase):
+    """Two-threshold policy with gap lower and upper bounds.
+
+    Decision logic::
+
+        if gap < delta_time_min_gap:   checkpoint_restart
+        elif gap > max_single_gap:     checkpoint_restart
+        else:                          hybrid_recovery
+
+    Args:
+        delta_time_min_gap: Gap below this → checkpoint restart.
+        max_single_gap: Gap above this → checkpoint restart.
+    """
+
+    def __init__(
+        self,
+        delta_time_min_gap: int = 32,
+        max_single_gap: int = 192,
+    ) -> None:
+        if delta_time_min_gap < 0:
+            raise ValueError(
+                f"delta_time_min_gap must be >= 0, got {delta_time_min_gap}"
+            )
+        if max_single_gap < delta_time_min_gap:
+            raise ValueError(
+                f"max_single_gap ({max_single_gap}) must be >= "
+                f"delta_time_min_gap ({delta_time_min_gap})"
+            )
+        self._delta_time_min_gap = delta_time_min_gap
+        self._max_single_gap = max_single_gap
+
+    @property
+    def delta_time_min_gap(self) -> int:
+        return self._delta_time_min_gap
+
+    @property
+    def max_single_gap(self) -> int:
+        return self._max_single_gap
+
+    @property
+    def gap_threshold(self) -> int:
+        """Backward-compatible: returns delta_time_min_gap."""
+        return self._delta_time_min_gap
+
+    def choose(
+        self,
+        *,
+        current_step: int,
+        latest_checkpoint_step: int,
+        failed_rank: int = -1,
+        replacement_rank: int = -1,
+        num_affected_experts: int = 0,
+        **kwargs: Any,
+    ) -> RecoveryDecision:
+        gap = current_step - latest_checkpoint_step
+
+        if latest_checkpoint_step < 0:
+            path = RecoveryPath.HYBRID_RECOVERY
+            reason = "no_checkpoint_available"
+            reason_detail = "no checkpoint available, forced hybrid recovery"
+        elif gap < self._delta_time_min_gap:
+            path = RecoveryPath.CHECKPOINT_RESTART
+            reason = "gap_below_time_threshold"
+            reason_detail = (
+                f"gap={gap} < delta_time_min_gap={self._delta_time_min_gap}, "
+                f"checkpoint restart (hybrid too expensive for tiny gap)"
+            )
+        elif gap > self._max_single_gap:
+            path = RecoveryPath.CHECKPOINT_RESTART
+            reason = "gap_above_single_gap_threshold"
+            reason_detail = (
+                f"gap={gap} > max_single_gap={self._max_single_gap}, "
+                f"checkpoint restart (stale state too far behind)"
+            )
+        else:
+            path = RecoveryPath.HYBRID_RECOVERY
+            reason = "within_two_threshold_safe_region"
+            reason_detail = (
+                f"gap={gap} in [{self._delta_time_min_gap}, "
+                f"{self._max_single_gap}], hybrid recovery"
+            )
+
+        return RecoveryDecision(
+            path=path,
+            current_step=current_step,
+            latest_checkpoint_step=latest_checkpoint_step,
+            gap=gap,
+            failed_rank=failed_rank,
+            reason=reason,
+            reason_detail=reason_detail,
+            delta_time_min_gap=self._delta_time_min_gap,
+            max_single_gap=self._max_single_gap,
+            metadata={
+                "policy": "two_threshold",
+                "delta_time_min_gap": self._delta_time_min_gap,
+                "max_single_gap": self._max_single_gap,
+                "replacement_rank": replacement_rank,
+                "num_affected_experts": num_affected_experts,
+            },
+        )
+
+
+# =====================================================================
+# Policy 5: RankExposureGuardedPolicy (main policy)
 # =====================================================================
 
 @dataclass
 class RankExposureGuardedConfig:
-    """Configuration for the rank-exposure guarded hybrid recovery policy.
-
-    This policy uses multi-boundary gap thresholds and rank stale exposure
-    tracking to decide between checkpoint restart and hybrid recovery.
+    """Configuration for the rank-exposure guarded recovery policy.
 
     Attributes:
-        delta_time_min_gap: Gap below this → checkpoint restart (hybrid not
-            cost-effective).
-        max_single_gap: Gap above this → checkpoint restart (stale state too
-            far behind).
-        exposure_window_steps: Window (in training steps) for tracking rank
-            stale exposure.
-        max_rank_stale_exposure: Maximum stale exposure ratio per rank within
-            the window (e.g. 0.02 = 2%).
-        policy_margin: Hybrid must be at least this fraction faster than
-            restart to be selected.  Default 0.10 (10%).
-        fixed_gap_threshold: Baseline fixed-gap threshold for comparison
-            experiments (e.g. FixedGapThreshold-32).
+        delta_time_min_gap: Gap below this → checkpoint restart.
+        max_single_gap: Gap above this → checkpoint restart.
+        exposure_window_steps: Sliding window for tracking rank stale
+            exposure.
+        max_rank_stale_exposure: Maximum stale exposure ratio per rank
+            within the window (e.g. 0.02 = 2%).
     """
 
     delta_time_min_gap: int = 32
     max_single_gap: int = 192
     exposure_window_steps: int = 20000
     max_rank_stale_exposure: float = 0.02
-    policy_margin: float = 0.10
-    fixed_gap_threshold: int = 32
 
     def validate(self) -> None:
-        """Validate configuration constraints.  Raises ValueError on failure."""
+        """Validate configuration constraints.  Raises ValueError."""
         if self.delta_time_min_gap < 0:
             raise ValueError(
-                f"delta_time_min_gap must be >= 0, got {self.delta_time_min_gap}"
+                f"delta_time_min_gap must be >= 0, "
+                f"got {self.delta_time_min_gap}"
             )
         if self.max_single_gap < self.delta_time_min_gap:
             raise ValueError(
@@ -297,63 +510,56 @@ class RankExposureGuardedConfig:
             )
         if self.exposure_window_steps <= 0:
             raise ValueError(
-                f"exposure_window_steps must be > 0, got {self.exposure_window_steps}"
+                f"exposure_window_steps must be > 0, "
+                f"got {self.exposure_window_steps}"
             )
         if not (0 < self.max_rank_stale_exposure <= 1):
             raise ValueError(
                 f"max_rank_stale_exposure must be in (0, 1], "
                 f"got {self.max_rank_stale_exposure}"
             )
-        if self.policy_margin < 0:
-            raise ValueError(
-                f"policy_margin must be >= 0, got {self.policy_margin}"
-            )
-        if self.fixed_gap_threshold < 0:
-            raise ValueError(
-                f"fixed_gap_threshold must be >= 0, got {self.fixed_gap_threshold}"
-            )
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize to a JSON-friendly dict."""
         return {
             "delta_time_min_gap": self.delta_time_min_gap,
             "max_single_gap": self.max_single_gap,
             "exposure_window_steps": self.exposure_window_steps,
             "max_rank_stale_exposure": self.max_rank_stale_exposure,
-            "policy_margin": self.policy_margin,
-            "fixed_gap_threshold": self.fixed_gap_threshold,
         }
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "RankExposureGuardedConfig":
-        """Create a config from a dict (ignoring unknown keys)."""
         known_keys = {f.name for f in cls.__dataclass_fields__.values()}
         return cls(**{k: v for k, v in d.items() if k in known_keys})
 
 
-class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
-    """Rank-exposure guarded hybrid recovery policy.
+class RankExposureGuardedPolicy(RecoveryPolicyBase):
+    """Rank-exposure guarded recovery policy.
 
     Decision logic::
 
-        if no checkpoint available:
-            → HYBRID_RECOVERY  (no choice)
-        elif gap < delta_time_min_gap:
-            → CHECKPOINT_RESTART  (hybrid too expensive for tiny gap)
+        rank_stale_iters_before =
+            tracker.get_rank_stale_iters(rank, current_step, window_steps)
+        rank_stale_iters_after = rank_stale_iters_before + gap
+        rank_exposure_after = rank_stale_iters_after / window_steps
+
+        if gap < delta_time_min_gap:
+            path = checkpoint_restart   (reason: gap_below_time_threshold)
         elif gap > max_single_gap:
-            → CHECKPOINT_RESTART  (stale state too far behind)
-        elif rank_stale_exposure_in_window > max_rank_stale_exposure:
-            → CHECKPOINT_RESTART  (rank has been stale too often)
+            path = checkpoint_restart   (reason: gap_above_single_gap_threshold)
+        elif rank_exposure_after > max_rank_stale_exposure:
+            path = checkpoint_restart   (reason: rank_stale_exposure_exceeded)
         else:
-            → HYBRID_RECOVERY  (hybrid is safe and cost-effective)
+            path = hybrid_recovery      (reason: within_rank_exposure_safe_region)
 
-    The ``rank_stale_exposure`` check uses a ``RankExposureTracker`` to
-    track cumulative stale iterations per rank within a sliding window.
-    Only hybrid recovery events are recorded; checkpoint restarts are
-    not because they reload all ranks uniformly.
+    **Important**: The exposure check uses ``rank_stale_iters_after``
+    (i.e. *including* the current gap), not ``rank_stale_iters_before``.
+    This ensures the policy accounts for the stale iterations the current
+    hybrid recovery would introduce.
 
-    Thread safety: This class is **not** thread-safe.  It is designed
-    for the RecoveryController's single-threaded event loop.
+    Only hybrid recovery events are recorded in the tracker; checkpoint
+    restarts reload all ranks uniformly, so no rank is relatively
+    "stale".
 
     Args:
         config: A ``RankExposureGuardedConfig`` with all parameters.
@@ -364,44 +570,48 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
     def __init__(
         self,
         config: Optional[RankExposureGuardedConfig] = None,
-        tracker: Any = None,  # RankExposureTracker, import-avoided
+        tracker: Any = None,
     ) -> None:
         self._config = config or RankExposureGuardedConfig()
         self._config.validate()
 
-        # Use provided tracker or fall back to global singleton
         if tracker is not None:
             self._tracker = tracker
         else:
-            from megatron.core.transformer.moe.rank_exposure_tracker import (
-                get_rank_exposure_tracker,
-            )
-            self._tracker = get_rank_exposure_tracker()
+            try:
+                from megatron.core.transformer.moe.rank_exposure_tracker import (
+                    get_rank_exposure_tracker,
+                )
+                self._tracker = get_rank_exposure_tracker()
+            except (ImportError, ModuleNotFoundError):
+                # Fallback for test environments where the full megatron
+                # package tree is not importable.  Create a standalone
+                # RankExposureTracker directly.  This tracker will NOT
+                # be the global singleton, but the policy will function
+                # correctly for decision-making purposes.
+                import rank_exposure_tracker as _ret
+                self._tracker = _ret.RankExposureTracker()
+                logger.info(
+                    "BSR-MoE RankExposureGuardedPolicy: created standalone "
+                    "RankExposureTracker (global singleton not available)"
+                )
 
         logger.warning(
-            "BSR-MoE RankExposureGuardedHybridPolicy initialized: %s",
+            "BSR-MoE RankExposureGuardedPolicy initialized: %s",
             self._config.to_dict(),
         )
 
     @property
     def config(self) -> RankExposureGuardedConfig:
-        """The policy configuration."""
         return self._config
 
     @property
     def gap_threshold(self) -> int:
-        """Backward-compatible: returns fixed_gap_threshold."""
-        return self._config.fixed_gap_threshold
-
-    # ------------------------------------------------------------------
-    # Rank stale exposure (delegates to RankExposureTracker)
-    # ------------------------------------------------------------------
+        """Backward-compatible: returns delta_time_min_gap."""
+        return self._config.delta_time_min_gap
 
     def get_rank_stale_exposure(self, rank: int, current_step: int) -> float:
-        """Compute the stale exposure ratio for a rank within the window.
-
-        Returns ``stale_iters / exposure_window_steps``.
-        """
+        """Compute stale exposure ratio for a rank within the window."""
         return self._tracker.get_rank_stale_exposure(
             rank=rank,
             current_step=current_step,
@@ -415,15 +625,11 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
             window_steps=self._config.exposure_window_steps,
         )
 
-    # ------------------------------------------------------------------
-    # Policy selection
-    # ------------------------------------------------------------------
-
-    def select_path(
+    def choose(
         self,
         *,
-        current_iteration: int,
-        checkpoint_iteration: int,
+        current_step: int,
+        latest_checkpoint_step: int,
         failed_rank: int = -1,
         replacement_rank: int = -1,
         num_affected_experts: int = 0,
@@ -431,111 +637,148 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
     ) -> RecoveryDecision:
         """Select recovery path based on gap boundaries and rank exposure."""
         cfg = self._config
-        gap = current_iteration - checkpoint_iteration
+        gap = current_step - latest_checkpoint_step
+
+        # Default fields for non-exposure decisions
+        stale_iters_before = 0
+        stale_iters_after = 0
+        exposure_before = 0.0
+        exposure_after = 0.0
 
         # --- Decision logic ---
-        if checkpoint_iteration < 0:
+        if latest_checkpoint_step < 0:
             # No checkpoint available
             path = RecoveryPath.HYBRID_RECOVERY
-            reason = (
-                f"no checkpoint available (checkpoint_iteration={checkpoint_iteration}), "
-                f"forced hybrid recovery"
+            reason = "no_checkpoint_available"
+            reason_detail = (
+                f"no checkpoint available (latest_checkpoint_step="
+                f"{latest_checkpoint_step}), forced hybrid recovery"
             )
-            gap_threshold_used = -1
 
         elif gap < cfg.delta_time_min_gap:
             # Gap too small: hybrid overhead not worthwhile
             path = RecoveryPath.CHECKPOINT_RESTART
-            reason = (
+            reason = "gap_below_time_threshold"
+            reason_detail = (
                 f"gap={gap} < delta_time_min_gap={cfg.delta_time_min_gap}, "
-                f"checkpoint restart (hybrid too expensive for small gap)"
+                f"checkpoint restart (hybrid too expensive for tiny gap)"
             )
-            gap_threshold_used = cfg.delta_time_min_gap
 
         elif gap > cfg.max_single_gap:
             # Gap too large: stale state too far behind
             path = RecoveryPath.CHECKPOINT_RESTART
-            reason = (
+            reason = "gap_above_single_gap_threshold"
+            reason_detail = (
                 f"gap={gap} > max_single_gap={cfg.max_single_gap}, "
                 f"checkpoint restart (stale state too far behind)"
             )
-            gap_threshold_used = cfg.max_single_gap
 
         else:
             # Gap is in [delta_time_min_gap, max_single_gap]
-            # Check rank stale exposure
-            exposure = self.get_rank_stale_exposure(
-                failed_rank, current_iteration,
+            # Check rank stale exposure (using AFTER value)
+            stale_iters_before = self._tracker.get_rank_stale_iters(
+                rank=failed_rank,
+                current_step=current_step,
+                window_steps=cfg.exposure_window_steps,
             )
-            if exposure > cfg.max_rank_stale_exposure:
+            stale_iters_after = stale_iters_before + gap
+            exposure_before = (
+                stale_iters_before / cfg.exposure_window_steps
+                if cfg.exposure_window_steps > 0 else 0.0
+            )
+            exposure_after = (
+                stale_iters_after / cfg.exposure_window_steps
+                if cfg.exposure_window_steps > 0 else 0.0
+            )
+
+            if exposure_after > cfg.max_rank_stale_exposure:
                 path = RecoveryPath.CHECKPOINT_RESTART
-                reason = (
-                    f"gap={gap} in [{cfg.delta_time_min_gap}, {cfg.max_single_gap}], "
-                    f"but rank {failed_rank} stale exposure={exposure:.6f} > "
+                reason = "rank_stale_exposure_exceeded"
+                reason_detail = (
+                    f"gap={gap} in [{cfg.delta_time_min_gap}, "
+                    f"{cfg.max_single_gap}], but rank {failed_rank} "
+                    f"stale_exposure_after={exposure_after:.6f} > "
                     f"max={cfg.max_rank_stale_exposure}, "
                     f"checkpoint restart (rank too frequently stale)"
                 )
-                gap_threshold_used = cfg.delta_time_min_gap
             else:
                 path = RecoveryPath.HYBRID_RECOVERY
-                reason = (
-                    f"gap={gap} in [{cfg.delta_time_min_gap}, {cfg.max_single_gap}], "
-                    f"rank {failed_rank} stale exposure={exposure:.6f} <= "
+                reason = "within_rank_exposure_safe_region"
+                reason_detail = (
+                    f"gap={gap} in [{cfg.delta_time_min_gap}, "
+                    f"{cfg.max_single_gap}], rank {failed_rank} "
+                    f"stale_exposure_after={exposure_after:.6f} <= "
                     f"max={cfg.max_rank_stale_exposure}, "
                     f"hybrid recovery (cost-effective and safe)"
                 )
-                gap_threshold_used = cfg.delta_time_min_gap
 
-        # Record hybrid recovery events for exposure tracking.
-        # Only hybrid recovery produces stale iterations; checkpoint
-        # restart reloads all ranks uniformly so no rank is "stale".
+        # Record hybrid recovery events for future exposure tracking.
+        # Only hybrid recovery produces stale iterations for the failed rank;
+        # checkpoint restart reloads all ranks uniformly, so no rank is
+        # relatively "stale".  Note: recording happens AFTER the decision.
         if path == RecoveryPath.HYBRID_RECOVERY and failed_rank >= 0:
             self._tracker.record_hybrid_recovery(
-                step=current_iteration,
+                step=current_step,
                 rank=failed_rank,
                 gap=gap,
             )
 
         decision = RecoveryDecision(
             path=path,
-            current_iteration=current_iteration,
-            checkpoint_iteration=checkpoint_iteration,
+            current_step=current_step,
+            latest_checkpoint_step=latest_checkpoint_step,
             gap=gap,
-            gap_threshold=gap_threshold_used,
+            failed_rank=failed_rank,
             reason=reason,
+            reason_detail=reason_detail,
+            delta_time_min_gap=cfg.delta_time_min_gap,
+            max_single_gap=cfg.max_single_gap,
+            exposure_window_steps=cfg.exposure_window_steps,
+            rank_stale_iters_before=stale_iters_before,
+            rank_stale_iters_after=stale_iters_after,
+            rank_stale_exposure_before=exposure_before,
+            rank_stale_exposure_after=exposure_after,
+            max_rank_stale_exposure=cfg.max_rank_stale_exposure,
             metadata={
-                "failed_rank": failed_rank,
+                "policy": "rank_exposure_guarded",
                 "replacement_rank": replacement_rank,
                 "num_affected_experts": num_affected_experts,
-                "policy": "rank_exposure_guarded_hybrid",
                 "policy_config": cfg.to_dict(),
-                "delta_time_min_gap": cfg.delta_time_min_gap,
-                "max_single_gap": cfg.max_single_gap,
-                "rank_stale_exposure": (
-                    self.get_rank_stale_exposure(failed_rank, current_iteration)
-                    if failed_rank >= 0 else 0.0
-                ),
             },
         )
 
         # Structured decision log
         logger.warning(
-            "BSR-MoE rank-exposure-guarded recovery decision: "
-            "path=%s | iter=%d | ckpt_iter=%d | gap=%d | "
+            "BSR-MoE recovery decision: "
+            "path=%s | step=%d | ckpt_step=%d | gap=%d | "
             "delta_time_min_gap=%d | max_single_gap=%d | "
-            "reason=%s | failed_rank=%d | replacement_rank=%d",
+            "stale_before=%d | stale_after=%d | exposure_after=%.6f | "
+            "max_exposure=%.4f | reason=%s | failed_rank=%d",
             decision.path.value,
-            decision.current_iteration,
-            decision.checkpoint_iteration,
+            decision.current_step,
+            decision.latest_checkpoint_step,
             decision.gap,
             cfg.delta_time_min_gap,
             cfg.max_single_gap,
+            stale_iters_before,
+            stale_iters_after,
+            exposure_after,
+            cfg.max_rank_stale_exposure,
             decision.reason,
             failed_rank,
-            replacement_rank,
         )
 
         return decision
+
+
+# =====================================================================
+# Backward-compatible aliases
+# =====================================================================
+
+# Old class names kept for backward compatibility with existing code
+# that imports these names.
+ThresholdRecoveryPolicy = FixedGapThresholdPolicy
+RankExposureGuardedHybridPolicy = RankExposureGuardedPolicy
 
 
 # =====================================================================
@@ -543,10 +786,10 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
 # =====================================================================
 
 class GapAwareRecoveryPolicyManager:
-    """Manages the gap-aware recovery policy lifecycle.
+    """Manages the recovery policy lifecycle.
 
     This is the main entry point used by ``RecoveryController``.  It:
-    1. Holds a reference to the active policy (default: ThresholdRecoveryPolicy).
+    1. Holds a reference to the active policy.
     2. Accepts a ``get_checkpoint_iteration_fn`` callback to query the
        latest checkpoint iteration at decision time.
     3. Records decision history for audit.
@@ -554,14 +797,10 @@ class GapAwareRecoveryPolicyManager:
     Usage::
 
         mgr = GapAwareRecoveryPolicyManager(
-            gap_threshold=100,
+            policy=RankExposureGuardedPolicy(config=cfg),
             get_checkpoint_iteration_fn=my_fn,
         )
         decision = mgr.evaluate(current_iteration=500, failed_rank=0)
-        if decision.path == RecoveryPath.CHECKPOINT_RESTART:
-            ...  # signal training loop to restart
-        else:
-            ...  # proceed with hybrid recovery
     """
 
     def __init__(
@@ -571,21 +810,12 @@ class GapAwareRecoveryPolicyManager:
         policy: Optional[RecoveryPolicyBase] = None,
         get_checkpoint_iteration_fn: Optional[Callable[[], int]] = None,
     ) -> None:
-        """Initialize the policy manager.
-
-        Args:
-            gap_threshold: Threshold for the default ThresholdRecoveryPolicy.
-                Ignored if a custom ``policy`` is provided.
-            policy: Optional custom policy.  If None, a
-                ``ThresholdRecoveryPolicy(gap_threshold)`` is created.
-            get_checkpoint_iteration_fn: Callback that returns the iteration
-                of the latest available checkpoint.  If None, checkpoint
-                iteration defaults to -1 (no checkpoint → forced hybrid).
-        """
         if policy is not None:
             self._policy = policy
         else:
-            self._policy = ThresholdRecoveryPolicy(gap_threshold=gap_threshold)
+            self._policy = FixedGapThresholdPolicy(
+                fixed_gap_threshold=gap_threshold,
+            )
 
         self._get_checkpoint_iteration_fn = get_checkpoint_iteration_fn
         self._decision_history: list[RecoveryDecision] = []
@@ -593,7 +823,6 @@ class GapAwareRecoveryPolicyManager:
 
     @property
     def enabled(self) -> bool:
-        """Whether gap-aware recovery is enabled."""
         return self._enabled
 
     @enabled.setter
@@ -602,7 +831,6 @@ class GapAwareRecoveryPolicyManager:
 
     @property
     def policy(self) -> RecoveryPolicyBase:
-        """The active recovery policy."""
         return self._policy
 
     @policy.setter
@@ -611,25 +839,19 @@ class GapAwareRecoveryPolicyManager:
 
     @property
     def decision_history(self) -> list[RecoveryDecision]:
-        """List of all past decisions (for audit)."""
         return list(self._decision_history)
 
     @property
     def last_decision(self) -> Optional[RecoveryDecision]:
-        """The most recent decision, or None."""
         return self._decision_history[-1] if self._decision_history else None
 
     def set_checkpoint_iteration_fn(
         self, fn: Callable[[], int],
     ) -> None:
-        """Set or replace the checkpoint iteration query callback."""
         self._get_checkpoint_iteration_fn = fn
 
     def get_checkpoint_iteration(self) -> int:
-        """Query the latest checkpoint iteration.
-
-        Returns -1 if no callback is registered or the callback fails.
-        """
+        """Query the latest checkpoint iteration.  Returns -1 on failure."""
         if self._get_checkpoint_iteration_fn is None:
             return -1
         try:
@@ -651,39 +873,27 @@ class GapAwareRecoveryPolicyManager:
     ) -> RecoveryDecision:
         """Evaluate the recovery policy and return a decision.
 
-        If gap-aware recovery is disabled, always returns HYBRID_RECOVERY
-        (preserving the existing behavior).
-
-        Args:
-            current_iteration: Current training step.
-            failed_rank: The rank that failed.
-            replacement_rank: The replacement rank.
-            num_affected_experts: Number of experts on the failed rank.
-
-        Returns:
-            A ``RecoveryDecision``.
+        If gap-aware recovery is disabled, always returns HYBRID_RECOVERY.
         """
         if not self._enabled:
             decision = RecoveryDecision(
                 path=RecoveryPath.HYBRID_RECOVERY,
-                current_iteration=current_iteration,
-                checkpoint_iteration=-1,
+                current_step=current_iteration,
+                latest_checkpoint_step=-1,
                 gap=-1,
-                gap_threshold=-1,
-                reason="gap-aware recovery disabled, defaulting to hybrid",
+                failed_rank=failed_rank,
+                reason="gap_aware_disabled",
+                reason_detail="gap-aware recovery disabled, defaulting to hybrid",
                 metadata={"policy": "disabled"},
-            )
-            logger.info(
-                "BSR-MoE gap-aware recovery: DISABLED, using hybrid recovery"
             )
             self._decision_history.append(decision)
             return decision
 
         checkpoint_iteration = self.get_checkpoint_iteration()
 
-        decision = self._policy.select_path(
-            current_iteration=current_iteration,
-            checkpoint_iteration=checkpoint_iteration,
+        decision = self._policy.choose(
+            current_step=current_iteration,
+            latest_checkpoint_step=checkpoint_iteration,
             failed_rank=failed_rank,
             replacement_rank=replacement_rank,
             num_affected_experts=num_affected_experts,
@@ -705,10 +915,13 @@ class GapAwareRecoveryPolicyManager:
                 else None
             ),
         }
-        if isinstance(self._policy, ThresholdRecoveryPolicy):
-            result["gap_threshold"] = self._policy.gap_threshold
-        elif isinstance(self._policy, RankExposureGuardedHybridPolicy):
-            result["gap_threshold"] = self._policy.config.fixed_gap_threshold
+        # Add policy-specific info
+        if isinstance(self._policy, FixedGapThresholdPolicy):
+            result["gap_threshold"] = self._policy.fixed_gap_threshold
+        elif isinstance(self._policy, TwoThresholdPolicy):
+            result["delta_time_min_gap"] = self._policy.delta_time_min_gap
+            result["max_single_gap"] = self._policy.max_single_gap
+        elif isinstance(self._policy, RankExposureGuardedPolicy):
             result["policy_config"] = self._policy.config.to_dict()
         return result
 
@@ -732,35 +945,60 @@ def get_gap_aware_recovery_policy_manager() -> GapAwareRecoveryPolicyManager:
     return _POLICY_MANAGER
 
 
+# Policy type name → factory function
+_POLICY_REGISTRY: Dict[str, Callable[..., RecoveryPolicyBase]] = {
+    "restart_and_spare": lambda **kw: RestartAndSparePolicy(),
+    "always_hybrid": lambda **kw: AlwaysHybridPolicy(),
+    "fixed_gap_threshold": lambda **kw: FixedGapThresholdPolicy(
+        fixed_gap_threshold=kw.get("gap_threshold", 32),
+    ),
+    "two_threshold": lambda **kw: TwoThresholdPolicy(
+        delta_time_min_gap=kw.get("delta_time_min_gap", 32),
+        max_single_gap=kw.get("max_single_gap", 192),
+    ),
+    "rank_exposure_guarded": lambda **kw: RankExposureGuardedPolicy(
+        config=kw.get("rank_exposure_config"),
+    ),
+    # Backward-compatible aliases
+    "threshold": lambda **kw: FixedGapThresholdPolicy(
+        fixed_gap_threshold=kw.get("gap_threshold", 100),
+    ),
+    "rank_exposure_guarded_hybrid": lambda **kw: RankExposureGuardedPolicy(
+        config=kw.get("rank_exposure_config"),
+    ),
+}
+
+
 def initialize_gap_aware_recovery_policy(
     *,
     gap_threshold: int = 100,
     policy: Optional[RecoveryPolicyBase] = None,
     policy_type: str = "threshold",
     rank_exposure_config: Optional[RankExposureGuardedConfig] = None,
+    delta_time_min_gap: Optional[int] = None,
+    max_single_gap: Optional[int] = None,
     get_checkpoint_iteration_fn: Optional[Callable[[], int]] = None,
     enabled: bool = True,
 ) -> GapAwareRecoveryPolicyManager:
     """Initialize the global policy manager with configuration.
 
-    This should be called once during BSR-MoE initialization
-    (``maybe_initialize_bsr_moe``).
-
     Args:
-        gap_threshold: Gap threshold for the default threshold policy.
-            Also used as ``fixed_gap_threshold`` for the rank-exposure
-            guarded policy.  Ignored if a custom ``policy`` is provided.
-        policy: Optional custom policy override.  If provided, all
-            other policy-creation arguments are ignored.
-        policy_type: Policy type to create.  One of:
-            - ``"threshold"``: simple threshold policy (default).
-            - ``"rank_exposure_guarded_hybrid"``: multi-boundary policy
-              with rank stale exposure tracking.
-        rank_exposure_config: Optional ``RankExposureGuardedConfig`` for
-            the rank-exposure guarded policy.  If None and
-            ``policy_type="rank_exposure_guarded_hybrid"``, a default
-            config is created (using ``gap_threshold`` as
-            ``fixed_gap_threshold``).
+        gap_threshold: Gap threshold for fixed-gap policies.
+            Also used as ``fixed_gap_threshold`` when
+            ``policy_type="fixed_gap_threshold"``.
+        policy: Optional custom policy override.
+        policy_type: Policy type string.  One of:
+            - ``"restart_and_spare"``: always checkpoint restart.
+            - ``"always_hybrid"``: always hybrid recovery.
+            - ``"fixed_gap_threshold"``: single gap threshold.
+            - ``"two_threshold"``: gap lower + upper bound.
+            - ``"rank_exposure_guarded"``: gap bounds + exposure tracking.
+            - ``"threshold"``: alias for ``fixed_gap_threshold`` (backward compat).
+            - ``"rank_exposure_guarded_hybrid"``: alias for
+              ``rank_exposure_guarded`` (backward compat).
+        rank_exposure_config: Optional config for RankExposureGuardedPolicy.
+        delta_time_min_gap: Override for TwoThreshold / RankExposureGuarded.
+        max_single_gap: Override for TwoThreshold / RankExposureGuarded.
         get_checkpoint_iteration_fn: Callback to query checkpoint iteration.
         enabled: Whether gap-aware recovery is enabled.
 
@@ -769,29 +1007,61 @@ def initialize_gap_aware_recovery_policy(
     """
     global _POLICY_MANAGER
 
-    # Build the policy instance if not explicitly provided
-    if policy is None:
-        if policy_type == "rank_exposure_guarded_hybrid":
-            cfg = rank_exposure_config
-            if cfg is None:
-                cfg = RankExposureGuardedConfig(
-                    fixed_gap_threshold=gap_threshold,
-                )
-            cfg.validate()
-            policy = RankExposureGuardedHybridPolicy(config=cfg)
-            logger.warning(
-                "BSR-MoE gap-aware recovery policy: "
-                "using RankExposureGuardedHybridPolicy "
-                "(delta_time_min_gap=%d, max_single_gap=%d, "
-                "exposure_window_steps=%d, max_rank_stale_exposure=%.4f, "
-                "policy_margin=%.4f, fixed_gap_threshold=%d)",
-                cfg.delta_time_min_gap, cfg.max_single_gap,
-                cfg.exposure_window_steps, cfg.max_rank_stale_exposure,
-                cfg.policy_margin, cfg.fixed_gap_threshold,
+    if policy is not None:
+        _POLICY_MANAGER = GapAwareRecoveryPolicyManager(
+            gap_threshold=gap_threshold,
+            policy=policy,
+            get_checkpoint_iteration_fn=get_checkpoint_iteration_fn,
+        )
+        _POLICY_MANAGER.enabled = enabled
+        return _POLICY_MANAGER
+
+    # Build RankExposureGuardedConfig if needed
+    if policy_type in ("rank_exposure_guarded", "rank_exposure_guarded_hybrid"):
+        cfg = rank_exposure_config
+        if cfg is None:
+            cfg = RankExposureGuardedConfig(
+                delta_time_min_gap=(
+                    delta_time_min_gap
+                    if delta_time_min_gap is not None else 32
+                ),
+                max_single_gap=(
+                    max_single_gap
+                    if max_single_gap is not None else 192
+                ),
             )
-        else:
-            # Default: threshold policy (backward compatible)
-            policy = ThresholdRecoveryPolicy(gap_threshold=gap_threshold)
+        cfg.validate()
+        policy = RankExposureGuardedPolicy(config=cfg)
+        logger.warning(
+            "BSR-MoE gap-aware recovery policy: "
+            "using RankExposureGuardedPolicy "
+            "(delta_time_min_gap=%d, max_single_gap=%d, "
+            "exposure_window_steps=%d, max_rank_stale_exposure=%.4f)",
+            cfg.delta_time_min_gap, cfg.max_single_gap,
+            cfg.exposure_window_steps, cfg.max_rank_stale_exposure,
+        )
+    elif policy_type == "two_threshold":
+        dt = delta_time_min_gap if delta_time_min_gap is not None else 32
+        msg = max_single_gap if max_single_gap is not None else 192
+        policy = TwoThresholdPolicy(
+            delta_time_min_gap=dt,
+            max_single_gap=msg,
+        )
+        logger.warning(
+            "BSR-MoE gap-aware recovery policy: "
+            "using TwoThresholdPolicy "
+            "(delta_time_min_gap=%d, max_single_gap=%d)",
+            dt, msg,
+        )
+    else:
+        # Default / fixed_threshold / threshold
+        factory = _POLICY_REGISTRY.get(policy_type, _POLICY_REGISTRY["threshold"])
+        policy = factory(gap_threshold=gap_threshold)
+        logger.warning(
+            "BSR-MoE gap-aware recovery policy: "
+            "using %s (gap_threshold=%d)",
+            type(policy).__name__, gap_threshold,
+        )
 
     _POLICY_MANAGER = GapAwareRecoveryPolicyManager(
         gap_threshold=gap_threshold,
@@ -801,8 +1071,8 @@ def initialize_gap_aware_recovery_policy(
     _POLICY_MANAGER.enabled = enabled
     logger.warning(
         "BSR-MoE gap-aware recovery policy initialized: "
-        "enabled=%s, threshold=%d, policy=%s",
-        enabled, gap_threshold, type(_POLICY_MANAGER.policy).__name__,
+        "enabled=%s, policy=%s",
+        enabled, type(_POLICY_MANAGER.policy).__name__,
     )
     return _POLICY_MANAGER
 
