@@ -48,13 +48,123 @@ from __future__ import annotations
 
 import abc
 import enum
+import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+_DECISION_REASON_ALIASES = {
+    "gap_below_threshold": "fixed_gap_restart",
+    "gap_at_or_above_threshold": "fixed_gap_hybrid",
+    "forced_checkpoint_restart": "forced_restart",
+    "checkpoint_restart_forced": "forced_restart",
+    "no_checkpoint_available": "forced_hybrid",
+    "gap_aware_disabled": "forced_hybrid",
+    "within_two_threshold_safe_region": "within_rank_exposure_safe_region",
+}
+
+_OPTIONAL_COST_FIELDS = (
+    "estimated_restart_cost",
+    "estimated_hybrid_cost",
+    "policy_margin",
+)
+
+
+def _default_run_id() -> str:
+    """Return a stable run id for structured logs."""
+    for key in ("BSR_RUN_ID", "MEGATRON_RUN_ID", "RUN_ID"):
+        value = os.environ.get(key)
+        if value:
+            return value
+    return "unknown"
+
+
+def _policy_type_from_policy(policy: Any) -> str:
+    """Return a stable machine-readable policy type."""
+    if isinstance(policy, RankExposureGuardedPolicy):
+        return "rank_exposure_guarded"
+    if isinstance(policy, FixedGapThresholdPolicy):
+        return "fixed_gap_threshold"
+    if isinstance(policy, TwoThresholdPolicy):
+        return "two_threshold"
+    if isinstance(policy, RestartAndSparePolicy):
+        return "restart_and_spare"
+    if isinstance(policy, AlwaysHybridPolicy):
+        return "always_hybrid"
+    return type(policy).__name__
+
+
+def normalize_decision_reason(decision: "RecoveryDecision") -> str:
+    """Normalize internal policy reasons to the experiment log enum."""
+    reason = getattr(decision, "reason", "")
+    return _DECISION_REASON_ALIASES.get(reason, reason)
+
+
+def build_recovery_path_chosen_log(
+    decision: "RecoveryDecision",
+    *,
+    run_id: Optional[str] = None,
+    policy_type: str = "",
+) -> Dict[str, Any]:
+    """Build the stable JSON payload for a recovery path decision."""
+    metadata = decision.metadata if isinstance(decision.metadata, dict) else {}
+    payload: Dict[str, Any] = {
+        "event": "recovery_path_chosen",
+        "run_id": run_id or _default_run_id(),
+        "current_step": decision.current_step,
+        "latest_checkpoint_step": decision.latest_checkpoint_step,
+        "checkpoint_gap": decision.gap,
+        "failed_rank": decision.failed_rank,
+        "policy_type": policy_type or metadata.get("policy", "unknown"),
+        "selected_path": decision.path.value,
+        "decision_reason": normalize_decision_reason(decision),
+        "delta_time_min_gap": decision.delta_time_min_gap,
+        "max_single_gap": decision.max_single_gap,
+        "exposure_window_steps": decision.exposure_window_steps,
+        "max_rank_stale_exposure": decision.max_rank_stale_exposure,
+        "rank_stale_iters_before": decision.rank_stale_iters_before,
+        "rank_stale_iters_after": decision.rank_stale_iters_after,
+        "rank_stale_exposure_before": decision.rank_stale_exposure_before,
+        "rank_stale_exposure_after": decision.rank_stale_exposure_after,
+    }
+
+    for field_name in _OPTIONAL_COST_FIELDS:
+        value = getattr(decision, field_name, None)
+        if value is None:
+            value = metadata.get(field_name)
+        if value is not None:
+            payload[field_name] = value
+
+    return payload
+
+
+def log_recovery_path_chosen_json(
+    decision: "RecoveryDecision",
+    *,
+    run_id: Optional[str] = None,
+    policy_type: str = "",
+) -> Dict[str, Any]:
+    """Emit a machine-parseable JSON log for the final path decision."""
+    payload = build_recovery_path_chosen_log(
+        decision,
+        run_id=run_id,
+        policy_type=policy_type,
+    )
+    logger.warning(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    )
+    return payload
 
 
 # =====================================================================

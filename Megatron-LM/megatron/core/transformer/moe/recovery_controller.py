@@ -1266,6 +1266,9 @@ class RecoveryController:
 
         failed_rank = ready_record.failed_rank
         replacement_rank = ready_record.replacement_rank
+        fault_step = (
+            ready_record.fault_step if ready_record.fault_step >= 0 else step
+        )
 
         repair_start = time.time()
         logger.warning(
@@ -1505,11 +1508,10 @@ class RecoveryController:
         # Post-hybrid-success: record stale exposure in tracker
         # =============================================================
         # We record ONLY after hybrid recovery SUCCEEDS (Phase B
-        # completed without exception).  If hybrid recovery fails and
-        # falls back to checkpoint restart the exception propagates and
-        # this code is never reached — exactly the desired semantics:
-        # a failed hybrid that restarts from checkpoint produces zero
-        # additional stale iterations because all ranks reload uniformly.
+        # completed without exception).  If hybrid recovery fails, this
+        # code is never reached; if an outer layer then falls back to
+        # checkpoint restart, that restart produces zero additional stale
+        # iterations because all ranks reload uniformly.
         #
         # Also covers the case where checkpoint_restart_fn throws and
         # execution falls back to hybrid: _last_recovery_path will be
@@ -1517,7 +1519,7 @@ class RecoveryController:
         # stale exposure introduced by the fallback hybrid recovery.
         if self._last_recovery_path == "HYBRID_RECOVERY":
             self._record_hybrid_stale_exposure(
-                step=step,
+                step=fault_step,
                 failed_rank=failed_rank,
                 decision=decision,
             )
@@ -1947,15 +1949,31 @@ class RecoveryController:
                 spare GPU id).
             decision: The ``RecoveryDecision`` from gap-aware policy
                 evaluation, if available.  When ``None`` (soft-failure
-                path with no gap-aware policy), a minimal record is
-                created with gap=-1.
+                path with no gap-aware policy), recording is skipped
+                because there is no checkpoint step from which to compute
+                the stale gap.
         """
-        gap = decision.gap if decision is not None else -1
-        exposure_window_steps = (
-            decision.exposure_window_steps if decision is not None else -1
-        )
-        max_rank_stale_exposure = (
-            decision.max_rank_stale_exposure if decision is not None else -1.0
+        if decision is None:
+            logger.debug(
+                "BSR-MoE controller: no recovery decision available, "
+                "skipping stale-exposure recording (step=%d, rank=%d)",
+                step, failed_rank,
+            )
+            return
+
+        latest_checkpoint_step = getattr(decision, "latest_checkpoint_step", -1)
+        gap = step - latest_checkpoint_step
+        if gap < 0:
+            logger.warning(
+                "BSR-MoE controller: invalid negative stale gap, skipping "
+                "rank exposure record (step=%d, rank=%d, ckpt_step=%d, gap=%d)",
+                step, failed_rank, latest_checkpoint_step, gap,
+            )
+            return
+
+        exposure_window_steps = getattr(decision, "exposure_window_steps", -1)
+        max_rank_stale_exposure = getattr(
+            decision, "max_rank_stale_exposure", -1.0
         )
 
         try:
@@ -1993,9 +2011,27 @@ class RecoveryController:
                 window_steps=exposure_window_steps,
             )
 
+        details = {
+            "step": step,
+            "failed_rank": failed_rank,
+            "gap": gap,
+            "rank_stale_iters_after": rank_stale_iters_after,
+            "rank_stale_exposure_after": rank_stale_exposure_after,
+            "exposure_window_steps": exposure_window_steps,
+            "max_rank_stale_exposure": max_rank_stale_exposure,
+        }
+        self._event_log.append(RecoveryEvent(
+            event_type="rank_stale_exposure_recorded",
+            phase_from=self._phase.name,
+            phase_to=self._phase.name,
+            step=step,
+            timestamp=time.time(),
+            details=details,
+        ))
+
         # Structured log — event name and fields per specification
         logger.warning(
-            "rank_stale_exposure_recorded: "
+            "event=rank_stale_exposure_recorded | "
             "step=%d | failed_rank=%d | gap=%d | "
             "rank_stale_iters_after=%d | rank_stale_exposure_after=%.6f | "
             "exposure_window_steps=%d | max_rank_stale_exposure=%.4f",

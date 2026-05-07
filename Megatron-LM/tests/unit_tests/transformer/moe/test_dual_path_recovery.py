@@ -26,9 +26,16 @@ from megatron.core.transformer.moe.gap_aware_recovery_policy import (
     RecoveryDecision,
     GapAwareRecoveryPolicyManager,
     ThresholdRecoveryPolicy,
+    RankExposureGuardedPolicy,
+    RankExposureGuardedConfig,
 )
 from megatron.core.transformer.moe.optimizer_commit_guard import (
     OptimizerCommitGuard,
+)
+from megatron.core.transformer.moe.rank_exposure_tracker import (
+    RankExposureTracker,
+    set_rank_exposure_tracker,
+    reset_rank_exposure_tracker,
 )
 
 
@@ -319,6 +326,133 @@ class TestCheckpointRestartFallback(unittest.TestCase):
 
         self.assertIn("dense_sync", tracker.actions)
         self.assertEqual(ctrl.last_recovery_path, "HYBRID_RECOVERY")
+
+
+# =====================================================================
+# Test: Rank stale exposure recording
+# =====================================================================
+
+class TestHybridStaleExposureRecording(unittest.TestCase):
+    """Hybrid success records rank exposure; restart/failure paths do not."""
+
+    def setUp(self):
+        self.rank_tracker = RankExposureTracker()
+        set_rank_exposure_tracker(self.rank_tracker)
+
+    def tearDown(self):
+        reset_rank_exposure_tracker()
+
+    def _install_guarded_policy(self, ctrl, checkpoint_iteration):
+        cfg = RankExposureGuardedConfig(
+            delta_time_min_gap=20,
+            max_single_gap=200,
+            exposure_window_steps=1000,
+            max_rank_stale_exposure=0.20,
+        )
+        mgr = GapAwareRecoveryPolicyManager(
+            policy=RankExposureGuardedPolicy(
+                config=cfg,
+                tracker=self.rank_tracker,
+            ),
+            get_checkpoint_iteration_fn=lambda: checkpoint_iteration,
+        )
+        ctrl.set_gap_aware_policy_manager(mgr)
+
+    def test_hybrid_success_records_fault_step_failed_rank_and_gap(self):
+        """Successful hybrid records fault step/gap, not spare rank/repair step."""
+        ctrl, actions = _make_controller_with_tracker(
+            gap_threshold=50,
+            checkpoint_iteration=10,
+        )
+        self._install_guarded_policy(ctrl, checkpoint_iteration=10)
+
+        ctrl.on_hard_rank_failure(
+            failed_rank=1,
+            step=100,
+            expert_ids=[0, 1],
+            mid_iteration=True,
+        )
+        ctrl.on_replacement_assigned(
+            failed_rank=1,
+            replacement_rank=7,
+            step=101,
+        )
+        ctrl.on_replacement_ready(failed_rank=1, step=102)
+
+        repaired = ctrl.before_iteration(step=103)
+        self.assertTrue(repaired)
+        self.assertEqual(ctrl.last_recovery_path, "HYBRID_RECOVERY")
+        self.assertIn("dense_sync", actions.actions)
+        self.assertIn("expert_restore", actions.actions)
+
+        events = self.rank_tracker.get_events_for_rank(
+            rank=1,
+            current_step=103,
+            window_steps=1000,
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].step, 100)
+        self.assertEqual(events[0].rank, 1)
+        self.assertEqual(events[0].gap, 90)
+
+        exposure_events = [
+            e for e in ctrl.event_log
+            if e.event_type == "rank_stale_exposure_recorded"
+        ]
+        self.assertEqual(len(exposure_events), 1)
+        details = exposure_events[0].details
+        self.assertEqual(details["step"], 100)
+        self.assertEqual(details["failed_rank"], 1)
+        self.assertEqual(details["gap"], 90)
+        self.assertEqual(details["rank_stale_iters_after"], 90)
+        self.assertAlmostEqual(details["rank_stale_exposure_after"], 0.09)
+        self.assertEqual(details["exposure_window_steps"], 1000)
+        self.assertEqual(details["max_rank_stale_exposure"], 0.20)
+
+    def test_checkpoint_restart_does_not_record_exposure(self):
+        """Checkpoint restart path produces no stale exposure record."""
+        ctrl, actions = _make_controller_with_tracker(
+            gap_threshold=50,
+            checkpoint_iteration=90,
+        )
+        self._install_guarded_policy(ctrl, checkpoint_iteration=90)
+
+        _drive_to_safe_point_repair(ctrl, step=100)
+        repaired = ctrl.before_iteration(step=103)
+
+        self.assertTrue(repaired)
+        self.assertEqual(ctrl.last_recovery_path, "CHECKPOINT_RESTART")
+        self.assertIn("checkpoint_restart", actions.actions)
+        self.assertEqual(self.rank_tracker.get_event_count(), 0)
+        self.assertFalse(any(
+            e.event_type == "rank_stale_exposure_recorded"
+            for e in ctrl.event_log
+        ))
+
+    def test_hybrid_failure_does_not_record_exposure(self):
+        """A failed hybrid attempt records nothing before any restart fallback."""
+        ctrl, actions = _make_controller_with_tracker(
+            gap_threshold=50,
+            checkpoint_iteration=10,
+        )
+        self._install_guarded_policy(ctrl, checkpoint_iteration=10)
+
+        def failing_expert_restore(**kwargs):
+            actions.actions.append("expert_restore")
+            actions.calls.setdefault("expert_restore", []).append(kwargs)
+            raise RuntimeError("simulated hybrid failure")
+
+        ctrl.register_callbacks(expert_restore_fn=failing_expert_restore)
+
+        _drive_to_safe_point_repair(ctrl, step=100)
+        with self.assertRaises(RuntimeError):
+            ctrl.before_iteration(step=103)
+
+        self.assertEqual(self.rank_tracker.get_event_count(), 0)
+        self.assertFalse(any(
+            e.event_type == "rank_stale_exposure_recorded"
+            for e in ctrl.event_log
+        ))
 
 
 # =====================================================================
