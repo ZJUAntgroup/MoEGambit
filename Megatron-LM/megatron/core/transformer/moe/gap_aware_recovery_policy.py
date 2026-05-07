@@ -347,21 +347,36 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
         else:
             → HYBRID_RECOVERY  (hybrid is safe and cost-effective)
 
-    The ``rank_stale_exposure`` check tracks how often a particular rank
-    has been in a stale/recovering state within a sliding window.  If a
-    rank exceeds the exposure budget, checkpoint restart is chosen to
-    reset the entire state cleanly.
+    The ``rank_stale_exposure`` check uses a ``RankExposureTracker`` to
+    track cumulative stale iterations per rank within a sliding window.
+    Only hybrid recovery events are recorded; checkpoint restarts are
+    not because they reload all ranks uniformly.
+
+    Thread safety: This class is **not** thread-safe.  It is designed
+    for the RecoveryController's single-threaded event loop.
 
     Args:
         config: A ``RankExposureGuardedConfig`` with all parameters.
+        tracker: Optional ``RankExposureTracker`` instance.  If None,
+            the global singleton is used.
     """
 
-    def __init__(self, config: Optional[RankExposureGuardedConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[RankExposureGuardedConfig] = None,
+        tracker: Any = None,  # RankExposureTracker, import-avoided
+    ) -> None:
         self._config = config or RankExposureGuardedConfig()
         self._config.validate()
 
-        # Sliding window of recovery events: list of (step, rank) tuples
-        self._recovery_events: List[tuple] = []
+        # Use provided tracker or fall back to global singleton
+        if tracker is not None:
+            self._tracker = tracker
+        else:
+            from megatron.core.transformer.moe.rank_exposure_tracker import (
+                get_rank_exposure_tracker,
+            )
+            self._tracker = get_rank_exposure_tracker()
 
         logger.warning(
             "BSR-MoE RankExposureGuardedHybridPolicy initialized: %s",
@@ -379,47 +394,26 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
         return self._config.fixed_gap_threshold
 
     # ------------------------------------------------------------------
-    # Rank stale exposure tracking
+    # Rank stale exposure (delegates to RankExposureTracker)
     # ------------------------------------------------------------------
-
-    def record_recovery_event(self, step: int, rank: int) -> None:
-        """Record that a rank entered recovery at the given step."""
-        self._recovery_events.append((step, rank))
-        self._prune_events(step)
 
     def get_rank_stale_exposure(self, rank: int, current_step: int) -> float:
         """Compute the stale exposure ratio for a rank within the window.
 
-        Returns the fraction of steps in the window where the rank was
-        in a recovering/stale state.  A value of 0.02 means the rank
-        was stale for 2% of the window.
+        Returns ``stale_iters / exposure_window_steps``.
         """
-        self._prune_events(current_step)
-        window = self._config.exposure_window_steps
-        if window <= 0:
-            return 0.0
-        window_start = max(0, current_step - window)
-        rank_events = [
-            (s, r) for s, r in self._recovery_events
-            if s >= window_start and r == rank
-        ]
-        if not rank_events or current_step <= 0:
-            return 0.0
-        # Estimate: each recovery event keeps the rank stale for some
-        # number of steps.  We use a simple heuristic: count events as
-        # proportional exposure (each event ≈ exposure_window_steps/len
-        # of a full recovery).  For now, we use event count / window
-        # length as a conservative proxy.
-        event_count = len(rank_events)
-        return event_count / window
+        return self._tracker.get_rank_stale_exposure(
+            rank=rank,
+            current_step=current_step,
+            window_steps=self._config.exposure_window_steps,
+        )
 
-    def _prune_events(self, current_step: int) -> None:
-        """Remove events outside the exposure window."""
-        window = self._config.exposure_window_steps
-        cutoff = max(0, current_step - window)
-        self._recovery_events = [
-            (s, r) for s, r in self._recovery_events if s >= cutoff
-        ]
+    def get_all_rank_exposures(self, current_step: int) -> Dict[int, float]:
+        """Get stale exposure ratios for all ranks."""
+        return self._tracker.get_all_rank_exposures(
+            current_step=current_step,
+            window_steps=self._config.exposure_window_steps,
+        )
 
     # ------------------------------------------------------------------
     # Policy selection
@@ -438,10 +432,6 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
         """Select recovery path based on gap boundaries and rank exposure."""
         cfg = self._config
         gap = current_iteration - checkpoint_iteration
-
-        # Record this recovery event for exposure tracking
-        if failed_rank >= 0:
-            self.record_recovery_event(current_iteration, failed_rank)
 
         # --- Decision logic ---
         if checkpoint_iteration < 0:
@@ -481,7 +471,7 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
                 path = RecoveryPath.CHECKPOINT_RESTART
                 reason = (
                     f"gap={gap} in [{cfg.delta_time_min_gap}, {cfg.max_single_gap}], "
-                    f"but rank {failed_rank} stale exposure={exposure:.4f} > "
+                    f"but rank {failed_rank} stale exposure={exposure:.6f} > "
                     f"max={cfg.max_rank_stale_exposure}, "
                     f"checkpoint restart (rank too frequently stale)"
                 )
@@ -490,11 +480,21 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
                 path = RecoveryPath.HYBRID_RECOVERY
                 reason = (
                     f"gap={gap} in [{cfg.delta_time_min_gap}, {cfg.max_single_gap}], "
-                    f"rank {failed_rank} stale exposure={exposure:.4f} <= "
+                    f"rank {failed_rank} stale exposure={exposure:.6f} <= "
                     f"max={cfg.max_rank_stale_exposure}, "
                     f"hybrid recovery (cost-effective and safe)"
                 )
                 gap_threshold_used = cfg.delta_time_min_gap
+
+        # Record hybrid recovery events for exposure tracking.
+        # Only hybrid recovery produces stale iterations; checkpoint
+        # restart reloads all ranks uniformly so no rank is "stale".
+        if path == RecoveryPath.HYBRID_RECOVERY and failed_rank >= 0:
+            self._tracker.record_hybrid_recovery(
+                step=current_iteration,
+                rank=failed_rank,
+                gap=gap,
+            )
 
         decision = RecoveryDecision(
             path=path,
@@ -511,6 +511,10 @@ class RankExposureGuardedHybridPolicy(RecoveryPolicyBase):
                 "policy_config": cfg.to_dict(),
                 "delta_time_min_gap": cfg.delta_time_min_gap,
                 "max_single_gap": cfg.max_single_gap,
+                "rank_stale_exposure": (
+                    self.get_rank_stale_exposure(failed_rank, current_iteration)
+                    if failed_rank >= 0 else 0.0
+                ),
             },
         )
 

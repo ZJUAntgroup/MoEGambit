@@ -1487,6 +1487,7 @@ class RecoveryController:
             self._execute_hybrid_recovery_path(
                 ready_record=ready_record,
                 step=step,
+                decision=decision,
             )
 
         phase_b_elapsed = time.time() - phase_b_start
@@ -1758,6 +1759,7 @@ class RecoveryController:
                 self._execute_hybrid_recovery_path(
                     ready_record=ready_record,
                     step=step,
+                    decision=decision,
                 )
                 # Mark that we actually fell back to hybrid
                 self._last_recovery_path = "HYBRID_RECOVERY"
@@ -1771,6 +1773,7 @@ class RecoveryController:
             self._execute_hybrid_recovery_path(
                 ready_record=ready_record,
                 step=step,
+                decision=decision,
             )
             self._last_recovery_path = "HYBRID_RECOVERY"
 
@@ -1782,6 +1785,7 @@ class RecoveryController:
         self,
         ready_record: FaultRecord,
         step: int,
+        decision: Optional["RecoveryDecision"] = None,
     ) -> None:
         """Hybrid recovery path: dense params from DP peer, expert
         weights from distributed checkpoint.
@@ -1795,6 +1799,13 @@ class RecoveryController:
         - Dense/shared/router params from healthy DP peer (current version)
         - MoE expert weights from distributed checkpoint
         - Optimizer state: dense from DP peer, expert from checkpoint
+
+        Args:
+            ready_record: The fault record for the rank being recovered.
+            step: Current training iteration.
+            decision: The ``RecoveryDecision`` from gap-aware policy
+                evaluation, if available.  Used to record the hybrid
+                recovery event in the ``RankExposureTracker``.
         """
         failed_rank = ready_record.failed_rank
         replacement_rank = ready_record.replacement_rank
@@ -1805,6 +1816,32 @@ class RecoveryController:
             "failed=%d, replacement=%d)",
             _ts(), step, failed_rank, replacement_rank,
         )
+
+        # Record this hybrid recovery event in the RankExposureTracker
+        # so that the RankExposureGuardedHybridPolicy can track per-rank
+        # stale iterations and decide whether future faults on this rank
+        # should trigger a checkpoint restart instead.
+        if decision is not None:
+            try:
+                from megatron.core.transformer.moe.rank_exposure_tracker import (
+                    get_rank_exposure_tracker,
+                )
+                tracker = get_rank_exposure_tracker()
+                tracker.record_hybrid_recovery(
+                    step=step,
+                    rank=failed_rank,
+                    gap=decision.gap,
+                )
+                logger.info(
+                    "[%s] BSR-MoE controller: recorded hybrid recovery "
+                    "in RankExposureTracker (step=%d, rank=%d, gap=%d)",
+                    _ts(), step, failed_rank, decision.gap,
+                )
+            except Exception as e:
+                logger.warning(
+                    "BSR-MoE controller: failed to record hybrid recovery "
+                    "in RankExposureTracker: %s", e,
+                )
 
         # B2a. Pull dense params from healthy DP peer
         t0 = time.time()
