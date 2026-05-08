@@ -72,7 +72,7 @@ run_training() {
     --expert-model-parallel-size 8 \
     --sequence-parallel \
     --legacy-tokenizer \
-    --tokenizer-type GPT2BPETokenizer \
+    --tokenizer-type HuggingFaceTokenizer \
     --vocab-file "./tokenizer/vocab.json" \
     --merge-file "./tokenizer/merges.txt" \
     --num-layers 48 \
@@ -114,7 +114,7 @@ run_training() {
     --moe-router-load-balancing-type aux_loss \
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
-    --data-path "/mnt/ais-c1/dataset/zds/datasets/64/my_gpt_data_text_document" \
+    --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 100,0,0 \
     --save "${CKPT_DIR}" \
     --save-interval 40 \
