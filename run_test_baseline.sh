@@ -58,6 +58,7 @@ run_training() {
     --sequence-parallel \
     --legacy-tokenizer \
     --tokenizer-type HuggingFaceTokenizer \
+    --tokenizer-model ./tokenizer \
     --vocab-file "./tokenizer/vocab.json" \
     --merge-file "./tokenizer/merges.txt" \
     --num-layers 48 \
