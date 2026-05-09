@@ -145,6 +145,7 @@ run_training() {
     --moe-bsr-degraded-s-max 500 \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 100,0,0 \
+    --ckpt-format torch \
     --save "${CKPT_DIR}" \
     --save-interval 40 \
     --eval-interval 1000 \

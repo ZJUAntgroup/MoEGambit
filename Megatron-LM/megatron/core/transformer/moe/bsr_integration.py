@@ -2907,6 +2907,10 @@ def _wire_recovery_callbacks(
         uses the ``torch_dist`` (distributed checkpoint) format, because
         selective per-rank expert loading is not possible without
         collective communication.
+
+        To enable hybrid recovery, use ``--ckpt-format torch`` which
+        stores checkpoint shards as per-rank ``.pt`` files that can be
+        loaded independently by each rank.
         """
         ckpt_dir = _find_latest_checkpoint_dir()
         if ckpt_dir is not None and _is_torch_dist_checkpoint(ckpt_dir):
@@ -3425,12 +3429,11 @@ def _find_latest_checkpoint_dir() -> Optional[str]:
                             fallback_step = step
                             fallback_dir = candidate
 
-        # NOTE: Do NOT check save_dir itself for bsr_manifest.json.
-        # bsr_pre_save_checkpoint() writes a simplified manifest (different
-        # schema) to save_dir/bsr_manifest.json.  RecoveryManifest.exists()
-        # only checks file existence, so it would false-positive on that
-        # file and cause _ensure_state_dict_loaded to search for .pt files
-        # in the save root instead of the iter_XXXXXXX subdirectory.
+        # NOTE: bsr_save_manifest() writes into iter_XXXXXXX/bsr_manifest.json
+        # (inside the iteration subdirectory).  Do NOT check save_dir itself
+        # for a manifest — a stale root-level manifest from an older version
+        # could cause _ensure_state_dict_loaded to look for .pt files in the
+        # wrong directory.
 
         if best_dir is not None:
             logger.info(
@@ -3597,13 +3600,16 @@ def _build_expert_load_fn(
     # rank because dist_checkpointing.load() uses all_gather_object.
     # Return None to signal dry-run mode; the caller (expert_restore_fn)
     # should request CHECKPOINT_RESTART instead.
+    # To enable hybrid recovery with selective expert loading, use
+    # --ckpt-format torch instead of the default torch_dist.
     if _is_torch_dist_checkpoint(checkpoint_dir):
         logger.warning(
             "BSR-MoE: _build_expert_load_fn: torch_dist checkpoint "
             "detected at %s — returning None (dry-run mode). "
             "Expert weights cannot be selectively loaded from distributed "
             "checkpoints without collective communication. "
-            "The system should use CHECKPOINT_RESTART path.",
+            "The system should use CHECKPOINT_RESTART path, or switch "
+            "to --ckpt-format torch to enable hybrid recovery.",
             checkpoint_dir,
         )
         return None
@@ -3619,16 +3625,17 @@ def _build_expert_load_fn(
     def _ensure_state_dict_loaded(ckpt_dir: str) -> Dict[str, Any]:
         """Load and cache the checkpoint state dict.
 
-        Searches for ``model_optim_rng.pt`` (Megatron standard) or
-        ``mp_rank_*_model_states.pt`` in the checkpoint directory.
-        Falls back to any ``.pt`` file found.
+        For ``torch`` format checkpoints, searches the rank-specific
+        subdirectory first (``mp_rank_{tp:02d}_{pp:03d}_{ep:03d}/
+        model_optim_rng.pt``), then falls back to broader patterns.
 
         IMPORTANT: ``torch_dist`` (distributed checkpoint) format cannot be
         loaded here because ``dist_checkpointing.load()`` internally calls
         ``all_gather_object`` which requires ALL ranks to participate.
         This function runs inside a per-rank async callback, so calling
         collective operations would deadlock.  For torch_dist checkpoints,
-        the system should use the CHECKPOINT_RESTART path instead.
+        the system should use the CHECKPOINT_RESTART path instead, or
+        switch to ``--ckpt-format torch`` to enable hybrid recovery.
         """
         if _cache_loaded[0]:
             return _cached_state_dict
@@ -3664,34 +3671,88 @@ def _build_expert_load_fn(
             return _cached_state_dict  # empty dict
 
         ckpt_path = None
-        # Priority 1: Megatron standard checkpoint file
-        candidate = os.path.join(ckpt_dir, 'model_optim_rng.pt')
+
+        # Determine the EP rank of the replacement rank.  In BSR-MoE
+        # restart-in-place, the replacement rank takes over the failed
+        # rank's position in the EP group, so we load the checkpoint
+        # shard that belongs to the *replacement* rank's current EP rank.
+        ep_rank = 0
+        try:
+            from megatron.core import parallel_state as mpu
+            ep_rank = mpu.get_expert_model_parallel_rank()
+        except Exception:
+            pass
+
+        tp_rank = 0
+        pp_rank = 0
+        try:
+            from megatron.core import parallel_state as mpu
+            tp_rank = mpu.get_tensor_model_parallel_rank()
+            pp_rank = mpu.get_pipeline_model_parallel_rank()
+        except Exception:
+            pass
+
+        # Priority 1: Exact match for this rank's shard subdirectory.
+        # With --ckpt-format torch and EP, files are at:
+        #   iter_XXXXXXX/mp_rank_{tp:02d}_{pp:03d}_{ep:03d}/model_optim_rng.pt
+        rank_subdir = f'mp_rank_{tp_rank:02d}_{pp_rank:03d}_{ep_rank:03d}'
+        candidate = os.path.join(ckpt_dir, rank_subdir, 'model_optim_rng.pt')
         if os.path.isfile(candidate):
             ckpt_path = candidate
         else:
-            # Priority 2: mp_rank files (distributed checkpoint)
-            mp_files = sorted(glob_mod.glob(
-                os.path.join(ckpt_dir, 'mp_rank_*_model_states.pt')
-            ))
-            if mp_files:
-                ckpt_path = mp_files[0]
-            else:
-                # Priority 3: any .pt file (skip common.pt for torch_dist)
-                pt_files = sorted(glob_mod.glob(
-                    os.path.join(ckpt_dir, '*.pt')
-                ))
-                # Filter out common.pt which only contains metadata
-                pt_files = [f for f in pt_files
-                            if os.path.basename(f) != 'common.pt']
-                if pt_files:
-                    ckpt_path = pt_files[0]
+            # Try without EP suffix (EP=1 case)
+            rank_subdir_no_ep = f'mp_rank_{tp_rank:02d}_{pp_rank:03d}'
+            candidate = os.path.join(ckpt_dir, rank_subdir_no_ep, 'model_optim_rng.pt')
+            if os.path.isfile(candidate):
+                ckpt_path = candidate
+
+        if ckpt_path is None:
+            # Priority 2: Direct file in ckpt_dir (no subdirs, e.g. TP=PP=EP=1)
+            candidate = os.path.join(ckpt_dir, 'model_optim_rng.pt')
+            if os.path.isfile(candidate):
+                ckpt_path = candidate
+
+        if ckpt_path is None:
+            # Priority 3: Search mp_rank_* subdirectories for any .pt file
+            # matching this rank's EP shard.  Fallback to ANY .pt if no
+            # rank-specific file is found.
+            # First, try to find a subdirectory matching this rank's EP.
+            ep_pattern = os.path.join(
+                ckpt_dir, f'mp_rank_{tp_rank:02d}_{pp_rank:03d}_{ep_rank:03d}',
+                '*.pt',
+            )
+            pt_files = sorted(glob_mod.glob(ep_pattern))
+            if not pt_files:
+                # Try without EP suffix
+                no_ep_pattern = os.path.join(
+                    ckpt_dir, f'mp_rank_{tp_rank:02d}_{pp_rank:03d}',
+                    '*.pt',
+                )
+                pt_files = sorted(glob_mod.glob(no_ep_pattern))
+            if not pt_files:
+                # Fallback: any mp_rank_* subdirectory
+                any_pattern = os.path.join(ckpt_dir, 'mp_rank_*', '*.pt')
+                pt_files = sorted(glob_mod.glob(any_pattern))
+            # Filter out common.pt (metadata only)
+            pt_files = [f for f in pt_files
+                        if os.path.basename(f) != 'common.pt']
+            if pt_files:
+                ckpt_path = pt_files[0]
+
+        if ckpt_path is None:
+            # Priority 4: any .pt file directly in ckpt_dir root
+            pt_files = sorted(glob_mod.glob(os.path.join(ckpt_dir, '*.pt')))
+            pt_files = [f for f in pt_files
+                        if os.path.basename(f) != 'common.pt']
+            if pt_files:
+                ckpt_path = pt_files[0]
 
         if ckpt_path is None:
             raise FileNotFoundError(
                 f"No checkpoint file found in {ckpt_dir}"
                 + (" (torch_dist format detected — expert loading requires "
-                   "dist_checkpointing API; consider using CHECKPOINT_RESTART "
-                   "path instead of HYBRID_RECOVERY)"
+                   "dist_checkpointing API; consider using --ckpt-format torch "
+                   "or CHECKPOINT_RESTART path instead of HYBRID_RECOVERY)"
                    if is_dist_ckpt else "")
             )
 
@@ -3896,20 +3957,69 @@ def _build_expert_optimizer_load_fn(
     _opt_cache_loaded: List[bool] = [False]
 
     def _ensure_optimizer_sd_loaded(ckpt_dir: str) -> Dict[str, Any]:
-        """Load and cache the optimizer state dict from checkpoint."""
+        """Load and cache the optimizer state dict from checkpoint.
+
+        Handles the same subdirectory structure as ``_ensure_state_dict_loaded``
+        in ``_build_expert_load_fn``: for ``--ckpt-format torch`` with EP,
+        the checkpoint is inside ``mp_rank_{tp:02d}_{pp:03d}_{ep:03d}/``.
+        """
         if _opt_cache_loaded[0]:
             return _cached_opt_sd
 
         import glob as glob_mod
 
+        # Determine this rank's parallel coordinates
+        ep_rank = 0
+        tp_rank = 0
+        pp_rank = 0
+        try:
+            from megatron.core import parallel_state as mpu
+            ep_rank = mpu.get_expert_model_parallel_rank()
+            tp_rank = mpu.get_tensor_model_parallel_rank()
+            pp_rank = mpu.get_pipeline_model_parallel_rank()
+        except Exception:
+            pass
+
         ckpt_path = None
-        candidate = os.path.join(ckpt_dir, 'model_optim_rng.pt')
+
+        # Priority 1: rank-specific subdirectory (torch format with EP)
+        rank_subdir = f'mp_rank_{tp_rank:02d}_{pp_rank:03d}_{ep_rank:03d}'
+        candidate = os.path.join(ckpt_dir, rank_subdir, 'model_optim_rng.pt')
         if os.path.isfile(candidate):
             ckpt_path = candidate
         else:
-            pt_files = sorted(glob_mod.glob(
-                os.path.join(ckpt_dir, '*.pt')
-            ))
+            # Try without EP suffix
+            rank_subdir_no_ep = f'mp_rank_{tp_rank:02d}_{pp_rank:03d}'
+            candidate = os.path.join(ckpt_dir, rank_subdir_no_ep, 'model_optim_rng.pt')
+            if os.path.isfile(candidate):
+                ckpt_path = candidate
+
+        if ckpt_path is None:
+            # Priority 2: direct file in ckpt_dir
+            candidate = os.path.join(ckpt_dir, 'model_optim_rng.pt')
+            if os.path.isfile(candidate):
+                ckpt_path = candidate
+
+        if ckpt_path is None:
+            # Priority 3: search mp_rank_* subdirectories
+            ep_pattern = os.path.join(
+                ckpt_dir, f'mp_rank_{tp_rank:02d}_{pp_rank:03d}_{ep_rank:03d}',
+                '*.pt',
+            )
+            pt_files = sorted(glob_mod.glob(ep_pattern))
+            if not pt_files:
+                any_pattern = os.path.join(ckpt_dir, 'mp_rank_*', '*.pt')
+                pt_files = sorted(glob_mod.glob(any_pattern))
+            pt_files = [f for f in pt_files
+                        if os.path.basename(f) != 'common.pt']
+            if pt_files:
+                ckpt_path = pt_files[0]
+
+        if ckpt_path is None:
+            # Priority 4: any .pt in root
+            pt_files = sorted(glob_mod.glob(os.path.join(ckpt_dir, '*.pt')))
+            pt_files = [f for f in pt_files
+                        if os.path.basename(f) != 'common.pt']
             if pt_files:
                 ckpt_path = pt_files[0]
 
@@ -4106,6 +4216,11 @@ def bsr_save_manifest(save_dir: str, iteration: int) -> None:
     checkpoint state_dict so it can be read without loading the full
     checkpoint.
 
+    The manifest is written into the iteration subdirectory
+    (e.g. ``<save_dir>/iter_0000040/bsr_manifest.json``) so that
+    :meth:`RecoveryManifest.exists` can discover it when scanning for
+    checkpoints inside ``_find_latest_checkpoint_dir``.
+
     Only rank 0 writes the manifest file.
     """
     if not _BSR_INITIALIZED:
@@ -4132,7 +4247,9 @@ def bsr_save_manifest(save_dir: str, iteration: int) -> None:
             if not tracker.all_healthy():
                 manifest['expert_recovery'] = tracker.summary()
 
-        manifest_path = os.path.join(save_dir, 'bsr_manifest.json')
+        iter_dir = os.path.join(save_dir, f'iter_{iteration:07d}')
+        os.makedirs(iter_dir, exist_ok=True)
+        manifest_path = os.path.join(iter_dir, 'bsr_manifest.json')
         with open(manifest_path, 'w') as f:
             json.dump(manifest, f, indent=2, default=str)
 
