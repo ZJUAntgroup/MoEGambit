@@ -42,7 +42,7 @@ export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
-export CKPT_DIR="/mnt/ais-c1/dataset/zds/5.8/baseline"
+export CKPT_DIR="/mnt/ais-c1/dataset/zds/5.9/baseline"
 mkdir -p "${CKPT_DIR}"
 
 MAX_RETRIES=100
@@ -117,6 +117,7 @@ run_training() {
     --moe-token-dispatcher-type alltoall \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 100,0,0 \
+    --ckpt-format torch \
     --save "${CKPT_DIR}" \
     --save-interval 40 \
     --eval-interval 1000 \

@@ -48,7 +48,7 @@ export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
-export CKPT_DIR="/mnt/ais-c1/dataset/zds/5.6/bsr"
+export CKPT_DIR="/mnt/ais-c1/dataset/zds/5.9/bsr"
 
 
 mkdir -p "${CKPT_DIR}"
