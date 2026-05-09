@@ -101,11 +101,11 @@ run_training() {
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
-    --split 100,0,0 \
+    --split 99,1,0 \
     --save "${CKPT_DIR}" \
     --save-interval 1000 \
     --eval-interval 1000 \
-    --eval-iters 10 \
+    --eval-iters 50 \
     --log-interval 1 \
     "${LOAD_ARGS[@]}"
 }
