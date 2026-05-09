@@ -2145,6 +2145,54 @@ def _wire_recovery_callbacks(
                     # No health managers registered yet — use 1-based range
                     moe_layer_ids = list(range(1, num_layers + 1))
 
+                # For PP>1, filter to only the layers in this PP stage.
+                # Each PP rank's model only contains its own subset of
+                # layers, so we should only create entries for layers we
+                # can actually restore.  Other PP ranks will handle their
+                # own layers independently.
+                pp_rank = 0
+                pp_size = 1
+                try:
+                    from megatron.core import parallel_state as mpu
+                    pp_rank = mpu.get_pipeline_model_parallel_rank()
+                    pp_size = mpu.get_pipeline_model_parallel_world_size()
+                except Exception:
+                    pass
+
+                if pp_size > 1 and moe_layer_ids:
+                    # Determine the layer range of this PP stage from
+                    # the model's named parameters.
+                    local_layer_indices = set()
+                    actual_model_ref = model[0] if isinstance(model, (list, tuple)) else model
+                    for name, _ in actual_model_ref.named_parameters():
+                        if name.startswith('decoder.layers.'):
+                            try:
+                                idx = int(name.split('decoder.layers.')[1].split('.')[0])
+                                local_layer_indices.add(idx)
+                            except (ValueError, IndexError):
+                                pass
+
+                    if local_layer_indices:
+                        # Convert local (0-based) indices to global (1-based)
+                        # layer IDs.  The mapping is:
+                        #   global_id = pp_rank * num_local_layers + local_idx + 1
+                        num_local = max(local_layer_indices) + 1
+                        global_ids_for_this_stage = set()
+                        for local_idx in sorted(local_layer_indices):
+                            global_id = pp_rank * num_local + local_idx + 1
+                            global_ids_for_this_stage.add(global_id)
+                        original_count = len(moe_layer_ids)
+                        moe_layer_ids = [
+                            lid for lid in moe_layer_ids
+                            if lid in global_ids_for_this_stage
+                        ]
+                        logger.info(
+                            "BSR-MoE expert_restore_fn: filtered MoE layers "
+                            "for PP stage %d/%d: %d/%d layers (global IDs: %s)",
+                            pp_rank, pp_size, len(moe_layer_ids), original_count,
+                            moe_layer_ids,
+                        )
+
                 for eid in expert_ids:
                     for layer_id in moe_layer_ids:
                         plan.entries.append(ser_mod.ExpertRestoreEntry(
