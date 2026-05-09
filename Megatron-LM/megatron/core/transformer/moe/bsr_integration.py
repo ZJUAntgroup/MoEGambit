@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -47,6 +48,160 @@ logger = logging.getLogger(__name__)
 def _ts() -> str:
     """Return current timestamp string for structured logging."""
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+_DECODER_LAYER_RE = re.compile(r'(?:^|\.)decoder\.layers\.(\d+)(?:\.|$)')
+
+
+def _get_single_model(model: Any) -> Any:
+    """Return the concrete model object when Megatron passes a chunk list."""
+    return model[0] if isinstance(model, (list, tuple)) else model
+
+
+def _get_args_or_none() -> Optional[Any]:
+    try:
+        from megatron.training.global_vars import get_args
+        return get_args()
+    except Exception:
+        return None
+
+
+def _get_pp_rank_size() -> Tuple[int, int]:
+    """Best-effort PP rank/size lookup that also works in recovery callbacks."""
+    pp_rank = 0
+    pp_size = 1
+    try:
+        from megatron.core import parallel_state as mpu
+        pp_rank = mpu.get_pipeline_model_parallel_rank()
+        pp_size = mpu.get_pipeline_model_parallel_world_size()
+    except Exception:
+        pass
+
+    args = _get_args_or_none()
+    if args is not None:
+        pp_size = max(pp_size, int(getattr(args, 'pipeline_model_parallel_size', pp_size) or 1))
+    return pp_rank, pp_size
+
+
+def _get_tp_ep_ranks_sizes() -> Tuple[int, int, int, int]:
+    """Return TP rank, current EP rank, EP size, and total expert count."""
+    tp_rank = 0
+    ep_rank = 0
+    ep_size = 1
+    num_experts_total = 1
+    try:
+        from megatron.core import parallel_state as mpu
+        tp_rank = mpu.get_tensor_model_parallel_rank()
+        ep_rank = mpu.get_expert_model_parallel_rank()
+        ep_size = mpu.get_expert_model_parallel_world_size()
+    except Exception:
+        pass
+
+    args = _get_args_or_none()
+    if args is not None:
+        ep_size = max(ep_size, int(getattr(args, 'expert_model_parallel_size', ep_size) or 1))
+        num_experts_total = int(getattr(args, 'num_experts', num_experts_total) or num_experts_total)
+    return tp_rank, ep_rank, ep_size, num_experts_total
+
+
+def _extract_decoder_layer_idx(name: str) -> Optional[int]:
+    match = _DECODER_LAYER_RE.search(name)
+    if match is None:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _collect_model_layer_indices(model: Any, *, moe_only: bool = False) -> List[int]:
+    actual_model = _get_single_model(model)
+    indices = set()
+    try:
+        named_parameters = actual_model.named_parameters()
+    except Exception:
+        return []
+
+    for name, _ in named_parameters:
+        if moe_only and '.mlp.experts.' not in name and '.mlp.router' not in name:
+            continue
+        idx = _extract_decoder_layer_idx(name)
+        if idx is not None:
+            indices.add(idx)
+    return sorted(indices)
+
+
+def _infer_num_layers_per_pp_stage(model: Any, total_num_layers: Optional[int] = None) -> Optional[int]:
+    _, pp_size = _get_pp_rank_size()
+    if pp_size > 1 and total_num_layers and total_num_layers % pp_size == 0:
+        return total_num_layers // pp_size
+
+    indices = _collect_model_layer_indices(model)
+    if not indices:
+        return None
+    if indices[0] == 0:
+        return max(indices) + 1
+    return len(indices)
+
+
+def _infer_local_moe_layer_ids(model: Any, num_layers: int) -> List[int]:
+    """Return 1-based global MoE layer ids owned by this PP stage."""
+    pp_rank, pp_size = _get_pp_rank_size()
+    local_indices = _collect_model_layer_indices(model, moe_only=True)
+    if not local_indices:
+        local_indices = _collect_model_layer_indices(model, moe_only=False)
+
+    if pp_size <= 1:
+        if local_indices:
+            return [idx + 1 for idx in local_indices]
+        return list(range(1, num_layers + 1))
+
+    layers_per_stage = _infer_num_layers_per_pp_stage(model, num_layers)
+    if layers_per_stage is None:
+        if num_layers % pp_size != 0:
+            logger.warning(
+                "BSR-MoE: cannot infer PP-local layer range "
+                "(num_layers=%d, pp_size=%d); falling back to all layers",
+                num_layers, pp_size,
+            )
+            return list(range(1, num_layers + 1))
+        layers_per_stage = num_layers // pp_size
+
+    if local_indices and local_indices[0] == 0:
+        layer_ids = [
+            pp_rank * layers_per_stage + local_idx + 1
+            for local_idx in local_indices
+            if local_idx < layers_per_stage
+        ]
+    elif local_indices:
+        # Some model variants expose global 0-based layer indices directly.
+        layer_ids = [idx + 1 for idx in local_indices]
+    else:
+        start = pp_rank * layers_per_stage + 1
+        layer_ids = list(range(start, start + layers_per_stage))
+
+    return [lid for lid in sorted(set(layer_ids)) if 1 <= lid <= num_layers]
+
+
+def _map_global_layer_to_local_checkpoint_idx(
+    layer_id: int,
+    model: Any,
+    total_num_layers: Optional[int] = None,
+) -> Optional[int]:
+    """Map a 1-based global layer id to the checkpoint-local layer index."""
+    pp_rank, pp_size = _get_pp_rank_size()
+    if pp_size <= 1:
+        return layer_id - 1 if layer_id >= 1 else layer_id
+
+    layers_per_stage = _infer_num_layers_per_pp_stage(model, total_num_layers)
+    if layers_per_stage is None:
+        return layer_id - 1 if layer_id >= 1 else layer_id
+
+    global_layer_start = pp_rank * layers_per_stage + 1
+    global_layer_end = global_layer_start + layers_per_stage - 1
+    if not (global_layer_start <= layer_id <= global_layer_end):
+        return None
+    return layer_id - global_layer_start
 
 
 def _is_distributed_optimizer(optimizer) -> bool:
@@ -2065,16 +2220,10 @@ def _wire_recovery_callbacks(
                         get_two_phase_recovery_coordinator,
                     )
                     _two_phase_coord = get_two_phase_recovery_coordinator()
-                    # Build (layer_id, expert_id) tuples for all MoE layers
-                    try:
-                        from megatron.core.transformer.moe.expert_health_manager import (
-                            _MANAGER_REGISTRY as _tp_registry,
-                        )
-                        _tp_moe_layers = sorted(_tp_registry.keys())
-                    except ImportError:
-                        _tp_moe_layers = list(range(1, num_layers + 1))
-                    if not _tp_moe_layers:
-                        _tp_moe_layers = list(range(1, num_layers + 1))
+                    # Build (layer_id, expert_id) tuples only for this PP
+                    # stage.  ExpertHealthManager has been removed, so infer
+                    # MoE layers from the model's parameter names.
+                    _tp_moe_layers = _infer_local_moe_layer_ids(model, num_layers)
 
                     _tp_expert_keys = [
                         (lid, eid) for eid in expert_ids
@@ -2131,67 +2280,17 @@ def _wire_recovery_callbacks(
                     replacement_rank=replacement_rank,
                     step=step,
                 )
-                # Get actual MoE layer IDs from health manager registry
-                try:
-                    from megatron.core.transformer.moe.expert_health_manager import (
-                        _MANAGER_REGISTRY,
-                    )
-                    moe_layer_ids = sorted(_MANAGER_REGISTRY.keys())
-                except ImportError:
-                    # Fallback: use 1-based layer IDs (Megatron convention)
-                    moe_layer_ids = list(range(1, num_layers + 1))
-
-                if not moe_layer_ids:
-                    # No health managers registered yet — use 1-based range
-                    moe_layer_ids = list(range(1, num_layers + 1))
-
-                # For PP>1, filter to only the layers in this PP stage.
-                # Each PP rank's model only contains its own subset of
-                # layers, so we should only create entries for layers we
-                # can actually restore.  Other PP ranks will handle their
-                # own layers independently.
-                pp_rank = 0
-                pp_size = 1
-                try:
-                    from megatron.core import parallel_state as mpu
-                    pp_rank = mpu.get_pipeline_model_parallel_rank()
-                    pp_size = mpu.get_pipeline_model_parallel_world_size()
-                except Exception:
-                    pass
-
-                if pp_size > 1 and moe_layer_ids:
-                    # Determine the layer range of this PP stage from
-                    # the model's named parameters.
-                    local_layer_indices = set()
-                    actual_model_ref = model[0] if isinstance(model, (list, tuple)) else model
-                    for name, _ in actual_model_ref.named_parameters():
-                        if name.startswith('decoder.layers.'):
-                            try:
-                                idx = int(name.split('decoder.layers.')[1].split('.')[0])
-                                local_layer_indices.add(idx)
-                            except (ValueError, IndexError):
-                                pass
-
-                    if local_layer_indices:
-                        # Convert local (0-based) indices to global (1-based)
-                        # layer IDs.  The mapping is:
-                        #   global_id = pp_rank * num_local_layers + local_idx + 1
-                        num_local = max(local_layer_indices) + 1
-                        global_ids_for_this_stage = set()
-                        for local_idx in sorted(local_layer_indices):
-                            global_id = pp_rank * num_local + local_idx + 1
-                            global_ids_for_this_stage.add(global_id)
-                        original_count = len(moe_layer_ids)
-                        moe_layer_ids = [
-                            lid for lid in moe_layer_ids
-                            if lid in global_ids_for_this_stage
-                        ]
-                        logger.info(
-                            "BSR-MoE expert_restore_fn: filtered MoE layers "
-                            "for PP stage %d/%d: %d/%d layers (global IDs: %s)",
-                            pp_rank, pp_size, len(moe_layer_ids), original_count,
-                            moe_layer_ids,
-                        )
+                # ExpertHealthManager has been removed.  Infer actual MoE
+                # layers from the concrete model, handling DDP names like
+                # ``module.decoder.layers.0...`` and converting PP-local
+                # indices to 1-based global layer IDs.
+                moe_layer_ids = _infer_local_moe_layer_ids(model, num_layers)
+                pp_rank, pp_size = _get_pp_rank_size()
+                logger.info(
+                    "BSR-MoE expert_restore_fn: inferred MoE layers for PP "
+                    "stage %d/%d: %s",
+                    pp_rank, pp_size, moe_layer_ids,
+                )
 
                 for eid in expert_ids:
                     for layer_id in moe_layer_ids:
@@ -2206,6 +2305,21 @@ def _wire_recovery_callbacks(
                     "(%d entries across %d MoE layers, no checkpoint weights)",
                     len(plan.entries), len(moe_layer_ids),
                 )
+
+            local_moe_layer_ids = set(_infer_local_moe_layer_ids(model, num_layers))
+            if local_moe_layer_ids and plan.entries:
+                original_entries = len(plan.entries)
+                plan.entries = [
+                    entry for entry in plan.entries
+                    if entry.layer_id in local_moe_layer_ids
+                ]
+                if len(plan.entries) != original_entries:
+                    logger.info(
+                        "BSR-MoE expert_restore_fn: filtered restore plan to "
+                        "current PP stage layers %s (%d/%d entries)",
+                        sorted(local_moe_layer_ids),
+                        len(plan.entries), original_entries,
+                    )
 
             # Build the load_fn callback
             # In PP=1 mode, we load from the checkpoint state dict.
@@ -2250,15 +2364,9 @@ def _wire_recovery_callbacks(
                     "skipping weight loading (dry-run mode)",
                 )
 
-            # Get health managers
-            health_managers = None
-            try:
-                from megatron.core.transformer.moe.expert_health_manager import (
-                    _MANAGER_REGISTRY,
-                )
-                health_managers = _MANAGER_REGISTRY
-            except ImportError:
-                pass
+            # ExpertHealthManager was removed; recovery_controller owns expert
+            # state now, so stale_expert_restore gets an empty registry.
+            health_managers = {}
 
             # Get expert directory
             directory = ed_mod.get_active_expert_directory()
@@ -2797,18 +2905,12 @@ def _wire_recovery_callbacks(
                 _config = getattr(_target_model, 'config', None)
                 convergence = get_post_recovery_convergence(config=_config)
 
-                # Build restored_experts list: all (layer, expert) pairs
-                _restored_experts = []
-                try:
-                    from megatron.core.transformer.moe.expert_health_manager import (
-                        _MANAGER_REGISTRY as _hm_registry,
-                    )
-                    for _layer_num in sorted(_hm_registry.keys()):
-                        for _eid in expert_ids:
-                            _restored_experts.append((_layer_num, _eid))
-                except Exception:
-                    # Fallback: assume standard layer numbering
-                    pass
+                # Build restored_experts list for the local PP stage.
+                _restored_experts = [
+                    (_layer_num, _eid)
+                    for _layer_num in _infer_local_moe_layer_ids(model, num_layers)
+                    for _eid in expert_ids
+                ]
 
                 conv_result = convergence.execute(
                     path=RecoveryPath.CHECKPOINT_RESTART,
@@ -3259,16 +3361,9 @@ def _poll_async_recovery(step: int) -> None:
     # Apply to GPU on the recovery stream
     copied = worker.apply_to_gpu(expert_results, _RECOVERY_STREAM)
 
-    # Get health managers and barrier for finalization
-    health_managers = None
+    # ExpertHealthManager was removed; recovery_controller owns expert state.
+    health_managers = {}
     barrier = None
-    try:
-        from megatron.core.transformer.moe.expert_health_manager import (
-            _MANAGER_REGISTRY,
-        )
-        health_managers = _MANAGER_REGISTRY
-    except ImportError:
-        pass
 
     try:
         from megatron.core.transformer.moe.stale_expert_restore import (
@@ -3333,17 +3428,7 @@ def _wire_async_recovery_callbacks(
 
         checkpoint_dir = _find_latest_checkpoint_dir()
 
-        # Get actual MoE layer IDs from health manager registry
-        try:
-            from megatron.core.transformer.moe.expert_health_manager import (
-                _MANAGER_REGISTRY,
-            )
-            moe_layer_ids = sorted(_MANAGER_REGISTRY.keys())
-        except ImportError:
-            moe_layer_ids = []
-
-        if not moe_layer_ids:
-            moe_layer_ids = list(range(1, num_layers + 1))
+        moe_layer_ids = _infer_local_moe_layer_ids(model, num_layers)
 
         for eid in expert_ids:
             for layer_id in moe_layer_ids:
@@ -3637,8 +3722,8 @@ def _build_expert_load_fn(
     collective communication (``all_gather_object``) which cannot be
     called from a single rank's async callback.
 
-    For PP>1, this would need to be extended to handle pipeline-stage-
-    specific loading.
+    For PP+EP checkpoints, the checkpoint shard must be chosen from the
+    current PP stage and the source EP rank that owns the global expert id.
     """
     if checkpoint_dir is None:
         return None
@@ -3662,15 +3747,12 @@ def _build_expert_load_fn(
         )
         return None
 
-    # Cached checkpoint state dict — loaded once, reused across experts.
-    _cached_state_dict: Dict[str, Any] = {}
-    _cache_loaded: List[bool] = [False]  # mutable flag for closure
+    # Cached checkpoint state dicts, keyed by concrete shard path.  A single
+    # replacement rank may need to load source experts from a different EP
+    # shard than its current EP rank.
+    _cached_state_dicts: Dict[str, Dict[str, Any]] = {}
 
-    # Model reference for dist_checkpointing (needs sharded_state_dict())
-    target_model = model[0] if isinstance(model, (list, tuple)) else model
-    _target_model_ref: List[Any] = [target_model]
-
-    def _ensure_state_dict_loaded(ckpt_dir: str) -> Dict[str, Any]:
+    def _ensure_state_dict_loaded(ckpt_dir: str, source_ep_rank: int) -> Dict[str, Any]:
         """Load and cache the checkpoint state dict.
 
         For ``torch`` format checkpoints, searches the rank-specific
@@ -3685,9 +3767,6 @@ def _build_expert_load_fn(
         the system should use the CHECKPOINT_RESTART path instead, or
         switch to ``--ckpt-format torch`` to enable hybrid recovery.
         """
-        if _cache_loaded[0]:
-            return _cached_state_dict
-
         import glob as glob_mod
 
         # ── Detect torch_dist (distributed checkpoint) format ──
@@ -3703,10 +3782,9 @@ def _build_expert_load_fn(
             # all_gather_object (collective op) which would deadlock
             # when only the failed rank executes this callback.
             #
-            # Return empty dict — the caller will see "no matching params"
-            # and proceed with state transitions only (dry-run).
-            # The actual weight recovery must happen via the
-            # CHECKPOINT_RESTART path (full Megatron load_checkpoint).
+            # Return empty dict.  The caller treats this as a load failure so
+            # the recovery path can fall back instead of silently reintegrating
+            # an expert without weights.
             logger.warning(
                 "BSR-MoE: torch_dist checkpoint detected at %s. "
                 "Selective expert loading is not supported for distributed "
@@ -3715,35 +3793,18 @@ def _build_expert_load_fn(
                 "Consider using CHECKPOINT_RESTART path for full recovery.",
                 ckpt_dir,
             )
-            _cache_loaded[0] = True
-            return _cached_state_dict  # empty dict
+            return {}
 
         ckpt_path = None
 
-        # Determine the EP rank of the replacement rank.  In BSR-MoE
-        # restart-in-place, the replacement rank takes over the failed
-        # rank's position in the EP group, so we load the checkpoint
-        # shard that belongs to the *replacement* rank's current EP rank.
-        ep_rank = 0
-        try:
-            from megatron.core import parallel_state as mpu
-            ep_rank = mpu.get_expert_model_parallel_rank()
-        except Exception:
-            pass
-
-        tp_rank = 0
-        pp_rank = 0
-        try:
-            from megatron.core import parallel_state as mpu
-            tp_rank = mpu.get_tensor_model_parallel_rank()
-            pp_rank = mpu.get_pipeline_model_parallel_rank()
-        except Exception:
-            pass
+        tp_rank, _, ep_size, _ = _get_tp_ep_ranks_sizes()
+        pp_rank, pp_size = _get_pp_rank_size()
+        source_ep_rank = max(0, min(source_ep_rank, ep_size - 1))
 
         # Priority 1: Exact match for this rank's shard subdirectory.
         # With --ckpt-format torch and EP, files are at:
         #   iter_XXXXXXX/mp_rank_{tp:02d}_{pp:03d}_{ep:03d}/model_optim_rng.pt
-        rank_subdir = f'mp_rank_{tp_rank:02d}_{pp_rank:03d}_{ep_rank:03d}'
+        rank_subdir = f'mp_rank_{tp_rank:02d}_{pp_rank:03d}_{source_ep_rank:03d}'
         candidate = os.path.join(ckpt_dir, rank_subdir, 'model_optim_rng.pt')
         if os.path.isfile(candidate):
             ckpt_path = candidate
@@ -3766,7 +3827,7 @@ def _build_expert_load_fn(
             # rank-specific file is found.
             # First, try to find a subdirectory matching this rank's EP.
             ep_pattern = os.path.join(
-                ckpt_dir, f'mp_rank_{tp_rank:02d}_{pp_rank:03d}_{ep_rank:03d}',
+                ckpt_dir, f'mp_rank_{tp_rank:02d}_{pp_rank:03d}_{source_ep_rank:03d}',
                 '*.pt',
             )
             pt_files = sorted(glob_mod.glob(ep_pattern))
@@ -3777,8 +3838,10 @@ def _build_expert_load_fn(
                     '*.pt',
                 )
                 pt_files = sorted(glob_mod.glob(no_ep_pattern))
-            if not pt_files:
-                # Fallback: any mp_rank_* subdirectory
+            if not pt_files and pp_size == 1 and ep_size == 1:
+                # Fallback: any mp_rank_* subdirectory only when there is no
+                # PP/EP ambiguity.  In PP/EP checkpoints, falling back to an
+                # arbitrary shard can load the wrong expert partition.
                 any_pattern = os.path.join(ckpt_dir, 'mp_rank_*', '*.pt')
                 pt_files = sorted(glob_mod.glob(any_pattern))
             # Filter out common.pt (metadata only)
@@ -3804,8 +3867,13 @@ def _build_expert_load_fn(
                    if is_dist_ckpt else "")
             )
 
+        if ckpt_path in _cached_state_dicts:
+            return _cached_state_dicts[ckpt_path]
+
         logger.info(
-            "BSR-MoE: loading checkpoint state dict from %s", ckpt_path,
+            "BSR-MoE: loading checkpoint state dict from %s "
+            "(source_ep_rank=%d)",
+            ckpt_path, source_ep_rank,
         )
         sd = torch.load(ckpt_path, map_location='cpu')
 
@@ -3813,18 +3881,20 @@ def _build_expert_load_fn(
         if 'model' in sd:
             sd = sd['model']
 
-        _cached_state_dict.update(sd)
-        _cache_loaded[0] = True
+        _cached_state_dicts[ckpt_path] = dict(sd)
         # Log a few sample keys for debugging key-name mismatches
-        _sample_keys = list(_cached_state_dict.keys())[:10]
-        _expert_keys = [k for k in _cached_state_dict if 'local_experts' in k][:5]
+        _sample_keys = list(_cached_state_dicts[ckpt_path].keys())[:10]
+        _expert_keys = [
+            k for k in _cached_state_dicts[ckpt_path]
+            if 'local_experts' in k
+        ][:5]
         logger.info(
             "BSR-MoE: checkpoint state dict cached (%d keys). "
             "Sample keys: %s. Expert keys: %s",
-            len(_cached_state_dict),
+            len(_cached_state_dicts[ckpt_path]),
             _sample_keys, _expert_keys,
         )
-        return _cached_state_dict
+        return _cached_state_dicts[ckpt_path]
 
     def _get_expert_param_prefix(layer_id: int, local_expert_idx: int) -> str:
         """Build the parameter name prefix for a specific local expert.
@@ -3875,38 +3945,30 @@ def _build_expert_load_fn(
         """
         try:
             ckpt_dir = entry.checkpoint_dir or checkpoint_dir
-            state_dict = _ensure_state_dict_loaded(ckpt_dir)
+            actual_model = _get_single_model(target_model)
 
-            # Determine EP configuration from the model
-            ep_size = 1
-            num_experts_total = 1
-            actual_model = target_model
-            if isinstance(target_model, (list, tuple)):
-                actual_model = target_model[0]
-
-            # Try to get EP info from parallel_state
-            try:
-                from megatron.core import parallel_state as mpu
-                ep_size = mpu.get_expert_model_parallel_world_size()
-                # num_experts from args
-                from megatron.training.global_vars import get_args
-                num_experts_total = get_args().num_experts
-            except Exception:
-                # Fallback: try to infer from model structure
-                for name, _ in actual_model.named_parameters():
-                    if 'local_experts.' in name:
-                        # Extract max local expert index
+            # Determine EP configuration.  The source checkpoint shard is
+            # based on the global expert id, not the replacement rank's
+            # current EP rank.
+            _, _, ep_size, num_experts_total = _get_tp_ep_ranks_sizes()
+            if num_experts_total <= 1:
+                # Fallback: infer local expert count from model structure.
+                try:
+                    for name, _ in actual_model.named_parameters():
+                        if 'local_experts.' not in name:
+                            continue
                         parts = name.split('local_experts.')
-                        if len(parts) > 1:
-                            try:
-                                idx = int(parts[1].split('.')[0])
-                                num_local = idx + 1
-                                num_experts_total = max(
-                                    num_experts_total, num_local * ep_size,
-                                )
-                            except ValueError:
-                                pass
+                        if len(parts) <= 1:
+                            continue
+                        idx = int(parts[1].split('.')[0])
+                        num_experts_total = max(
+                            num_experts_total, (idx + 1) * ep_size,
+                        )
+                except Exception:
+                    pass
 
+            num_local_experts = max(1, num_experts_total // max(1, ep_size))
+            source_ep_rank = entry.expert_id // num_local_experts
             local_expert_idx = _compute_local_expert_idx(
                 entry.expert_id, num_experts_total, ep_size,
             )
@@ -3916,52 +3978,22 @@ def _build_expert_load_fn(
             # Each PP rank's model contains only the layers assigned to
             # its pipeline stage.  The state dict keys use 0-based
             # *local* indices (0..num_layers_per_stage-1).
-            pp_rank = 0
-            pp_size = 1
-            num_layers_per_pp_stage = None
-            try:
-                from megatron.core import parallel_state as mpu
-                pp_rank = mpu.get_pipeline_model_parallel_rank()
-                pp_size = mpu.get_pipeline_model_parallel_world_size()
-            except Exception:
-                pass
-
-            # Determine number of layers in this PP stage from model
-            if num_layers_per_pp_stage is None:
-                max_layer_idx = -1
-                for name, _ in actual_model.named_parameters():
-                    if name.startswith('decoder.layers.'):
-                        try:
-                            idx = int(name.split('decoder.layers.')[1].split('.')[0])
-                            max_layer_idx = max(max_layer_idx, idx)
-                        except (ValueError, IndexError):
-                            pass
-                if max_layer_idx >= 0:
-                    num_layers_per_pp_stage = max_layer_idx + 1
-
-            if num_layers_per_pp_stage is not None and pp_size > 1:
-                # Global layer range for this PP stage:
-                #   [pp_rank * L, (pp_rank+1) * L)  (1-based)
-                global_layer_start = pp_rank * num_layers_per_pp_stage + 1
-                global_layer_end = (pp_rank + 1) * num_layers_per_pp_stage
-                if not (global_layer_start <= entry.layer_id <= global_layer_end):
-                    # This entry belongs to a different PP stage — skip it.
-                    # The corresponding PP rank will handle it.
-                    logger.debug(
-                        "BSR-MoE: skipping expert (layer=%d, id=%d) — "
-                        "belongs to a different PP stage (this rank: "
-                        "layers %d-%d)",
-                        entry.layer_id, entry.expert_id,
-                        global_layer_start, global_layer_end,
-                    )
-                    return True  # not an error, just not our responsibility
-
-                # Convert to local (0-based) index within this PP stage
-                layer_idx_in_sd = entry.layer_id - global_layer_start
-            else:
-                # PP=1: global layer_id directly maps to 0-based index
-                layer_idx_in_sd = entry.layer_id - 1 if entry.layer_id >= 1 else entry.layer_id
+            total_num_layers = None
+            args = _get_args_or_none()
+            if args is not None:
+                total_num_layers = getattr(args, 'num_layers', None)
+            layer_idx_in_sd = _map_global_layer_to_local_checkpoint_idx(
+                entry.layer_id, actual_model, total_num_layers,
+            )
+            if layer_idx_in_sd is None:
+                logger.debug(
+                    "BSR-MoE: skipping expert (layer=%d, id=%d) — belongs "
+                    "to a different PP stage",
+                    entry.layer_id, entry.expert_id,
+                )
+                return True
             prefix = _get_expert_param_prefix(layer_idx_in_sd, local_expert_idx)
+            state_dict = _ensure_state_dict_loaded(ckpt_dir, source_ep_rank)
 
             # Find matching parameters in the model
             params_loaded = 0
@@ -4013,19 +4045,16 @@ def _build_expert_load_fn(
                 )
                 return True
             else:
-                # No params found — this can happen if the checkpoint
-                # uses a different naming convention (e.g., GroupedMLP
-                # fused weights).  Log warning but still return True
-                # to allow state transitions to proceed.
                 logger.warning(
                     "BSR-MoE: no matching params found for expert "
-                    "(layer=%d, global_id=%d, local_idx=%d, prefix=%s) "
-                    "in checkpoint %s (%d keys). "
-                    "State transitions will proceed without weight loading.",
-                    entry.layer_id, entry.expert_id, local_expert_idx,
-                    prefix, ckpt_dir, len(state_dict),
+                    "(layer=%d, global_id=%d, source_ep=%d, local_idx=%d, "
+                    "prefix=%s) in checkpoint %s (%d keys). "
+                    "Treating restore as failed to avoid reintegration "
+                    "without weights.",
+                    entry.layer_id, entry.expert_id, source_ep_rank,
+                    local_expert_idx, prefix, ckpt_dir, len(state_dict),
                 )
-                return True
+                return False
 
         except Exception as e:
             logger.error(

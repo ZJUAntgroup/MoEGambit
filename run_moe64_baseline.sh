@@ -45,7 +45,7 @@ export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/anal
 export CKPT_DIR="/mnt/ais-c1/dataset/zds/5.9/baseline"
 mkdir -p "${CKPT_DIR}"
 
-MAX_RETRIES=100
+MAX_RETRIES=1
 RETRY_DELAY=30
 retry=0
 

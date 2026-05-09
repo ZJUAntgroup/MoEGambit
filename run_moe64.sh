@@ -53,7 +53,7 @@ export CKPT_DIR="/mnt/ais-c1/dataset/zds/5.9/bsr"
 
 mkdir -p "${CKPT_DIR}"
 
-MAX_RETRIES=100
+MAX_RETRIES=1
 RETRY_DELAY=30
 retry=0
 

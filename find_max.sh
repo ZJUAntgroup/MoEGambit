@@ -158,7 +158,7 @@ run_training() {
 # ============================================================
 # Sweep loop
 # ============================================================
-MAX_RETRIES=100
+MAX_RETRIES=1
 RETRY_DELAY=30
 SAVE_LOG_SCRIPT="${SCRIPT_DIR}/log_analysis/save_train_log.sh"
 
