@@ -3767,9 +3767,14 @@ def _build_expert_load_fn(
 
         _cached_state_dict.update(sd)
         _cache_loaded[0] = True
+        # Log a few sample keys for debugging key-name mismatches
+        _sample_keys = list(_cached_state_dict.keys())[:10]
+        _expert_keys = [k for k in _cached_state_dict if 'local_experts' in k][:5]
         logger.info(
-            "BSR-MoE: checkpoint state dict cached (%d keys)",
+            "BSR-MoE: checkpoint state dict cached (%d keys). "
+            "Sample keys: %s. Expert keys: %s",
             len(_cached_state_dict),
+            _sample_keys, _expert_keys,
         )
         return _cached_state_dict
 
@@ -3811,9 +3816,14 @@ def _build_expert_load_fn(
         Steps:
         1. Load the full checkpoint state dict (cached on first call).
         2. Determine the local expert index from the global expert_id.
-        3. Build the parameter name prefix for this expert.
-        4. Extract matching parameters from the state dict.
-        5. Copy them into the model's corresponding parameter ``.data``.
+        3. Map the global layer_id to the local (PP-stage-relative) index.
+        4. Build the parameter name prefix for this expert.
+        5. Extract matching parameters from the state dict.
+        6. Copy them into the model's corresponding parameter ``.data``.
+
+        For PP>1, only the entries belonging to the current PP stage are
+        processed.  Entries for other stages are skipped (their weights are
+        loaded by the corresponding PP rank's own recovery callback).
         """
         try:
             ckpt_dir = entry.checkpoint_dir or checkpoint_dir
@@ -3853,11 +3863,56 @@ def _build_expert_load_fn(
                 entry.expert_id, num_experts_total, ep_size,
             )
 
-            # Build prefix for this expert's parameters in the model
-            # Megatron uses 0-based layer indexing in state dict keys
-            # but 1-based layer_number in TransformerLayer.
-            # The state dict keys use the 0-based index.
-            layer_idx_in_sd = entry.layer_id - 1 if entry.layer_id >= 1 else entry.layer_id
+            # ── Map global layer_id to PP-stage-local index ──
+            # entry.layer_id is a 1-based *global* MoE layer index.
+            # Each PP rank's model contains only the layers assigned to
+            # its pipeline stage.  The state dict keys use 0-based
+            # *local* indices (0..num_layers_per_stage-1).
+            pp_rank = 0
+            pp_size = 1
+            num_layers_per_pp_stage = None
+            try:
+                from megatron.core import parallel_state as mpu
+                pp_rank = mpu.get_pipeline_model_parallel_rank()
+                pp_size = mpu.get_pipeline_model_parallel_world_size()
+            except Exception:
+                pass
+
+            # Determine number of layers in this PP stage from model
+            if num_layers_per_pp_stage is None:
+                max_layer_idx = -1
+                for name, _ in actual_model.named_parameters():
+                    if name.startswith('decoder.layers.'):
+                        try:
+                            idx = int(name.split('decoder.layers.')[1].split('.')[0])
+                            max_layer_idx = max(max_layer_idx, idx)
+                        except (ValueError, IndexError):
+                            pass
+                if max_layer_idx >= 0:
+                    num_layers_per_pp_stage = max_layer_idx + 1
+
+            if num_layers_per_pp_stage is not None and pp_size > 1:
+                # Global layer range for this PP stage:
+                #   [pp_rank * L, (pp_rank+1) * L)  (1-based)
+                global_layer_start = pp_rank * num_layers_per_pp_stage + 1
+                global_layer_end = (pp_rank + 1) * num_layers_per_pp_stage
+                if not (global_layer_start <= entry.layer_id <= global_layer_end):
+                    # This entry belongs to a different PP stage — skip it.
+                    # The corresponding PP rank will handle it.
+                    logger.debug(
+                        "BSR-MoE: skipping expert (layer=%d, id=%d) — "
+                        "belongs to a different PP stage (this rank: "
+                        "layers %d-%d)",
+                        entry.layer_id, entry.expert_id,
+                        global_layer_start, global_layer_end,
+                    )
+                    return True  # not an error, just not our responsibility
+
+                # Convert to local (0-based) index within this PP stage
+                layer_idx_in_sd = entry.layer_id - global_layer_start
+            else:
+                # PP=1: global layer_id directly maps to 0-based index
+                layer_idx_in_sd = entry.layer_id - 1 if entry.layer_id >= 1 else entry.layer_id
             prefix = _get_expert_param_prefix(layer_idx_in_sd, local_expert_idx)
 
             # Find matching parameters in the model
