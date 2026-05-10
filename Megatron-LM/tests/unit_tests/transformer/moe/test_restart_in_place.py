@@ -87,6 +87,36 @@ def _clone_state(model, optimizer):
 # Tests
 # =====================================================================
 
+class TestFaultInjectionSelection(unittest.TestCase):
+    """Test single-rank scheduled fault selection helpers."""
+
+    def test_random_rank_selection_uses_global_world(self):
+        """rank=-1 should pick one global rank, not one rank per EP group."""
+        import random
+        from megatron.core.transformer.moe.bsr_integration import (
+            _select_fault_inject_rank,
+        )
+
+        cfg = {
+            "random_rank": True,
+            "world_size": 64,
+            "global_ep_groups": [list(range(i, i + 8)) for i in range(0, 64, 8)],
+            "ep_group_ranks": list(range(56, 64)),
+            "fault_rng": random.Random(42),
+        }
+
+        self.assertEqual(_select_fault_inject_rank(cfg), 14)
+
+    def test_expert_ids_use_failed_rank_ep_group(self):
+        """Expert IDs should be computed from the failed rank's own EP group."""
+        from megatron.core.transformer.moe.bsr_integration import (
+            _expert_ids_for_rank,
+        )
+
+        ep_groups = [list(range(i, i + 8)) for i in range(0, 64, 8)]
+        self.assertEqual(_expert_ids_for_rank(57, ep_groups, 128), list(range(16, 32)))
+
+
 class TestInvalidation(unittest.TestCase):
     """Test tensor invalidation with NaN sentinels."""
 
@@ -116,6 +146,32 @@ class TestInvalidation(unittest.TestCase):
                         self.assertTrue(
                             torch.isnan(v).all(),
                             f"Optimizer state '{k}' should be all NaN",
+                        )
+
+    def test_zero_rank_tensors(self):
+        """Zero-memory simulation should clear params and optimizer states."""
+        from megatron.core.transformer.moe.restart_in_place import (
+            zero_rank_tensors,
+        )
+        model, optimizer = _make_model_and_optimizer()
+        stats = zero_rank_tensors(model, optimizer)
+
+        self.assertGreater(stats["params_invalidated"], 0)
+        self.assertGreater(stats["opt_states_invalidated"], 0)
+
+        for name, param in model.named_parameters():
+            self.assertTrue(
+                torch.equal(param.data, torch.zeros_like(param.data)),
+                f"Param '{name}' should be zero after zero-memory simulation",
+            )
+
+        for param, state in optimizer.state.items():
+            if isinstance(state, dict):
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor):
+                        self.assertTrue(
+                            torch.equal(v, torch.zeros_like(v)),
+                            f"Optimizer state '{k}' should be zero",
                         )
 
     def test_invalidate_dense_only(self):

@@ -105,6 +105,137 @@ def _get_tp_ep_ranks_sizes() -> Tuple[int, int, int, int]:
     return tp_rank, ep_rank, ep_size, num_experts_total
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in ("", "0", "false", "no", "off")
+
+
+def _build_global_ep_groups(args: Any, world_size: int, local_ep_group_ranks: List[int]) -> List[List[int]]:
+    """Best-effort reconstruction of all global EP groups."""
+    if world_size <= 0:
+        return [list(local_ep_group_ranks)]
+    try:
+        from megatron.core.parallel_state import RankGenerator
+
+        tp_size = getattr(args, 'expert_tensor_parallel_size', None)
+        if tp_size is None:
+            tp_size = getattr(args, 'tensor_model_parallel_size', 1)
+        tp_size = int(tp_size or 1)
+        ep_size = int(getattr(args, 'expert_model_parallel_size', len(local_ep_group_ranks)) or 1)
+        pp_size = int(getattr(args, 'pipeline_model_parallel_size', 1) or 1)
+        denom = max(tp_size * ep_size * pp_size, 1)
+        if world_size % denom != 0:
+            raise ValueError(
+                f"world_size={world_size} is not divisible by tp*ep*pp={denom}"
+            )
+        dp_size = world_size // denom
+        order = 'tp-cp-ep-pp-dp' if getattr(args, 'use_tp_pp_dp_mapping', False) else 'tp-cp-ep-dp-pp'
+        return RankGenerator(
+            tp=tp_size,
+            ep=ep_size,
+            dp=dp_size,
+            pp=pp_size,
+            cp=1,
+            order=order,
+            rank_offset=0,
+        ).get_ranks('ep')
+    except Exception as exc:
+        logger.warning(
+            "BSR-MoE: failed to reconstruct global EP groups (%s); "
+            "falling back to local EP group ranks=%s",
+            exc, local_ep_group_ranks,
+        )
+        return [list(local_ep_group_ranks)]
+
+
+def _find_ep_group_for_rank(global_rank: int, ep_groups: List[List[int]]) -> List[int]:
+    for group in ep_groups:
+        if global_rank in group:
+            return list(group)
+    return []
+
+
+def _expert_ids_for_rank(global_rank: int, ep_groups: List[List[int]], num_experts: int) -> List[int]:
+    ep_group = _find_ep_group_for_rank(global_rank, ep_groups)
+    if not ep_group:
+        return []
+    ep_size = len(ep_group)
+    if ep_size <= 0:
+        return []
+    ep_rank_idx = ep_group.index(global_rank)
+    num_local = num_experts // ep_size
+    return list(range(ep_rank_idx * num_local, (ep_rank_idx + 1) * num_local))
+
+
+def _select_fault_inject_rank(cfg: Dict[str, Any]) -> int:
+    if not cfg.get('random_rank', False):
+        return int(cfg['inject_rank'])
+    world_size = int(cfg.get('world_size', 0) or 0)
+    if world_size <= 0:
+        ep_groups = cfg.get('global_ep_groups') or []
+        world_ranks = sorted({rank for group in ep_groups for rank in group})
+    else:
+        world_ranks = list(range(world_size))
+    if not world_ranks:
+        world_ranks = list(cfg.get('ep_group_ranks') or [0])
+    return int(cfg['fault_rng'].choice(world_ranks))
+
+
+def _local_distributed_rank() -> int:
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank()
+    return 0
+
+
+def _maybe_clear_failed_rank_tensors(cfg: Dict[str, Any], failed_rank: int, step: int) -> None:
+    if not cfg.get('zero_memory', False):
+        return
+    local_rank = _local_distributed_rank()
+    if local_rank != failed_rank:
+        return
+
+    try:
+        from megatron.core.transformer.moe.restart_in_place import (
+            invalidate_rank_tensors,
+            zero_rank_tensors,
+        )
+
+        model_ref = cfg.get('model_ref')
+        optimizer_ref = cfg.get('optimizer_ref')
+        if model_ref is None:
+            logger.warning(
+                "BSR-MoE fault injection: zero-memory requested for rank %d "
+                "but model_ref is None (step=%d)",
+                failed_rank, step,
+            )
+            return
+
+        chunks = model_ref if isinstance(model_ref, (list, tuple)) else (model_ref,)
+        stats = {"params_invalidated": 0, "opt_states_invalidated": 0}
+        fill_mode = str(cfg.get('memory_fill_mode', 'zero')).lower()
+        for chunk in chunks:
+            if fill_mode == 'nan':
+                chunk_stats = invalidate_rank_tensors(chunk, optimizer_ref)
+            else:
+                chunk_stats = zero_rank_tensors(chunk, optimizer_ref)
+            stats["params_invalidated"] += chunk_stats.get("params_invalidated", 0)
+            stats["opt_states_invalidated"] += chunk_stats.get("opt_states_invalidated", 0)
+
+        logger.warning(
+            "[%s] BSR-MoE fault injection: cleared failed rank tensors "
+            "(rank=%d, mode=%s, params=%d, opt_states=%d, step=%d)",
+            _ts(), failed_rank, fill_mode,
+            stats["params_invalidated"], stats["opt_states_invalidated"], step,
+        )
+    except Exception as exc:
+        logger.error(
+            "BSR-MoE fault injection: failed to clear tensors on rank %d: %s",
+            failed_rank, exc,
+        )
+
+
 def _extract_decoder_layer_idx(name: str) -> Optional[int]:
     match = _DECODER_LAYER_RE.search(name)
     if match is None:
@@ -333,11 +464,14 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
     # Get DP group ranks
     dp_group = mpu.get_data_parallel_group()
     dp_group_ranks = _get_process_group_ranks(dp_group)
+    world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else len(ep_group_ranks)
+    global_ep_groups = _build_global_ep_groups(args, world_size, ep_group_ranks)
 
     logger.warning(
         "BSR-MoE: num_experts=%d, num_layers=%d, ep_size=%d, "
-        "ep_group_ranks=%s, dp_group_ranks=%s",
+        "ep_group_ranks=%s, dp_group_ranks=%s, global_ep_groups=%d",
         num_experts, num_layers, ep_size, ep_group_ranks, dp_group_ranks,
+        len(global_ep_groups),
     )
 
     # ---- 3. Initialize singletons ----
@@ -565,8 +699,14 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             'replacement_rank': int(os.environ.get('BSR_FAULT_REPLACEMENT_RANK', '-1')),
             'num_experts': num_experts,
             'num_layers': num_layers,
+            'world_size': world_size,
             'ep_group_ranks': ep_group_ranks,
+            'global_ep_groups': global_ep_groups,
             'dp_group_ranks': dp_group_ranks,
+            'zero_memory': _env_flag('BSR_FAULT_ZERO_MEMORY', False),
+            'memory_fill_mode': os.environ.get('BSR_FAULT_MEMORY_FILL', 'zero'),
+            'model_ref': model,
+            'optimizer_ref': optimizer,
             'injected': False,
             'replacement_injected': False,
             'next_inject_step': int(os.environ.get('BSR_FAULT_INJECT_STEP', '50')),
@@ -574,19 +714,22 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
         }
         logger.warning(
             "BSR-MoE: fault injection configured — type=%s, rank=%s, step=%d, "
-            "interval=%d, random_rank=%s, seed=%d",
+            "interval=%d, random_rank=%s, seed=%d, zero_memory=%s, memory_fill=%s",
             _FAULT_INJECTOR_CONFIG['inject_type'],
             'random' if _FAULT_INJECTOR_CONFIG['random_rank'] else str(_FAULT_INJECTOR_CONFIG['inject_rank']),
             _FAULT_INJECTOR_CONFIG['inject_step'],
             _FAULT_INJECTOR_CONFIG['inject_interval'],
             _FAULT_INJECTOR_CONFIG['random_rank'],
             _fault_inject_seed,
+            _FAULT_INJECTOR_CONFIG['zero_memory'],
+            _FAULT_INJECTOR_CONFIG['memory_fill_mode'],
         )
 
         # ---- 5b. Wire restart-in-place tensor invalidation callback ----
-        if inject_type == 'restart_in_place' and _RECOVERY_CONTROLLER is not None:
+        if _RECOVERY_CONTROLLER is not None:
             from megatron.core.transformer.moe.restart_in_place import (
                 invalidate_rank_tensors,
+                zero_rank_tensors,
             )
 
             # Capture model/optimizer references for the invalidation callback
@@ -594,23 +737,34 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             _rip_optimizer_ref = optimizer
 
             def _invalidate_tensor_callback(**kwargs):
-                """Invalidate all tensors with NaN sentinels (restart-in-place)."""
+                """Invalidate tensors on the failed rank only."""
+                failed_rank = int(kwargs.get('failed_rank', -1))
+                local_rank = _local_distributed_rank()
+                if failed_rank >= 0 and local_rank != failed_rank:
+                    return
                 m = _rip_model_ref
                 opt = _rip_optimizer_ref
                 if m is not None:
+                    fill_mode = os.environ.get('BSR_FAULT_MEMORY_FILL', 'nan').strip().lower()
                     # If model is a list of chunks, iterate
                     if isinstance(m, (list, tuple)):
                         for chunk in m:
-                            invalidate_rank_tensors(chunk, opt)
+                            if fill_mode == 'zero':
+                                zero_rank_tensors(chunk, opt)
+                            else:
+                                invalidate_rank_tensors(chunk, opt)
                     else:
-                        invalidate_rank_tensors(m, opt)
+                        if fill_mode == 'zero':
+                            zero_rank_tensors(m, opt)
+                        else:
+                            invalidate_rank_tensors(m, opt)
 
             _RECOVERY_CONTROLLER.register_callbacks(
                 invalidate_tensor_fn=_invalidate_tensor_callback,
             )
             logger.warning(
-                "BSR-MoE: restart-in-place invalidate_tensor_fn wired to "
-                "recovery controller"
+                "BSR-MoE: restart-in-place invalidate_tensor_fn wired "
+                "(target rank only)"
             )
 
     _BSR_INITIALIZED = True
@@ -3146,35 +3300,38 @@ def _maybe_inject_fault(step: int) -> None:
         cfg['injected'] = True
         cfg['inject_count'] += 1
         inject_type = cfg['inject_type']
-        ep_group_ranks = cfg['ep_group_ranks']
+        local_ep_group_ranks = cfg['ep_group_ranks']
         dp_group_ranks = cfg['dp_group_ranks']
         num_experts = cfg['num_experts']
-        ep_size = len(ep_group_ranks)
 
         # Determine which rank to fault
-        if cfg['random_rank']:
-            inject_rank = cfg['fault_rng'].choice(ep_group_ranks)
-        else:
-            inject_rank = cfg['inject_rank']
+        inject_rank = _select_fault_inject_rank(cfg)
         cfg['current_failed_rank'] = inject_rank
-
-        # Compute expert IDs on the target rank
-        if inject_rank in ep_group_ranks:
-            ep_rank_idx = ep_group_ranks.index(inject_rank)
-            num_local = num_experts // ep_size
-            expert_ids = list(range(ep_rank_idx * num_local, (ep_rank_idx + 1) * num_local))
-        else:
-            expert_ids = []
-
-        logger.warning(
-            "[%s] BSR-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, experts=%s",
-            _ts(), cfg['inject_count'], inject_type, inject_rank, step, expert_ids,
+        ep_group_ranks = (
+            _find_ep_group_for_rank(inject_rank, cfg.get('global_ep_groups') or [])
+            or list(local_ep_group_ranks)
         )
 
-        if inject_type in ('quarantine', 'hard_failure'):
+        # Compute expert IDs on the target rank
+        expert_ids = _expert_ids_for_rank(
+            inject_rank,
+            cfg.get('global_ep_groups') or [ep_group_ranks],
+            num_experts,
+        )
+        if inject_type != 'restart_in_place':
+            _maybe_clear_failed_rank_tensors(cfg, inject_rank, step)
+
+        logger.warning(
+            "[%s] BSR-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
+            "experts=%s, ep_group=%s",
+            _ts(), cfg['inject_count'], inject_type, inject_rank, step,
+            expert_ids, ep_group_ranks,
+        )
+
+        if inject_type in ('quarantine', 'soft_failure', 'soft', 'hard_failure'):
             ctrl.on_hard_rank_failure(
                 failed_rank=inject_rank,
-                reason="scheduled_fault_injection",
+                reason=f"scheduled_{inject_type}_injection",
                 step=step,
                 expert_ids=expert_ids,
                 ep_group_ranks=ep_group_ranks,

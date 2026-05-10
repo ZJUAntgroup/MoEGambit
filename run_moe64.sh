@@ -18,15 +18,15 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # Fault injection type: "quarantine", "hard_failure", or "restart_in_place"
 #   - quarantine:         soft fault (rank still alive but isolated)
 #   - hard_failure:       hard fault (rank cannot participate in collectives)
-#   - restart_in_place:   NaN-sentinel restart simulation (replacement=self)
-export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
+#   - restart_in_place:   in-place restart simulation (replacement=self)
+export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-quarantine}"
 # Which rank to inject the fault on (0-based global rank)
 # Set to -1 to enable random rank selection per fault (seeded)
-export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
+export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:-57}"
 # At which training step to inject the fault
 export BSR_FAULT_INJECT_STEP="${BSR_FAULT_INJECT_STEP:-70}"
 # Interval between repeated fault injections (0 = single injection only)
-export BSR_FAULT_INJECT_INTERVAL="${BSR_FAULT_INJECT_INTERVAL:-40}"
+export BSR_FAULT_INJECT_INTERVAL="${BSR_FAULT_INJECT_INTERVAL:-0}"
 # Random seed for fault rank selection (ensures reproducible fault sequence)
 export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
 # At which training step the replacement rank becomes ready
@@ -34,6 +34,9 @@ export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
 export BSR_FAULT_REPLACEMENT_STEP="${BSR_FAULT_REPLACEMENT_STEP:-70}"
 # Replacement rank ID (-1 = auto-assign; for restart_in_place, always = failed_rank)
 export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
+# Simulate a device whose model/optimizer memory comes back zeroed.
+export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
+export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
 
 # ============================================================
 # Log & Analysis Configuration
@@ -139,7 +142,6 @@ run_training() {
     --moe-bsr-degraded-mode-policy \
     --moe-bsr-reintegration-barrier \
     --moe-bsr-fault-injection \
-    --moe-bsr-restart-in-place \
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 1000 \
     --moe-bsr-degraded-s-max 500 \

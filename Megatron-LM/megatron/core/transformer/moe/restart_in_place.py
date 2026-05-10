@@ -144,12 +144,12 @@ class VerificationResult:
 # Tensor invalidation
 # =====================================================================
 
-def invalidate_rank_tensors(model, optimizer=None) -> Dict[str, int]:
-    """Invalidate all parameters and optimizer states with NaN sentinels.
+def invalidate_rank_tensors(model, optimizer=None, fill_value: float = float('nan')) -> Dict[str, int]:
+    """Invalidate all parameters and optimizer states with a sentinel value.
 
-    This simulates GPU memory loss by filling all tensor data with NaN.
-    After this call, any computation using these tensors will produce NaN,
-    making it impossible to accidentally use stale data.
+    This simulates GPU memory loss by overwriting tensor contents.  The
+    default NaN sentinel makes accidental stale use obvious; tests can pass
+    ``fill_value=0.0`` to model a device whose memory comes back zeroed.
 
     Args:
         model: The model whose parameters to invalidate.
@@ -164,7 +164,7 @@ def invalidate_rank_tensors(model, optimizer=None) -> Dict[str, int]:
 
     # Invalidate all model parameters
     for name, param in model.named_parameters():
-        param.data.fill_(float('nan'))
+        param.data.fill_(fill_value)
         stats["params_invalidated"] += 1
 
     # Invalidate optimizer states
@@ -173,14 +173,20 @@ def invalidate_rank_tensors(model, optimizer=None) -> Dict[str, int]:
             if isinstance(state, dict):
                 for state_name, state_val in state.items():
                     if hasattr(state_val, 'fill_'):
-                        state_val.fill_(float('nan'))
+                        state_val.fill_(fill_value)
                         stats["opt_states_invalidated"] += 1
 
     logger.warning(
-        "BSR-MoE restart-in-place: invalidated %d params, %d optimizer states",
-        stats["params_invalidated"], stats["opt_states_invalidated"],
+        "BSR-MoE restart-in-place: invalidated %d params, %d optimizer states "
+        "(fill_value=%s)",
+        stats["params_invalidated"], stats["opt_states_invalidated"], fill_value,
     )
     return stats
+
+
+def zero_rank_tensors(model, optimizer=None) -> Dict[str, int]:
+    """Overwrite all parameters and optimizer states with zeros."""
+    return invalidate_rank_tensors(model, optimizer, fill_value=0.0)
 
 
 def invalidate_dense_params_only(model, optimizer=None, classification=None):
