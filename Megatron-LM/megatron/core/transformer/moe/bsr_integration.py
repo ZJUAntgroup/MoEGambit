@@ -51,6 +51,7 @@ def _ts() -> str:
 
 
 _DECODER_LAYER_RE = re.compile(r'(?:^|\.)decoder\.layers\.(\d+)(?:\.|$)')
+_LOCAL_EXPERT_RE = re.compile(r'(?:^|\.)local_experts\.(\d+)(?:\.|$)')
 
 
 def _get_single_model(model: Any) -> Any:
@@ -112,6 +113,32 @@ def _extract_decoder_layer_idx(name: str) -> Optional[int]:
         return int(match.group(1))
     except ValueError:
         return None
+
+
+def _extract_local_expert_idx(name: str) -> Optional[int]:
+    match = _LOCAL_EXPERT_RE.search(name)
+    if match is None:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _replace_decoder_layer_idx(name: str, layer_idx: int) -> str:
+    return re.sub(
+        r'((?:^|\.)decoder\.layers\.)\d+(\.|$)',
+        lambda match: f"{match.group(1)}{layer_idx}{match.group(2)}",
+        name,
+        count=1,
+    )
+
+
+def _strip_leading_module_prefixes(name: str) -> str:
+    """Normalize DDP/Float16 wrappers that prepend one or more module prefixes."""
+    while name.startswith('module.'):
+        name = name[len('module.'):]
+    return name
 
 
 def _collect_model_layer_indices(model: Any, *, moe_only: bool = False) -> List[int]:
@@ -3994,47 +4021,73 @@ def _build_expert_load_fn(
                 return True
             prefix = _get_expert_param_prefix(layer_idx_in_sd, local_expert_idx)
             state_dict = _ensure_state_dict_loaded(ckpt_dir, source_ep_rank)
+            normalized_state_dict = {
+                _strip_leading_module_prefixes(key): value
+                for key, value in state_dict.items()
+                if isinstance(key, str)
+            }
 
             # Find matching parameters in the model
             params_loaded = 0
+            model_prefix_matches = 0
+            target_global_layer_idx = entry.layer_id - 1 if entry.layer_id >= 1 else entry.layer_id
+            state_prefix_matches = sum(
+                1 for key in normalized_state_dict
+                if key.startswith(prefix)
+            )
+            sample_model_names = []
+            sample_state_keys = [
+                key for key in normalized_state_dict
+                if key.startswith(prefix)
+            ][:4]
             for name, param in actual_model.named_parameters():
-                if prefix not in name:
+                normalized_name = _strip_leading_module_prefixes(name)
+                model_layer_idx = _extract_decoder_layer_idx(normalized_name)
+                model_expert_idx = _extract_local_expert_idx(normalized_name)
+
+                if model_layer_idx is None or model_expert_idx != local_expert_idx:
                     continue
 
+                # Runtime module names may be PP-local (decoder.layers.0..5)
+                # or global (decoder.layers.42..47).  Checkpoint torch-format
+                # keys are PP-local, so accept either model convention.
+                if model_layer_idx not in (layer_idx_in_sd, target_global_layer_idx):
+                    continue
+
+                model_prefix_matches += 1
+                if len(sample_model_names) < 4:
+                    sample_model_names.append(name)
+
                 # Look up the corresponding key in the checkpoint state dict
-                # The checkpoint may use the same key or a slightly different
-                # naming convention.  Try exact match first.
-                if name in state_dict:
-                    ckpt_tensor = state_dict[name]
-                    if ckpt_tensor.shape == param.data.shape:
-                        param.data.copy_(ckpt_tensor)
-                        params_loaded += 1
-                    else:
-                        logger.warning(
-                            "BSR-MoE: shape mismatch for %s: "
-                            "model=%s, checkpoint=%s — skipping",
-                            name, param.data.shape, ckpt_tensor.shape,
-                        )
+                # naming convention.  Normalize any number of leading
+                # ``module.`` wrappers on both sides before comparing.
+                ckpt_tensor = state_dict.get(name)
+                if ckpt_tensor is None:
+                    ckpt_tensor = normalized_state_dict.get(normalized_name)
+                if ckpt_tensor is None and model_layer_idx != layer_idx_in_sd:
+                    checkpoint_local_name = _replace_decoder_layer_idx(
+                        normalized_name, layer_idx_in_sd,
+                    )
+                    ckpt_tensor = normalized_state_dict.get(checkpoint_local_name)
+
+                if ckpt_tensor is None:
+                    logger.debug(
+                        "BSR-MoE: checkpoint key not found for %s "
+                        "(normalized=%s)",
+                        name, normalized_name,
+                    )
+                    continue
+
+                if ckpt_tensor.shape == param.data.shape:
+                    param.data.copy_(ckpt_tensor)
+                    params_loaded += 1
                 else:
-                    # Try without 'module.' prefix (DDP wrapping)
-                    alt_name = name.replace('module.', '', 1) if name.startswith('module.') else f'module.{name}'
-                    if alt_name in state_dict:
-                        ckpt_tensor = state_dict[alt_name]
-                        if ckpt_tensor.shape == param.data.shape:
-                            param.data.copy_(ckpt_tensor)
-                            params_loaded += 1
-                        else:
-                            logger.warning(
-                                "BSR-MoE: shape mismatch for %s (alt=%s): "
-                                "model=%s, checkpoint=%s — skipping",
-                                name, alt_name,
-                                param.data.shape, ckpt_tensor.shape,
-                            )
-                    else:
-                        logger.debug(
-                            "BSR-MoE: checkpoint key not found for %s "
-                            "(also tried %s)", name, alt_name,
-                        )
+                    logger.warning(
+                        "BSR-MoE: shape mismatch for %s (normalized=%s): "
+                        "model=%s, checkpoint=%s — skipping",
+                        name, normalized_name,
+                        param.data.shape, ckpt_tensor.shape,
+                    )
 
             if params_loaded > 0:
                 logger.info(
@@ -4049,10 +4102,14 @@ def _build_expert_load_fn(
                     "BSR-MoE: no matching params found for expert "
                     "(layer=%d, global_id=%d, source_ep=%d, local_idx=%d, "
                     "prefix=%s) in checkpoint %s (%d keys). "
+                    "model_prefix_matches=%d, checkpoint_prefix_matches=%d, "
+                    "sample_model=%s, sample_checkpoint=%s. "
                     "Treating restore as failed to avoid reintegration "
                     "without weights.",
                     entry.layer_id, entry.expert_id, source_ep_rank,
                     local_expert_idx, prefix, ckpt_dir, len(state_dict),
+                    model_prefix_matches, state_prefix_matches,
+                    sample_model_names, sample_state_keys,
                 )
                 return False
 
