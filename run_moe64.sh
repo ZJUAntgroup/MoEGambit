@@ -3,7 +3,7 @@ set -x
 
 export NCCL_IB_DISABLE=1
 export NCCL_DEBUG=WARN
-export PYTHONPATH=$PYTHONPATH:./Megatron-LM
+export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -18,15 +18,17 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # Fault injection type: "quarantine", "hard_failure", or "restart_in_place"
 #   - quarantine:         soft fault (rank still alive but isolated)
 #   - hard_failure:       hard fault (rank cannot participate in collectives)
-#   - restart_in_place:   in-place restart simulation (replacement=self)
+#   - restart_in_place:   in-place restart simulation (replacement=self);
+#                         with dense-param-sync + stale-expert-restore below,
+#                         recovery follows the HYBRID_RECOVERY path.
 export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
 # Which rank to inject the fault on (0-based global rank)
 # Set to -1 to enable random rank selection per fault (seeded)
-export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:-57}"
-# At which training step to inject the fault
+export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
+# First training step to inject the fault
 export BSR_FAULT_INJECT_STEP="${BSR_FAULT_INJECT_STEP:-70}"
 # Interval between repeated fault injections (0 = single injection only)
-export BSR_FAULT_INJECT_INTERVAL="${BSR_FAULT_INJECT_INTERVAL:-0}"
+export BSR_FAULT_INJECT_INTERVAL="${BSR_FAULT_INJECT_INTERVAL:-40}"
 # Random seed for fault rank selection (ensures reproducible fault sequence)
 export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
 # At which training step the replacement rank becomes ready
@@ -51,13 +53,13 @@ export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
-export CKPT_DIR="/mnt/ais-c1/dataset/zds/5.12/bsr"
+export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/5.12/bsr}"
 
 
 mkdir -p "${CKPT_DIR}"
 
 MAX_RETRIES=1
-RETRY_DELAY=30
+RETRY_DELAY="${RETRY_DELAY:-30}"
 retry=0
 
 # ============================================================

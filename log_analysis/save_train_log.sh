@@ -18,6 +18,7 @@
 #   LOG_ANALYZE_ON_SIGNAL  收到 SIGTERM/INT 后是否仍尝试最终分析 (默认 1=是)
 #   LOG_SYNC_EVERY_LINES   每写入多少行 fsync 一次日志文件 (默认 0=不强制 fsync)
 #   TRAIN_RUN_ID           本次运行 id (默认 timestamp_pid)
+#   TRAIN_LOG_FALLBACK_DIR 主日志目录不可写时的降级目录 (默认 ./train_logs_fallback)
 #
 # 示例:
 #   LOG_ANALYZE_INTERVAL=100 bash save_train_log.sh torchrun ... pretrain_gpt.py ...
@@ -34,6 +35,8 @@ fi
 # 配置
 # ============================================================
 LOG_DIR="${TRAIN_LOG_DIR:-./train_logs}"
+PRIMARY_LOG_DIR="${LOG_DIR}"
+FALLBACK_LOG_DIR="${TRAIN_LOG_FALLBACK_DIR:-./train_logs_fallback}"
 ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
 ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
 ANALYZE_ON_SIGNAL="${LOG_ANALYZE_ON_SIGNAL:-1}"
@@ -58,7 +61,24 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/analyze_train_log.py}"
 
-mkdir -p "${LOG_DIR}"
+ensure_dir() {
+    local dir="$1"
+    [ -n "${dir}" ] || return 1
+    mkdir -p "${dir}" 2>/dev/null
+}
+
+if ! ensure_dir "${LOG_DIR}"; then
+    echo "[save_train_log] 日志目录不可写: ${LOG_DIR}，降级到 ${FALLBACK_LOG_DIR}" >&2
+    LOG_DIR="${FALLBACK_LOG_DIR}"
+    if ! ensure_dir "${LOG_DIR}"; then
+        LOG_DIR="${TMPDIR:-/tmp}/train_logs_${USER:-unknown}"
+        echo "[save_train_log] fallback 日志目录不可写，继续降级到 ${LOG_DIR}" >&2
+        ensure_dir "${LOG_DIR}" || {
+            echo "[save_train_log] 无法创建任何日志目录，退出" >&2
+            exit 1
+        }
+    fi
+fi
 
 # 两个日志文件:
 # 1. train_latest.log - 只保留最后一次运行（覆盖）
@@ -68,10 +88,37 @@ LOG_FILE_FULL="${LOG_DIR}/train_full.log"
 STATUS_FILE="${LOG_DIR}/train_latest.status"
 ANALYSIS_DIR="${LOG_DIR}/analysis_latest"
 
-# 清空 latest 日志，开始新的记录
-: > "${LOG_FILE_LATEST}"
-rm -rf "${ANALYSIS_DIR}"
-mkdir -p "${ANALYSIS_DIR}"
+# 日志写入目标可独立降级。比如 NFS 上 latest 失效时，至少保留终端输出和 full。
+LATEST_LOG_DISABLED=0
+FULL_LOG_DISABLED=0
+STATUS_DISABLED=0
+
+prepare_log_file() {
+    local path="$1"
+    local mode="$2"
+
+    ensure_dir "$(dirname "${path}")" || return 1
+
+    if [ "${mode}" = "truncate" ]; then
+        # rm + noclobber-safe create: 避免外层 SHELLOPTS=noclobber 时 ": > file" 失败。
+        rm -f "${path}" 2>/dev/null || true
+        : 2>/dev/null >| "${path}" || return 1
+    else
+        : 2>/dev/null >> "${path}" || return 1
+    fi
+}
+
+# 清空 latest 日志，开始新的记录；full 仅确保可追加。
+if ! prepare_log_file "${LOG_FILE_LATEST}" "truncate"; then
+    echo "[save_train_log] 无法初始化 latest 日志: ${LOG_FILE_LATEST}，将只输出到终端/full" >&2
+    LATEST_LOG_DISABLED=1
+fi
+if ! prepare_log_file "${LOG_FILE_FULL}" "append"; then
+    echo "[save_train_log] 无法初始化 full 日志: ${LOG_FILE_FULL}，将只输出到终端/latest" >&2
+    FULL_LOG_DISABLED=1
+fi
+rm -rf "${ANALYSIS_DIR}" 2>/dev/null || true
+ensure_dir "${ANALYSIS_DIR}" || true
 
 PIPE_DIR=""
 PIPE_FILE=""
@@ -88,24 +135,71 @@ write_status() {
     local signal="${3:-}"
     local tmp_file="${STATUS_FILE}.tmp.$$"
 
-    {
+    if [ "${STATUS_DISABLED}" -eq 1 ]; then
+        return
+    fi
+
+    ensure_dir "$(dirname "${STATUS_FILE}")" || {
+        STATUS_DISABLED=1
+        return
+    }
+
+    if ! {
         echo "run_id=${RUN_ID}"
         echo "state=${state}"
         echo "exit_code=${exit_code}"
         echo "signal=${signal}"
         echo "updated_at=$(date)"
+        echo "primary_log_dir=${PRIMARY_LOG_DIR}"
+        echo "active_log_dir=${LOG_DIR}"
         echo "latest_log=${LOG_FILE_LATEST}"
         echo "full_log=${LOG_FILE_FULL}"
         echo "analysis_dir=${ANALYSIS_DIR}"
-    } > "${tmp_file}"
-    mv -f "${tmp_file}" "${STATUS_FILE}"
+    } 2>/dev/null > "${tmp_file}"; then
+        STATUS_DISABLED=1
+        rm -f "${tmp_file}" 2>/dev/null || true
+        return
+    fi
+
+    if ! mv -f "${tmp_file}" "${STATUS_FILE}" 2>/dev/null; then
+        STATUS_DISABLED=1
+        rm -f "${tmp_file}" 2>/dev/null || true
+    fi
+}
+
+safe_append_log() {
+    local path="$1"
+    local label="$2"
+    local disabled_var="$3"
+    local line="$4"
+
+    if [ "${!disabled_var}" -eq 1 ]; then
+        return
+    fi
+
+    if { printf '%s\n' "${line}"; } 2>/dev/null >> "${path}"; then
+        return
+    fi
+
+    # Slow path only: shared filesystems can briefly lose directories/handles.
+    # Recreate the parent once and retry, but do not pay mkdir cost per line.
+    ensure_dir "$(dirname "${path}")" || {
+        printf '[save_train_log] 无法写入 %s 日志: %s，已禁用该目标\n' "${label}" "${path}" >&2
+        printf -v "${disabled_var}" '1'
+        return
+    }
+
+    if ! { printf '%s\n' "${line}"; } 2>/dev/null >> "${path}"; then
+        printf '[save_train_log] 无法写入 %s 日志: %s，已禁用该目标\n' "${label}" "${path}" >&2
+        printf -v "${disabled_var}" '1'
+    fi
 }
 
 append_line_to_logs() {
     local line="$1"
     printf '%s\n' "${line}"
-    printf '%s\n' "${line}" >> "${LOG_FILE_LATEST}"
-    printf '%s\n' "${line}" >> "${LOG_FILE_FULL}"
+    safe_append_log "${LOG_FILE_LATEST}" "latest" "LATEST_LOG_DISABLED" "${line}"
+    safe_append_log "${LOG_FILE_FULL}" "full" "FULL_LOG_DISABLED" "${line}"
 }
 
 emit_control() {
@@ -114,6 +208,17 @@ emit_control() {
 
 sync_log_files() {
     if [ "${SYNC_EVERY_LINES}" -le 0 ]; then
+        return
+    fi
+
+    local paths=()
+    if [ "${LATEST_LOG_DISABLED}" -eq 0 ]; then
+        paths+=("${LOG_FILE_LATEST}")
+    fi
+    if [ "${FULL_LOG_DISABLED}" -eq 0 ]; then
+        paths+=("${LOG_FILE_FULL}")
+    fi
+    if [ "${#paths[@]}" -eq 0 ]; then
         return
     fi
 
@@ -126,7 +231,7 @@ for path in sys.argv[1:]:
         os.fsync(fd)
     finally:
         os.close(fd)
-' "${LOG_FILE_LATEST}" "${LOG_FILE_FULL}" 2>/dev/null || true
+' "${paths[@]}" 2>/dev/null || true
 }
 
 run_training_command() {
@@ -177,7 +282,10 @@ run_atomic_analysis() {
         return
     fi
 
-    mkdir -p "$(dirname "${out_file}")"
+    if ! ensure_dir "$(dirname "${out_file}")"; then
+        emit_control "[save_train_log] 无法创建分析目录: $(dirname "${out_file}")，跳过 ${label} 分析"
+        return
+    fi
 
     local tmp_out="${out_file}.tmp.$$"
     local tmp_csv=""
@@ -238,7 +346,10 @@ run_final_analysis() {
 
     emit_control ""
     emit_control "[save_train_log] 运行最终分析..."
-    mkdir -p "${ANALYSIS_DIR}"
+    ensure_dir "${ANALYSIS_DIR}" || {
+        emit_control "[save_train_log] 无法创建分析目录: ${ANALYSIS_DIR}，跳过最终分析"
+        return
+    }
 
     local final_report="${ANALYSIS_DIR}/analysis_final.txt"
     local final_csv="${ANALYSIS_DIR}/analysis_final.csv"
