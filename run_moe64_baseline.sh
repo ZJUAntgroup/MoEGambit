@@ -34,6 +34,18 @@ BASE_CRASH_RANK="${CRASH_RANK}"
 NEXT_CRASH_STEP="${CRASH_AT_STEP}"
 CRASH_INJECT_INDEX=0
 
+# Keep checkpoint-restart baseline isolated from the BSR-MoE recovery stack.
+# Faults in this script are driven only by CRASH_* and recover only via --load.
+unset BSR_FAULT_INJECT_TYPE
+unset BSR_FAULT_INJECT_RANK
+unset BSR_FAULT_INJECT_STEP
+unset BSR_FAULT_INJECT_INTERVAL
+unset BSR_FAULT_INJECT_SEED
+unset BSR_FAULT_REPLACEMENT_STEP
+unset BSR_FAULT_REPLACEMENT_RANK
+unset BSR_FAULT_ZERO_MEMORY
+unset BSR_FAULT_MEMORY_FILL
+
 # ============================================================
 # Log & Analysis Configuration
 # ============================================================
