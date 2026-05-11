@@ -19,7 +19,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 #   - quarantine:         soft fault (rank still alive but isolated)
 #   - hard_failure:       hard fault (rank cannot participate in collectives)
 #   - restart_in_place:   in-place restart simulation (replacement=self)
-export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-quarantine}"
+export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
 # Which rank to inject the fault on (0-based global rank)
 # Set to -1 to enable random rank selection per fault (seeded)
 export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:-57}"
@@ -142,6 +142,7 @@ run_training() {
     --moe-bsr-degraded-mode-policy \
     --moe-bsr-reintegration-barrier \
     --moe-bsr-fault-injection \
+    --moe-bsr-restart-in-place \
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 1000 \
     --moe-bsr-degraded-s-max 500 \
