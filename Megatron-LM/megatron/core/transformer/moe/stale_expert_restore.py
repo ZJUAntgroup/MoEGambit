@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple, TYPE_CHECKING
@@ -642,6 +643,8 @@ class StaleExpertRestoreCoordinator:
     def __init__(self) -> None:
         self._plans: List[ExpertRestorePlan] = []
         self._results: List[ExpertRestoreResult] = []
+        self._async_plan_lock = threading.Lock()
+        self._async_plan_signatures: Set[Tuple[Any, ...]] = set()
 
     def plan_restore(
         self,
@@ -718,6 +721,31 @@ class StaleExpertRestoreCoordinator:
         from megatron.core.transformer.moe.async_recovery_worker import (
             AsyncLoadRequest,
         )
+
+        plan_signature = (
+            plan.failed_rank,
+            plan.replacement_rank,
+            step,
+            tuple(sorted(
+                (
+                    entry.layer_id,
+                    entry.expert_id,
+                    entry.checkpoint_dir,
+                    entry.checkpoint_step,
+                    entry.host_rank,
+                )
+                for entry in plan.entries
+            )),
+        )
+        with self._async_plan_lock:
+            if plan_signature in self._async_plan_signatures:
+                logger.info(
+                    "BSR-MoE stale expert restore: duplicate async restore "
+                    "plan ignored (failed_rank=%d, replacement=%d, step=%d)",
+                    plan.failed_rank, plan.replacement_rank, step,
+                )
+                return []
+            self._async_plan_signatures.add(plan_signature)
 
         request_ids: List[str] = []
         for entry in plan.entries:

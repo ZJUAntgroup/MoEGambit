@@ -97,7 +97,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -461,6 +461,9 @@ class RecoveryController:
         self._async_recovery_expert_ids: List[int] = []
         self._async_recovery_failed_rank: int = -1
         self._async_recovery_replacement_rank: int = -1
+        self._async_recovery_key: Optional[Tuple[int, int, int]] = None
+        self._async_recovery_submitted_keys: Set[Tuple[int, int, int]] = set()
+        self._async_recovery_completed_keys: Set[Tuple[int, int, int]] = set()
 
         # Callbacks for async recovery (set by bsr_integration)
         self._async_expert_restore_fn: Optional[Callable] = None
@@ -1182,8 +1185,12 @@ class RecoveryController:
             try:
                 completed = self._poll_async_recovery_fn(step=step)
                 if completed:
+                    completed_key = self._async_recovery_key
                     self._async_recovery_pending = False
                     self._async_expert_request_ids.clear()
+                    self._async_recovery_key = None
+                    if completed_key is not None:
+                        self._async_recovery_completed_keys.add(completed_key)
                     logger.info(
                         "BSR-MoE controller: async recovery completed at "
                         "step %d (failed_rank=%d, replacement=%d)",
@@ -1900,17 +1907,43 @@ class RecoveryController:
             _ts(), t1 - t0, step,
         )
 
-        # B2b. Restore expert weights from checkpoint
-        #      Prefer async path if available; fall back to sync.
+        # B2b. Restore expert weights from checkpoint.
+        #
+        # Expert weights must be present before experts become STALE_RUNNABLE.
+        # Only optimizer state is allowed to trail behind via the deferred
+        # optimizer loader.  Keep the older async expert path as a fallback for
+        # tests or experimental wiring where the synchronous callback is absent.
         t0 = time.time()
-        if self._async_expert_restore_fn is not None:
+        if self._expert_restore_fn is not None:
+            self._expert_restore_fn(
+                failed_rank=failed_rank,
+                replacement_rank=replacement_rank,
+                step=step,
+                expert_ids=ready_record.expert_ids,
+            )
+            logger.warning(
+                "[%s] BSR-MoE controller: expert_restore (sync weights, "
+                "deferred optimizer) elapsed=%.3fs (step=%d)",
+                _ts(), time.time() - t0, step,
+            )
+        elif self._async_expert_restore_fn is not None:
             try:
-                request_ids = self._async_expert_restore_fn(
-                    failed_rank=failed_rank,
-                    replacement_rank=replacement_rank,
-                    step=step,
-                    expert_ids=ready_record.expert_ids,
-                )
+                recovery_key = (failed_rank, replacement_rank, step)
+                if recovery_key in self._async_recovery_submitted_keys:
+                    logger.info(
+                        "BSR-MoE controller: async expert restore already "
+                        "submitted for failed=%d replacement=%d step=%d; "
+                        "skipping duplicate submission",
+                        failed_rank, replacement_rank, step,
+                    )
+                    request_ids = []
+                else:
+                    request_ids = self._async_expert_restore_fn(
+                        failed_rank=failed_rank,
+                        replacement_rank=replacement_rank,
+                        step=step,
+                        expert_ids=ready_record.expert_ids,
+                    )
                 if request_ids:
                     self._async_recovery_pending = True
                     self._async_expert_request_ids = list(request_ids)
@@ -1919,6 +1952,8 @@ class RecoveryController:
                     )
                     self._async_recovery_failed_rank = failed_rank
                     self._async_recovery_replacement_rank = replacement_rank
+                    self._async_recovery_key = recovery_key
+                    self._async_recovery_submitted_keys.add(recovery_key)
                     logger.warning(
                         "[%s] BSR-MoE controller: async expert restore "
                         "submitted (%d requests, elapsed=%.3fs, step=%d)",
@@ -1941,19 +1976,6 @@ class RecoveryController:
                         "fallback) elapsed=%.3fs (step=%d)",
                         _ts(), time.time() - t0, step,
                     )
-        elif self._expert_restore_fn is not None:
-            self._expert_restore_fn(
-                failed_rank=failed_rank,
-                replacement_rank=replacement_rank,
-                step=step,
-                expert_ids=ready_record.expert_ids,
-            )
-            logger.warning(
-                "[%s] BSR-MoE controller: expert_restore (sync) "
-                "elapsed=%.3fs (step=%d)",
-                _ts(), time.time() - t0, step,
-            )
-
         # Mark the recovery path for external query
         self._last_recovery_path = "HYBRID_RECOVERY"
 
@@ -2313,6 +2335,9 @@ class RecoveryController:
         self._async_recovery_expert_ids.clear()
         self._async_recovery_failed_rank = -1
         self._async_recovery_replacement_rank = -1
+        self._async_recovery_key = None
+        self._async_recovery_submitted_keys.clear()
+        self._async_recovery_completed_keys.clear()
         if self._reintegration_barrier is not None:
             self._reintegration_barrier.reset()
         self._reintegration_barrier = None

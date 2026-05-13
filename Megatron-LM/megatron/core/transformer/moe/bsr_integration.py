@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -816,8 +817,12 @@ def bsr_after_iteration(step: int) -> bool:
     if _OPTIMIZER_COMMIT_GUARD is not None:
         _OPTIMIZER_COMMIT_GUARD.end_iteration(step)
 
-    # Poll async recovery (expert weights + optimizer states)
-    _poll_async_recovery(step)
+    # Expert weight restore normally finishes at the safe point.  Only poll
+    # this path when an experimental async expert restore is actually pending;
+    # deferred optimizer loads are handled separately below.
+    if (_RECOVERY_CONTROLLER is not None
+            and _RECOVERY_CONTROLLER.async_recovery_pending):
+        _poll_async_recovery(step)
 
     # Poll deferred optimizer loader
     _maybe_poll_deferred_optimizer(step)
@@ -2293,6 +2298,21 @@ def _wire_recovery_callbacks(
                     _opt_for_sync = None
                     _include_opt = False
 
+            # Dense parameter recovery uses a DP-group broadcast, so every
+            # rank in the replacement's DP group must participate in the same
+            # order.  Ranks outside that DP group must stay out.
+            local_rank = _local_distributed_rank()
+            if (replacement_rank >= 0 and dp_group_ranks
+                    and replacement_rank not in dp_group_ranks):
+                logger.debug(
+                    "BSR-MoE dense_sync_fn: rank %d skipping dense sync for "
+                    "replacement rank %d outside local DP group %s "
+                    "(failed=%d, step=%d)",
+                    local_rank, replacement_rank, dp_group_ranks,
+                    failed_rank, step,
+                )
+                return
+
             # Plan the recovery
             plan = coordinator.plan_recovery(
                 replacement_rank=replacement_rank,
@@ -2308,6 +2328,15 @@ def _wire_recovery_callbacks(
                     "for replacement_rank=%d (failed_rank=%d). "
                     "Dense params will need checkpoint recovery.",
                     replacement_rank, failed_rank,
+                )
+                return
+            if plan.source_rank not in dp_group_ranks:
+                logger.error(
+                    "BSR-MoE dense_sync_fn: selected source rank %d is not "
+                    "in local DP group %s for replacement_rank=%d "
+                    "(failed_rank=%d, step=%d)",
+                    plan.source_rank, dp_group_ranks, replacement_rank,
+                    failed_rank, step,
                 )
                 return
 
@@ -2378,6 +2407,15 @@ def _wire_recovery_callbacks(
                 logger.warning(
                     "BSR-MoE expert_restore_fn: no expert_ids provided, "
                     "skipping restore (step=%d)", step,
+                )
+                return
+
+            local_rank = _local_distributed_rank()
+            if replacement_rank >= 0 and local_rank != replacement_rank:
+                logger.debug(
+                    "BSR-MoE expert_restore_fn: rank %d skipping expert "
+                    "restore for replacement rank %d (failed=%d, step=%d)",
+                    local_rank, replacement_rank, failed_rank, step,
                 )
                 return
 
@@ -3601,6 +3639,15 @@ def _wire_async_recovery_callbacks(
         if not expert_ids:
             return []
 
+        local_rank = _local_distributed_rank()
+        if replacement_rank >= 0 and local_rank != replacement_rank:
+            logger.debug(
+                "BSR-MoE async expert restore: rank %d skipping restore "
+                "for replacement rank %d (failed=%d, step=%d)",
+                local_rank, replacement_rank, failed_rank, step,
+            )
+            return []
+
         coordinator = ser_mod.get_stale_expert_restore_coordinator()
 
         # Build a restore plan (same as sync path)
@@ -3935,6 +3982,8 @@ def _build_expert_load_fn(
     # replacement rank may need to load source experts from a different EP
     # shard than its current EP rank.
     _cached_state_dicts: Dict[str, Dict[str, Any]] = {}
+    _cached_normalized_state_dicts: Dict[int, Dict[str, Any]] = {}
+    _cache_lock = threading.Lock()
 
     def _ensure_state_dict_loaded(ckpt_dir: str, source_ep_rank: int) -> Dict[str, Any]:
         """Load and cache the checkpoint state dict.
@@ -4051,34 +4100,40 @@ def _build_expert_load_fn(
                    if is_dist_ckpt else "")
             )
 
-        if ckpt_path in _cached_state_dicts:
+        with _cache_lock:
+            if ckpt_path in _cached_state_dicts:
+                return _cached_state_dicts[ckpt_path]
+
+            logger.info(
+                "BSR-MoE: loading checkpoint state dict from %s "
+                "(source_ep_rank=%d)",
+                ckpt_path, source_ep_rank,
+            )
+            try:
+                sd = torch.load(
+                    ckpt_path, map_location='cpu', weights_only=False,
+                )
+            except TypeError:
+                sd = torch.load(ckpt_path, map_location='cpu')
+
+            # Megatron wraps model state under 'model' key
+            if 'model' in sd:
+                sd = sd['model']
+
+            _cached_state_dicts[ckpt_path] = dict(sd)
+            # Log a few sample keys for debugging key-name mismatches
+            _sample_keys = list(_cached_state_dicts[ckpt_path].keys())[:10]
+            _expert_keys = [
+                k for k in _cached_state_dicts[ckpt_path]
+                if 'local_experts' in k
+            ][:5]
+            logger.info(
+                "BSR-MoE: checkpoint state dict cached (%d keys). "
+                "Sample keys: %s. Expert keys: %s",
+                len(_cached_state_dicts[ckpt_path]),
+                _sample_keys, _expert_keys,
+            )
             return _cached_state_dicts[ckpt_path]
-
-        logger.info(
-            "BSR-MoE: loading checkpoint state dict from %s "
-            "(source_ep_rank=%d)",
-            ckpt_path, source_ep_rank,
-        )
-        sd = torch.load(ckpt_path, map_location='cpu')
-
-        # Megatron wraps model state under 'model' key
-        if 'model' in sd:
-            sd = sd['model']
-
-        _cached_state_dicts[ckpt_path] = dict(sd)
-        # Log a few sample keys for debugging key-name mismatches
-        _sample_keys = list(_cached_state_dicts[ckpt_path].keys())[:10]
-        _expert_keys = [
-            k for k in _cached_state_dicts[ckpt_path]
-            if 'local_experts' in k
-        ][:5]
-        logger.info(
-            "BSR-MoE: checkpoint state dict cached (%d keys). "
-            "Sample keys: %s. Expert keys: %s",
-            len(_cached_state_dicts[ckpt_path]),
-            _sample_keys, _expert_keys,
-        )
-        return _cached_state_dicts[ckpt_path]
 
     def _get_expert_param_prefix(layer_id: int, local_expert_idx: int) -> str:
         """Build the parameter name prefix for a specific local expert.
@@ -4178,11 +4233,20 @@ def _build_expert_load_fn(
                 return True
             prefix = _get_expert_param_prefix(layer_idx_in_sd, local_expert_idx)
             state_dict = _ensure_state_dict_loaded(ckpt_dir, source_ep_rank)
-            normalized_state_dict = {
-                _strip_leading_module_prefixes(key): value
-                for key, value in state_dict.items()
-                if isinstance(key, str)
-            }
+            state_dict_cache_key = id(state_dict)
+            with _cache_lock:
+                normalized_state_dict = _cached_normalized_state_dicts.get(
+                    state_dict_cache_key,
+                )
+                if normalized_state_dict is None:
+                    normalized_state_dict = {
+                        _strip_leading_module_prefixes(key): value
+                        for key, value in state_dict.items()
+                        if isinstance(key, str)
+                    }
+                    _cached_normalized_state_dicts[state_dict_cache_key] = (
+                        normalized_state_dict
+                    )
 
             # Find matching parameters in the model
             params_loaded = 0
