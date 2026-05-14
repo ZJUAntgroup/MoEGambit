@@ -53,8 +53,8 @@ unset BSR_FAULT_MEMORY_FILL
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/5.12_baseline}"
 # Run incremental analysis every N iterations (0 = disabled; final analysis still runs)
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
-# Run analysis when training ends (1 = yes)
-export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
+# Run analysis when training ends (1 = yes; 0 = disabled)
+export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-0}"
 # Path to analysis script (auto-detected from this script's location)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"

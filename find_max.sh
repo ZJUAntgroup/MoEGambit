@@ -44,8 +44,8 @@ run_training() {
   mkdir -p "${CKPT_DIR}"
 
   export TRAIN_LOG_DIR="${RUN_DIR}/log"
-  export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-100}"
-  export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
+  export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
+  export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-0}"
   export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
   # Fault injection config
