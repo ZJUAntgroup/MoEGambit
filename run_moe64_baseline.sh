@@ -51,8 +51,8 @@ unset BSR_FAULT_MEMORY_FILL
 # ============================================================
 # Log directory
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/5.12_baseline}"
-# Run incremental analysis every N iterations (0 = only at end)
-export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-100}"
+# Run incremental analysis every N iterations (0 = disabled; final analysis still runs)
+export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
 # Run analysis when training ends (1 = yes)
 export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-1}"
 # Path to analysis script (auto-detected from this script's location)

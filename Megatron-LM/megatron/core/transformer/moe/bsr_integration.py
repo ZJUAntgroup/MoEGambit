@@ -2482,48 +2482,42 @@ def _wire_recovery_callbacks(
                         "from %s: %s", checkpoint_dir, e,
                     )
 
-            # Build restore plan
-            if manifest is not None:
-                plan = coordinator.plan_restore(
-                    manifest=manifest,
-                    failed_rank=failed_rank,
-                    replacement_rank=replacement_rank,
-                )
-            else:
-                # Synthetic plan: no checkpoint available, create entries
-                # from expert_ids so we can still do state transitions.
-                # IMPORTANT: Only create entries for actual MoE layers
-                # (registered in health manager), not all transformer layers.
-                plan = ser_mod.ExpertRestorePlan(
-                    failed_rank=failed_rank,
-                    replacement_rank=replacement_rank,
-                    step=step,
-                )
-                # ExpertHealthManager has been removed.  Infer actual MoE
-                # layers from the concrete model, handling DDP names like
-                # ``module.decoder.layers.0...`` and converting PP-local
-                # indices to 1-based global layer IDs.
-                moe_layer_ids = _infer_local_moe_layer_ids(model, num_layers)
-                pp_rank, pp_size = _get_pp_rank_size()
-                logger.info(
-                    "BSR-MoE expert_restore_fn: inferred MoE layers for PP "
-                    "stage %d/%d: %s",
-                    pp_rank, pp_size, moe_layer_ids,
-                )
+            # Build restore plan from the failed rank's expert ids.  The
+            # manifest is a checkpoint index, not a reliable source of global
+            # rank ownership under DP/PP; older manifests may also be metadata
+            # only.  The fault detector already computed the affected global
+            # experts, so use those directly and restrict them to this PP stage.
+            manifest_step = manifest.step if manifest is not None else -1
+            plan_step = manifest_step if manifest_step >= 0 else step
+            plan = ser_mod.ExpertRestorePlan(
+                failed_rank=failed_rank,
+                replacement_rank=replacement_rank,
+                step=plan_step,
+            )
+            moe_layer_ids = _infer_local_moe_layer_ids(model, num_layers)
+            pp_rank, pp_size = _get_pp_rank_size()
+            logger.info(
+                "BSR-MoE expert_restore_fn: inferred MoE layers for PP "
+                "stage %d/%d: %s",
+                pp_rank, pp_size, moe_layer_ids,
+            )
 
-                for eid in expert_ids:
-                    for layer_id in moe_layer_ids:
-                        plan.entries.append(ser_mod.ExpertRestoreEntry(
-                            layer_id=layer_id,
-                            expert_id=eid,
-                            checkpoint_step=-1,
-                            host_rank=replacement_rank,
-                        ))
-                logger.warning(
-                    "BSR-MoE expert_restore_fn: using synthetic plan "
-                    "(%d entries across %d MoE layers, no checkpoint weights)",
-                    len(plan.entries), len(moe_layer_ids),
-                )
+            for eid in expert_ids:
+                for layer_id in moe_layer_ids:
+                    plan.entries.append(ser_mod.ExpertRestoreEntry(
+                        layer_id=layer_id,
+                        expert_id=eid,
+                        checkpoint_step=plan_step,
+                        checkpoint_dir=checkpoint_dir or "",
+                        host_rank=replacement_rank,
+                    ))
+            logger.warning(
+                "BSR-MoE expert_restore_fn: planned %d expert-layer restores "
+                "from affected expert ids (experts=%s, pp_layers=%s, "
+                "checkpoint=%s, manifest_entries=%d)",
+                len(plan.entries), list(expert_ids), moe_layer_ids,
+                checkpoint_dir, len(manifest.entries) if manifest is not None else -1,
+            )
 
             local_moe_layer_ids = set(_infer_local_moe_layer_ids(model, num_layers))
             if local_moe_layer_ids and plan.entries:
@@ -3317,7 +3311,11 @@ def _maybe_inject_fault(step: int) -> None:
     """Check if a scheduled fault should be injected at this step.
 
     Supports periodic fault injection: if ``BSR_FAULT_INJECT_INTERVAL`` > 0,
-    faults are injected every ``interval`` steps starting from ``inject_step``.
+    faults are injected every ``interval`` user-visible iterations starting
+    from ``inject_step``.  Megatron's loop counter is 0-based and the training
+    log prints after incrementing it, so the visible iteration is
+    ``step + 1``.
+
     Each injection is a full cycle: fault → recovery → next fault.
     The next fault is only injected after the previous recovery completes
     (i.e., ``injected`` and ``replacement_injected`` are both reset).
@@ -3333,8 +3331,10 @@ def _maybe_inject_fault(step: int) -> None:
     if ctrl is None:
         return
 
-    # Inject fault at the configured step (or next periodic step)
-    if not cfg['injected'] and step >= cfg['next_inject_step']:
+    visible_step = int(step) + 1
+
+    # Inject fault at the configured user-visible iteration.
+    if not cfg['injected'] and visible_step >= cfg['next_inject_step']:
         cfg['injected'] = True
         cfg['inject_count'] += 1
         inject_type = cfg['inject_type']
@@ -3357,12 +3357,12 @@ def _maybe_inject_fault(step: int) -> None:
             num_experts,
         )
         if inject_type != 'restart_in_place':
-            _maybe_clear_failed_rank_tensors(cfg, inject_rank, step)
+            _maybe_clear_failed_rank_tensors(cfg, inject_rank, visible_step)
 
         logger.warning(
             "[%s] BSR-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
             "experts=%s, ep_group=%s",
-            _ts(), cfg['inject_count'], inject_type, inject_rank, step,
+            _ts(), cfg['inject_count'], inject_type, inject_rank, visible_step,
             expert_ids, ep_group_ranks,
         )
 
@@ -3370,7 +3370,7 @@ def _maybe_inject_fault(step: int) -> None:
             ctrl.on_hard_rank_failure(
                 failed_rank=inject_rank,
                 reason=f"scheduled_{inject_type}_injection",
-                step=step,
+                step=visible_step,
                 expert_ids=expert_ids,
                 ep_group_ranks=ep_group_ranks,
                 dp_group_ranks=dp_group_ranks,
@@ -3379,7 +3379,7 @@ def _maybe_inject_fault(step: int) -> None:
             ctrl.on_hard_rank_failure(
                 failed_rank=inject_rank,
                 reason="scheduled_restart_in_place_injection",
-                step=step,
+                step=visible_step,
                 expert_ids=expert_ids,
                 ep_group_ranks=ep_group_ranks,
                 dp_group_ranks=dp_group_ranks,
@@ -3389,13 +3389,13 @@ def _maybe_inject_fault(step: int) -> None:
             # marks it ready, so skip the separate replacement injection.
             cfg['replacement_injected'] = True
             # Schedule next periodic injection if interval > 0
-            _schedule_next_injection(cfg, step)
+            _schedule_next_injection(cfg, visible_step)
         else:
             logger.error("BSR-MoE: unknown fault injection type: %s", inject_type)
 
     # Inject replacement ready at the configured step
     if (cfg['injected'] and not cfg['replacement_injected']
-            and step >= cfg['replacement_step']):
+            and visible_step >= cfg['replacement_step']):
         cfg['replacement_injected'] = True
         inject_rank = cfg.get('current_failed_rank', cfg['inject_rank'])
         replacement_rank = cfg['replacement_rank']
@@ -3420,21 +3420,21 @@ def _maybe_inject_fault(step: int) -> None:
         logger.warning(
             "[%s] BSR-MoE FAULT INJECTION: replacement ready — "
             "failed_rank=%d, replacement_rank=%d, step=%d",
-            _ts(), inject_rank, replacement_rank, step,
+            _ts(), inject_rank, replacement_rank, visible_step,
         )
 
         # Announce replacement and mark ready
         ctrl.on_replacement_assigned(
             failed_rank=inject_rank,
             replacement_rank=replacement_rank,
-            step=step,
+            step=visible_step,
         )
         ctrl.on_replacement_ready(
             failed_rank=inject_rank,
-            step=step,
+            step=visible_step,
         )
         # Schedule next periodic injection if interval > 0
-        _schedule_next_injection(cfg, step)
+        _schedule_next_injection(cfg, visible_step)
 
 
 def _schedule_next_injection(cfg: dict, current_step: int) -> None:
@@ -4641,29 +4641,50 @@ def bsr_save_manifest(save_dir: str, iteration: int) -> None:
         return
 
     try:
-        import json
+        from megatron.core.transformer.moe import expert_directory as ed_mod
 
-        manifest: Dict[str, Any] = {
-            'manifest_version': 2,
+        metadata: Dict[str, Any] = {
             'iteration': iteration,
             'recovery_phase': 'UNKNOWN',
             'is_degraded': False,
         }
 
         if _RECOVERY_CONTROLLER is not None:
-            manifest['recovery_phase'] = _RECOVERY_CONTROLLER.phase.name
-            manifest['is_degraded'] = _RECOVERY_CONTROLLER.is_degraded
+            metadata['recovery_phase'] = _RECOVERY_CONTROLLER.phase.name
+            metadata['is_degraded'] = _RECOVERY_CONTROLLER.is_degraded
             tracker = _RECOVERY_CONTROLLER.expert_tracker
             if not tracker.all_healthy():
-                manifest['expert_recovery'] = tracker.summary()
+                metadata['expert_recovery'] = tracker.summary()
 
         iter_dir = os.path.join(save_dir, f'iter_{iteration:07d}')
         os.makedirs(iter_dir, exist_ok=True)
-        manifest_path = os.path.join(iter_dir, 'bsr_manifest.json')
-        with open(manifest_path, 'w') as f:
-            json.dump(manifest, f, indent=2, default=str)
 
-        logger.info("BSR-MoE: manifest saved to %s", manifest_path)
+        directory = ed_mod.get_active_expert_directory()
+        if directory is None:
+            logger.warning(
+                "BSR-MoE: active expert directory unavailable; "
+                "writing metadata-only recovery manifest for iteration %d",
+                iteration,
+            )
+            manifest = ed_mod.RecoveryManifest(
+                step=iteration,
+                checkpoint_dir=iter_dir,
+                entries=[],
+                metadata=metadata,
+            )
+        else:
+            manifest = ed_mod.RecoveryManifest.from_directory(
+                directory,
+                step=iteration,
+                checkpoint_dir=iter_dir,
+                extra_metadata=metadata,
+            )
+
+        manifest_path = manifest.save(iter_dir)
+        logger.info(
+            "BSR-MoE: manifest saved to %s (%d entries)",
+            manifest_path, len(manifest.entries),
+        )
 
     except Exception as e:
         logger.error("BSR-MoE: failed to save manifest: %s", e)
