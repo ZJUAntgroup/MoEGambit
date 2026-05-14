@@ -490,7 +490,7 @@ def pull_dense_params_from_peer(
             result.attempt = attempt
             result.elapsed_seconds = time.monotonic() - start_time
 
-            logger.warning(
+            logger.debug(
                 "BSR-MoE dense param sync: SUCCESS — synced %d params "
                 "(%d scalars) from rank %d (attempt %d, %.2fs, "
                 "skipped %d expert params)",

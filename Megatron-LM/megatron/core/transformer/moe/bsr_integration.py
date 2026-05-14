@@ -794,7 +794,17 @@ def bsr_before_iteration(step: int) -> bool:
 
     # Delegate to recovery controller
     if _RECOVERY_CONTROLLER is not None:
-        return _RECOVERY_CONTROLLER.before_iteration(step=step)
+        controller_step = step
+        try:
+            phase_name = getattr(_RECOVERY_CONTROLLER.phase, "name", "")
+            if phase_name == "SAFE_POINT_REPAIR" and step >= 0:
+                # The train loop counter is 0-based. A scheduled fault for
+                # visible iteration N enters SAFE_POINT_REPAIR while the loop
+                # still holds N-1, so use N for recovery logs and records.
+                controller_step = step + 1
+        except Exception:
+            controller_step = step
+        return _RECOVERY_CONTROLLER.before_iteration(step=controller_step)
 
     return False
 
@@ -824,12 +834,22 @@ def bsr_after_iteration(step: int) -> bool:
             and _RECOVERY_CONTROLLER.async_recovery_pending):
         _poll_async_recovery(step)
 
-    # Poll deferred optimizer loader
-    _maybe_poll_deferred_optimizer(step)
+    # Poll deferred optimizer loader.  Immediately after a safe-point repair,
+    # the recovery phase is REINTEGRATED while the loop still holds the
+    # pre-increment step, so use the visible iteration for recovery logs.
+    recovery_step = step
+    if _RECOVERY_CONTROLLER is not None:
+        try:
+            phase_name = getattr(_RECOVERY_CONTROLLER.phase, "name", "")
+            if phase_name == "REINTEGRATED" and step >= 0:
+                recovery_step = step + 1
+        except Exception:
+            recovery_step = step
+    _maybe_poll_deferred_optimizer(recovery_step)
 
     # Delegate to recovery controller
     if _RECOVERY_CONTROLLER is not None:
-        ctrl_action = _RECOVERY_CONTROLLER.after_iteration(step=step)
+        ctrl_action = _RECOVERY_CONTROLLER.after_iteration(step=recovery_step)
         action_taken = action_taken or ctrl_action
 
     return action_taken
@@ -2365,13 +2385,21 @@ def _wire_recovery_callbacks(
 
             if result.success:
                 elapsed = time.time() - t_start
-                logger.warning(
+                summary_rank = (
+                    replacement_rank < 0
+                    or local_rank == replacement_rank
+                )
+                log_fn = logger.warning if summary_rank else logger.debug
+                log_fn(
                     "[%s] BSR-MoE dense param sync: SUCCESS — synced %d params "
-                    "(%d scalars) from rank %d "
-                    "(attempt 1, %.2fs, skipped %d expert params)",
+                    "(%d scalars) from single source rank %d "
+                    "(attempt 1, %.2fs, skipped %d expert params, "
+                    "replacement_rank=%d, participants=%s)",
                     _ts(), result.num_params_synced, result.num_scalars_synced,
                     result.source_rank, elapsed,
                     result.num_expert_skipped,
+                    replacement_rank,
+                    list(dp_group_ranks or []),
                 )
             else:
                 elapsed = time.time() - t_start
@@ -3193,6 +3221,7 @@ def _wire_recovery_callbacks(
         if commit_guard is not None:
             commit_guard.block(
                 reason=f"hard_failure_rank_{failed_rank}_step_{step}",
+                step=step,
             )
         logger.warning(
             "BSR-MoE: optimizer commit blocked for step %d "

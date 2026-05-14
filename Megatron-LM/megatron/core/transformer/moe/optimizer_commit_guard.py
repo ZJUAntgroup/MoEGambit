@@ -172,6 +172,7 @@ class OptimizerCommitGuard:
         self._phase: CommitPhase = CommitPhase.NOT_STARTED
         self._blocked: bool = False
         self._block_reason: str = ""
+        self._block_step: int = -1
         self._in_iteration: bool = False
 
         # Invalidation check function
@@ -230,6 +231,7 @@ class OptimizerCommitGuard:
         self._phase = CommitPhase.NOT_STARTED
         self._blocked = False
         self._block_reason = ""
+        self._block_step = -1
         self._in_iteration = True
         self._current_record = CommitRecord(step=step, timestamp=time.time())
 
@@ -246,7 +248,7 @@ class OptimizerCommitGuard:
     # Explicit block API
     # -----------------------------------------------------------------
 
-    def block(self, reason: str = "") -> None:
+    def block(self, reason: str = "", step: int = -1) -> None:
         """Explicitly block optimizer commit for the current iteration.
 
         Called by RecoveryController.on_hard_rank_failure() to ensure
@@ -255,8 +257,10 @@ class OptimizerCommitGuard:
         """
         self._blocked = True
         self._block_reason = reason
+        self._block_step = step
         logger.warning(
-            "OptimizerCommitGuard: commit BLOCKED (reason=%s)", reason,
+            "OptimizerCommitGuard: commit BLOCKED (step=%d, reason=%s)",
+            step if step >= 0 else self._current_step, reason,
         )
 
     # -----------------------------------------------------------------
@@ -279,10 +283,11 @@ class OptimizerCommitGuard:
             self._total_blocks += 1
             if self._current_record is not None:
                 self._current_record.blocked = True
+            log_step = self._block_step if self._block_step >= 0 else self._current_step
             logger.warning(
                 "BSR-MoE OptimizerCommitGuard: BLOCKING optimizer.step() "
                 "at step %d — explicitly blocked (reason=%s)",
-                self._current_step, self._block_reason,
+                log_step, self._block_reason,
             )
             return False
 
@@ -338,10 +343,11 @@ class OptimizerCommitGuard:
         if self._current_record is not None:
             self._current_record.skipped = True
 
+        log_step = self._block_step if self._block_step >= 0 else self._current_step
         logger.info(
             "BSR-MoE OptimizerCommitGuard: optimizer.step() SKIPPED "
             "at step %d (reason: %s)",
-            self._current_step, reason or "iteration_invalid",
+            log_step, reason or "iteration_invalid",
         )
 
     # -----------------------------------------------------------------
