@@ -50,7 +50,7 @@ unset BSR_FAULT_MEMORY_FILL
 # Log & Analysis Configuration
 # ============================================================
 # Log directory
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/5.12_baseline}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/5.14_baseline}"
 # Run incremental analysis every N iterations (0 = disabled; final analysis still runs)
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
 # Run analysis when training ends (1 = yes; 0 = disabled)
@@ -59,7 +59,7 @@ export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
-export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/5.12/baseline}"
+export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/5.14/baseline}"
 mkdir -p "${CKPT_DIR}"
 
 MAX_RETRIES="${MAX_RETRIES:-300}"
