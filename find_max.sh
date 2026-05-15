@@ -13,25 +13,25 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export TORCH_CUDA_ARCH_LIST="9.0"
 
 # ============================================================
-# Experiment: sweep fault injection step in [1500, 1999]
+# Experiment: sweep fault injection step in [150, 199]
 # ============================================================
-# Each run: 3000 iters total, single hard_failure injection,
-# hybrid recovery (stale expert restore + dense sync from peer).
+# Each run: 600 iters total, first 200 iters normal training,
+# then inject a single hard_failure at a specific step and
+# test hybrid recovery (stale expert restore + dense sync from peer).
 #
-# Fault injection points to test (binary search style):
-#   1500, 1625, 1750, 1875, 1999
+# Fault injection points: step 150, 151, ..., 199 (50 runs)
 #
 # Each run gets its own checkpoint & log directory:
-#   /mnt/ais-c1/dataset/zds/5.8/find_max/step_1500/
-#   /mnt/ais-c1/dataset/zds/5.8/find_max/step_1625/
+#   /mnt/ais-c1/dataset/zds/find_max/step_150/
+#   /mnt/ais-c1/dataset/zds/find_max/step_151/
 #   ...
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="/mnt/ais-c1/dataset/zds/5.8/find_max"
+BASE_DIR="/mnt/ais-c1/dataset/zds/find_max/5.15"
 
-# Fault injection steps to sweep
-FAULT_STEPS=(1500 1625 1750 1875 1999)
+# Fault injection steps to sweep: 150 to 199
+FAULT_STEPS=($(seq 150 199))
 
 # ============================================================
 # Training function (parameterized by FAULT_STEP)
@@ -100,7 +100,7 @@ run_training() {
     --rotary-percent 1.0 \
     --micro-batch-size 8 \
     --global-batch-size 64 \
-    --train-iters 3000 \
+    --train-iters 600 \
     --lr 1e-4 \
     --min-lr 1e-5 \
     --lr-decay-style cosine \
@@ -148,8 +148,8 @@ run_training() {
     --split 99,1,0 \
     --ckpt-format torch \
     --save "${CKPT_DIR}" \
-    --save-interval 1000 \
-    --eval-interval 1000 \
+    --save-interval 100 \
+    --eval-interval 100 \
     --eval-iters 50 \
     --log-interval 1 \
     "${LOAD_ARGS[@]}"
