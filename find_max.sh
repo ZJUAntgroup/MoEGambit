@@ -15,9 +15,10 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 # Experiment: sweep fault injection step in [150, 199]
 # ============================================================
-# Each run: 600 iters total, first 200 iters normal training,
-# then inject a single hard_failure at a specific step and
-# test hybrid recovery (stale expert restore + dense sync from peer).
+# Each run: 600 iters total, then inject a single restart_in_place
+# fault at a specific step. This keeps replacement_rank == failed_rank,
+# simulates zeroed model/optimizer memory, and follows the HYBRID_RECOVERY
+# path without rebuilding process groups.
 #
 # Fault injection points: step 150, 151, ..., 199 (50 runs)
 #
@@ -48,14 +49,17 @@ run_training() {
   export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-0}"
   export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
-  # Fault injection config
-  export BSR_FAULT_INJECT_TYPE="hard_failure"
+  # Fault injection config. Use restart_in_place here: the old hard_failure
+  # path attempts Gloo/NCCL group rebuild under PP=8 and can deadlock/timeout.
+  export BSR_FAULT_INJECT_TYPE="restart_in_place"
   export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
   export BSR_FAULT_INJECT_STEP="${FAULT_STEP}"
   export BSR_FAULT_INJECT_INTERVAL="0"
   export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
   export BSR_FAULT_REPLACEMENT_STEP="${FAULT_STEP}"
   export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
+  export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
+  export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
 
   echo "============================================================"
   echo "[find_max] Starting run: fault_inject_step=${FAULT_STEP}"
@@ -141,6 +145,7 @@ run_training() {
     --moe-bsr-degraded-mode-policy \
     --moe-bsr-reintegration-barrier \
     --moe-bsr-fault-injection \
+    --moe-bsr-restart-in-place \
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 10000 \
     --moe-bsr-degraded-s-max 5000 \
