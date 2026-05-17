@@ -3,7 +3,7 @@ set -x
 
 export NCCL_IB_DISABLE=1
 export NCCL_DEBUG=WARN
-export PYTHONPATH=$PYTHONPATH:./Megatron-LM
+export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -15,10 +15,10 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 # Experiment: sweep fault injection step in [150, 199]
 # ============================================================
-# Each run: 600 iters total, then inject a single restart_in_place
-# fault at a specific step. This keeps replacement_rank == failed_rank,
-# simulates zeroed model/optimizer memory, and follows the HYBRID_RECOVERY
-# path without rebuilding process groups.
+# Each run uses the same BSR recovery logic as run_moe64.sh, but sweeps the
+# first restart_in_place fault step. This keeps replacement_rank == failed_rank,
+# simulates zeroed model/optimizer memory, and follows the HYBRID_RECOVERY path
+# without rebuilding process groups.
 #
 # Fault injection points: step 150, 151, ..., 199 (50 runs)
 #
@@ -51,7 +51,7 @@ run_training() {
 
   # Fault injection config. Use restart_in_place here: the old hard_failure
   # path attempts Gloo/NCCL group rebuild under PP=8 and can deadlock/timeout.
-  export BSR_FAULT_INJECT_TYPE="restart_in_place"
+  export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
   export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
   export BSR_FAULT_INJECT_STEP="${FAULT_STEP}"
   export BSR_FAULT_INJECT_INTERVAL="0"
@@ -147,21 +147,21 @@ run_training() {
     --moe-bsr-fault-injection \
     --moe-bsr-restart-in-place \
     --moe-bsr-degraded-tau-c 0.5 \
-    --moe-bsr-degraded-t-max 10000 \
-    --moe-bsr-degraded-s-max 5000 \
+    --moe-bsr-degraded-t-max 1000 \
+    --moe-bsr-degraded-s-max 500 \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 99,1,0 \
     --ckpt-format torch \
     --save "${CKPT_DIR}" \
-    --save-interval 100 \
+    --save-interval 40 \
     --eval-interval 100 \
-    --eval-iters 50 \
+    --eval-iters 20 \
     --log-interval 1 \
     "${LOAD_ARGS[@]}"
 }
 
 MAX_RETRIES=1
-RETRY_DELAY=30
+RETRY_DELAY="${RETRY_DELAY:-30}"
 SAVE_LOG_SCRIPT="${SCRIPT_DIR}/log_analysis/save_train_log.sh"
 
 # ============================================================
