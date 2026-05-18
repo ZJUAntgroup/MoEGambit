@@ -834,6 +834,13 @@ class TransformerConfig(ModelParallelConfig):
     complete before the expert transitions to FULLY_RECOVERED.
     Requires ``moe_bsr_weights_first_recovery = True``."""
 
+    moe_bsr_force_checkpoint_restart: bool = False
+    """When ``True``, force BSR-MoE recovery to take the full
+    CHECKPOINT_RESTART path even when selective hybrid recovery is possible.
+    This is intended for ablation studies that compare full checkpoint load
+    against selective stale-expert restore under the same fault-injection
+    schedule."""
+
     moe_bsr_preferential_routing: bool = False
     """When ``True``, recovered experts (STALE_RUNNABLE / FULLY_RECOVERED)
     receive a small positive routing bias to accelerate reintegration into

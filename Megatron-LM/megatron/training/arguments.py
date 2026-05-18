@@ -3187,6 +3187,49 @@ def _add_moe_args(parser):
                        help='Enable end-to-end recovery controller.')
     group.add_argument('--moe-bsr-deferred-optimizer-load', action='store_true',
                        help='Enable deferred async optimizer state loading.')
+    group.add_argument('--moe-bsr-hybrid-expert-restore',
+                       dest='moe_bsr_hybrid_expert_restore',
+                       action='store_true', default=True,
+                       help='Enable selective expert weight restore from checkpoint '
+                       'on the hybrid recovery path. Default: enabled.')
+    group.add_argument('--no-moe-bsr-hybrid-expert-restore',
+                       dest='moe_bsr_hybrid_expert_restore',
+                       action='store_false',
+                       help='Disable selective expert weight restore; useful for '
+                       'dry-run state-machine experiments only.')
+    group.add_argument('--moe-bsr-expert-opt-restore',
+                       dest='moe_bsr_expert_opt_restore',
+                       action='store_true', default=True,
+                       help='Enable expert optimizer state restore after expert '
+                       'weights are restored. Default: enabled.')
+    group.add_argument('--no-moe-bsr-expert-opt-restore',
+                       dest='moe_bsr_expert_opt_restore',
+                       action='store_false',
+                       help='Disable expert optimizer state restore after expert '
+                       'weight restore.')
+    group.add_argument('--moe-bsr-weights-first-recovery',
+                       dest='moe_bsr_weights_first_recovery',
+                       action='store_true', default=True,
+                       help='Enable weights-first recovery: restore expert weights '
+                       'before optimizer state. Default: enabled.')
+    group.add_argument('--no-moe-bsr-weights-first-recovery',
+                       dest='moe_bsr_weights_first_recovery',
+                       action='store_false',
+                       help='Disable weights-first recovery state-machine handling.')
+    group.add_argument('--moe-bsr-defer-optimizer-load',
+                       dest='moe_bsr_defer_optimizer_load',
+                       action='store_true', default=True,
+                       help='Defer expert optimizer state loading after expert '
+                       'weights are trainable. Default: enabled.')
+    group.add_argument('--no-moe-bsr-defer-optimizer-load',
+                       dest='moe_bsr_defer_optimizer_load',
+                       action='store_false',
+                       help='Load expert optimizer state synchronously in the '
+                       'safe-point recovery critical path.')
+    group.add_argument('--moe-bsr-force-checkpoint-restart', action='store_true',
+                       help='Force the recovery controller to use the full '
+                       'CHECKPOINT_RESTART path even when selective hybrid '
+                       'recovery is available. Intended for ablation studies.')
     group.add_argument('--moe-bsr-degraded-mode-policy', action='store_true',
                        help='Enable degraded-mode continuation policy.')
     group.add_argument('--moe-bsr-reintegration-barrier', action='store_true',

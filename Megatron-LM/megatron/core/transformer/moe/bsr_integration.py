@@ -511,8 +511,16 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
     if getattr(args, 'moe_bsr_reintegration_barrier', False):
         reintegration_barrier.get_reintegration_barrier()
 
-    # Deferred optimizer loader
-    if getattr(args, 'moe_bsr_deferred_optimizer_load', False):
+    # Optimizer-state loader.  The historical flag initializes the deferred
+    # path; the ablation/sync path also needs the same loader object, but
+    # executes it immediately in the safe-point critical path.
+    if (
+        getattr(args, 'moe_bsr_deferred_optimizer_load', False)
+        or (
+            getattr(args, 'moe_bsr_expert_opt_restore', True)
+            and not getattr(args, 'moe_bsr_defer_optimizer_load', True)
+        )
+    ):
         deferred_optimizer_load.get_deferred_optimizer_loader()
 
     # Two-phase recovery coordinator
@@ -2782,19 +2790,71 @@ def _wire_recovery_callbacks(
                             )
                         except Exception:
                             pass
-                elif not _defer_opt_load:
-                    # Not deferring: skip optimizer phase directly
-                    if _two_phase_coord is not None and result.num_restored > 0:
-                        try:
-                            _restored_keys = [
-                                (lid, eid)
-                                for lid, eid in result.restored_experts
-                            ]
-                            _two_phase_coord.skip_optimizer_phase(
-                                expert_ids=_restored_keys, step=step,
-                            )
-                        except Exception:
-                            pass
+                elif not _defer_opt_load and result.num_restored > 0:
+                    # Ablation path: optimizer state is still restored, but it
+                    # is kept in the safe-point critical path instead of being
+                    # deferred to later iterations.  This isolates the benefit
+                    # of weights-first/deferred optimizer loading.
+                    t_opt_sync_start = time.time()
+                    try:
+                        from megatron.core.transformer.moe.deferred_optimizer_load import (
+                            get_deferred_optimizer_loader,
+                        )
+                        opt_loader = get_deferred_optimizer_loader()
+                        opt_load_fn = _build_expert_optimizer_load_fn(
+                            checkpoint_dir=checkpoint_dir,
+                            model=model,
+                        )
+                        opt_requests = opt_loader.submit_from_restore_plan(
+                            plan, step=step,
+                        )
+                        result.optimizer_load_submitted = len(opt_requests)
+                        _restored_keys = [
+                            (lid, eid) for lid, eid in result.restored_experts
+                        ]
+
+                        if _two_phase_coord is not None:
+                            try:
+                                _two_phase_coord.on_optimizer_submitted(
+                                    expert_ids=_restored_keys, step=step,
+                                )
+                            except Exception as tp_e:
+                                logger.debug(
+                                    "BSR-MoE: two-phase sync optimizer submit "
+                                    "failed: %s", tp_e,
+                                )
+
+                        num_executed, num_finalized = opt_loader.poll_and_finalize(
+                            step=step,
+                            load_fn=opt_load_fn,
+                            barrier=barrier,
+                            health_managers={},
+                        )
+
+                        if _two_phase_coord is not None and num_finalized > 0:
+                            try:
+                                _two_phase_coord.on_optimizer_loaded(
+                                    expert_ids=_restored_keys, step=step,
+                                )
+                            except Exception as tp_e:
+                                logger.debug(
+                                    "BSR-MoE: two-phase sync optimizer loaded "
+                                    "failed: %s", tp_e,
+                                )
+
+                        logger.warning(
+                            "[%s] BSR-MoE expert_restore_fn: synchronous "
+                            "optimizer state load completed "
+                            "(submitted=%d, executed=%d, finalized=%d, "
+                            "elapsed=%.3fs, step=%d)",
+                            _ts(), len(opt_requests), num_executed,
+                            num_finalized, time.time() - t_opt_sync_start, step,
+                        )
+                    except Exception as opt_e:
+                        logger.error(
+                            "BSR-MoE expert_restore_fn: synchronous optimizer "
+                            "state load failed: %s", opt_e,
+                        )
 
                 # --- Unified post-recovery convergence ---
                 # Run the same convergence steps as checkpoint_restart_fn
@@ -3304,6 +3364,14 @@ def _wire_recovery_callbacks(
         stores checkpoint shards as per-rank ``.pt`` files that can be
         loaded independently by each rank.
         """
+        try:
+            from megatron.training.global_vars import get_args
+            args = get_args()
+            if getattr(args, 'moe_bsr_force_checkpoint_restart', False):
+                return "forced by --moe-bsr-force-checkpoint-restart"
+        except Exception:
+            pass
+
         ckpt_dir = _find_latest_checkpoint_dir()
         if ckpt_dir is not None and _is_torch_dist_checkpoint(ckpt_dir):
             return (
