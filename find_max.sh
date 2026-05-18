@@ -29,10 +29,10 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="/mnt/ais-c1/dataset/zds/find_max/5.18"
+BASE_DIR="/mnt/ais-c1/dataset/zds/find_max/5.18final-1"
 
 # Fault injection steps to sweep: 150 to 199
-FAULT_STEPS=($(seq 150 199))
+FAULT_STEPS=($(seq 350 399))
 
 # ============================================================
 # Training function (parameterized by FAULT_STEP)
@@ -153,7 +153,7 @@ run_training() {
     --split 99,1,0 \
     --ckpt-format torch \
     --save "${CKPT_DIR}" \
-    --save-interval 40 \
+    --save-interval 200 \
     --eval-interval 100 \
     --eval-iters 20 \
     --log-interval 1 \
