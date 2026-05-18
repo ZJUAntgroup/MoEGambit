@@ -29,7 +29,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="/mnt/ais-c1/dataset/zds/find_max/5.17"
+BASE_DIR="/mnt/ais-c1/dataset/zds/find_max/5.18"
 
 # Fault injection steps to sweep: 150 to 199
 FAULT_STEPS=($(seq 150 199))
