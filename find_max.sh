@@ -29,10 +29,11 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="/mnt/ais-c1/dataset/zds/find_max/5.18final-1"
+BASE_DIR="/mnt/ais-c1/dataset/zds/find_max/5.19final"
+export SCRIPT_DIR BASE_DIR
 
 # Fault injection steps to sweep: 150 to 199
-FAULT_STEPS=($(seq 350 399))
+FAULT_STEPS=($(seq 390 399))
 
 # ============================================================
 # Training function (parameterized by FAULT_STEP)
@@ -172,6 +173,12 @@ for STEP in "${FAULT_STEPS[@]}"; do
   echo "############################################################"
   echo "# find_max: fault_inject_step=${STEP}"
   echo "############################################################"
+
+  RUN_DIR="${BASE_DIR}/step_${STEP}"
+  export TRAIN_LOG_DIR="${RUN_DIR}/log"
+  export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
+  export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-0}"
+  export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
   retry=0
   while true; do
