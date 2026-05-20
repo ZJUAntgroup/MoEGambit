@@ -42,7 +42,11 @@ export SCRIPT_DIR BASE_DIR
 
 NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
 NNODES="${NNODES:-8}"
-WORLD_SIZE="${WORLD_SIZE:-$((NPROC_PER_NODE * NNODES))}"
+# Do not use the generic WORLD_SIZE environment variable here: torchrun and
+# some cluster launchers set it for their own process context, which can
+# shadow the intended 64-rank experiment topology.  PLAN_WORLD_SIZE is only
+# for building the synthetic fault plan.
+PLAN_WORLD_SIZE="${PLAN_WORLD_SIZE:-$((NPROC_PER_NODE * NNODES))}"
 PP_SIZE="${PP_SIZE:-8}"
 EP_SIZE="${EP_SIZE:-8}"
 
@@ -54,7 +58,7 @@ build_fault_plan() {
   local fault_step="${1:?fault step required}"
   local fault_count="${2:?fault count required}"
 
-  python3 - "${fault_step}" "${fault_count}" "${WORLD_SIZE}" "${PP_SIZE}" "${PLAN_SEED}" <<'PY'
+  python3 - "${fault_step}" "${fault_count}" "${PLAN_WORLD_SIZE}" "${PP_SIZE}" "${PLAN_SEED}" <<'PY'
 import random
 import sys
 
@@ -229,7 +233,14 @@ SAVE_LOG_SCRIPT="${SCRIPT_DIR}/log_analysis/save_train_log.sh"
 
 for STEP in "${FAULT_STEPS[@]}"; do
   for COUNT in "${FAULT_COUNTS[@]}"; do
-    PLAN="$(build_fault_plan "${STEP}" "${COUNT}")"
+    if ! PLAN="$(build_fault_plan "${STEP}" "${COUNT}")"; then
+      echo "[find_multi_fault] failed to build fault plan: step=${STEP}, count=${COUNT}, plan_world_size=${PLAN_WORLD_SIZE}, pp_size=${PP_SIZE}" >&2
+      continue
+    fi
+    if [ -z "${PLAN}" ]; then
+      echo "[find_multi_fault] failed to build fault plan: step=${STEP}, count=${COUNT}, plan_world_size=${PLAN_WORLD_SIZE}, pp_size=${PP_SIZE}" >&2
+      continue
+    fi
     RUN_DIR="${BASE_DIR}/step_${STEP}_faults_${COUNT}"
 
     export CURRENT_FAULT_STEP="${STEP}"
