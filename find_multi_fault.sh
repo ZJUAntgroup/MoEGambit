@@ -49,6 +49,7 @@ NNODES="${NNODES:-8}"
 PLAN_WORLD_SIZE="${PLAN_WORLD_SIZE:-$((NPROC_PER_NODE * NNODES))}"
 PP_SIZE="${PP_SIZE:-8}"
 EP_SIZE="${EP_SIZE:-8}"
+export NPROC_PER_NODE NNODES PLAN_WORLD_SIZE PP_SIZE EP_SIZE
 
 FAULT_STEPS=(${FAULT_STEPS:-250 300 350 399})
 FAULT_COUNTS=(${FAULT_COUNTS:-8 16 32})
@@ -130,6 +131,7 @@ run_training() {
   echo "============================================================"
   echo "[find_multi_fault] Starting run: fault_step=${FAULT_STEP}, fault_count=${FAULT_COUNT}"
   echo "[find_multi_fault] fault_plan=${FAULT_PLAN}"
+  echo "[find_multi_fault] topology: nproc_per_node=${NPROC_PER_NODE}, nnodes=${NNODES}, pp_size=${PP_SIZE}, ep_size=${EP_SIZE}, plan_world_size=${PLAN_WORLD_SIZE}"
   echo "[find_multi_fault] CKPT_DIR=${CKPT_DIR}"
   echo "[find_multi_fault] TRAIN_LOG_DIR=${TRAIN_LOG_DIR}"
   echo "============================================================"
