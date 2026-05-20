@@ -184,6 +184,37 @@ def _select_fault_inject_rank(cfg: Dict[str, Any]) -> int:
     return int(cfg['fault_rng'].choice(world_ranks))
 
 
+def _parse_fault_inject_plan(raw: str) -> List[Dict[str, int]]:
+    """Parse BSR_FAULT_INJECT_PLAN.
+
+    Format:
+        "250:1,9,17;300:2,10"
+
+    Multiple ranks attached to the same scheduled step are treated as a
+    burst.  They are injected one rank at a time when the controller is back
+    in HEALTHY_TRAINING, which avoids creating multiple active repair records
+    that the current safe-point repair state machine cannot drain in one pass.
+    """
+    events: List[Dict[str, int]] = []
+    for item in (raw or "").split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" not in item:
+            raise ValueError(
+                "BSR_FAULT_INJECT_PLAN entries must use '<step>:<rank[,rank...]>'"
+            )
+        step_s, ranks_s = item.split(":", 1)
+        step = int(step_s.strip())
+        for rank_s in ranks_s.split(","):
+            rank_s = rank_s.strip()
+            if not rank_s:
+                continue
+            events.append({"step": step, "rank": int(rank_s), "done": 0})
+    events.sort(key=lambda event: (event["step"], event["rank"]))
+    return events
+
+
 def _local_distributed_rank() -> int:
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         return torch.distributed.get_rank()
@@ -693,6 +724,9 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
 
         _fault_inject_seed = int(os.environ.get('BSR_FAULT_INJECT_SEED', '42'))
         _fault_inject_rank = int(os.environ.get('BSR_FAULT_INJECT_RANK', '0'))
+        _fault_inject_plan = _parse_fault_inject_plan(
+            os.environ.get('BSR_FAULT_INJECT_PLAN', '')
+        )
         import random as _fi_random
         _fault_rng = _fi_random.Random(_fault_inject_seed)
 
@@ -703,6 +737,7 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             'inject_type': inject_type,
             'inject_rank': _fault_inject_rank,
             'random_rank': _fault_inject_rank < 0,
+            'inject_plan': _fault_inject_plan,
             'fault_rng': _fault_rng,
             'replacement_step': int(os.environ.get('BSR_FAULT_REPLACEMENT_STEP', '60')),
             'replacement_rank': int(os.environ.get('BSR_FAULT_REPLACEMENT_RANK', '-1')),
@@ -733,6 +768,12 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             _FAULT_INJECTOR_CONFIG['zero_memory'],
             _FAULT_INJECTOR_CONFIG['memory_fill_mode'],
         )
+        if _fault_inject_plan:
+            logger.warning(
+                "BSR-MoE: fault injection plan configured — %d rank events: %s",
+                len(_fault_inject_plan),
+                [(event['step'], event['rank']) for event in _fault_inject_plan],
+            )
 
         # ---- 5b. Wire restart-in-place tensor invalidation callback ----
         if _RECOVERY_CONTROLLER is not None:
@@ -3404,6 +3445,76 @@ def _wire_recovery_callbacks(
 # Internal: fault injection
 # =====================================================================
 
+def _inject_fault_for_rank(
+    cfg: Dict[str, Any],
+    ctrl: Any,
+    inject_rank: int,
+    visible_step: int,
+    scheduled_step: Optional[int] = None,
+) -> None:
+    """Inject one configured fault event for a concrete rank."""
+    inject_type = cfg['inject_type']
+    local_ep_group_ranks = cfg['ep_group_ranks']
+    dp_group_ranks = cfg['dp_group_ranks']
+    num_experts = cfg['num_experts']
+
+    cfg['current_failed_rank'] = inject_rank
+    ep_group_ranks = (
+        _find_ep_group_for_rank(inject_rank, cfg.get('global_ep_groups') or [])
+        or list(local_ep_group_ranks)
+    )
+
+    expert_ids = _expert_ids_for_rank(
+        inject_rank,
+        cfg.get('global_ep_groups') or [ep_group_ranks],
+        num_experts,
+    )
+    if inject_type != 'restart_in_place':
+        _maybe_clear_failed_rank_tensors(cfg, inject_rank, visible_step)
+
+    if scheduled_step is None or scheduled_step == visible_step:
+        logger.warning(
+            "[%s] BSR-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
+            "experts=%s, ep_group=%s",
+            _ts(), cfg['inject_count'], inject_type, inject_rank, visible_step,
+            expert_ids, ep_group_ranks,
+        )
+    else:
+        logger.warning(
+            "[%s] BSR-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
+            "scheduled_step=%d, experts=%s, ep_group=%s",
+            _ts(), cfg['inject_count'], inject_type, inject_rank, visible_step,
+            scheduled_step, expert_ids, ep_group_ranks,
+        )
+
+    if inject_type in ('quarantine', 'soft_failure', 'soft', 'hard_failure'):
+        ctrl.on_hard_rank_failure(
+            failed_rank=inject_rank,
+            reason=f"scheduled_{inject_type}_injection",
+            step=visible_step,
+            expert_ids=expert_ids,
+            ep_group_ranks=ep_group_ranks,
+            dp_group_ranks=dp_group_ranks,
+        )
+    elif inject_type == 'restart_in_place':
+        ctrl.on_hard_rank_failure(
+            failed_rank=inject_rank,
+            reason="scheduled_restart_in_place_injection",
+            step=visible_step,
+            expert_ids=expert_ids,
+            ep_group_ranks=ep_group_ranks,
+            dp_group_ranks=dp_group_ranks,
+            restart_in_place=True,
+        )
+        # restart_in_place fast path auto-assigns replacement and marks it
+        # ready, so skip the separate replacement injection.
+        cfg['replacement_injected'] = True
+        if not cfg.get('inject_plan'):
+            _schedule_next_injection(cfg, visible_step)
+    else:
+        logger.error("BSR-MoE: unknown fault injection type: %s", inject_type)
+
+
 def _maybe_inject_fault(step: int) -> None:
     """Check if a scheduled fault should be injected at this step.
 
@@ -3430,65 +3541,42 @@ def _maybe_inject_fault(step: int) -> None:
 
     visible_step = int(step) + 1
 
+    inject_plan = cfg.get('inject_plan') or []
+    if inject_plan:
+        try:
+            phase_name = getattr(ctrl.phase, "name", "")
+        except Exception:
+            phase_name = ""
+        if phase_name != "HEALTHY_TRAINING":
+            return
+
+        due_event = None
+        for event in inject_plan:
+            if not event.get('done') and int(event['step']) <= visible_step:
+                due_event = event
+                break
+        if due_event is None:
+            return
+
+        due_event['done'] = 1
+        cfg['inject_count'] += 1
+        _inject_fault_for_rank(
+            cfg,
+            ctrl,
+            int(due_event['rank']),
+            visible_step,
+            scheduled_step=int(due_event['step']),
+        )
+        return
+
     # Inject fault at the configured user-visible iteration.
     if not cfg['injected'] and visible_step >= cfg['next_inject_step']:
         cfg['injected'] = True
         cfg['inject_count'] += 1
-        inject_type = cfg['inject_type']
-        local_ep_group_ranks = cfg['ep_group_ranks']
-        dp_group_ranks = cfg['dp_group_ranks']
-        num_experts = cfg['num_experts']
 
         # Determine which rank to fault
         inject_rank = _select_fault_inject_rank(cfg)
-        cfg['current_failed_rank'] = inject_rank
-        ep_group_ranks = (
-            _find_ep_group_for_rank(inject_rank, cfg.get('global_ep_groups') or [])
-            or list(local_ep_group_ranks)
-        )
-
-        # Compute expert IDs on the target rank
-        expert_ids = _expert_ids_for_rank(
-            inject_rank,
-            cfg.get('global_ep_groups') or [ep_group_ranks],
-            num_experts,
-        )
-        if inject_type != 'restart_in_place':
-            _maybe_clear_failed_rank_tensors(cfg, inject_rank, visible_step)
-
-        logger.warning(
-            "[%s] BSR-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
-            "experts=%s, ep_group=%s",
-            _ts(), cfg['inject_count'], inject_type, inject_rank, visible_step,
-            expert_ids, ep_group_ranks,
-        )
-
-        if inject_type in ('quarantine', 'soft_failure', 'soft', 'hard_failure'):
-            ctrl.on_hard_rank_failure(
-                failed_rank=inject_rank,
-                reason=f"scheduled_{inject_type}_injection",
-                step=visible_step,
-                expert_ids=expert_ids,
-                ep_group_ranks=ep_group_ranks,
-                dp_group_ranks=dp_group_ranks,
-            )
-        elif inject_type == 'restart_in_place':
-            ctrl.on_hard_rank_failure(
-                failed_rank=inject_rank,
-                reason="scheduled_restart_in_place_injection",
-                step=visible_step,
-                expert_ids=expert_ids,
-                ep_group_ranks=ep_group_ranks,
-                dp_group_ranks=dp_group_ranks,
-                restart_in_place=True,
-            )
-            # restart_in_place fast path auto-assigns replacement and
-            # marks it ready, so skip the separate replacement injection.
-            cfg['replacement_injected'] = True
-            # Schedule next periodic injection if interval > 0
-            _schedule_next_injection(cfg, visible_step)
-        else:
-            logger.error("BSR-MoE: unknown fault injection type: %s", inject_type)
+        _inject_fault_for_rank(cfg, ctrl, inject_rank, visible_step)
 
     # Inject replacement ready at the configured step
     if (cfg['injected'] and not cfg['replacement_injected']
