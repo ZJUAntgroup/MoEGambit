@@ -14,7 +14,7 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export TORCH_CUDA_ARCH_LIST="9.0"
 
 # ============================================================
-# Multi-rank soft-failure sweep
+# Multi-rank restart-in-place fault sweep
 # ============================================================
 # Experiments:
 #   fault burst starts at iteration: 250, 300, 350, 399
@@ -30,9 +30,11 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # For 8/16/32-card bursts we pick 1/2/4 ranks from each PP stage.  This
 # guarantees every PP stage keeps healthy peers for dense-param sync.
 #
-# Multi-rank cases are real soft-failure bursts: all ranks listed for the same
-# scheduled step are injected together, then recovered together before normal
-# training resumes.
+# Multi-rank cases follow find_max.sh's restart_in_place path: replacement_rank
+# stays equal to failed_rank, tensors are zeroed to simulate lost local state,
+# and all ranks listed for the same scheduled step are injected as one burst.
+# Recovery must reload stale expert weights from an older checkpoint before
+# normal training resumes.
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -116,7 +118,9 @@ run_training() {
   export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-0}"
   export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
-  export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-quarantine}"
+  # Match find_max.sh: restart_in_place avoids PP=8 group rebuild deadlocks
+  # while still corrupting local model/optimizer state before recovery.
+  export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
   export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:-0}"
   export BSR_FAULT_INJECT_STEP="${FAULT_STEP}"
   export BSR_FAULT_INJECT_INTERVAL="0"
@@ -125,14 +129,17 @@ run_training() {
   export BSR_FAULT_INJECT_PLAN_MODE="${BSR_FAULT_INJECT_PLAN_MODE:-burst_all}"
   export BSR_FAULT_REPLACEMENT_STEP="${FAULT_STEP}"
   export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
-  export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-0}"
+  export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
   export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
+  export BSR_REQUIRE_OLD_PARAM_RESTORE="${BSR_REQUIRE_OLD_PARAM_RESTORE:-1}"
 
   echo "============================================================"
   echo "[find_multi_fault] Starting run: fault_step=${FAULT_STEP}, fault_count=${FAULT_COUNT}"
   echo "[find_multi_fault] fault_plan=${FAULT_PLAN}"
   echo "[find_multi_fault] fault_type=${BSR_FAULT_INJECT_TYPE}"
   echo "[find_multi_fault] fault_plan_mode=${BSR_FAULT_INJECT_PLAN_MODE}"
+  echo "[find_multi_fault] zero_memory=${BSR_FAULT_ZERO_MEMORY}, memory_fill=${BSR_FAULT_MEMORY_FILL}"
+  echo "[find_multi_fault] require_old_param_restore=${BSR_REQUIRE_OLD_PARAM_RESTORE}"
   echo "[find_multi_fault] topology: nproc_per_node=${NPROC_PER_NODE}, nnodes=${NNODES}, pp_size=${PP_SIZE}, ep_size=${EP_SIZE}, plan_world_size=${PLAN_WORLD_SIZE}"
   echo "[find_multi_fault] CKPT_DIR=${CKPT_DIR}"
   echo "[find_multi_fault] TRAIN_LOG_DIR=${TRAIN_LOG_DIR}"
@@ -216,6 +223,7 @@ run_training() {
     --moe-bsr-degraded-mode-policy \
     --moe-bsr-reintegration-barrier \
     --moe-bsr-fault-injection \
+    --moe-bsr-restart-in-place \
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 1000 \
     --moe-bsr-degraded-s-max 500 \

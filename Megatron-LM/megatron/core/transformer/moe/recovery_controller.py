@@ -299,6 +299,9 @@ _VALID_TRANSITIONS = {
     },
     RecoveryPhase.REINTEGRATED: {
         RecoveryPhase.HEALTHY_TRAINING,
+        RecoveryPhase.PENDING_GROUP_REPAIR,
+        RecoveryPhase.WAITING_FOR_REPLACEMENT,
+        RecoveryPhase.SAFE_POINT_REPAIR,
     },
 }
 
@@ -1157,16 +1160,34 @@ class RecoveryController:
         """
         # Clear iteration invalidation from previous step
         self.clear_iteration_invalidation()
-        # Finalize reintegration from previous iteration
-        if self._phase == RecoveryPhase.REINTEGRATED:
-            self._finalize_reintegration(step=step)
-            return False
+        repaired_any = False
+        while True:
+            # Finalize reintegration from a previous repair.  For a
+            # restart-in-place burst, keep draining ready fault records in
+            # this same safe-point hook so training cannot resume between
+            # ranks in the burst.
+            if self._phase == RecoveryPhase.REINTEGRATED:
+                has_ready_unrepaired = any(
+                    record.replacement_ready_step >= 0
+                    and record.repair_step < 0
+                    for record in self._active_faults.values()
+                )
+                if repaired_any and not has_ready_unrepaired:
+                    return repaired_any
+                self._finalize_reintegration(step=step)
+                if self._phase == RecoveryPhase.SAFE_POINT_REPAIR:
+                    continue
+                return repaired_any
 
-        # Execute repair at safe point
-        if self._phase == RecoveryPhase.SAFE_POINT_REPAIR:
-            return self._execute_safe_point_repair(step=step)
+            # Execute repair at safe point
+            if self._phase == RecoveryPhase.SAFE_POINT_REPAIR:
+                repaired = self._execute_safe_point_repair(step=step)
+                repaired_any = repaired_any or repaired
+                if repaired:
+                    continue
+                return repaired_any
 
-        return False
+            return repaired_any
 
     def after_iteration(self, step: int = -1) -> bool:
         """Post-step hook: called after each iteration.
@@ -1261,7 +1282,7 @@ class RecoveryController:
         # Find the active fault record that is ready for repair
         ready_record = None
         for record in self._active_faults.values():
-            if record.replacement_ready_step >= 0:
+            if record.replacement_ready_step >= 0 and record.repair_step < 0:
                 ready_record = record
                 break
 
@@ -2180,7 +2201,40 @@ class RecoveryController:
                 self._completed_recoveries.append(record)
 
         for rank in completed:
-            del self._active_faults[rank]
+            if rank in self._active_faults:
+                del self._active_faults[rank]
+
+        if self._active_faults:
+            ready_remaining = sorted(
+                record.failed_rank
+                for record in self._active_faults.values()
+                if record.replacement_ready_step >= 0
+                and record.repair_step < 0
+            )
+            if ready_remaining:
+                self._transition_to(
+                    RecoveryPhase.SAFE_POINT_REPAIR,
+                    event_type="remaining_faults_ready_for_repair",
+                    step=step,
+                    failed_ranks=ready_remaining,
+                    completed_ranks=completed,
+                )
+                logger.warning(
+                    "[%s] BSR-MoE controller: reintegration finalized at "
+                    "step %d (%d recoveries completed, %d ready fault(s) "
+                    "remaining: %s)",
+                    _ts(), step, len(completed), len(ready_remaining),
+                    ready_remaining,
+                )
+                return
+
+            logger.warning(
+                "[%s] BSR-MoE controller: reintegration finalized at step "
+                "%d (%d recoveries completed, %d active fault(s) remain "
+                "but none are ready for repair)",
+                _ts(), step, len(completed), len(self._active_faults),
+            )
+            return
 
         self._transition_to(
             RecoveryPhase.HEALTHY_TRAINING,

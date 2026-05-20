@@ -190,9 +190,8 @@ def _parse_fault_inject_plan(raw: str) -> List[Dict[str, int]]:
     Format:
         "250:1,9,17;300:2,10"
 
-    Multiple soft/quarantine ranks attached to the same scheduled step can be
-    injected and recovered as one batch by setting
-    ``BSR_FAULT_INJECT_PLAN_MODE=burst_all``.
+    Multiple ranks attached to the same scheduled step can be injected as one
+    burst by setting ``BSR_FAULT_INJECT_PLAN_MODE=burst_all``.
     """
     events: List[Dict[str, int]] = []
     for item in (raw or "").split(";"):
@@ -938,6 +937,10 @@ def _is_burst_plan_mode(cfg: Dict[str, Any]) -> bool:
 
 def _is_soft_fault_type(inject_type: str) -> bool:
     return str(inject_type).lower() in ('quarantine', 'soft', 'soft_failure')
+
+
+def _is_restart_in_place_fault_type(inject_type: str) -> bool:
+    return str(inject_type).lower() == 'restart_in_place'
 
 
 def _fault_metadata_for_rank(cfg: Dict[str, Any], inject_rank: int) -> Tuple[List[int], List[int]]:
@@ -2551,7 +2554,15 @@ def _wire_recovery_callbacks(
         from megatron.core.transformer.moe import expert_directory as ed_mod
 
         try:
+            _require_old_param_restore = _env_flag(
+                'BSR_REQUIRE_OLD_PARAM_RESTORE', False,
+            )
             if not expert_ids:
+                if _require_old_param_restore:
+                    raise RuntimeError(
+                        "BSR_REQUIRE_OLD_PARAM_RESTORE=1 but no expert_ids "
+                        f"were provided for failed_rank={failed_rank}"
+                    )
                 logger.warning(
                     "BSR-MoE expert_restore_fn: no expert_ids provided, "
                     "skipping restore (step=%d)", step,
@@ -2610,6 +2621,12 @@ def _wire_recovery_callbacks(
                     _two_phase_coord = None
             manifest = None
             checkpoint_dir = _find_latest_checkpoint_dir()
+            if checkpoint_dir is None and _require_old_param_restore:
+                raise RuntimeError(
+                    "BSR_REQUIRE_OLD_PARAM_RESTORE=1 but no checkpoint was "
+                    f"found for failed_rank={failed_rank}, "
+                    f"replacement_rank={replacement_rank}, step={step}"
+                )
             if checkpoint_dir is not None:
                 try:
                     manifest = ed_mod.RecoveryManifest.load(checkpoint_dir)
@@ -2710,6 +2727,12 @@ def _wire_recovery_callbacks(
                 # will not be loaded (dry-run mode with state transitions
                 # only).
                 if load_fn is None and checkpoint_dir is not None:
+                    if _require_old_param_restore:
+                        raise RuntimeError(
+                            "BSR_REQUIRE_OLD_PARAM_RESTORE=1 but no expert "
+                            "load_fn could be built from checkpoint "
+                            f"{checkpoint_dir}"
+                        )
                     logger.warning(
                         "[%s] BSR-MoE expert_restore_fn: load_fn is None "
                         "despite checkpoint_dir=%s existing. Expert weights "
@@ -2719,6 +2742,11 @@ def _wire_recovery_callbacks(
                         _ts(), checkpoint_dir,
                     )
             else:
+                if _require_old_param_restore:
+                    raise RuntimeError(
+                        "BSR_REQUIRE_OLD_PARAM_RESTORE=1 but "
+                        "moe_bsr_hybrid_expert_restore=False"
+                    )
                 load_fn = None
                 logger.info(
                     "BSR-MoE expert_restore_fn: moe_bsr_hybrid_expert_restore=False, "
@@ -2743,6 +2771,32 @@ def _wire_recovery_callbacks(
                 barrier=barrier,
                 step=step,
             )
+
+            if _require_old_param_restore:
+                expected_restores = len(plan.entries)
+                if expected_restores <= 0:
+                    raise RuntimeError(
+                        "BSR_REQUIRE_OLD_PARAM_RESTORE=1 but restore plan "
+                        "has no entries "
+                        f"(failed_rank={failed_rank}, "
+                        f"replacement_rank={replacement_rank}, "
+                        f"experts={list(expert_ids)}, checkpoint={checkpoint_dir})"
+                    )
+                if (not result.success
+                        or result.num_restored < expected_restores):
+                    raise RuntimeError(
+                        "BSR_REQUIRE_OLD_PARAM_RESTORE=1 but expert restore "
+                        "did not fully load old parameters "
+                        f"(restored={result.num_restored}/"
+                        f"{expected_restores}, failed={result.num_failed}, "
+                        f"errors={result.errors}, checkpoint={checkpoint_dir})"
+                    )
+                logger.warning(
+                    "[%s] BSR-MoE expert_restore_fn: old parameter restore "
+                    "verified — loaded %d/%d expert-layer entries from %s",
+                    _ts(), result.num_restored, expected_restores,
+                    checkpoint_dir,
+                )
 
             if result.success:
                 logger.warning(
@@ -3733,8 +3787,26 @@ def _maybe_inject_fault(step: int) -> None:
                     scheduled_step=burst_step,
                 )
                 return
+            if _is_restart_in_place_fault_type(str(cfg['inject_type'])):
+                logger.warning(
+                    "[%s] BSR-MoE restart-in-place fault burst: injecting "
+                    "%d ranks together for scheduled_step=%d at step=%d",
+                    _ts(), len(burst_events), burst_step, visible_step,
+                )
+                for event in burst_events:
+                    event['done'] = 1
+                    cfg['inject_count'] += 1
+                    _inject_fault_for_rank(
+                        cfg,
+                        ctrl,
+                        int(event['rank']),
+                        visible_step,
+                        scheduled_step=burst_step,
+                    )
+                return
             logger.warning(
                 "[%s] BSR-MoE: burst_all is only used for soft/quarantine "
+                "or restart_in_place "
                 "faults; type=%s will keep queue semantics",
                 _ts(), cfg['inject_type'],
             )
