@@ -190,10 +190,9 @@ def _parse_fault_inject_plan(raw: str) -> List[Dict[str, int]]:
     Format:
         "250:1,9,17;300:2,10"
 
-    Multiple ranks attached to the same scheduled step are treated as a
-    burst.  They are injected one rank at a time when the controller is back
-    in HEALTHY_TRAINING, which avoids creating multiple active repair records
-    that the current safe-point repair state machine cannot drain in one pass.
+    Multiple soft/quarantine ranks attached to the same scheduled step can be
+    injected and recovered as one batch by setting
+    ``BSR_FAULT_INJECT_PLAN_MODE=burst_all``.
     """
     events: List[Dict[str, int]] = []
     for item in (raw or "").split(";"):
@@ -738,6 +737,9 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             'inject_rank': _fault_inject_rank,
             'random_rank': _fault_inject_rank < 0,
             'inject_plan': _fault_inject_plan,
+            'inject_plan_mode': os.environ.get(
+                'BSR_FAULT_INJECT_PLAN_MODE', 'queue'
+            ).strip().lower(),
             'fault_rng': _fault_rng,
             'replacement_step': int(os.environ.get('BSR_FAULT_REPLACEMENT_STEP', '60')),
             'replacement_rank': int(os.environ.get('BSR_FAULT_REPLACEMENT_RANK', '-1')),
@@ -770,8 +772,10 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
         )
         if _fault_inject_plan:
             logger.warning(
-                "BSR-MoE: fault injection plan configured — %d rank events: %s",
+                "BSR-MoE: fault injection plan configured — %d rank events "
+                "(mode=%s): %s",
                 len(_fault_inject_plan),
+                _FAULT_INJECTOR_CONFIG['inject_plan_mode'],
                 [(event['step'], event['rank']) for event in _fault_inject_plan],
             )
 
@@ -922,6 +926,73 @@ def bsr_get_hard_failure_detector():
 def bsr_get_iteration_invalidator():
     """Get the iteration invalidator (or None if not initialized)."""
     return _ITERATION_INVALIDATOR
+
+
+def _is_burst_plan_mode(cfg: Dict[str, Any]) -> bool:
+    return str(cfg.get('inject_plan_mode', '')).lower() in (
+        'burst_all',
+        'burst',
+        'all',
+    )
+
+
+def _is_soft_fault_type(inject_type: str) -> bool:
+    return str(inject_type).lower() in ('quarantine', 'soft', 'soft_failure')
+
+
+def _fault_metadata_for_rank(cfg: Dict[str, Any], inject_rank: int) -> Tuple[List[int], List[int]]:
+    ep_group_ranks = (
+        _find_ep_group_for_rank(inject_rank, cfg.get('global_ep_groups') or [])
+        or list(cfg['ep_group_ranks'])
+    )
+    expert_ids = _expert_ids_for_rank(
+        inject_rank,
+        cfg.get('global_ep_groups') or [ep_group_ranks],
+        int(cfg['num_experts']),
+    )
+    return ep_group_ranks, expert_ids
+
+
+def _update_soft_fault_directory(expert_ids: List[int], state: str, step: int) -> None:
+    if not expert_ids:
+        return
+    directory = bsr_get_active_expert_directory()
+    if directory is None:
+        return
+    try:
+        directory.bulk_update_recovery_state(expert_ids, state)
+    except Exception as exc:
+        logger.warning(
+            "[%s] BSR-MoE soft fault: failed to mark experts %s as %s "
+            "in active directory at step %d: %s",
+            _ts(), expert_ids, state, step, exc,
+        )
+
+
+def _mark_soft_fault_injected(ctrl: Any, expert_ids: List[int], step: int) -> None:
+    if expert_ids:
+        try:
+            ctrl.expert_tracker.mark_recovering(expert_ids, step=step)
+        except Exception as exc:
+            logger.warning(
+                "[%s] BSR-MoE soft fault: failed to mark experts recovering "
+                "at step %d: %s",
+                _ts(), step, exc,
+            )
+    _update_soft_fault_directory(expert_ids, "UNAVAILABLE", step)
+
+
+def _mark_soft_fault_recovered(ctrl: Any, expert_ids: List[int], step: int) -> None:
+    _update_soft_fault_directory(expert_ids, "HEALTHY", step)
+    if expert_ids:
+        try:
+            ctrl.expert_tracker.mark_healthy(expert_ids, step=step)
+        except Exception as exc:
+            logger.warning(
+                "[%s] BSR-MoE soft fault: failed to mark experts healthy "
+                "at step %d: %s",
+                _ts(), step, exc,
+            )
 
 
 def bsr_is_current_iteration_invalid() -> bool:
@@ -3445,33 +3516,15 @@ def _wire_recovery_callbacks(
 # Internal: fault injection
 # =====================================================================
 
-def _inject_fault_for_rank(
+def _log_fault_injection(
     cfg: Dict[str, Any],
-    ctrl: Any,
+    inject_type: str,
     inject_rank: int,
     visible_step: int,
-    scheduled_step: Optional[int] = None,
+    scheduled_step: Optional[int],
+    expert_ids: List[int],
+    ep_group_ranks: List[int],
 ) -> None:
-    """Inject one configured fault event for a concrete rank."""
-    inject_type = cfg['inject_type']
-    local_ep_group_ranks = cfg['ep_group_ranks']
-    dp_group_ranks = cfg['dp_group_ranks']
-    num_experts = cfg['num_experts']
-
-    cfg['current_failed_rank'] = inject_rank
-    ep_group_ranks = (
-        _find_ep_group_for_rank(inject_rank, cfg.get('global_ep_groups') or [])
-        or list(local_ep_group_ranks)
-    )
-
-    expert_ids = _expert_ids_for_rank(
-        inject_rank,
-        cfg.get('global_ep_groups') or [ep_group_ranks],
-        num_experts,
-    )
-    if inject_type != 'restart_in_place':
-        _maybe_clear_failed_rank_tensors(cfg, inject_rank, visible_step)
-
     if scheduled_step is None or scheduled_step == visible_step:
         logger.warning(
             "[%s] BSR-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
@@ -3487,7 +3540,110 @@ def _inject_fault_for_rank(
             scheduled_step, expert_ids, ep_group_ranks,
         )
 
-    if inject_type in ('quarantine', 'soft_failure', 'soft', 'hard_failure'):
+
+def _recover_soft_fault_batch(
+    ctrl: Any,
+    ranks: List[int],
+    expert_ids: List[int],
+    visible_step: int,
+    scheduled_step: Optional[int],
+) -> None:
+    unique_experts = sorted(set(expert_ids))
+    logger.warning(
+        "[%s] BSR-MoE soft fault batch: injected ranks=%s at step=%d "
+        "(scheduled_step=%s, experts=%s); recovering before training resumes",
+        _ts(), ranks, visible_step,
+        scheduled_step if scheduled_step is not None else visible_step,
+        unique_experts,
+    )
+    _mark_soft_fault_injected(ctrl, unique_experts, visible_step)
+    _mark_soft_fault_recovered(ctrl, unique_experts, visible_step)
+    logger.warning(
+        "[%s] BSR-MoE soft fault batch: recovered ranks=%s at step=%d "
+        "(experts=%s); normal training may continue",
+        _ts(), ranks, visible_step, unique_experts,
+    )
+
+
+def _inject_soft_fault_burst(
+    cfg: Dict[str, Any],
+    ctrl: Any,
+    burst_events: List[Dict[str, int]],
+    visible_step: int,
+    scheduled_step: int,
+) -> None:
+    ranks: List[int] = []
+    all_experts: List[int] = []
+
+    for event in burst_events:
+        event['done'] = 1
+        cfg['inject_count'] += 1
+        inject_rank = int(event['rank'])
+        cfg['current_failed_rank'] = inject_rank
+        ranks.append(inject_rank)
+
+        ep_group_ranks, expert_ids = _fault_metadata_for_rank(cfg, inject_rank)
+        all_experts.extend(expert_ids)
+        _log_fault_injection(
+            cfg,
+            str(cfg['inject_type']),
+            inject_rank,
+            visible_step,
+            scheduled_step,
+            expert_ids,
+            ep_group_ranks,
+        )
+
+    _recover_soft_fault_batch(
+        ctrl,
+        ranks,
+        all_experts,
+        visible_step,
+        scheduled_step,
+    )
+
+
+def _inject_fault_for_rank(
+    cfg: Dict[str, Any],
+    ctrl: Any,
+    inject_rank: int,
+    visible_step: int,
+    scheduled_step: Optional[int] = None,
+) -> None:
+    """Inject one configured fault event for a concrete rank."""
+    inject_type = cfg['inject_type']
+    dp_group_ranks = cfg['dp_group_ranks']
+
+    cfg['current_failed_rank'] = inject_rank
+    ep_group_ranks, expert_ids = _fault_metadata_for_rank(
+        cfg,
+        inject_rank,
+    )
+    if inject_type == 'hard_failure':
+        _maybe_clear_failed_rank_tensors(cfg, inject_rank, visible_step)
+
+    _log_fault_injection(
+        cfg,
+        inject_type,
+        inject_rank,
+        visible_step,
+        scheduled_step,
+        expert_ids,
+        ep_group_ranks,
+    )
+
+    if _is_soft_fault_type(inject_type):
+        _recover_soft_fault_batch(
+            ctrl,
+            [inject_rank],
+            expert_ids,
+            visible_step,
+            scheduled_step,
+        )
+        cfg['replacement_injected'] = True
+        if not cfg.get('inject_plan'):
+            _schedule_next_injection(cfg, visible_step)
+    elif inject_type == 'hard_failure':
         ctrl.on_hard_rank_failure(
             failed_rank=inject_rank,
             reason=f"scheduled_{inject_type}_injection",
@@ -3550,14 +3706,40 @@ def _maybe_inject_fault(step: int) -> None:
         if phase_name != "HEALTHY_TRAINING":
             return
 
-        due_event = None
+        due_events = []
         for event in inject_plan:
             if not event.get('done') and int(event['step']) <= visible_step:
-                due_event = event
-                break
-        if due_event is None:
+                due_events.append(event)
+        if not due_events:
             return
 
+        if _is_burst_plan_mode(cfg):
+            burst_step = int(due_events[0]['step'])
+            burst_events = [
+                event for event in due_events
+                if int(event['step']) == burst_step
+            ]
+            if _is_soft_fault_type(str(cfg['inject_type'])):
+                logger.warning(
+                    "[%s] BSR-MoE soft fault burst: injecting %d ranks "
+                    "together for scheduled_step=%d at step=%d",
+                    _ts(), len(burst_events), burst_step, visible_step,
+                )
+                _inject_soft_fault_burst(
+                    cfg,
+                    ctrl,
+                    burst_events,
+                    visible_step,
+                    scheduled_step=burst_step,
+                )
+                return
+            logger.warning(
+                "[%s] BSR-MoE: burst_all is only used for soft/quarantine "
+                "faults; type=%s will keep queue semantics",
+                _ts(), cfg['inject_type'],
+            )
+
+        due_event = due_events[0]
         due_event['done'] = 1
         cfg['inject_count'] += 1
         _inject_fault_for_rank(
