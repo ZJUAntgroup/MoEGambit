@@ -441,7 +441,8 @@ emit_control " 分析间隔:     ${ANALYZE_INTERVAL} iterations (0=仅结束时�
 emit_control " 结束时分析:   ${ANALYZE_ON_EXIT}"
 emit_control " 信号后分析:   ${ANALYZE_ON_SIGNAL}"
 emit_control " 分析脚本:     ${ANALYZE_SCRIPT}"
-emit_control " 启动命令:     $*"
+COMMAND_DESC="${TRAIN_LAUNCH_DESC:-$*}"
+emit_control " 启动命令:     ${COMMAND_DESC}"
 emit_control " 开始时间:     $(date)"
 emit_control "============================================================"
 

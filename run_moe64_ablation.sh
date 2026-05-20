@@ -26,7 +26,9 @@ set -uo pipefail
 set -x
 
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
-export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+# Keep ablation logs parseable. Use ABLATION_NCCL_DEBUG=INFO only when
+# debugging NCCL bring-up.
+export NCCL_DEBUG="${ABLATION_NCCL_DEBUG:-WARN}"
 export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
@@ -249,6 +251,7 @@ run_one_mode() {
   echo "[ablation] ckpt=${CKPT_DIR}"
   echo "[ablation] log=${TRAIN_LOG_DIR}"
   echo "[ablation] args=${MODE_ARGS[*]}"
+  export TRAIN_LAUNCH_DESC="run_moe64_ablation mode=${mode} args=${MODE_ARGS[*]}"
 
   local retry=0
   while true; do
