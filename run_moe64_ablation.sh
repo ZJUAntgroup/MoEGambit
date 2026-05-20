@@ -7,14 +7,15 @@
 #     2. weights-first recovery with optimizer state loaded after weights;
 #     3. the combined effect.
 #
-# Default modes:
-#   full_checkpoint      : BSR safe-point repair, but force full checkpoint load
-#                          for model + optimizer in the critical path.
+# Default run order:
+#   selective_deferred   : dense from peer + stale experts from checkpoint,
+#                          expert weights first, optimizer state deferred.
 #   selective_sync_opt   : dense from peer + stale experts from checkpoint,
 #                          and expert optimizer state loaded synchronously in
 #                          the safe-point critical path.
-#   selective_deferred   : dense from peer + stale experts from checkpoint,
-#                          expert weights first, optimizer state deferred.
+#   full_checkpoint      : baseline; BSR safe-point repair, but force full
+#                          checkpoint load for model + optimizer in the
+#                          critical path.  Run last by default.
 #
 # Attribution from mean recovery/fault-window times:
 #   selective_restore_gain = full_checkpoint - selective_sync_opt
@@ -43,7 +44,7 @@ TIMING_REPORT_SCRIPT="${SCRIPT_DIR}/log_analysis/bsr_timing_report.py"
 export ABLATION_ROOT="${ABLATION_ROOT:-/mnt/ais-c1/dataset/zds/5.18/ablation}"
 export ABLATION_CKPT_ROOT="${ABLATION_CKPT_ROOT:-${ABLATION_ROOT}/ckpt}"
 export ABLATION_LOG_ROOT="${ABLATION_LOG_ROOT:-/mnt/ais-c1/dataset/zds/log/5.18_ablation}"
-export ABLATION_MODES="${ABLATION_MODES:-full_checkpoint selective_sync_opt selective_deferred}"
+export ABLATION_MODES="${ABLATION_MODES:-selective_deferred selective_sync_opt full_checkpoint}"
 
 # Default: 50 faults per mode.
 # Faults at 70 + k*40 for k=0..49, so the last fault is at iteration 2030.
@@ -223,6 +224,7 @@ run_training() {
 
 run_one_mode() {
   local mode="$1"
+  local -a MODE_ARGS
   mapfile -t MODE_ARGS < <(mode_args "${mode}") || return 2
 
   export CKPT_DIR="${ABLATION_CKPT_ROOT}/${mode}"
@@ -251,7 +253,7 @@ run_one_mode() {
   local retry=0
   while true; do
     if [ -f "${SAVE_LOG_SCRIPT}" ]; then
-      bash "${SAVE_LOG_SCRIPT}" bash -c "$(declare -f run_training); run_training '${mode}' ${MODE_ARGS[*]}"
+      bash "${SAVE_LOG_SCRIPT}" bash -c "$(declare -f run_training); run_training \"\$@\"" bash "${mode}" "${MODE_ARGS[@]}"
       rc=$?
     else
       run_training "${mode}" "${MODE_ARGS[@]}"
