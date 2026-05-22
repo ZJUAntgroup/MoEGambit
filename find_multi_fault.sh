@@ -39,7 +39,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/find_multi_fault/5.21}"
+BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/find_multi_fault/5.22}"
 export SCRIPT_DIR BASE_DIR
 
 NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
