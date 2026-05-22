@@ -2363,6 +2363,28 @@ def _wire_recovery_callbacks(
         except Exception as e:
             logger.error("BSR-MoE topology_refresh_fn failed: %s", e)
 
+    def health_mark_healthy_fn(*, expert_ids, step=-1):
+        """Promote recovered experts back to HEALTHY in tracker + directory."""
+        if not expert_ids:
+            return
+        try:
+            ctrl.expert_tracker.mark_healthy(list(expert_ids), step=step)
+        except Exception as e:
+            logger.error(
+                "BSR-MoE health_mark_healthy_fn tracker update failed: %s", e,
+            )
+
+        try:
+            directory = bsr_get_active_expert_directory()
+            if directory is not None:
+                directory.bulk_update_recovery_state(
+                    list(expert_ids), "HEALTHY",
+                )
+        except Exception as e:
+            logger.error(
+                "BSR-MoE health_mark_healthy_fn directory update failed: %s", e,
+            )
+
     def dense_sync_fn(*, failed_rank, replacement_rank, step=-1):
         """Pull dense/shared/router params from healthy DP peer (broadcast).
 
@@ -2457,10 +2479,21 @@ def _wire_recovery_callbacks(
                 return
 
             # Plan the recovery
+            # In multi-fault bursts, exclude every still-active failed rank
+            # from source selection. Otherwise a rank whose tensors were just
+            # invalidated can be chosen as the "healthy" broadcast source for
+            # another pending repair in the same group.
+            excluded_ranks = set()
+            try:
+                excluded_ranks.update(ctrl.active_faults.keys())
+            except Exception:
+                pass
+
             plan = coordinator.plan_recovery(
                 replacement_rank=replacement_rank,
                 failed_rank=failed_rank,
                 dp_group_ranks=dp_group_ranks,
+                quarantined_ranks=frozenset(excluded_ranks),
                 step=step,
                 include_optimizer=_include_opt,
             )
@@ -3547,6 +3580,7 @@ def _wire_recovery_callbacks(
         return None
 
     ctrl.register_callbacks(
+        health_mark_healthy_fn=health_mark_healthy_fn,
         replacement_announce_fn=replacement_announce_fn,
         replacement_integrate_fn=replacement_integrate_fn,
         group_rebuild_request_fn=group_rebuild_request_fn,

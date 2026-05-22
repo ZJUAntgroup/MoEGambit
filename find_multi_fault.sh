@@ -220,6 +220,7 @@ run_training() {
     --moe-bsr-stale-expert-restore \
     --moe-bsr-recovery-controller \
     --moe-bsr-deferred-optimizer-load \
+    --no-moe-bsr-defer-optimizer-load \
     --moe-bsr-degraded-mode-policy \
     --moe-bsr-reintegration-barrier \
     --moe-bsr-fault-injection \
