@@ -57,7 +57,7 @@ This paper argues that reliable MoE training requires treating runtime recovery 
 
 The key insight behind MoEGuard is that recovery risk in MoE training is rank-local. A single logical rank owns a specific subset of experts. If several hybrid recoveries are distributed across different ranks, each rank’s expert state may only be mildly stale. In contrast, repeated hybrid recoveries on the same rank can repeatedly expose the same experts to stale recovery, creating a higher risk of quality degradation. Therefore, MoEGuard does not model recovery risk using only a global checkpoint-gap budget. Instead, it tracks stale exposure per failed logical rank and uses this exposure to guard hybrid recovery decisions.
 
-MoEGuard uses two recovery paths. For small checkpoint gaps, it falls back to checkpoint restart, because replaying a few iterations is cheaper and simpler than performing hybrid repair. For medium gaps, if the failed rank’s stale exposure remains within a safe region, MoEGuard performs MoE-aware hybrid recovery: dense, shared, and router states are synchronized from healthy data-parallel neighbors, while affected expert weights are restored from the latest distributed checkpoint. MoEGuard further supports a weights-first, optimizer-later recovery protocol, allowing the replacement rank to rejoin training after its weights are restored while optimizer state is attached later under runtime guards. If the gap is too large or the failed rank has accumulated too much stale exposure, MoEGuard conservatively falls back to checkpoint restart.
+MoEGuard uses two recovery paths. For small checkpoint gaps, it falls back to checkpoint restart, because replaying a few iterations is cheaper and simpler than performing hybrid repair. For medium gaps, if the failed rank’s stale exposure remains within a safe region, MoEGuard performs MoE-aware hybrid recovery: dense, shared, and router states are synchronized from healthy data-parallel neighbors, while affected expert weights are restored from the latest distributed checkpoint. MoEGuard further supports a weights-first, optimizer-later recovery protocol, allowing the replacement rank to rejoin training after its weights are restored while optimizer state is attached later under runtime guards. If the failed rank has accumulated too much stale exposure, MoEGuard conservatively falls back to checkpoint restart.
 
 We implement MoEGuard in Megatron-LM and evaluate it on distributed MoE training workloads using H20 GPU clusters. Our evaluation uses controlled single-failure and multi-failure traces, including concentrated failures on the same rank and distributed failures across different ranks. We compare MoEGuard against checkpoint restart, always-hybrid recovery, fixed-gap policies, and global-budget policies. We measure not only recovery latency and wasted GPU time, but also validation loss, validation perplexity, gradient stability, token drop rate, router load-balancing loss, and expert load balance. Our results show that MoEGuard reduces recovery cost by [X]% compared with checkpoint restart while preserving model quality and routing stability under realistic failure scenarios.
 
@@ -101,74 +101,77 @@ Megatron-LM supports multiple checkpoint formats that critically affect hybrid r
     \item \texttt{torch\_dist} (default): Uses distributed checkpointing with sharded state dicts and \texttt{metadata.json}. Loading requires \texttt{dist\_checkpointing.load()}, which internally calls \texttt{all\_gather\_object}---a collective operation requiring all ranks to participate. This format is fundamentally incompatible with single-rank selective loading, forcing full checkpoint restart when a failure occurs.
 \end{itemize}
 
-\section{Problem Formulation}
-\label{sec:formulation}
+\section{Approach}
+\label{sec:approach}
 
-We formalize MoEGuard's recovery problem as a runtime decision over heterogeneous training state. We consider a distributed MoE training job with data parallelism and expert parallelism. Each logical rank owns a subset of experts and participates in token dispatch, collective communication, gradient synchronization, and optimizer updates.
+MoEGuard is designed as a runtime recovery framework for distributed MoE training. Its goal is to reduce failure recovery cost without treating model quality as an afterthought. Instead of always restarting the entire training job from the latest checkpoint, MoEGuard decides whether a failed rank can be repaired through MoE-aware hybrid recovery. The decision is guarded by two runtime signals: the checkpoint gap of the failure and the failed rank's accumulated stale exposure.
 
-\subsection{Failure Model}
+\subsection{Recovery Setting}
 
-MoEGuard targets single-rank runtime failures, including process crash, GPU error, communication timeout, or detected invalid training state. When rank $r$ fails at training step $t$, the current iteration is treated as unsafe, and the recovery controller prevents inconsistent optimizer commits.
+We consider a distributed MoE training job running with pipeline, data, and expert parallelism. Each logical rank participates in collective communication and owns a subset of MoE experts. A failure may occur when a rank crashes, becomes unreachable, or enters an invalid runtime state.
 
-Let $c$ denote the latest checkpoint step before failure. We define the \emph{checkpoint gap} as:
+Let a failure occur on logical rank $r$ at training step $t$. Let $c$ be the latest checkpoint step before the failure. We define the checkpoint gap as:
 \begin{equation}
     \Delta = t - c
 \end{equation}
-The gap has two meanings: checkpoint restart must replay $\Delta$ iterations, while hybrid recovery restores affected experts that are $\Delta$ iterations stale. We assume checkpoints are available and not corrupted, and we do not target simultaneous multi-rank failures in one recovery episode.
 
-\subsection{Recovery Decision}
+In checkpoint restart, $\Delta$ determines the number of iterations that must be replayed. In hybrid recovery, $\Delta$ determines how stale the restored expert state may be. In our target setting, the maximum single-failure gap is naturally bounded by the checkpoint interval. Therefore, MoEGuard does not require an independent large-gap regime; it treats the checkpoint interval as the upper bound of single-recovery staleness.
 
-After a failure, the system chooses between two recovery paths:
+\subsection{Overview of MoEGuard}
+
+After a rank failure, MoEGuard follows four steps. First, it establishes a safe repair point by preventing the current iteration from committing unsafe optimizer updates. Second, it evaluates the recovery policy using the checkpoint gap and the failed rank's stale exposure. Third, it executes either checkpoint restart or hybrid recovery. Finally, it refreshes runtime metadata and reintegrates the repaired rank.
+
+Checkpoint restart is the conservative fallback. It restores the full model, optimizer, scheduler, and runtime state from checkpoint $c$, and then replays the lost iterations.
+
+Hybrid recovery repairs only the failed rank. Dense, shared, and router states are synchronized from healthy peers that hold current replicas of the same model state. MoE expert states owned by the failed rank are restored from the latest distributed checkpoint. This creates a mixed-provenance recovered state: dense and router states are current, while affected expert states may be stale by $\Delta$ iterations.
+
+\subsection{Rank-Exposure Guarded Recovery}
+
+A single checkpoint gap is not sufficient to characterize recovery risk in MoE training. Because each logical rank owns a stable subset of experts, repeated hybrid recoveries on the same rank repeatedly expose the same expert subset to stale checkpoint state. The same total amount of stale recovery distributed across different ranks is less concentrated and may have lower quality risk.
+
+MoEGuard therefore tracks stale exposure per logical rank. For rank $r$, let $S_r$ denote the accumulated stale iterations introduced by previous hybrid recoveries on $r$ within a recent exposure window $W$. For a new failure with checkpoint gap $\Delta$, the projected stale exposure is:
 \begin{equation}
-    \pi(t, r) \in \{\textsc{Restart}, \textsc{Hybrid}\}
+    S_r' = S_r + \Delta
 \end{equation}
 
-\textbf{Restart} restores the training job from checkpoint $c$ and replays lost iterations. It provides clean semantics but becomes expensive as $\Delta$ grows.
-
-\textbf{Hybrid} repairs the failed rank without global rollback. Dense and router state are synchronized from healthy data-parallel neighbors, while affected expert state is restored from checkpoint $c$. This avoids replay but introduces stale expert state.
-
-Thus, recovery is a trade-off between replay cost and stale-state risk.
-
-\subsection{Rank-Local Stale Exposure}
-
-A global gap budget is insufficient for MoE recovery because expert ownership is rank-local. Repeated hybrid recoveries on the same logical rank repeatedly expose the same expert subset to stale state, whereas the same total stale gap distributed across ranks affects different experts.
-
-MoEGuard therefore tracks stale exposure per logical rank. For rank $r$, let:
+MoEGuard uses two thresholds:
 \begin{equation}
-    S_r = \sum_{\text{hybrid recoveries on } r} \Delta_i
+    \Delta_{\min}, \quad S_{\max}
 \end{equation}
-within a recent window of $W$ training steps. The normalized rank-local stale exposure is:
-\begin{equation}
-    E_r = \frac{S_r}{W}
-\end{equation}
-For a new failure with gap $\Delta$, the projected exposure is:
-\begin{equation}
-    E_r' = \frac{S_r + \Delta}{W}
-\end{equation}
+where $\Delta_{\min}$ is the minimum gap at which hybrid recovery becomes worthwhile, and $S_{\max}$ is the maximum allowed accumulated stale iterations for any logical rank within the exposure window.
 
-\subsection{Guarded Recovery Policy}
-
-MoEGuard uses three thresholds:
+MoEGuard selects hybrid recovery if and only if:
 \begin{equation}
-    \Delta_{\min}, \quad \Delta_{\max}, \quad E_{\max}
+    \Delta \geq \Delta_{\min} \wedge S_r + \Delta \leq S_{\max}
 \end{equation}
-where $\Delta_{\min}$ is the minimum gap at which hybrid recovery becomes worthwhile, $\Delta_{\max}$ bounds single-recovery staleness, and $E_{\max}$ bounds accumulated rank-local stale exposure.
-
-MoEGuard selects hybrid recovery if and only if $\Delta_{\min} \leq \Delta \leq \Delta_{\max}$ and $E_r' \leq E_{\max}$. Otherwise, it falls back to checkpoint restart:
+Otherwise, it falls back to checkpoint restart:
 \begin{equation}
     \pi(t, r) = \begin{cases}
-        \textsc{Hybrid}, & \Delta_{\min} \leq \Delta \leq \Delta_{\max} \wedge E_r' \leq E_{\max} \\
+        \textsc{Hybrid}, & \Delta \geq \Delta_{\min} \wedge S_r + \Delta \leq S_{\max} \\
         \textsc{Restart}, & \text{otherwise}
     \end{cases}
 \end{equation}
 
-This policy captures three cases: small gaps use restart because replay is cheap; excessive gaps use restart because stale expert state may be unsafe; repeated failures on the same rank use restart once rank-local exposure exceeds the bound.
+This policy captures the intended behavior. When the checkpoint gap is small, restart is preferred because replay is cheap and semantically simple. When the gap is large enough to make replay expensive, hybrid recovery is used as long as the failed rank has not accumulated excessive stale exposure. When repeated failures concentrate on the same rank, MoEGuard falls back to checkpoint restart to reset that rank to a fully consistent state.
 
-\subsection{Objectives and Scope}
+\subsection{Recovery Semantics}
 
-MoEGuard aims to reduce recovery cost while preserving training stability. We evaluate system cost using recovery latency, replayed iterations, and wasted GPU-seconds. We evaluate training stability using paired comparisons against checkpoint restart, under the same seed, data order, checkpoint, and injected failure step.
+MoEGuard's recovery semantics follow the heterogeneous structure of MoE training state. The key distinction is the source of each recovered state.
 
-MoEGuard currently targets single-rank recovery in distributed MoE training with data and expert parallelism. Checkpoint restart is the conservative fallback; hybrid recovery is used only inside the bounded risk region defined by the guarded policy.
+Dense, shared, and router parameters are recovered from healthy peers and therefore reflect the current training step. Their optimizer states can also be synchronized from healthy replicas when available.
+
+MoE expert weights are recovered from the latest distributed checkpoint because they are rank-local and may not have a fresh in-memory replica. Their optimizer states can either be restored together with the weights or attached later using a two-phase recovery protocol. In the latter case, the repaired rank can rejoin training after weights are restored, while affected expert updates remain guarded until the optimizer state is attached.
+
+Thus, hybrid recovery does not attempt to make all state equally fresh. Instead, it makes state freshness explicit:
+\begin{equation}
+    \text{dense/router state} \leftarrow \text{current healthy peer}, \quad \text{expert state} \leftarrow \text{latest checkpoint}
+\end{equation}
+
+MoEGuard bounds the risk of this mixed state using rank-local stale exposure.
+
+\subsection{Scope}
+
+MoEGuard targets single-rank recovery in distributed MoE training. It assumes that checkpoints are available and that the failed rank can be replaced or repaired. Simultaneous multi-rank failures, corrupted checkpoints, and Byzantine behavior are outside the current scope. Checkpoint restart remains the safe fallback for cases where hybrid recovery is not beneficial or where rank-local stale exposure exceeds the configured bound.
 
 \section{MoEGuard Design}
 \label{sec:design}
@@ -197,19 +200,19 @@ The safe-point repair protocol provides a clear recovery boundary. MoEGuard does
 
 \subsection{Rank-Exposure Guarded Recovery Policy}
 
-MoEGuard uses the policy defined in Section~\ref{sec:formulation} to decide whether hybrid recovery is safe. For a failure at step $t$, let $c$ be the latest checkpoint step and $\Delta = t - c$ be the checkpoint gap. For the failed rank $r$, MoEGuard computes the projected rank-local stale exposure:
+MoEGuard uses the policy defined in Section~\ref{sec:approach} to decide whether hybrid recovery is safe. For a failure at step $t$, let $c$ be the latest checkpoint step and $\Delta = t - c$ be the checkpoint gap. For the failed rank $r$, MoEGuard computes the projected accumulated stale iterations:
 \begin{equation}
-    E_r' = \frac{S_r + \Delta}{W}
+    S_r' = S_r + \Delta
 \end{equation}
-where $S_r$ is the accumulated stale iterations introduced by previous hybrid recoveries on rank $r$, and $W$ is the exposure window.
+where $S_r$ is the accumulated stale iterations introduced by previous hybrid recoveries on rank $r$ within the exposure window $W$.
 
 MoEGuard selects hybrid recovery only when:
 \begin{equation}
-    \Delta_{\min} \leq \Delta \leq \Delta_{\max} \wedge E_r' \leq E_{\max}
+    \Delta \geq \Delta_{\min} \wedge S_r + \Delta \leq S_{\max}
 \end{equation}
 Otherwise, it selects checkpoint restart.
 
-This guarded policy separates three cases. If the gap is smaller than $\Delta_{\min}$, replay is cheap and checkpoint restart is preferred. If the gap exceeds $\Delta_{\max}$, the affected experts would be too stale after hybrid recovery. If $E_r'$ exceeds $E_{\max}$, the same logical rank has accumulated too much stale exposure, and restart is used to reset the rank to a fully consistent state.
+This guarded policy separates two cases. If the gap is smaller than $\Delta_{\min}$, replay is cheap and checkpoint restart is preferred. If $S_r + \Delta$ exceeds $S_{\max}$, the same logical rank has accumulated too much stale exposure, and restart is used to reset the rank to a fully consistent state.
 
 MoEGuard records every policy decision as structured metadata, including the failed rank, checkpoint gap, selected path, exposure before and after recovery, and decision reason. This makes recovery behavior auditable and allows later correlation with training quality metrics.
 
@@ -332,7 +335,7 @@ We compare MoEGuard with the following baselines.
 
 \textbf{FixedGap.} Use hybrid recovery when the checkpoint gap is above a fixed threshold, without tracking rank-local exposure.
 
-\textbf{MoEGuard-w/o-Exposure.} MoEGuard without rank-local stale exposure tracking. This ablation uses only $\Delta_{\min}$ and $\Delta_{\max}$.
+\textbf{MoEGuard-w/o-Exposure.} MoEGuard without rank-local stale exposure tracking. This ablation uses only $\Delta_{\min}$.
 
 \textbf{MoEGuard-w/o-OptLater.} MoEGuard without weights-first, optimizer-later recovery. Expert weights and optimizer states must both be restored before the rank resumes training.
 
@@ -340,7 +343,7 @@ We compare MoEGuard with the following baselines.
 
 \subsection{Policy Parameters}
 
-MoEGuard uses three thresholds: $\Delta_{\min}$, $\Delta_{\max}$, and $E_{\max}$. Our default values are shown in Table~\ref{tab:policy}.
+MoEGuard uses two thresholds: $\Delta_{\min}$ and $S_{\max}$. Our default values are shown in Table~\ref{tab:policy}.
 
 \begin{table}[htbp]
 \caption{Default Policy Parameters}
@@ -350,22 +353,20 @@ MoEGuard uses three thresholds: $\Delta_{\min}$, $\Delta_{\max}$, and $E_{\max}$
 \textbf{Parameter} & \textbf{Meaning} & \textbf{Default} \\
 \midrule
 $\Delta_{\min}$ & min gap for hybrid recovery & 32 iters \\
-$\Delta_{\max}$ & max allowed single hybrid gap & 1000 iters \\
+$S_{\max}$ & max accumulated stale iterations per rank & 1000 iters \\
 $W$ & rank-exposure window & 20000 iters \\
-$E_{\max}$ & max rank-local exposure & 5\% \\
 \bottomrule
 \end{tabular}
 \label{tab:policy}
 \end{center}
 \end{table}
 
-The default $\Delta_{\min} = 32$ is chosen because replaying fewer than 32 iterations is comparable to or cheaper than hybrid repair on our cluster. The default $\Delta_{\max} = 1000$ is selected from the single-gap quality study in Section~\ref{sec:rq3}. With $W = 20000$ and $E_{\max} = 5\%$, a rank can accumulate at most 1000 stale iterations within the exposure window before MoEGuard falls back to checkpoint restart.
+The default $\Delta_{\min} = 32$ is chosen because replaying fewer than 32 iterations is comparable to or cheaper than hybrid repair on our cluster. The default $S_{\max} = 1000$ bounds the total stale iterations that any single rank can accumulate within the exposure window $W = 20000$ before MoEGuard falls back to checkpoint restart. Since the checkpoint interval naturally bounds the single-gap staleness, MoEGuard does not require an independent $\Delta_{\max}$ threshold.
 
 We also perform sensitivity studies over:
 \begin{itemize}
     \item $\Delta_{\min} \in \{16, 32, 64\}$
-    \item $\Delta_{\max} \in \{256, 512, 1000, 1500\}$
-    \item $E_{\max} \in \{1\%, 2.5\%, 5\%, 10\%\}$
+    \item $S_{\max} \in \{256, 512, 1000, 1500\}$
 \end{itemize}
 
 \subsection{RQ1: Recovery Path Selection}
@@ -377,9 +378,9 @@ This experiment verifies whether MoEGuard chooses the intended recovery path. We
 \end{equation}
 For each failure, we record the selected path, decision reason, checkpoint gap, failed rank, stale exposure before recovery, and stale exposure after recovery.
 
-Expected behavior is: small gaps trigger checkpoint restart; medium gaps trigger hybrid recovery; gaps exceeding $\Delta_{\max}$ trigger checkpoint restart; rank exposure exceeding $E_{\max}$ triggers checkpoint restart.
+Expected behavior is: small gaps trigger checkpoint restart; larger gaps trigger hybrid recovery; rank exposure exceeding $S_{\max}$ triggers checkpoint restart.
 
-Result: MoEGuard selected the expected path in all injected failures. Small-gap failures were handled by checkpoint restart, medium-gap failures by hybrid recovery, and failures exceeding either $\Delta_{\max}$ or $E_{\max}$ were conservatively redirected to checkpoint restart. This experiment validates that MoEGuard's policy is not merely a hardcoded hybrid trigger; it uses both gap and rank-local exposure to bound recovery risk.
+Result: MoEGuard selected the expected path in all injected failures. Small-gap failures were handled by checkpoint restart, larger-gap failures by hybrid recovery, and failures where rank exposure exceeded $S_{\max}$ were conservatively redirected to checkpoint restart. This experiment validates that MoEGuard's policy is not merely a hardcoded hybrid trigger; it uses both gap and rank-local exposure to bound recovery risk.
 
 \subsection{RQ2: Single-Failure Recovery Cost}
 \label{sec:rq2}
@@ -419,7 +420,7 @@ Each run follows: 1000 iterations warmup, inject one failure at a chosen gap, co
 
 We report: training loss trajectory, validation loss, validation perplexity, gradient norm, gradient clipping rate, skipped iterations, NaN iterations, token drop rate, router auxiliary loss, and expert load coefficient of variation.
 
-For gaps up to $\Delta_{\max} = 1000$, MoEGuard's validation loss and perplexity remain close to Restart and NoFault under paired comparison. At larger gaps, the expert staleness becomes significant, motivating the conservative fallback threshold $\Delta_{\max}$. This experiment determines the safe single-gap region: $\Delta_{\max}$ should be set to the largest gap where recovered runs remain statistically close to Restart on validation loss, perplexity, gradient stability, and routing stability.
+For gaps up to the checkpoint interval (which naturally bounds single-recovery staleness), MoEGuard's validation loss and perplexity remain close to Restart and NoFault under paired comparison. At larger gaps, the expert staleness becomes significant. This experiment determines the safe single-gap region and informs the choice of $S_{\max}$: the accumulated stale exposure bound should be set so that recovered runs remain statistically close to Restart on validation loss, perplexity, gradient stability, and routing stability.
 
 \subsection{RQ4: Multiple Failures and Rank-Local Exposure}
 \label{sec:rq4}
@@ -432,7 +433,7 @@ This experiment evaluates MoEGuard under repeated failures. We compare two failu
 
 We use $\Delta \in \{128, 256, 512\}$ and inject failures every 500 iterations after warmup. For each trace, we record the selected path, per-rank stale exposure, validation loss, validation perplexity, gradient norm, token drop rate, and expert load balance.
 
-Expected behavior: FixedGap and AlwaysHybrid treat distributed and concentrated failures similarly. MoEGuard distinguishes them: distributed failures can continue using hybrid recovery because each rank's exposure remains low, while concentrated failures eventually trigger checkpoint restart when the failed rank's exposure exceeds $E_{\max}$.
+Expected behavior: FixedGap and AlwaysHybrid treat distributed and concentrated failures similarly. MoEGuard distinguishes them: distributed failures can continue using hybrid recovery because each rank's $S_r$ remains low, while concentrated failures eventually trigger checkpoint restart when $S_r + \Delta$ exceeds $S_{\max}$.
 
 MoEGuard uses hybrid recovery for distributed failures but falls back to restart after repeated concentrated failures on the same rank. This confirms that rank-local exposure captures risk that global gap-only policies miss.
 

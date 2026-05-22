@@ -22,7 +22,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/find_max_baseline/5.21}"
+BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/find_max_baseline/5.22}"
 TORCHRUN="${TORCHRUN:-torchrun}"
 if ! command -v "${TORCHRUN}" >/dev/null 2>&1 && [ -x "/Users/zds/miniconda3/bin/torchrun" ]; then
   TORCHRUN="/Users/zds/miniconda3/bin/torchrun"
@@ -59,7 +59,6 @@ run_training() {
 
   echo "============================================================"
   echo "[findmax_baseline] Starting baseline run=${RUN_ID}"
-  echo "[findmax_baseline] train_iters=600"
   echo "[findmax_baseline] CKPT_DIR=${CKPT_DIR}"
   echo "[findmax_baseline] TRAIN_LOG_DIR=${TRAIN_LOG_DIR}"
   echo "============================================================"
@@ -159,6 +158,9 @@ MAX_RETRIES=1
 RETRY_DELAY="${RETRY_DELAY:-30}"
 SAVE_LOG_SCRIPT="${SCRIPT_DIR}/log_analysis/save_train_log.sh"
 
+# ============================================================
+# Sweep loop
+# ============================================================
 for RUN_ID in "${RUN_IDS[@]}"; do
   echo ""
   echo "############################################################"
