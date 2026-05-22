@@ -19,6 +19,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # Experiments:
 #   fault burst starts at iteration: 250, 300, 350, 399
 #   failed cards per burst:          8, 16, 32
+#   skipped by default:              250:8, 250:16
 #
 # The rank plan is balanced by PP stage.  With the default 64-card setup
 # and PP=8, each PP stage owns 8 ranks:
@@ -54,7 +55,23 @@ export NPROC_PER_NODE NNODES PLAN_WORLD_SIZE PP_SIZE EP_SIZE
 
 FAULT_STEPS=(${FAULT_STEPS:-250 300 350 399})
 FAULT_COUNTS=(${FAULT_COUNTS:-8 16 32})
+SKIP_FAULT_CASES=(${SKIP_FAULT_CASES-250:8 250:16})
 PLAN_SEED="${PLAN_SEED:-42}"
+
+should_skip_fault_case() {
+  local fault_step="${1:?fault step required}"
+  local fault_count="${2:?fault count required}"
+  local case_id="${fault_step}:${fault_count}"
+  local skipped_case
+
+  for skipped_case in "${SKIP_FAULT_CASES[@]}"; do
+    if [ "${skipped_case}" = "${case_id}" ]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
 
 build_fault_plan() {
   local fault_step="${1:?fault step required}"
@@ -245,6 +262,11 @@ SAVE_LOG_SCRIPT="${SCRIPT_DIR}/log_analysis/save_train_log.sh"
 
 for STEP in "${FAULT_STEPS[@]}"; do
   for COUNT in "${FAULT_COUNTS[@]}"; do
+    if should_skip_fault_case "${STEP}" "${COUNT}"; then
+      echo "[find_multi_fault] skipping completed case: step=${STEP}, count=${COUNT}"
+      continue
+    fi
+
     if ! PLAN="$(build_fault_plan "${STEP}" "${COUNT}")"; then
       echo "[find_multi_fault] failed to build fault plan: step=${STEP}, count=${COUNT}, plan_world_size=${PLAN_WORLD_SIZE}, pp_size=${PP_SIZE}" >&2
       continue
@@ -305,5 +327,6 @@ echo "============================================================"
 echo "find_multi_fault: all experiments completed"
 echo "Fault starts tested: ${FAULT_STEPS[*]}"
 echo "Fault counts tested: ${FAULT_COUNTS[*]}"
+echo "Fault cases skipped: ${SKIP_FAULT_CASES[*]}"
 echo "Results in: ${BASE_DIR}/step_*_faults_*/log/"
 echo "============================================================"
