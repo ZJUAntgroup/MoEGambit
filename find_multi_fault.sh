@@ -17,9 +17,9 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # Multi-rank restart-in-place fault sweep
 # ============================================================
 # Experiments:
-#   fault burst starts at iteration: 250, 300, 350, 399
-#   failed cards per burst:          8, 16, 24
-#   skipped by default:              250:8, 250:16
+#   fault burst starts at iteration: 300, 350, 399
+#   failed cards per burst:          8, 16
+#   completed and removed:           step 250 cases, 24-card cases
 #
 # The rank plan is balanced by PP stage.  With the default 64-card setup
 # and PP=8, each PP stage owns 8 ranks:
@@ -28,7 +28,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 #   ...
 #   stage 7: 56..63
 #
-# For 8/16/24-card bursts we pick 1/2/3 ranks from each PP stage.  This
+# For 8/16-card bursts we pick 1/2 ranks from each PP stage.  This
 # guarantees every PP stage keeps healthy peers for dense-param sync.
 #
 # Multi-rank cases follow find_max.sh's restart_in_place path: replacement_rank
@@ -53,9 +53,9 @@ PP_SIZE="${PP_SIZE:-8}"
 EP_SIZE="${EP_SIZE:-8}"
 export NPROC_PER_NODE NNODES PLAN_WORLD_SIZE PP_SIZE EP_SIZE
 
-FAULT_STEPS=(${FAULT_STEPS:-250 300 350 399})
-FAULT_COUNTS=(${FAULT_COUNTS:-8 16 24})
-SKIP_FAULT_CASES=(${SKIP_FAULT_CASES-250:8 250:16})
+FAULT_STEPS=(${FAULT_STEPS:-300 350 399})
+FAULT_COUNTS=(${FAULT_COUNTS:-8 16})
+SKIP_FAULT_CASES=(${SKIP_FAULT_CASES:-})
 PLAN_SEED="${PLAN_SEED:-42}"
 
 should_skip_fault_case() {
