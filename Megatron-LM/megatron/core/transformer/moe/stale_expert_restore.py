@@ -92,6 +92,37 @@ logger = logging.getLogger(__name__)
 
 
 # =====================================================================
+# Layer id helpers
+# =====================================================================
+
+def _directory_layer_id_from_restore_entry(
+    directory: Any,
+    layer_id: int,
+    *,
+    layer_id_base: int = 1,
+) -> int:
+    """Map a restore-plan layer id to ActiveExpertDirectory's 0-based id.
+
+    BSR runtime restore plans use 1-based global MoE layer ids because the
+    checkpoint loader maps them back to PP-local checkpoint keys.  Manifest
+    plans may already be 0-based.  The active expert directory is built from
+    ``range(num_layers)``, so its valid ids are 0..num_layers-1.
+    """
+    num_layers = getattr(directory, "num_layers", None)
+    if callable(num_layers):
+        num_layers = num_layers()
+
+    if (
+        layer_id_base == 1
+        and isinstance(num_layers, int)
+        and 1 <= layer_id <= num_layers
+    ):
+        return layer_id - 1
+
+    return layer_id
+
+
+# =====================================================================
 # Expert restore plan
 # =====================================================================
 
@@ -151,6 +182,9 @@ class ExpertRestorePlan:
     step: int = -1
     """Current training step when the plan was created."""
 
+    layer_id_base: int = 1
+    """Base of ``ExpertRestoreEntry.layer_id`` values."""
+
     @property
     def num_experts(self) -> int:
         return len(self.entries)
@@ -171,6 +205,7 @@ class ExpertRestorePlan:
             "failed_rank": self.failed_rank,
             "replacement_rank": self.replacement_rank,
             "step": self.step,
+            "layer_id_base": self.layer_id_base,
             "num_experts": self.num_experts,
             "entries": [e.to_dict() for e in self.entries],
         }
@@ -428,6 +463,7 @@ def identify_experts_to_restore(
         failed_rank=failed_rank,
         replacement_rank=replacement_rank,
         step=manifest.step,
+        layer_id_base=0,
     )
 
     for entry in manifest.entries:
@@ -586,19 +622,25 @@ def restore_expert_weights(
 
     if directory is not None:
         for layer_id, expert_id in result.restored_experts:
+            directory_layer_id = _directory_layer_id_from_restore_entry(
+                directory,
+                layer_id,
+                layer_id_base=getattr(plan, "layer_id_base", 1),
+            )
             try:
                 directory.update_recovery_state(
-                    layer_id, expert_id, "STALE_RUNNABLE",
+                    directory_layer_id, expert_id, "STALE_RUNNABLE",
                 )
                 if plan.replacement_rank >= 0:
                     directory.update_host_rank(
-                        layer_id, expert_id, plan.replacement_rank,
+                        directory_layer_id, expert_id, plan.replacement_rank,
                     )
                 result.num_directory_updates += 1
             except Exception as e:
                 logger.warning(
                     "BSR-MoE: directory update failed for expert "
-                    "(layer=%d, id=%d): %s", layer_id, expert_id, e,
+                    "(restore_layer=%d, directory_layer=%d, id=%d): %s",
+                    layer_id, directory_layer_id, expert_id, e,
                 )
 
     # --- Phase 4: Optimizer update barrier ---

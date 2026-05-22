@@ -18,7 +18,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 # Experiments:
 #   fault burst starts at iteration: 250, 300, 350, 399
-#   failed cards per burst:          8, 16, 32
+#   failed cards per burst:          8, 16, 24
 #   skipped by default:              250:8, 250:16
 #
 # The rank plan is balanced by PP stage.  With the default 64-card setup
@@ -28,7 +28,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 #   ...
 #   stage 7: 56..63
 #
-# For 8/16/32-card bursts we pick 1/2/4 ranks from each PP stage.  This
+# For 8/16/24-card bursts we pick 1/2/3 ranks from each PP stage.  This
 # guarantees every PP stage keeps healthy peers for dense-param sync.
 #
 # Multi-rank cases follow find_max.sh's restart_in_place path: replacement_rank
@@ -54,7 +54,7 @@ EP_SIZE="${EP_SIZE:-8}"
 export NPROC_PER_NODE NNODES PLAN_WORLD_SIZE PP_SIZE EP_SIZE
 
 FAULT_STEPS=(${FAULT_STEPS:-250 300 350 399})
-FAULT_COUNTS=(${FAULT_COUNTS:-8 16 32})
+FAULT_COUNTS=(${FAULT_COUNTS:-8 16 24})
 SKIP_FAULT_CASES=(${SKIP_FAULT_CASES-250:8 250:16})
 PLAN_SEED="${PLAN_SEED:-42}"
 
