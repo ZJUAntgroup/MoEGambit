@@ -1,0 +1,5439 @@
+{
+  "path": "/Users/zds/bsr/514final.log",
+  "size_bytes": 7135633,
+  "line_count": 38380,
+  "status": "ok",
+  "notes": [
+    "no fatal NCCL/OOM/Traceback/no-matching-param signal found"
+  ],
+  "counts": {
+    "iterations": 3369,
+    "faults": 85,
+    "repairs": 85,
+    "optimizer_skip_steps": 85,
+    "reintegrated_steps": 85,
+    "directory_update_fail_lines": 96,
+    "severe_error_lines": 0,
+    "no_match_lines": 0
+  },
+  "baseline": {
+    "baseline_ms": 10257.6,
+    "raw_stats_ms": {
+      "count": 3369,
+      "min": 10208.6,
+      "mean": 11811.890917186109,
+      "p50": 10262.6,
+      "p90": 10411.400000000001,
+      "p95": 10895.879999999997,
+      "p99": 61469.49600000016,
+      "max": 223827.3
+    },
+    "candidate_stats_ms": {
+      "count": 3030,
+      "min": 10208.6,
+      "mean": 10289.422838283828,
+      "p50": 10261.349999999999,
+      "p90": 10389.2,
+      "p95": 10420.275,
+      "p99": 10844.005000000001,
+      "max": 11449.1
+    },
+    "clean_stats_ms": {
+      "count": 2630,
+      "min": 10208.6,
+      "mean": 10259.543003802282,
+      "p50": 10257.6,
+      "p90": 10282.51,
+      "p95": 10292.065,
+      "p99": 10313.271,
+      "max": 10347.0
+    },
+    "exclusions": {
+      "warmup": 3,
+      "event_window": 252,
+      "skipped": 84,
+      "mad_outlier": 400
+    },
+    "first_iteration": {
+      "step": 1321,
+      "target": 20000,
+      "ts": "2026-05-14 16:53:19",
+      "elapsed_ms": 223827.3,
+      "skipped": 1,
+      "loss": null,
+      "grad_norm": null,
+      "line": 869
+    },
+    "last_iteration": {
+      "step": 4689,
+      "target": 20000,
+      "ts": "2026-05-15 04:38:47",
+      "elapsed_ms": 10254.5,
+      "skipped": 0,
+      "loss": 3.033752,
+      "grad_norm": 0.191,
+      "line": 38380
+    }
+  },
+  "faults": [
+    {
+      "number": 1,
+      "step": 1321,
+      "rank": 14,
+      "kind": "restart_in_place",
+      "line": 511
+    },
+    {
+      "number": 2,
+      "step": 1361,
+      "rank": 3,
+      "kind": "restart_in_place",
+      "line": 952
+    },
+    {
+      "number": 3,
+      "step": 1401,
+      "rank": 35,
+      "kind": "restart_in_place",
+      "line": 1370
+    },
+    {
+      "number": 4,
+      "step": 1441,
+      "rank": 31,
+      "kind": "restart_in_place",
+      "line": 1788
+    },
+    {
+      "number": 5,
+      "step": 1481,
+      "rank": 28,
+      "kind": "restart_in_place",
+      "line": 2206
+    },
+    {
+      "number": 6,
+      "step": 1521,
+      "rank": 17,
+      "kind": "restart_in_place",
+      "line": 2624
+    },
+    {
+      "number": 7,
+      "step": 1561,
+      "rank": 13,
+      "kind": "restart_in_place",
+      "line": 3042
+    },
+    {
+      "number": 8,
+      "step": 1601,
+      "rank": 11,
+      "kind": "restart_in_place",
+      "line": 3460
+    },
+    {
+      "number": 9,
+      "step": 1641,
+      "rank": 54,
+      "kind": "restart_in_place",
+      "line": 3878
+    },
+    {
+      "number": 10,
+      "step": 1681,
+      "rank": 4,
+      "kind": "restart_in_place",
+      "line": 4296
+    },
+    {
+      "number": 11,
+      "step": 1721,
+      "rank": 3,
+      "kind": "restart_in_place",
+      "line": 4714
+    },
+    {
+      "number": 12,
+      "step": 1761,
+      "rank": 11,
+      "kind": "restart_in_place",
+      "line": 5132
+    },
+    {
+      "number": 13,
+      "step": 1801,
+      "rank": 27,
+      "kind": "restart_in_place",
+      "line": 5550
+    },
+    {
+      "number": 14,
+      "step": 1841,
+      "rank": 29,
+      "kind": "restart_in_place",
+      "line": 5968
+    },
+    {
+      "number": 15,
+      "step": 1881,
+      "rank": 3,
+      "kind": "restart_in_place",
+      "line": 6386
+    },
+    {
+      "number": 16,
+      "step": 1921,
+      "rank": 25,
+      "kind": "restart_in_place",
+      "line": 6804
+    },
+    {
+      "number": 17,
+      "step": 1961,
+      "rank": 53,
+      "kind": "restart_in_place",
+      "line": 7222
+    },
+    {
+      "number": 18,
+      "step": 2001,
+      "rank": 28,
+      "kind": "restart_in_place",
+      "line": 7640
+    },
+    {
+      "number": 19,
+      "step": 2041,
+      "rank": 57,
+      "kind": "restart_in_place",
+      "line": 8058
+    },
+    {
+      "number": 20,
+      "step": 2081,
+      "rank": 35,
+      "kind": "restart_in_place",
+      "line": 8937
+    },
+    {
+      "number": 21,
+      "step": 2121,
+      "rank": 0,
+      "kind": "restart_in_place",
+      "line": 9355
+    },
+    {
+      "number": 22,
+      "step": 2161,
+      "rank": 20,
+      "kind": "restart_in_place",
+      "line": 9773
+    },
+    {
+      "number": 23,
+      "step": 2201,
+      "rank": 54,
+      "kind": "restart_in_place",
+      "line": 10191
+    },
+    {
+      "number": 24,
+      "step": 2241,
+      "rank": 43,
+      "kind": "restart_in_place",
+      "line": 10609
+    },
+    {
+      "number": 25,
+      "step": 2281,
+      "rank": 35,
+      "kind": "restart_in_place",
+      "line": 11027
+    },
+    {
+      "number": 26,
+      "step": 2321,
+      "rank": 19,
+      "kind": "restart_in_place",
+      "line": 11445
+    },
+    {
+      "number": 27,
+      "step": 2361,
+      "rank": 27,
+      "kind": "restart_in_place",
+      "line": 11863
+    },
+    {
+      "number": 28,
+      "step": 2401,
+      "rank": 43,
+      "kind": "restart_in_place",
+      "line": 12281
+    },
+    {
+      "number": 29,
+      "step": 2441,
+      "rank": 13,
+      "kind": "restart_in_place",
+      "line": 12699
+    },
+    {
+      "number": 30,
+      "step": 2481,
+      "rank": 11,
+      "kind": "restart_in_place",
+      "line": 13117
+    },
+    {
+      "number": 31,
+      "step": 2521,
+      "rank": 48,
+      "kind": "restart_in_place",
+      "line": 13535
+    },
+    {
+      "number": 32,
+      "step": 2561,
+      "rank": 12,
+      "kind": "restart_in_place",
+      "line": 13953
+    },
+    {
+      "number": 33,
+      "step": 2601,
+      "rank": 45,
+      "kind": "restart_in_place",
+      "line": 14371
+    },
+    {
+      "number": 34,
+      "step": 2641,
+      "rank": 44,
+      "kind": "restart_in_place",
+      "line": 14789
+    },
+    {
+      "number": 35,
+      "step": 2681,
+      "rank": 33,
+      "kind": "restart_in_place",
+      "line": 15207
+    },
+    {
+      "number": 36,
+      "step": 2721,
+      "rank": 5,
+      "kind": "restart_in_place",
+      "line": 15625
+    },
+    {
+      "number": 37,
+      "step": 2761,
+      "rank": 58,
+      "kind": "restart_in_place",
+      "line": 16043
+    },
+    {
+      "number": 38,
+      "step": 2801,
+      "rank": 15,
+      "kind": "restart_in_place",
+      "line": 16922
+    },
+    {
+      "number": 39,
+      "step": 2841,
+      "rank": 48,
+      "kind": "restart_in_place",
+      "line": 17340
+    },
+    {
+      "number": 40,
+      "step": 2881,
+      "rank": 10,
+      "kind": "restart_in_place",
+      "line": 17758
+    },
+    {
+      "number": 41,
+      "step": 2921,
+      "rank": 37,
+      "kind": "restart_in_place",
+      "line": 18176
+    },
+    {
+      "number": 42,
+      "step": 2961,
+      "rank": 46,
+      "kind": "restart_in_place",
+      "line": 18594
+    },
+    {
+      "number": 43,
+      "step": 3001,
+      "rank": 24,
+      "kind": "restart_in_place",
+      "line": 19012
+    },
+    {
+      "number": 44,
+      "step": 3041,
+      "rank": 8,
+      "kind": "restart_in_place",
+      "line": 19430
+    },
+    {
+      "number": 45,
+      "step": 3081,
+      "rank": 5,
+      "kind": "restart_in_place",
+      "line": 19848
+    },
+    {
+      "number": 46,
+      "step": 3121,
+      "rank": 29,
+      "kind": "restart_in_place",
+      "line": 20266
+    },
+    {
+      "number": 47,
+      "step": 3161,
+      "rank": 37,
+      "kind": "restart_in_place",
+      "line": 20684
+    },
+    {
+      "number": 48,
+      "step": 3201,
+      "rank": 10,
+      "kind": "restart_in_place",
+      "line": 21102
+    },
+    {
+      "number": 49,
+      "step": 3241,
+      "rank": 29,
+      "kind": "restart_in_place",
+      "line": 21520
+    },
+    {
+      "number": 50,
+      "step": 3281,
+      "rank": 12,
+      "kind": "restart_in_place",
+      "line": 21938
+    },
+    {
+      "number": 51,
+      "step": 3321,
+      "rank": 48,
+      "kind": "restart_in_place",
+      "line": 22356
+    },
+    {
+      "number": 52,
+      "step": 3361,
+      "rank": 35,
+      "kind": "restart_in_place",
+      "line": 22774
+    },
+    {
+      "number": 53,
+      "step": 3401,
+      "rank": 58,
+      "kind": "restart_in_place",
+      "line": 23192
+    },
+    {
+      "number": 54,
+      "step": 3441,
+      "rank": 46,
+      "kind": "restart_in_place",
+      "line": 23867
+    },
+    {
+      "number": 55,
+      "step": 3481,
+      "rank": 20,
+      "kind": "restart_in_place",
+      "line": 24285
+    },
+    {
+      "number": 56,
+      "step": 3521,
+      "rank": 47,
+      "kind": "restart_in_place",
+      "line": 24703
+    },
+    {
+      "number": 57,
+      "step": 3561,
+      "rank": 45,
+      "kind": "restart_in_place",
+      "line": 25121
+    },
+    {
+      "number": 58,
+      "step": 3601,
+      "rank": 26,
+      "kind": "restart_in_place",
+      "line": 25539
+    },
+    {
+      "number": 59,
+      "step": 3641,
+      "rank": 34,
+      "kind": "restart_in_place",
+      "line": 25957
+    },
+    {
+      "number": 60,
+      "step": 3681,
+      "rank": 9,
+      "kind": "restart_in_place",
+      "line": 26375
+    },
+    {
+      "number": 61,
+      "step": 3721,
+      "rank": 21,
+      "kind": "restart_in_place",
+      "line": 26793
+    },
+    {
+      "number": 62,
+      "step": 3761,
+      "rank": 31,
+      "kind": "restart_in_place",
+      "line": 27211
+    },
+    {
+      "number": 63,
+      "step": 3801,
+      "rank": 20,
+      "kind": "restart_in_place",
+      "line": 27629
+    },
+    {
+      "number": 64,
+      "step": 3841,
+      "rank": 59,
+      "kind": "restart_in_place",
+      "line": 28047
+    },
+    {
+      "number": 65,
+      "step": 3881,
+      "rank": 48,
+      "kind": "restart_in_place",
+      "line": 28926
+    },
+    {
+      "number": 66,
+      "step": 3921,
+      "rank": 34,
+      "kind": "restart_in_place",
+      "line": 29344
+    },
+    {
+      "number": 67,
+      "step": 3961,
+      "rank": 28,
+      "kind": "restart_in_place",
+      "line": 29762
+    },
+    {
+      "number": 68,
+      "step": 4001,
+      "rank": 41,
+      "kind": "restart_in_place",
+      "line": 30180
+    },
+    {
+      "number": 69,
+      "step": 4041,
+      "rank": 7,
+      "kind": "restart_in_place",
+      "line": 30598
+    },
+    {
+      "number": 70,
+      "step": 4081,
+      "rank": 29,
+      "kind": "restart_in_place",
+      "line": 31016
+    },
+    {
+      "number": 71,
+      "step": 4121,
+      "rank": 4,
+      "kind": "restart_in_place",
+      "line": 31434
+    },
+    {
+      "number": 72,
+      "step": 4161,
+      "rank": 40,
+      "kind": "restart_in_place",
+      "line": 31852
+    },
+    {
+      "number": 73,
+      "step": 4201,
+      "rank": 51,
+      "kind": "restart_in_place",
+      "line": 32270
+    },
+    {
+      "number": 74,
+      "step": 4241,
+      "rank": 34,
+      "kind": "restart_in_place",
+      "line": 32688
+    },
+    {
+      "number": 75,
+      "step": 4281,
+      "rank": 8,
+      "kind": "restart_in_place",
+      "line": 33106
+    },
+    {
+      "number": 76,
+      "step": 4321,
+      "rank": 27,
+      "kind": "restart_in_place",
+      "line": 33524
+    },
+    {
+      "number": 77,
+      "step": 4361,
+      "rank": 40,
+      "kind": "restart_in_place",
+      "line": 33942
+    },
+    {
+      "number": 78,
+      "step": 4401,
+      "rank": 27,
+      "kind": "restart_in_place",
+      "line": 34360
+    },
+    {
+      "number": 79,
+      "step": 4441,
+      "rank": 63,
+      "kind": "restart_in_place",
+      "line": 34778
+    },
+    {
+      "number": 80,
+      "step": 4481,
+      "rank": 50,
+      "kind": "restart_in_place",
+      "line": 35657
+    },
+    {
+      "number": 81,
+      "step": 4521,
+      "rank": 58,
+      "kind": "restart_in_place",
+      "line": 36075
+    },
+    {
+      "number": 82,
+      "step": 4561,
+      "rank": 18,
+      "kind": "restart_in_place",
+      "line": 36750
+    },
+    {
+      "number": 83,
+      "step": 4601,
+      "rank": 33,
+      "kind": "restart_in_place",
+      "line": 37168
+    },
+    {
+      "number": 84,
+      "step": 4641,
+      "rank": 17,
+      "kind": "restart_in_place",
+      "line": 37586
+    },
+    {
+      "number": 85,
+      "step": 4681,
+      "rank": 31,
+      "kind": "restart_in_place",
+      "line": 38004
+    }
+  ],
+  "repairs": [
+    {
+      "step": 1321,
+      "failed": 14,
+      "replacement": 14,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 27.423,
+      "total_s_p50": 16.514,
+      "phase_a_s_max": 0.001,
+      "phase_b_s_max": 0.061,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1361,
+      "failed": 3,
+      "replacement": 3,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.133,
+      "total_s_p50": 0.133,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.133,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1401,
+      "failed": 35,
+      "replacement": 35,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.089,
+      "total_s_p50": 0.089,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.089,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1441,
+      "failed": 31,
+      "replacement": 31,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.15,
+      "total_s_p50": 0.149,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.149,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1481,
+      "failed": 28,
+      "replacement": 28,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.069,
+      "total_s_p50": 0.068,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.069,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1521,
+      "failed": 17,
+      "replacement": 17,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.063,
+      "total_s_p50": 0.062,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.062,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1561,
+      "failed": 13,
+      "replacement": 13,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.138,
+      "total_s_p50": 0.137,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.137,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1601,
+      "failed": 11,
+      "replacement": 11,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.088,
+      "total_s_p50": 0.0865,
+      "phase_a_s_max": 0.001,
+      "phase_b_s_max": 0.087,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1641,
+      "failed": 54,
+      "replacement": 54,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.091,
+      "total_s_p50": 0.09,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.09,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1681,
+      "failed": 4,
+      "replacement": 4,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.081,
+      "total_s_p50": 0.08,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.081,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1721,
+      "failed": 3,
+      "replacement": 3,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.135,
+      "total_s_p50": 0.135,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.135,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1761,
+      "failed": 11,
+      "replacement": 11,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.179,
+      "total_s_p50": 0.178,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.178,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1801,
+      "failed": 27,
+      "replacement": 27,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.097,
+      "total_s_p50": 0.096,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.096,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1841,
+      "failed": 29,
+      "replacement": 29,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.106,
+      "total_s_p50": 0.106,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.105,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1881,
+      "failed": 3,
+      "replacement": 3,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.086,
+      "total_s_p50": 0.085,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.086,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1921,
+      "failed": 25,
+      "replacement": 25,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.141,
+      "total_s_p50": 0.139,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.14,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 1961,
+      "failed": 53,
+      "replacement": 53,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.089,
+      "total_s_p50": 0.088,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.089,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2001,
+      "failed": 28,
+      "replacement": 28,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.273,
+      "total_s_p50": 0.272,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.272,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2041,
+      "failed": 57,
+      "replacement": 57,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 28.184,
+      "total_s_p50": 2.607,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 28.184,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2081,
+      "failed": 35,
+      "replacement": 35,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.171,
+      "total_s_p50": 0.1705,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.17,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2121,
+      "failed": 0,
+      "replacement": 0,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.08,
+      "total_s_p50": 0.08,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.08,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2161,
+      "failed": 20,
+      "replacement": 20,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.173,
+      "total_s_p50": 0.173,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.173,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2201,
+      "failed": 54,
+      "replacement": 54,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.116,
+      "total_s_p50": 0.1155,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.115,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2241,
+      "failed": 43,
+      "replacement": 43,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.145,
+      "total_s_p50": 0.145,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.145,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2281,
+      "failed": 35,
+      "replacement": 35,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.114,
+      "total_s_p50": 0.113,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.114,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2321,
+      "failed": 19,
+      "replacement": 19,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.136,
+      "total_s_p50": 0.1355,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.136,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2361,
+      "failed": 27,
+      "replacement": 27,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.093,
+      "total_s_p50": 0.0925,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.093,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2401,
+      "failed": 43,
+      "replacement": 43,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.108,
+      "total_s_p50": 0.1075,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.108,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2441,
+      "failed": 13,
+      "replacement": 13,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.168,
+      "total_s_p50": 0.167,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.167,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2481,
+      "failed": 11,
+      "replacement": 11,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.112,
+      "total_s_p50": 0.1115,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.112,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2521,
+      "failed": 48,
+      "replacement": 48,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.286,
+      "total_s_p50": 0.286,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.286,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2561,
+      "failed": 12,
+      "replacement": 12,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.289,
+      "total_s_p50": 0.2885,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.289,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2601,
+      "failed": 45,
+      "replacement": 45,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.197,
+      "total_s_p50": 0.197,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.196,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2641,
+      "failed": 44,
+      "replacement": 44,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.321,
+      "total_s_p50": 0.321,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.321,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2681,
+      "failed": 33,
+      "replacement": 33,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.183,
+      "total_s_p50": 0.182,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.183,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2721,
+      "failed": 5,
+      "replacement": 5,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.278,
+      "total_s_p50": 0.277,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.278,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2761,
+      "failed": 58,
+      "replacement": 58,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 61.834,
+      "total_s_p50": 0.279,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 61.834,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2801,
+      "failed": 15,
+      "replacement": 15,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.253,
+      "total_s_p50": 0.253,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.252,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2841,
+      "failed": 48,
+      "replacement": 48,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.249,
+      "total_s_p50": 0.249,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.249,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2881,
+      "failed": 10,
+      "replacement": 10,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.251,
+      "total_s_p50": 0.251,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.25,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2921,
+      "failed": 37,
+      "replacement": 37,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.278,
+      "total_s_p50": 0.278,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.278,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 2961,
+      "failed": 46,
+      "replacement": 46,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.347,
+      "total_s_p50": 0.3465,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.347,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3001,
+      "failed": 24,
+      "replacement": 24,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.263,
+      "total_s_p50": 0.263,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.263,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3041,
+      "failed": 8,
+      "replacement": 8,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.28,
+      "total_s_p50": 0.28,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.279,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3081,
+      "failed": 5,
+      "replacement": 5,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.217,
+      "total_s_p50": 0.216,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.216,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3121,
+      "failed": 29,
+      "replacement": 29,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.348,
+      "total_s_p50": 0.347,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.348,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3161,
+      "failed": 37,
+      "replacement": 37,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.354,
+      "total_s_p50": 0.3535,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.354,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3201,
+      "failed": 10,
+      "replacement": 10,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.277,
+      "total_s_p50": 0.277,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.277,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3241,
+      "failed": 29,
+      "replacement": 29,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.245,
+      "total_s_p50": 0.2445,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.245,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3281,
+      "failed": 12,
+      "replacement": 12,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.399,
+      "total_s_p50": 0.398,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.399,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3321,
+      "failed": 48,
+      "replacement": 48,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.297,
+      "total_s_p50": 0.296,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.296,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3361,
+      "failed": 35,
+      "replacement": 35,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.318,
+      "total_s_p50": 0.317,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.318,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3401,
+      "failed": 58,
+      "replacement": 58,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 39.418,
+      "total_s_p50": 4.946000000000001,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 39.418,
+      "phase_c_s_max": 0.001
+    },
+    {
+      "step": 3441,
+      "failed": 46,
+      "replacement": 46,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.46,
+      "total_s_p50": 0.459,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.46,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3481,
+      "failed": 20,
+      "replacement": 20,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.306,
+      "total_s_p50": 0.306,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.306,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3521,
+      "failed": 47,
+      "replacement": 47,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.403,
+      "total_s_p50": 0.403,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.403,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3561,
+      "failed": 45,
+      "replacement": 45,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.344,
+      "total_s_p50": 0.342,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.343,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3601,
+      "failed": 26,
+      "replacement": 26,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.181,
+      "total_s_p50": 0.181,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.181,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3641,
+      "failed": 34,
+      "replacement": 34,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.217,
+      "total_s_p50": 0.2165,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.217,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3681,
+      "failed": 9,
+      "replacement": 9,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.19,
+      "total_s_p50": 0.189,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.189,
+      "phase_c_s_max": 0.001
+    },
+    {
+      "step": 3721,
+      "failed": 21,
+      "replacement": 21,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.244,
+      "total_s_p50": 0.2425,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.243,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3761,
+      "failed": 31,
+      "replacement": 31,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.202,
+      "total_s_p50": 0.202,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.202,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3801,
+      "failed": 20,
+      "replacement": 20,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.276,
+      "total_s_p50": 0.275,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.276,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3841,
+      "failed": 59,
+      "replacement": 59,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 25.762,
+      "total_s_p50": 0.3545,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 25.761,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3881,
+      "failed": 48,
+      "replacement": 48,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.295,
+      "total_s_p50": 0.2935,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.294,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3921,
+      "failed": 34,
+      "replacement": 34,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.325,
+      "total_s_p50": 0.3235,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.324,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 3961,
+      "failed": 28,
+      "replacement": 28,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.36,
+      "total_s_p50": 0.359,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.36,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4001,
+      "failed": 41,
+      "replacement": 41,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.355,
+      "total_s_p50": 0.354,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.354,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4041,
+      "failed": 7,
+      "replacement": 7,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.298,
+      "total_s_p50": 0.297,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.297,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4081,
+      "failed": 29,
+      "replacement": 29,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.354,
+      "total_s_p50": 0.3305,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.353,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4121,
+      "failed": 4,
+      "replacement": 4,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.307,
+      "total_s_p50": 0.307,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.306,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4161,
+      "failed": 40,
+      "replacement": 40,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.226,
+      "total_s_p50": 0.226,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.226,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4201,
+      "failed": 51,
+      "replacement": 51,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.296,
+      "total_s_p50": 0.295,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.295,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4241,
+      "failed": 34,
+      "replacement": 34,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.384,
+      "total_s_p50": 0.383,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.383,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4281,
+      "failed": 8,
+      "replacement": 8,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.302,
+      "total_s_p50": 0.301,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.302,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4321,
+      "failed": 27,
+      "replacement": 27,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.287,
+      "total_s_p50": 0.2865,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.287,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4361,
+      "failed": 40,
+      "replacement": 40,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.226,
+      "total_s_p50": 0.2255,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.226,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4401,
+      "failed": 27,
+      "replacement": 27,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.379,
+      "total_s_p50": 0.379,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.379,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4441,
+      "failed": 63,
+      "replacement": 63,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 60.593,
+      "total_s_p50": 0.616,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 59.156,
+      "phase_c_s_max": 1.437
+    },
+    {
+      "step": 4481,
+      "failed": 50,
+      "replacement": 50,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.456,
+      "total_s_p50": 0.455,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.455,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4521,
+      "failed": 58,
+      "replacement": 58,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 48.616,
+      "total_s_p50": 0.414,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 48.616,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4561,
+      "failed": 18,
+      "replacement": 18,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.639,
+      "total_s_p50": 0.638,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.639,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4601,
+      "failed": 33,
+      "replacement": 33,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.549,
+      "total_s_p50": 0.548,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.548,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4641,
+      "failed": 17,
+      "replacement": 17,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.681,
+      "total_s_p50": 0.68,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.68,
+      "phase_c_s_max": 0.0
+    },
+    {
+      "step": 4681,
+      "failed": 31,
+      "replacement": 31,
+      "path": "HYBRID_RECOVERY",
+      "duplicate_lines": 8,
+      "total_s_max": 0.464,
+      "total_s_p50": 0.4635,
+      "phase_a_s_max": 0.0,
+      "phase_b_s_max": 0.464,
+      "phase_c_s_max": 0.0
+    }
+  ],
+  "fault_windows": [
+    {
+      "number": 1,
+      "step": 1321,
+      "rank": 14,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 27.423,
+      "repair_phase_b_s_max": 0.061,
+      "window_overhead_ms": 214423.99999999997,
+      "corrected_window_overhead_ms": 214423.99999999997,
+      "iterations": [
+        {
+          "step": 1321,
+          "elapsed_ms": 223827.3,
+          "overhead_ms": 213569.69999999998,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 213569.69999999998,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1322,
+          "elapsed_ms": 10890.6,
+          "overhead_ms": 633.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 633.0,
+          "skipped": 0,
+          "loss": 3.615646
+        },
+        {
+          "step": 1323,
+          "elapsed_ms": 10478.9,
+          "overhead_ms": 221.29999999999927,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 221.29999999999927,
+          "skipped": 0,
+          "loss": 3.611228
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "step": 1361,
+      "rank": 3,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.133,
+      "repair_phase_b_s_max": 0.133,
+      "window_overhead_ms": 53225.8,
+      "corrected_window_overhead_ms": 26027.899999999998,
+      "iterations": [
+        {
+          "step": 1361,
+          "elapsed_ms": 37455.5,
+          "overhead_ms": 27197.9,
+          "checkpoint_ms_from_prev_iter": 33534.02,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1362,
+          "elapsed_ms": 36270.2,
+          "overhead_ms": 26012.6,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 26012.6,
+          "skipped": 0,
+          "loss": 3.626129
+        },
+        {
+          "step": 1363,
+          "elapsed_ms": 10272.9,
+          "overhead_ms": 15.299999999999272,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 15.299999999999272,
+          "skipped": 0,
+          "loss": 3.536245
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "step": 1401,
+      "rank": 35,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.089,
+      "repair_phase_b_s_max": 0.089,
+      "window_overhead_ms": 72225.4,
+      "corrected_window_overhead_ms": 40495.37999999999,
+      "iterations": [
+        {
+          "step": 1401,
+          "elapsed_ms": 80016.3,
+          "overhead_ms": 69758.7,
+          "checkpoint_ms_from_prev_iter": 31730.02,
+          "corrected_overhead_ms": 38028.67999999999,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1402,
+          "elapsed_ms": 12575.8,
+          "overhead_ms": 2318.199999999999,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 2318.199999999999,
+          "skipped": 0,
+          "loss": 3.660147
+        },
+        {
+          "step": 1403,
+          "elapsed_ms": 10406.1,
+          "overhead_ms": 148.5,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 148.5,
+          "skipped": 0,
+          "loss": 3.589784
+        }
+      ]
+    },
+    {
+      "number": 4,
+      "step": 1441,
+      "rank": 31,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.15,
+      "repair_phase_b_s_max": 0.149,
+      "window_overhead_ms": 61099.8,
+      "corrected_window_overhead_ms": 28409.85,
+      "iterations": [
+        {
+          "step": 1441,
+          "elapsed_ms": 58460.2,
+          "overhead_ms": 48202.6,
+          "checkpoint_ms_from_prev_iter": 32689.95,
+          "corrected_overhead_ms": 15512.649999999998,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1442,
+          "elapsed_ms": 23136.4,
+          "overhead_ms": 12878.800000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 12878.800000000001,
+          "skipped": 0,
+          "loss": 3.579877
+        },
+        {
+          "step": 1443,
+          "elapsed_ms": 10276.0,
+          "overhead_ms": 18.399999999999636,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 18.399999999999636,
+          "skipped": 0,
+          "loss": 3.564353
+        }
+      ]
+    },
+    {
+      "number": 5,
+      "step": 1481,
+      "rank": 28,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.069,
+      "repair_phase_b_s_max": 0.069,
+      "window_overhead_ms": 73155.3,
+      "corrected_window_overhead_ms": 42152.729999999996,
+      "iterations": [
+        {
+          "step": 1481,
+          "elapsed_ms": 71407.9,
+          "overhead_ms": 61150.299999999996,
+          "checkpoint_ms_from_prev_iter": 31002.57,
+          "corrected_overhead_ms": 30147.729999999996,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1482,
+          "elapsed_ms": 22241.0,
+          "overhead_ms": 11983.4,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11983.4,
+          "skipped": 0,
+          "loss": 3.55303
+        },
+        {
+          "step": 1483,
+          "elapsed_ms": 10279.2,
+          "overhead_ms": 21.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 21.600000000000364,
+          "skipped": 0,
+          "loss": 3.579203
+        }
+      ]
+    },
+    {
+      "number": 6,
+      "step": 1521,
+      "rank": 17,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.063,
+      "repair_phase_b_s_max": 0.062,
+      "window_overhead_ms": 61199.5,
+      "corrected_window_overhead_ms": 29306.619999999995,
+      "iterations": [
+        {
+          "step": 1521,
+          "elapsed_ms": 59696.4,
+          "overhead_ms": 49438.8,
+          "checkpoint_ms_from_prev_iter": 31892.88,
+          "corrected_overhead_ms": 17545.920000000002,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1522,
+          "elapsed_ms": 21996.6,
+          "overhead_ms": 11738.999999999998,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11738.999999999998,
+          "skipped": 0,
+          "loss": 3.597172
+        },
+        {
+          "step": 1523,
+          "elapsed_ms": 10279.3,
+          "overhead_ms": 21.69999999999891,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 21.69999999999891,
+          "skipped": 0,
+          "loss": 3.501005
+        }
+      ]
+    },
+    {
+      "number": 7,
+      "step": 1561,
+      "rank": 13,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.138,
+      "repair_phase_b_s_max": 0.137,
+      "window_overhead_ms": 65690.8,
+      "corrected_window_overhead_ms": 32054.929999999997,
+      "iterations": [
+        {
+          "step": 1561,
+          "elapsed_ms": 61175.0,
+          "overhead_ms": 50917.4,
+          "checkpoint_ms_from_prev_iter": 33635.87,
+          "corrected_overhead_ms": 17281.53,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1562,
+          "elapsed_ms": 24970.7,
+          "overhead_ms": 14713.1,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 14713.1,
+          "skipped": 0,
+          "loss": 3.37793
+        },
+        {
+          "step": 1563,
+          "elapsed_ms": 10317.9,
+          "overhead_ms": 60.29999999999927,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 60.29999999999927,
+          "skipped": 0,
+          "loss": 3.513526
+        }
+      ]
+    },
+    {
+      "number": 8,
+      "step": 1601,
+      "rank": 11,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.088,
+      "repair_phase_b_s_max": 0.087,
+      "window_overhead_ms": 51250.8,
+      "corrected_window_overhead_ms": 17947.4,
+      "iterations": [
+        {
+          "step": 1601,
+          "elapsed_ms": 51138.4,
+          "overhead_ms": 40880.8,
+          "checkpoint_ms_from_prev_iter": 33303.4,
+          "corrected_overhead_ms": 7577.4000000000015,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1602,
+          "elapsed_ms": 20605.2,
+          "overhead_ms": 10347.6,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 10347.6,
+          "skipped": 0,
+          "loss": 3.506695
+        },
+        {
+          "step": 1603,
+          "elapsed_ms": 10280.0,
+          "overhead_ms": 22.399999999999636,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 22.399999999999636,
+          "skipped": 0,
+          "loss": 3.540301
+        }
+      ]
+    },
+    {
+      "number": 9,
+      "step": 1641,
+      "rank": 54,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.091,
+      "repair_phase_b_s_max": 0.09,
+      "window_overhead_ms": 63414.7,
+      "corrected_window_overhead_ms": 30797.659999999996,
+      "iterations": [
+        {
+          "step": 1641,
+          "elapsed_ms": 56071.7,
+          "overhead_ms": 45814.1,
+          "checkpoint_ms_from_prev_iter": 32617.04,
+          "corrected_overhead_ms": 13197.059999999998,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1642,
+          "elapsed_ms": 27812.5,
+          "overhead_ms": 17554.9,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 17554.9,
+          "skipped": 0,
+          "loss": 3.501432
+        },
+        {
+          "step": 1643,
+          "elapsed_ms": 10303.3,
+          "overhead_ms": 45.69999999999891,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 45.69999999999891,
+          "skipped": 0,
+          "loss": 3.464485
+        }
+      ]
+    },
+    {
+      "number": 10,
+      "step": 1681,
+      "rank": 4,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.081,
+      "repair_phase_b_s_max": 0.081,
+      "window_overhead_ms": 66362.4,
+      "corrected_window_overhead_ms": 33127.69,
+      "iterations": [
+        {
+          "step": 1681,
+          "elapsed_ms": 57942.6,
+          "overhead_ms": 47685.0,
+          "checkpoint_ms_from_prev_iter": 33234.71,
+          "corrected_overhead_ms": 14450.29,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1682,
+          "elapsed_ms": 28929.0,
+          "overhead_ms": 18671.4,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 18671.4,
+          "skipped": 0,
+          "loss": 3.482231
+        },
+        {
+          "step": 1683,
+          "elapsed_ms": 10263.6,
+          "overhead_ms": 6.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 6.0,
+          "skipped": 0,
+          "loss": 3.450947
+        }
+      ]
+    },
+    {
+      "number": 11,
+      "step": 1721,
+      "rank": 3,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.135,
+      "repair_phase_b_s_max": 0.135,
+      "window_overhead_ms": 32892.40000000001,
+      "corrected_window_overhead_ms": 1781.9000000000015,
+      "iterations": [
+        {
+          "step": 1721,
+          "elapsed_ms": 43102.9,
+          "overhead_ms": 32845.3,
+          "checkpoint_ms_from_prev_iter": 31110.5,
+          "corrected_overhead_ms": 1734.800000000003,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1722,
+          "elapsed_ms": 10300.4,
+          "overhead_ms": 42.79999999999927,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 42.79999999999927,
+          "skipped": 0,
+          "loss": 3.488296
+        },
+        {
+          "step": 1723,
+          "elapsed_ms": 10261.9,
+          "overhead_ms": 4.299999999999272,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 4.299999999999272,
+          "skipped": 0,
+          "loss": 3.445822
+        }
+      ]
+    },
+    {
+      "number": 12,
+      "step": 1761,
+      "rank": 11,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.179,
+      "repair_phase_b_s_max": 0.178,
+      "window_overhead_ms": 45503.0,
+      "corrected_window_overhead_ms": 24302.1,
+      "iterations": [
+        {
+          "step": 1761,
+          "elapsed_ms": 31458.5,
+          "overhead_ms": 21200.9,
+          "checkpoint_ms_from_prev_iter": 33457.52,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1762,
+          "elapsed_ms": 34538.5,
+          "overhead_ms": 24280.9,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 24280.9,
+          "skipped": 0,
+          "loss": 3.38069
+        },
+        {
+          "step": 1763,
+          "elapsed_ms": 10278.8,
+          "overhead_ms": 21.19999999999891,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 21.19999999999891,
+          "skipped": 0,
+          "loss": 3.484076
+        }
+      ]
+    },
+    {
+      "number": 13,
+      "step": 1801,
+      "rank": 27,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.097,
+      "repair_phase_b_s_max": 0.096,
+      "window_overhead_ms": 58883.4,
+      "corrected_window_overhead_ms": 25653.880000000005,
+      "iterations": [
+        {
+          "step": 1801,
+          "elapsed_ms": 56790.1,
+          "overhead_ms": 46532.5,
+          "checkpoint_ms_from_prev_iter": 33229.52,
+          "corrected_overhead_ms": 13302.980000000003,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1802,
+          "elapsed_ms": 22564.0,
+          "overhead_ms": 12306.4,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 12306.4,
+          "skipped": 0,
+          "loss": 3.292772
+        },
+        {
+          "step": 1803,
+          "elapsed_ms": 10302.1,
+          "overhead_ms": 44.5,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 44.5,
+          "skipped": 0,
+          "loss": 3.444842
+        }
+      ]
+    },
+    {
+      "number": 14,
+      "step": 1841,
+      "rank": 29,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.106,
+      "repair_phase_b_s_max": 0.105,
+      "window_overhead_ms": 73679.3,
+      "corrected_window_overhead_ms": 41072.64,
+      "iterations": [
+        {
+          "step": 1841,
+          "elapsed_ms": 63372.1,
+          "overhead_ms": 53114.5,
+          "checkpoint_ms_from_prev_iter": 32606.66,
+          "corrected_overhead_ms": 20507.84,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1842,
+          "elapsed_ms": 30799.1,
+          "overhead_ms": 20541.5,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 20541.5,
+          "skipped": 0,
+          "loss": 3.353609
+        },
+        {
+          "step": 1843,
+          "elapsed_ms": 10280.9,
+          "overhead_ms": 23.299999999999272,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 23.299999999999272,
+          "skipped": 0,
+          "loss": 3.463248
+        }
+      ]
+    },
+    {
+      "number": 15,
+      "step": 1881,
+      "rank": 3,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.086,
+      "repair_phase_b_s_max": 0.086,
+      "window_overhead_ms": 43268.299999999996,
+      "corrected_window_overhead_ms": 9671.319999999996,
+      "iterations": [
+        {
+          "step": 1881,
+          "elapsed_ms": 53392.1,
+          "overhead_ms": 43134.5,
+          "checkpoint_ms_from_prev_iter": 33596.98,
+          "corrected_overhead_ms": 9537.519999999997,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1882,
+          "elapsed_ms": 10377.3,
+          "overhead_ms": 119.69999999999891,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 119.69999999999891,
+          "skipped": 0,
+          "loss": 3.364537
+        },
+        {
+          "step": 1883,
+          "elapsed_ms": 10271.7,
+          "overhead_ms": 14.100000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 14.100000000000364,
+          "skipped": 0,
+          "loss": 3.369007
+        }
+      ]
+    },
+    {
+      "number": 16,
+      "step": 1921,
+      "rank": 25,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.141,
+      "repair_phase_b_s_max": 0.14,
+      "window_overhead_ms": 84248.3,
+      "corrected_window_overhead_ms": 50917.29999999999,
+      "iterations": [
+        {
+          "step": 1921,
+          "elapsed_ms": 78497.7,
+          "overhead_ms": 68240.09999999999,
+          "checkpoint_ms_from_prev_iter": 33331.0,
+          "corrected_overhead_ms": 34909.09999999999,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1922,
+          "elapsed_ms": 26233.7,
+          "overhead_ms": 15976.1,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 15976.1,
+          "skipped": 0,
+          "loss": 3.374995
+        },
+        {
+          "step": 1923,
+          "elapsed_ms": 10289.7,
+          "overhead_ms": 32.100000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 32.100000000000364,
+          "skipped": 0,
+          "loss": 3.437835
+        }
+      ]
+    },
+    {
+      "number": 17,
+      "step": 1961,
+      "rank": 53,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.089,
+      "repair_phase_b_s_max": 0.089,
+      "window_overhead_ms": 68929.59999999999,
+      "corrected_window_overhead_ms": 37643.91,
+      "iterations": [
+        {
+          "step": 1961,
+          "elapsed_ms": 68521.5,
+          "overhead_ms": 58263.9,
+          "checkpoint_ms_from_prev_iter": 31285.69,
+          "corrected_overhead_ms": 26978.210000000003,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 1962,
+          "elapsed_ms": 20911.9,
+          "overhead_ms": 10654.300000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 10654.300000000001,
+          "skipped": 0,
+          "loss": 3.375637
+        },
+        {
+          "step": 1963,
+          "elapsed_ms": 10269.0,
+          "overhead_ms": 11.399999999999636,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11.399999999999636,
+          "skipped": 0,
+          "loss": 3.315785
+        }
+      ]
+    },
+    {
+      "number": 18,
+      "step": 2001,
+      "rank": 28,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.273,
+      "repair_phase_b_s_max": 0.272,
+      "window_overhead_ms": 47041.399999999994,
+      "corrected_window_overhead_ms": 15698.109999999997,
+      "iterations": [
+        {
+          "step": 2001,
+          "elapsed_ms": 57266.2,
+          "overhead_ms": 47008.6,
+          "checkpoint_ms_from_prev_iter": 31343.29,
+          "corrected_overhead_ms": 15665.309999999998,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2002,
+          "elapsed_ms": 10281.2,
+          "overhead_ms": 23.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 23.600000000000364,
+          "skipped": 0,
+          "loss": 3.409953
+        },
+        {
+          "step": 2003,
+          "elapsed_ms": 10266.8,
+          "overhead_ms": 9.199999999998909,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 9.199999999998909,
+          "skipped": 0,
+          "loss": 3.418603
+        }
+      ]
+    },
+    {
+      "number": 19,
+      "step": 2041,
+      "rank": 57,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 28.184,
+      "repair_phase_b_s_max": 28.184,
+      "window_overhead_ms": 65577.9,
+      "corrected_window_overhead_ms": 32555.27999999999,
+      "iterations": [
+        {
+          "step": 2041,
+          "elapsed_ms": 71649.9,
+          "overhead_ms": 61392.299999999996,
+          "checkpoint_ms_from_prev_iter": 33022.62,
+          "corrected_overhead_ms": 28369.679999999993,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2042,
+          "elapsed_ms": 14425.3,
+          "overhead_ms": 4167.699999999999,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 4167.699999999999,
+          "skipped": 0,
+          "loss": 3.410269
+        },
+        {
+          "step": 2043,
+          "elapsed_ms": 10275.5,
+          "overhead_ms": 17.899999999999636,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 17.899999999999636,
+          "skipped": 0,
+          "loss": 3.334899
+        }
+      ]
+    },
+    {
+      "number": 20,
+      "step": 2081,
+      "rank": 35,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.171,
+      "repair_phase_b_s_max": 0.17,
+      "window_overhead_ms": 21392.1,
+      "corrected_window_overhead_ms": 11.700000000000728,
+      "iterations": [
+        {
+          "step": 2081,
+          "elapsed_ms": 31638.0,
+          "overhead_ms": 21380.4,
+          "checkpoint_ms_from_prev_iter": 33019.22,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2082,
+          "elapsed_ms": 10267.7,
+          "overhead_ms": 10.100000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 10.100000000000364,
+          "skipped": 0,
+          "loss": 3.320762
+        },
+        {
+          "step": 2083,
+          "elapsed_ms": 10259.2,
+          "overhead_ms": 1.6000000000003638,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 1.6000000000003638,
+          "skipped": 0,
+          "loss": 3.425067
+        }
+      ]
+    },
+    {
+      "number": 21,
+      "step": 2121,
+      "rank": 0,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.08,
+      "repair_phase_b_s_max": 0.08,
+      "window_overhead_ms": 62714.4,
+      "corrected_window_overhead_ms": 28433.260000000002,
+      "iterations": [
+        {
+          "step": 2121,
+          "elapsed_ms": 55044.3,
+          "overhead_ms": 44786.700000000004,
+          "checkpoint_ms_from_prev_iter": 34281.14,
+          "corrected_overhead_ms": 10505.560000000005,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2122,
+          "elapsed_ms": 28166.7,
+          "overhead_ms": 17909.1,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 17909.1,
+          "skipped": 0,
+          "loss": 3.339373
+        },
+        {
+          "step": 2123,
+          "elapsed_ms": 10276.2,
+          "overhead_ms": 18.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 18.600000000000364,
+          "skipped": 0,
+          "loss": 3.400116
+        }
+      ]
+    },
+    {
+      "number": 22,
+      "step": 2161,
+      "rank": 20,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.173,
+      "repair_phase_b_s_max": 0.173,
+      "window_overhead_ms": 64124.600000000006,
+      "corrected_window_overhead_ms": 31449.350000000006,
+      "iterations": [
+        {
+          "step": 2161,
+          "elapsed_ms": 62095.3,
+          "overhead_ms": 51837.700000000004,
+          "checkpoint_ms_from_prev_iter": 32675.25,
+          "corrected_overhead_ms": 19162.450000000004,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2162,
+          "elapsed_ms": 22533.4,
+          "overhead_ms": 12275.800000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 12275.800000000001,
+          "skipped": 0,
+          "loss": 3.371876
+        },
+        {
+          "step": 2163,
+          "elapsed_ms": 10268.7,
+          "overhead_ms": 11.100000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11.100000000000364,
+          "skipped": 0,
+          "loss": 3.347287
+        }
+      ]
+    },
+    {
+      "number": 23,
+      "step": 2201,
+      "rank": 54,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.116,
+      "repair_phase_b_s_max": 0.115,
+      "window_overhead_ms": 21773.800000000003,
+      "corrected_window_overhead_ms": 0.0,
+      "iterations": [
+        {
+          "step": 2201,
+          "elapsed_ms": 32031.4,
+          "overhead_ms": 21773.800000000003,
+          "checkpoint_ms_from_prev_iter": 32884.64,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2202,
+          "elapsed_ms": 10240.0,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.349708
+        },
+        {
+          "step": 2203,
+          "elapsed_ms": 10236.1,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.414776
+        }
+      ]
+    },
+    {
+      "number": 24,
+      "step": 2241,
+      "rank": 43,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.145,
+      "repair_phase_b_s_max": 0.145,
+      "window_overhead_ms": 71350.5,
+      "corrected_window_overhead_ms": 39858.43,
+      "iterations": [
+        {
+          "step": 2241,
+          "elapsed_ms": 78944.1,
+          "overhead_ms": 68686.5,
+          "checkpoint_ms_from_prev_iter": 31492.07,
+          "corrected_overhead_ms": 37194.43,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2242,
+          "elapsed_ms": 12921.6,
+          "overhead_ms": 2664.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 2664.0,
+          "skipped": 0,
+          "loss": 3.288809
+        },
+        {
+          "step": 2243,
+          "elapsed_ms": 10247.5,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.350914
+        }
+      ]
+    },
+    {
+      "number": 25,
+      "step": 2281,
+      "rank": 35,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.114,
+      "repair_phase_b_s_max": 0.114,
+      "window_overhead_ms": 23533.4,
+      "corrected_window_overhead_ms": 26.69999999999891,
+      "iterations": [
+        {
+          "step": 2281,
+          "elapsed_ms": 33764.3,
+          "overhead_ms": 23506.700000000004,
+          "checkpoint_ms_from_prev_iter": 32741.86,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2282,
+          "elapsed_ms": 10275.6,
+          "overhead_ms": 18.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 18.0,
+          "skipped": 0,
+          "loss": 3.342123
+        },
+        {
+          "step": 2283,
+          "elapsed_ms": 10266.3,
+          "overhead_ms": 8.699999999998909,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 8.699999999998909,
+          "skipped": 0,
+          "loss": 3.227529
+        }
+      ]
+    },
+    {
+      "number": 26,
+      "step": 2321,
+      "rank": 19,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.136,
+      "repair_phase_b_s_max": 0.136,
+      "window_overhead_ms": 62911.4,
+      "corrected_window_overhead_ms": 31115.129999999997,
+      "iterations": [
+        {
+          "step": 2321,
+          "elapsed_ms": 58564.6,
+          "overhead_ms": 48307.0,
+          "checkpoint_ms_from_prev_iter": 31796.27,
+          "corrected_overhead_ms": 16510.73,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2322,
+          "elapsed_ms": 24862.0,
+          "overhead_ms": 14604.4,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 14604.4,
+          "skipped": 0,
+          "loss": 3.34068
+        },
+        {
+          "step": 2323,
+          "elapsed_ms": 10254.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.30703
+        }
+      ]
+    },
+    {
+      "number": 27,
+      "step": 2361,
+      "rank": 27,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.093,
+      "repair_phase_b_s_max": 0.093,
+      "window_overhead_ms": 36163.8,
+      "corrected_window_overhead_ms": 3446.2900000000063,
+      "iterations": [
+        {
+          "step": 2361,
+          "elapsed_ms": 46285.3,
+          "overhead_ms": 36027.700000000004,
+          "checkpoint_ms_from_prev_iter": 32717.51,
+          "corrected_overhead_ms": 3310.190000000006,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2362,
+          "elapsed_ms": 10389.7,
+          "overhead_ms": 132.10000000000036,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 132.10000000000036,
+          "skipped": 0,
+          "loss": 3.298831
+        },
+        {
+          "step": 2363,
+          "elapsed_ms": 10261.6,
+          "overhead_ms": 4.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 4.0,
+          "skipped": 0,
+          "loss": 3.368131
+        }
+      ]
+    },
+    {
+      "number": 28,
+      "step": 2401,
+      "rank": 43,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.108,
+      "repair_phase_b_s_max": 0.108,
+      "window_overhead_ms": 41172.1,
+      "corrected_window_overhead_ms": 7975.610000000001,
+      "iterations": [
+        {
+          "step": 2401,
+          "elapsed_ms": 50447.1,
+          "overhead_ms": 40189.5,
+          "checkpoint_ms_from_prev_iter": 33196.49,
+          "corrected_overhead_ms": 6993.010000000002,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2402,
+          "elapsed_ms": 10267.8,
+          "overhead_ms": 10.199999999998909,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 10.199999999998909,
+          "skipped": 0,
+          "loss": 3.289047
+        },
+        {
+          "step": 2403,
+          "elapsed_ms": 11230.0,
+          "overhead_ms": 972.3999999999996,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 972.3999999999996,
+          "skipped": 0,
+          "loss": 3.253209
+        }
+      ]
+    },
+    {
+      "number": 29,
+      "step": 2441,
+      "rank": 13,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.168,
+      "repair_phase_b_s_max": 0.167,
+      "window_overhead_ms": 39338.0,
+      "corrected_window_overhead_ms": 6005.680000000002,
+      "iterations": [
+        {
+          "step": 2441,
+          "elapsed_ms": 49593.4,
+          "overhead_ms": 39335.8,
+          "checkpoint_ms_from_prev_iter": 33332.32,
+          "corrected_overhead_ms": 6003.480000000003,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2442,
+          "elapsed_ms": 10253.5,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.326554
+        },
+        {
+          "step": 2443,
+          "elapsed_ms": 10259.8,
+          "overhead_ms": 2.1999999999989086,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 2.1999999999989086,
+          "skipped": 0,
+          "loss": 3.311359
+        }
+      ]
+    },
+    {
+      "number": 30,
+      "step": 2481,
+      "rank": 11,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.112,
+      "repair_phase_b_s_max": 0.112,
+      "window_overhead_ms": 41510.4,
+      "corrected_window_overhead_ms": 15127.199999999999,
+      "iterations": [
+        {
+          "step": 2481,
+          "elapsed_ms": 36640.8,
+          "overhead_ms": 26383.200000000004,
+          "checkpoint_ms_from_prev_iter": 33604.31,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2482,
+          "elapsed_ms": 25384.8,
+          "overhead_ms": 15127.199999999999,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 15127.199999999999,
+          "skipped": 0,
+          "loss": 3.309833
+        },
+        {
+          "step": 2483,
+          "elapsed_ms": 10242.7,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.27265
+        }
+      ]
+    },
+    {
+      "number": 31,
+      "step": 2521,
+      "rank": 48,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.286,
+      "repair_phase_b_s_max": 0.286,
+      "window_overhead_ms": 70047.59999999999,
+      "corrected_window_overhead_ms": 39034.92,
+      "iterations": [
+        {
+          "step": 2521,
+          "elapsed_ms": 68920.4,
+          "overhead_ms": 58662.799999999996,
+          "checkpoint_ms_from_prev_iter": 31012.68,
+          "corrected_overhead_ms": 27650.119999999995,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2522,
+          "elapsed_ms": 21642.4,
+          "overhead_ms": 11384.800000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11384.800000000001,
+          "skipped": 0,
+          "loss": 3.381354
+        },
+        {
+          "step": 2523,
+          "elapsed_ms": 10251.4,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.260506
+        }
+      ]
+    },
+    {
+      "number": 32,
+      "step": 2561,
+      "rank": 12,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.289,
+      "repair_phase_b_s_max": 0.289,
+      "window_overhead_ms": 80437.5,
+      "corrected_window_overhead_ms": 48327.619999999995,
+      "iterations": [
+        {
+          "step": 2561,
+          "elapsed_ms": 74384.4,
+          "overhead_ms": 64126.799999999996,
+          "checkpoint_ms_from_prev_iter": 32109.88,
+          "corrected_overhead_ms": 32016.919999999995,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2562,
+          "elapsed_ms": 26568.3,
+          "overhead_ms": 16310.699999999999,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 16310.699999999999,
+          "skipped": 0,
+          "loss": 3.323622
+        },
+        {
+          "step": 2563,
+          "elapsed_ms": 10240.5,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.211605
+        }
+      ]
+    },
+    {
+      "number": 33,
+      "step": 2601,
+      "rank": 45,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.197,
+      "repair_phase_b_s_max": 0.196,
+      "window_overhead_ms": 100031.29999999999,
+      "corrected_window_overhead_ms": 67563.26999999999,
+      "iterations": [
+        {
+          "step": 2601,
+          "elapsed_ms": 87357.5,
+          "overhead_ms": 77099.9,
+          "checkpoint_ms_from_prev_iter": 32468.03,
+          "corrected_overhead_ms": 44631.869999999995,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2602,
+          "elapsed_ms": 33177.6,
+          "overhead_ms": 22920.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 22920.0,
+          "skipped": 0,
+          "loss": 3.320035
+        },
+        {
+          "step": 2603,
+          "elapsed_ms": 10269.0,
+          "overhead_ms": 11.399999999999636,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11.399999999999636,
+          "skipped": 0,
+          "loss": 3.246872
+        }
+      ]
+    },
+    {
+      "number": 34,
+      "step": 2641,
+      "rank": 44,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.321,
+      "repair_phase_b_s_max": 0.321,
+      "window_overhead_ms": 79147.29999999999,
+      "corrected_window_overhead_ms": 43551.53999999999,
+      "iterations": [
+        {
+          "step": 2641,
+          "elapsed_ms": 70160.9,
+          "overhead_ms": 59903.299999999996,
+          "checkpoint_ms_from_prev_iter": 35595.76,
+          "corrected_overhead_ms": 24307.539999999994,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2642,
+          "elapsed_ms": 29484.2,
+          "overhead_ms": 19226.6,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 19226.6,
+          "skipped": 0,
+          "loss": 3.26834
+        },
+        {
+          "step": 2643,
+          "elapsed_ms": 10275.0,
+          "overhead_ms": 17.399999999999636,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 17.399999999999636,
+          "skipped": 0,
+          "loss": 3.228872
+        }
+      ]
+    },
+    {
+      "number": 35,
+      "step": 2681,
+      "rank": 33,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.183,
+      "repair_phase_b_s_max": 0.183,
+      "window_overhead_ms": 80954.1,
+      "corrected_window_overhead_ms": 48579.53999999999,
+      "iterations": [
+        {
+          "step": 2681,
+          "elapsed_ms": 77350.0,
+          "overhead_ms": 67092.4,
+          "checkpoint_ms_from_prev_iter": 32374.56,
+          "corrected_overhead_ms": 34717.84,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2682,
+          "elapsed_ms": 24109.7,
+          "overhead_ms": 13852.1,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 13852.1,
+          "skipped": 0,
+          "loss": 3.252781
+        },
+        {
+          "step": 2683,
+          "elapsed_ms": 10267.2,
+          "overhead_ms": 9.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 9.600000000000364,
+          "skipped": 0,
+          "loss": 3.273038
+        }
+      ]
+    },
+    {
+      "number": 36,
+      "step": 2721,
+      "rank": 5,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.278,
+      "repair_phase_b_s_max": 0.278,
+      "window_overhead_ms": 78532.79999999999,
+      "corrected_window_overhead_ms": 47142.340000000004,
+      "iterations": [
+        {
+          "step": 2721,
+          "elapsed_ms": 59658.5,
+          "overhead_ms": 49400.9,
+          "checkpoint_ms_from_prev_iter": 31390.46,
+          "corrected_overhead_ms": 18010.440000000002,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2722,
+          "elapsed_ms": 39369.6,
+          "overhead_ms": 29112.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 29112.0,
+          "skipped": 0,
+          "loss": 3.206675
+        },
+        {
+          "step": 2723,
+          "elapsed_ms": 10277.5,
+          "overhead_ms": 19.899999999999636,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 19.899999999999636,
+          "skipped": 0,
+          "loss": 3.261748
+        }
+      ]
+    },
+    {
+      "number": 37,
+      "step": 2761,
+      "rank": 58,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 61.834,
+      "repair_phase_b_s_max": 61.834,
+      "window_overhead_ms": 81054.90000000001,
+      "corrected_window_overhead_ms": 48602.11,
+      "iterations": [
+        {
+          "step": 2761,
+          "elapsed_ms": 78490.6,
+          "overhead_ms": 68233.0,
+          "checkpoint_ms_from_prev_iter": 32452.79,
+          "corrected_overhead_ms": 35780.21,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2762,
+          "elapsed_ms": 22893.4,
+          "overhead_ms": 12635.800000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 12635.800000000001,
+          "skipped": 0,
+          "loss": 3.263019
+        },
+        {
+          "step": 2763,
+          "elapsed_ms": 10443.7,
+          "overhead_ms": 186.10000000000036,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 186.10000000000036,
+          "skipped": 0,
+          "loss": 3.193595
+        }
+      ]
+    },
+    {
+      "number": 38,
+      "step": 2801,
+      "rank": 15,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.253,
+      "repair_phase_b_s_max": 0.252,
+      "window_overhead_ms": 84746.50000000001,
+      "corrected_window_overhead_ms": 51910.86,
+      "iterations": [
+        {
+          "step": 2801,
+          "elapsed_ms": 70640.3,
+          "overhead_ms": 60382.700000000004,
+          "checkpoint_ms_from_prev_iter": 32835.64,
+          "corrected_overhead_ms": 27547.060000000005,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2802,
+          "elapsed_ms": 34620.1,
+          "overhead_ms": 24362.5,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 24362.5,
+          "skipped": 0,
+          "loss": 3.220816
+        },
+        {
+          "step": 2803,
+          "elapsed_ms": 10258.9,
+          "overhead_ms": 1.2999999999992724,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 1.2999999999992724,
+          "skipped": 0,
+          "loss": 3.176399
+        }
+      ]
+    },
+    {
+      "number": 39,
+      "step": 2841,
+      "rank": 48,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.249,
+      "repair_phase_b_s_max": 0.249,
+      "window_overhead_ms": 44887.5,
+      "corrected_window_overhead_ms": 12565.24,
+      "iterations": [
+        {
+          "step": 2841,
+          "elapsed_ms": 55099.6,
+          "overhead_ms": 44842.0,
+          "checkpoint_ms_from_prev_iter": 32322.26,
+          "corrected_overhead_ms": 12519.740000000002,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2842,
+          "elapsed_ms": 10289.3,
+          "overhead_ms": 31.69999999999891,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 31.69999999999891,
+          "skipped": 0,
+          "loss": 3.130872
+        },
+        {
+          "step": 2843,
+          "elapsed_ms": 10271.4,
+          "overhead_ms": 13.799999999999272,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 13.799999999999272,
+          "skipped": 0,
+          "loss": 3.168891
+        }
+      ]
+    },
+    {
+      "number": 40,
+      "step": 2881,
+      "rank": 10,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.251,
+      "repair_phase_b_s_max": 0.25,
+      "window_overhead_ms": 66955.3,
+      "corrected_window_overhead_ms": 35283.6,
+      "iterations": [
+        {
+          "step": 2881,
+          "elapsed_ms": 66444.3,
+          "overhead_ms": 56186.700000000004,
+          "checkpoint_ms_from_prev_iter": 31671.7,
+          "corrected_overhead_ms": 24515.000000000004,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2882,
+          "elapsed_ms": 21024.5,
+          "overhead_ms": 10766.9,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 10766.9,
+          "skipped": 0,
+          "loss": 3.205836
+        },
+        {
+          "step": 2883,
+          "elapsed_ms": 10259.3,
+          "overhead_ms": 1.6999999999989086,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 1.6999999999989086,
+          "skipped": 0,
+          "loss": 3.166548
+        }
+      ]
+    },
+    {
+      "number": 41,
+      "step": 2921,
+      "rank": 37,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.278,
+      "repair_phase_b_s_max": 0.278,
+      "window_overhead_ms": 61193.3,
+      "corrected_window_overhead_ms": 30375.270000000004,
+      "iterations": [
+        {
+          "step": 2921,
+          "elapsed_ms": 57287.8,
+          "overhead_ms": 47030.200000000004,
+          "checkpoint_ms_from_prev_iter": 30818.03,
+          "corrected_overhead_ms": 16212.170000000006,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2922,
+          "elapsed_ms": 24388.1,
+          "overhead_ms": 14130.499999999998,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 14130.499999999998,
+          "skipped": 0,
+          "loss": 3.160185
+        },
+        {
+          "step": 2923,
+          "elapsed_ms": 10290.2,
+          "overhead_ms": 32.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 32.600000000000364,
+          "skipped": 0,
+          "loss": 3.167139
+        }
+      ]
+    },
+    {
+      "number": 42,
+      "step": 2961,
+      "rank": 46,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.347,
+      "repair_phase_b_s_max": 0.347,
+      "window_overhead_ms": 73739.5,
+      "corrected_window_overhead_ms": 40927.729999999996,
+      "iterations": [
+        {
+          "step": 2961,
+          "elapsed_ms": 71427.7,
+          "overhead_ms": 61170.1,
+          "checkpoint_ms_from_prev_iter": 32811.77,
+          "corrected_overhead_ms": 28358.33,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 2962,
+          "elapsed_ms": 22821.7,
+          "overhead_ms": 12564.1,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 12564.1,
+          "skipped": 0,
+          "loss": 3.17675
+        },
+        {
+          "step": 2963,
+          "elapsed_ms": 10262.9,
+          "overhead_ms": 5.299999999999272,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 5.299999999999272,
+          "skipped": 0,
+          "loss": 3.279747
+        }
+      ]
+    },
+    {
+      "number": 43,
+      "step": 3001,
+      "rank": 24,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.263,
+      "repair_phase_b_s_max": 0.263,
+      "window_overhead_ms": 86736.9,
+      "corrected_window_overhead_ms": 54549.829999999994,
+      "iterations": [
+        {
+          "step": 3001,
+          "elapsed_ms": 78199.0,
+          "overhead_ms": 67941.4,
+          "checkpoint_ms_from_prev_iter": 32187.07,
+          "corrected_overhead_ms": 35754.329999999994,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3002,
+          "elapsed_ms": 28877.6,
+          "overhead_ms": 18620.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 18620.0,
+          "skipped": 0,
+          "loss": 3.190563
+        },
+        {
+          "step": 3003,
+          "elapsed_ms": 10433.1,
+          "overhead_ms": 175.5,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 175.5,
+          "skipped": 0,
+          "loss": 3.1615
+        }
+      ]
+    },
+    {
+      "number": 44,
+      "step": 3041,
+      "rank": 8,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.28,
+      "repair_phase_b_s_max": 0.279,
+      "window_overhead_ms": 71205.2,
+      "corrected_window_overhead_ms": 36626.380000000005,
+      "iterations": [
+        {
+          "step": 3041,
+          "elapsed_ms": 66853.5,
+          "overhead_ms": 56595.9,
+          "checkpoint_ms_from_prev_iter": 34578.82,
+          "corrected_overhead_ms": 22017.08,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3042,
+          "elapsed_ms": 24748.6,
+          "overhead_ms": 14490.999999999998,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 14490.999999999998,
+          "skipped": 0,
+          "loss": 3.186731
+        },
+        {
+          "step": 3043,
+          "elapsed_ms": 10375.9,
+          "overhead_ms": 118.29999999999927,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 118.29999999999927,
+          "skipped": 0,
+          "loss": 3.198681
+        }
+      ]
+    },
+    {
+      "number": 45,
+      "step": 3081,
+      "rank": 5,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.217,
+      "repair_phase_b_s_max": 0.216,
+      "window_overhead_ms": 61054.7,
+      "corrected_window_overhead_ms": 28142.269999999997,
+      "iterations": [
+        {
+          "step": 3081,
+          "elapsed_ms": 43611.5,
+          "overhead_ms": 33353.9,
+          "checkpoint_ms_from_prev_iter": 32912.43,
+          "corrected_overhead_ms": 441.47000000000116,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3082,
+          "elapsed_ms": 37957.7,
+          "overhead_ms": 27700.1,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 27700.1,
+          "skipped": 0,
+          "loss": 3.2015
+        },
+        {
+          "step": 3083,
+          "elapsed_ms": 10258.3,
+          "overhead_ms": 0.6999999999989086,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.6999999999989086,
+          "skipped": 0,
+          "loss": 3.167745
+        }
+      ]
+    },
+    {
+      "number": 46,
+      "step": 3121,
+      "rank": 29,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.348,
+      "repair_phase_b_s_max": 0.348,
+      "window_overhead_ms": 46064.8,
+      "corrected_window_overhead_ms": 12403.030000000002,
+      "iterations": [
+        {
+          "step": 3121,
+          "elapsed_ms": 56168.6,
+          "overhead_ms": 45911.0,
+          "checkpoint_ms_from_prev_iter": 33661.77,
+          "corrected_overhead_ms": 12249.230000000003,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3122,
+          "elapsed_ms": 10241.6,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.187989
+        },
+        {
+          "step": 3123,
+          "elapsed_ms": 10411.4,
+          "overhead_ms": 153.79999999999927,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 153.79999999999927,
+          "skipped": 0,
+          "loss": 3.141005
+        }
+      ]
+    },
+    {
+      "number": 47,
+      "step": 3161,
+      "rank": 37,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.354,
+      "repair_phase_b_s_max": 0.354,
+      "window_overhead_ms": 61409.100000000006,
+      "corrected_window_overhead_ms": 28763.22000000001,
+      "iterations": [
+        {
+          "step": 3161,
+          "elapsed_ms": 71658.6,
+          "overhead_ms": 61401.00000000001,
+          "checkpoint_ms_from_prev_iter": 32645.88,
+          "corrected_overhead_ms": 28755.120000000006,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3162,
+          "elapsed_ms": 10250.0,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.208659
+        },
+        {
+          "step": 3163,
+          "elapsed_ms": 10265.7,
+          "overhead_ms": 8.100000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 8.100000000000364,
+          "skipped": 0,
+          "loss": 3.171979
+        }
+      ]
+    },
+    {
+      "number": 48,
+      "step": 3201,
+      "rank": 10,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.277,
+      "repair_phase_b_s_max": 0.277,
+      "window_overhead_ms": 44331.600000000006,
+      "corrected_window_overhead_ms": 13080.500000000007,
+      "iterations": [
+        {
+          "step": 3201,
+          "elapsed_ms": 43367.8,
+          "overhead_ms": 33110.200000000004,
+          "checkpoint_ms_from_prev_iter": 31251.1,
+          "corrected_overhead_ms": 1859.1000000000058,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3202,
+          "elapsed_ms": 21464.9,
+          "overhead_ms": 11207.300000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11207.300000000001,
+          "skipped": 0,
+          "loss": 3.113945
+        },
+        {
+          "step": 3203,
+          "elapsed_ms": 10271.7,
+          "overhead_ms": 14.100000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 14.100000000000364,
+          "skipped": 0,
+          "loss": 3.063006
+        }
+      ]
+    },
+    {
+      "number": 49,
+      "step": 3241,
+      "rank": 29,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.245,
+      "repair_phase_b_s_max": 0.245,
+      "window_overhead_ms": 44132.6,
+      "corrected_window_overhead_ms": 11963.64,
+      "iterations": [
+        {
+          "step": 3241,
+          "elapsed_ms": 54390.2,
+          "overhead_ms": 44132.6,
+          "checkpoint_ms_from_prev_iter": 32168.96,
+          "corrected_overhead_ms": 11963.64,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3242,
+          "elapsed_ms": 10241.2,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.181457
+        },
+        {
+          "step": 3243,
+          "elapsed_ms": 10245.1,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.111933
+        }
+      ]
+    },
+    {
+      "number": 50,
+      "step": 3281,
+      "rank": 12,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.399,
+      "repair_phase_b_s_max": 0.399,
+      "window_overhead_ms": 54746.09999999999,
+      "corrected_window_overhead_ms": 22809.239999999998,
+      "iterations": [
+        {
+          "step": 3281,
+          "elapsed_ms": 64988.2,
+          "overhead_ms": 54730.6,
+          "checkpoint_ms_from_prev_iter": 31936.86,
+          "corrected_overhead_ms": 22793.739999999998,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3282,
+          "elapsed_ms": 10268.4,
+          "overhead_ms": 10.799999999999272,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 10.799999999999272,
+          "skipped": 0,
+          "loss": 3.185062
+        },
+        {
+          "step": 3283,
+          "elapsed_ms": 10262.3,
+          "overhead_ms": 4.699999999998909,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 4.699999999998909,
+          "skipped": 0,
+          "loss": 3.184147
+        }
+      ]
+    },
+    {
+      "number": 51,
+      "step": 3321,
+      "rank": 48,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.297,
+      "repair_phase_b_s_max": 0.296,
+      "window_overhead_ms": 41942.8,
+      "corrected_window_overhead_ms": 9562.590000000006,
+      "iterations": [
+        {
+          "step": 3321,
+          "elapsed_ms": 52040.8,
+          "overhead_ms": 41783.200000000004,
+          "checkpoint_ms_from_prev_iter": 32380.21,
+          "corrected_overhead_ms": 9402.990000000005,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3322,
+          "elapsed_ms": 10247.7,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.214459
+        },
+        {
+          "step": 3323,
+          "elapsed_ms": 10417.2,
+          "overhead_ms": 159.60000000000036,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 159.60000000000036,
+          "skipped": 0,
+          "loss": 3.218143
+        }
+      ]
+    },
+    {
+      "number": 52,
+      "step": 3361,
+      "rank": 35,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.318,
+      "repair_phase_b_s_max": 0.318,
+      "window_overhead_ms": 45999.09999999999,
+      "corrected_window_overhead_ms": 13368.889999999998,
+      "iterations": [
+        {
+          "step": 3361,
+          "elapsed_ms": 56075.7,
+          "overhead_ms": 45818.1,
+          "checkpoint_ms_from_prev_iter": 32630.21,
+          "corrected_overhead_ms": 13187.89,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3362,
+          "elapsed_ms": 10278.3,
+          "overhead_ms": 20.69999999999891,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 20.69999999999891,
+          "skipped": 0,
+          "loss": 3.185854
+        },
+        {
+          "step": 3363,
+          "elapsed_ms": 10417.9,
+          "overhead_ms": 160.29999999999927,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 160.29999999999927,
+          "skipped": 0,
+          "loss": 3.051738
+        }
+      ]
+    },
+    {
+      "number": 53,
+      "step": 3401,
+      "rank": 58,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 39.418,
+      "repair_phase_b_s_max": 39.418,
+      "window_overhead_ms": 58505.200000000004,
+      "corrected_window_overhead_ms": 25236.640000000007,
+      "iterations": [
+        {
+          "step": 3401,
+          "elapsed_ms": 62499.5,
+          "overhead_ms": 52241.9,
+          "checkpoint_ms_from_prev_iter": 33268.56,
+          "corrected_overhead_ms": 18973.340000000004,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3402,
+          "elapsed_ms": 16520.9,
+          "overhead_ms": 6263.300000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 6263.300000000001,
+          "skipped": 0,
+          "loss": 3.160052
+        },
+        {
+          "step": 3403,
+          "elapsed_ms": 10252.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.214091
+        }
+      ]
+    },
+    {
+      "number": 54,
+      "step": 3441,
+      "rank": 46,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.46,
+      "repair_phase_b_s_max": 0.46,
+      "window_overhead_ms": 39574.1,
+      "corrected_window_overhead_ms": 7953.999999999998,
+      "iterations": [
+        {
+          "step": 3441,
+          "elapsed_ms": 41877.7,
+          "overhead_ms": 31620.1,
+          "checkpoint_ms_from_prev_iter": 32844.34,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3442,
+          "elapsed_ms": 18211.6,
+          "overhead_ms": 7953.999999999998,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 7953.999999999998,
+          "skipped": 0,
+          "loss": 3.025574
+        },
+        {
+          "step": 3443,
+          "elapsed_ms": 10256.0,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.094027
+        }
+      ]
+    },
+    {
+      "number": 55,
+      "step": 3481,
+      "rank": 20,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.306,
+      "repair_phase_b_s_max": 0.306,
+      "window_overhead_ms": 47007.700000000004,
+      "corrected_window_overhead_ms": 14588.380000000005,
+      "iterations": [
+        {
+          "step": 3481,
+          "elapsed_ms": 57265.3,
+          "overhead_ms": 47007.700000000004,
+          "checkpoint_ms_from_prev_iter": 32419.32,
+          "corrected_overhead_ms": 14588.380000000005,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3482,
+          "elapsed_ms": 10257.2,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.139348
+        },
+        {
+          "step": 3483,
+          "elapsed_ms": 10234.4,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.166612
+        }
+      ]
+    },
+    {
+      "number": 56,
+      "step": 3521,
+      "rank": 47,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.403,
+      "repair_phase_b_s_max": 0.403,
+      "window_overhead_ms": 67048.90000000001,
+      "corrected_window_overhead_ms": 34480.75,
+      "iterations": [
+        {
+          "step": 3521,
+          "elapsed_ms": 71226.0,
+          "overhead_ms": 60968.4,
+          "checkpoint_ms_from_prev_iter": 32568.15,
+          "corrected_overhead_ms": 28400.25,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3522,
+          "elapsed_ms": 16335.5,
+          "overhead_ms": 6077.9,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 6077.9,
+          "skipped": 0,
+          "loss": 3.109417
+        },
+        {
+          "step": 3523,
+          "elapsed_ms": 10260.2,
+          "overhead_ms": 2.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 2.600000000000364,
+          "skipped": 0,
+          "loss": 3.141921
+        }
+      ]
+    },
+    {
+      "number": 57,
+      "step": 3561,
+      "rank": 45,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.344,
+      "repair_phase_b_s_max": 0.343,
+      "window_overhead_ms": 31250.2,
+      "corrected_window_overhead_ms": 135.29999999999927,
+      "iterations": [
+        {
+          "step": 3561,
+          "elapsed_ms": 41372.5,
+          "overhead_ms": 31114.9,
+          "checkpoint_ms_from_prev_iter": 31273.3,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3562,
+          "elapsed_ms": 10392.9,
+          "overhead_ms": 135.29999999999927,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 135.29999999999927,
+          "skipped": 0,
+          "loss": 3.017524
+        },
+        {
+          "step": 3563,
+          "elapsed_ms": 10249.7,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.122619
+        }
+      ]
+    },
+    {
+      "number": 58,
+      "step": 3601,
+      "rank": 26,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.181,
+      "repair_phase_b_s_max": 0.181,
+      "window_overhead_ms": 65063.899999999994,
+      "corrected_window_overhead_ms": 32290.26,
+      "iterations": [
+        {
+          "step": 3601,
+          "elapsed_ms": 62824.0,
+          "overhead_ms": 52566.4,
+          "checkpoint_ms_from_prev_iter": 32773.64,
+          "corrected_overhead_ms": 19792.760000000002,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3602,
+          "elapsed_ms": 22702.3,
+          "overhead_ms": 12444.699999999999,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 12444.699999999999,
+          "skipped": 0,
+          "loss": 3.119094
+        },
+        {
+          "step": 3603,
+          "elapsed_ms": 10310.4,
+          "overhead_ms": 52.79999999999927,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 52.79999999999927,
+          "skipped": 0,
+          "loss": 3.089233
+        }
+      ]
+    },
+    {
+      "number": 59,
+      "step": 3641,
+      "rank": 34,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.217,
+      "repair_phase_b_s_max": 0.217,
+      "window_overhead_ms": 55221.3,
+      "corrected_window_overhead_ms": 21987.79,
+      "iterations": [
+        {
+          "step": 3641,
+          "elapsed_ms": 45767.4,
+          "overhead_ms": 35509.8,
+          "checkpoint_ms_from_prev_iter": 33233.51,
+          "corrected_overhead_ms": 2276.290000000001,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3642,
+          "elapsed_ms": 29966.5,
+          "overhead_ms": 19708.9,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 19708.9,
+          "skipped": 0,
+          "loss": 2.998719
+        },
+        {
+          "step": 3643,
+          "elapsed_ms": 10260.2,
+          "overhead_ms": 2.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 2.600000000000364,
+          "skipped": 0,
+          "loss": 3.098195
+        }
+      ]
+    },
+    {
+      "number": 60,
+      "step": 3681,
+      "rank": 9,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.19,
+      "repair_phase_b_s_max": 0.189,
+      "window_overhead_ms": 55270.100000000006,
+      "corrected_window_overhead_ms": 21470.94,
+      "iterations": [
+        {
+          "step": 3681,
+          "elapsed_ms": 44454.1,
+          "overhead_ms": 34196.5,
+          "checkpoint_ms_from_prev_iter": 33799.16,
+          "corrected_overhead_ms": 397.3399999999965,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3682,
+          "elapsed_ms": 31327.9,
+          "overhead_ms": 21070.300000000003,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 21070.300000000003,
+          "skipped": 0,
+          "loss": 3.146875
+        },
+        {
+          "step": 3683,
+          "elapsed_ms": 10260.9,
+          "overhead_ms": 3.2999999999992724,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 3.2999999999992724,
+          "skipped": 0,
+          "loss": 3.085687
+        }
+      ]
+    },
+    {
+      "number": 61,
+      "step": 3721,
+      "rank": 21,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.244,
+      "repair_phase_b_s_max": 0.243,
+      "window_overhead_ms": 57665.5,
+      "corrected_window_overhead_ms": 24520.050000000003,
+      "iterations": [
+        {
+          "step": 3721,
+          "elapsed_ms": 51191.9,
+          "overhead_ms": 40934.3,
+          "checkpoint_ms_from_prev_iter": 33145.45,
+          "corrected_overhead_ms": 7788.850000000006,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3722,
+          "elapsed_ms": 26986.1,
+          "overhead_ms": 16728.5,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 16728.5,
+          "skipped": 0,
+          "loss": 3.043369
+        },
+        {
+          "step": 3723,
+          "elapsed_ms": 10260.3,
+          "overhead_ms": 2.6999999999989086,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 2.6999999999989086,
+          "skipped": 0,
+          "loss": 3.036871
+        }
+      ]
+    },
+    {
+      "number": 62,
+      "step": 3761,
+      "rank": 31,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.202,
+      "repair_phase_b_s_max": 0.202,
+      "window_overhead_ms": 47686.4,
+      "corrected_window_overhead_ms": 15192.980000000003,
+      "iterations": [
+        {
+          "step": 3761,
+          "elapsed_ms": 45810.1,
+          "overhead_ms": 35552.5,
+          "checkpoint_ms_from_prev_iter": 32493.42,
+          "corrected_overhead_ms": 3059.0800000000017,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3762,
+          "elapsed_ms": 22384.9,
+          "overhead_ms": 12127.300000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 12127.300000000001,
+          "skipped": 0,
+          "loss": 3.041309
+        },
+        {
+          "step": 3763,
+          "elapsed_ms": 10264.2,
+          "overhead_ms": 6.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 6.600000000000364,
+          "skipped": 0,
+          "loss": 3.192822
+        }
+      ]
+    },
+    {
+      "number": 63,
+      "step": 3801,
+      "rank": 20,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.276,
+      "repair_phase_b_s_max": 0.276,
+      "window_overhead_ms": 63542.9,
+      "corrected_window_overhead_ms": 30597.5,
+      "iterations": [
+        {
+          "step": 3801,
+          "elapsed_ms": 43203.0,
+          "overhead_ms": 32945.4,
+          "checkpoint_ms_from_prev_iter": 33211.96,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3802,
+          "elapsed_ms": 40855.1,
+          "overhead_ms": 30597.5,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 30597.5,
+          "skipped": 0,
+          "loss": 3.044912
+        },
+        {
+          "step": 3803,
+          "elapsed_ms": 10220.9,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.077866
+        }
+      ]
+    },
+    {
+      "number": 64,
+      "step": 3841,
+      "rank": 59,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 25.762,
+      "repair_phase_b_s_max": 25.761,
+      "window_overhead_ms": 80312.4,
+      "corrected_window_overhead_ms": 47918.509999999995,
+      "iterations": [
+        {
+          "step": 3841,
+          "elapsed_ms": 63064.7,
+          "overhead_ms": 52807.1,
+          "checkpoint_ms_from_prev_iter": 32393.89,
+          "corrected_overhead_ms": 20413.21,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3842,
+          "elapsed_ms": 37623.2,
+          "overhead_ms": 27365.6,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 27365.6,
+          "skipped": 0,
+          "loss": 3.040539
+        },
+        {
+          "step": 3843,
+          "elapsed_ms": 10397.3,
+          "overhead_ms": 139.6999999999989,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 139.6999999999989,
+          "skipped": 0,
+          "loss": 3.091762
+        }
+      ]
+    },
+    {
+      "number": 65,
+      "step": 3881,
+      "rank": 48,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.295,
+      "repair_phase_b_s_max": 0.294,
+      "window_overhead_ms": 34412.899999999994,
+      "corrected_window_overhead_ms": 14.399999999999636,
+      "iterations": [
+        {
+          "step": 3881,
+          "elapsed_ms": 44656.1,
+          "overhead_ms": 34398.5,
+          "checkpoint_ms_from_prev_iter": 34496.86,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3882,
+          "elapsed_ms": 10261.7,
+          "overhead_ms": 4.100000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 4.100000000000364,
+          "skipped": 0,
+          "loss": 3.079868
+        },
+        {
+          "step": 3883,
+          "elapsed_ms": 10267.9,
+          "overhead_ms": 10.299999999999272,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 10.299999999999272,
+          "skipped": 0,
+          "loss": 3.034152
+        }
+      ]
+    },
+    {
+      "number": 66,
+      "step": 3921,
+      "rank": 34,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.325,
+      "repair_phase_b_s_max": 0.324,
+      "window_overhead_ms": 83085.4,
+      "corrected_window_overhead_ms": 48482.61,
+      "iterations": [
+        {
+          "step": 3921,
+          "elapsed_ms": 84515.6,
+          "overhead_ms": 74258.0,
+          "checkpoint_ms_from_prev_iter": 34602.79,
+          "corrected_overhead_ms": 39655.21,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3922,
+          "elapsed_ms": 19085.0,
+          "overhead_ms": 8827.4,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 8827.4,
+          "skipped": 0,
+          "loss": 3.137285
+        },
+        {
+          "step": 3923,
+          "elapsed_ms": 10242.9,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.08899
+        }
+      ]
+    },
+    {
+      "number": 67,
+      "step": 3961,
+      "rank": 28,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.36,
+      "repair_phase_b_s_max": 0.36,
+      "window_overhead_ms": 53024.600000000006,
+      "corrected_window_overhead_ms": 20018.340000000004,
+      "iterations": [
+        {
+          "step": 3961,
+          "elapsed_ms": 49871.8,
+          "overhead_ms": 39614.200000000004,
+          "checkpoint_ms_from_prev_iter": 33006.26,
+          "corrected_overhead_ms": 6607.940000000002,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 3962,
+          "elapsed_ms": 23634.4,
+          "overhead_ms": 13376.800000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 13376.800000000001,
+          "skipped": 0,
+          "loss": 3.204884
+        },
+        {
+          "step": 3963,
+          "elapsed_ms": 10291.2,
+          "overhead_ms": 33.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 33.600000000000364,
+          "skipped": 0,
+          "loss": 3.067325
+        }
+      ]
+    },
+    {
+      "number": 68,
+      "step": 4001,
+      "rank": 41,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.355,
+      "repair_phase_b_s_max": 0.354,
+      "window_overhead_ms": 63913.200000000004,
+      "corrected_window_overhead_ms": 30322.880000000005,
+      "iterations": [
+        {
+          "step": 4001,
+          "elapsed_ms": 60389.0,
+          "overhead_ms": 50131.4,
+          "checkpoint_ms_from_prev_iter": 33590.32,
+          "corrected_overhead_ms": 16541.08,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4002,
+          "elapsed_ms": 24039.4,
+          "overhead_ms": 13781.800000000001,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 13781.800000000001,
+          "skipped": 0,
+          "loss": 2.974396
+        },
+        {
+          "step": 4003,
+          "elapsed_ms": 10239.6,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.034081
+        }
+      ]
+    },
+    {
+      "number": 69,
+      "step": 4041,
+      "rank": 7,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.298,
+      "repair_phase_b_s_max": 0.297,
+      "window_overhead_ms": 77975.1,
+      "corrected_window_overhead_ms": 45945.25,
+      "iterations": [
+        {
+          "step": 4041,
+          "elapsed_ms": 62430.5,
+          "overhead_ms": 52172.9,
+          "checkpoint_ms_from_prev_iter": 32029.85,
+          "corrected_overhead_ms": 20143.050000000003,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4042,
+          "elapsed_ms": 36054.2,
+          "overhead_ms": 25796.6,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 25796.6,
+          "skipped": 0,
+          "loss": 3.082911
+        },
+        {
+          "step": 4043,
+          "elapsed_ms": 10263.2,
+          "overhead_ms": 5.600000000000364,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 5.600000000000364,
+          "skipped": 0,
+          "loss": 3.057939
+        }
+      ]
+    },
+    {
+      "number": 70,
+      "step": 4081,
+      "rank": 29,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.354,
+      "repair_phase_b_s_max": 0.353,
+      "window_overhead_ms": 66231.8,
+      "corrected_window_overhead_ms": 34433.100000000006,
+      "iterations": [
+        {
+          "step": 4081,
+          "elapsed_ms": 57344.1,
+          "overhead_ms": 47086.5,
+          "checkpoint_ms_from_prev_iter": 31798.7,
+          "corrected_overhead_ms": 15287.8,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4082,
+          "elapsed_ms": 29402.9,
+          "overhead_ms": 19145.300000000003,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 19145.300000000003,
+          "skipped": 0,
+          "loss": 3.081117
+        },
+        {
+          "step": 4083,
+          "elapsed_ms": 10250.6,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 2.990709
+        }
+      ]
+    },
+    {
+      "number": 71,
+      "step": 4121,
+      "rank": 4,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.307,
+      "repair_phase_b_s_max": 0.306,
+      "window_overhead_ms": 34703.1,
+      "corrected_window_overhead_ms": 1342.689999999995,
+      "iterations": [
+        {
+          "step": 4121,
+          "elapsed_ms": 44960.7,
+          "overhead_ms": 34703.1,
+          "checkpoint_ms_from_prev_iter": 33360.41,
+          "corrected_overhead_ms": 1342.689999999995,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4122,
+          "elapsed_ms": 10230.7,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.047751
+        },
+        {
+          "step": 4123,
+          "elapsed_ms": 10245.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.090622
+        }
+      ]
+    },
+    {
+      "number": 72,
+      "step": 4161,
+      "rank": 40,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.226,
+      "repair_phase_b_s_max": 0.226,
+      "window_overhead_ms": 70261.5,
+      "corrected_window_overhead_ms": 37455.56999999999,
+      "iterations": [
+        {
+          "step": 4161,
+          "elapsed_ms": 69247.4,
+          "overhead_ms": 58989.799999999996,
+          "checkpoint_ms_from_prev_iter": 32805.93,
+          "corrected_overhead_ms": 26183.869999999995,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4162,
+          "elapsed_ms": 21529.3,
+          "overhead_ms": 11271.699999999999,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11271.699999999999,
+          "skipped": 0,
+          "loss": 3.040585
+        },
+        {
+          "step": 4163,
+          "elapsed_ms": 10253.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 2.962084
+        }
+      ]
+    },
+    {
+      "number": 73,
+      "step": 4201,
+      "rank": 51,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.296,
+      "repair_phase_b_s_max": 0.295,
+      "window_overhead_ms": 74768.6,
+      "corrected_window_overhead_ms": 40649.65,
+      "iterations": [
+        {
+          "step": 4201,
+          "elapsed_ms": 66676.5,
+          "overhead_ms": 56418.9,
+          "checkpoint_ms_from_prev_iter": 34118.95,
+          "corrected_overhead_ms": 22299.950000000004,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4202,
+          "elapsed_ms": 28607.3,
+          "overhead_ms": 18349.699999999997,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 18349.699999999997,
+          "skipped": 0,
+          "loss": 3.114111
+        },
+        {
+          "step": 4203,
+          "elapsed_ms": 10242.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.03715
+        }
+      ]
+    },
+    {
+      "number": 74,
+      "step": 4241,
+      "rank": 34,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.384,
+      "repair_phase_b_s_max": 0.383,
+      "window_overhead_ms": 29866.200000000004,
+      "corrected_window_overhead_ms": 0.0,
+      "iterations": [
+        {
+          "step": 4241,
+          "elapsed_ms": 40123.8,
+          "overhead_ms": 29866.200000000004,
+          "checkpoint_ms_from_prev_iter": 33292.69,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4242,
+          "elapsed_ms": 10256.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.049392
+        },
+        {
+          "step": 4243,
+          "elapsed_ms": 10249.8,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.060806
+        }
+      ]
+    },
+    {
+      "number": 75,
+      "step": 4281,
+      "rank": 8,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.302,
+      "repair_phase_b_s_max": 0.302,
+      "window_overhead_ms": 35868.3,
+      "corrected_window_overhead_ms": 4054.1100000000024,
+      "iterations": [
+        {
+          "step": 4281,
+          "elapsed_ms": 46065.4,
+          "overhead_ms": 35807.8,
+          "checkpoint_ms_from_prev_iter": 31814.19,
+          "corrected_overhead_ms": 3993.610000000004,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4282,
+          "elapsed_ms": 10287.8,
+          "overhead_ms": 30.19999999999891,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 30.19999999999891,
+          "skipped": 0,
+          "loss": 3.129657
+        },
+        {
+          "step": 4283,
+          "elapsed_ms": 10287.9,
+          "overhead_ms": 30.299999999999272,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 30.299999999999272,
+          "skipped": 0,
+          "loss": 3.01274
+        }
+      ]
+    },
+    {
+      "number": 76,
+      "step": 4321,
+      "rank": 27,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.287,
+      "repair_phase_b_s_max": 0.287,
+      "window_overhead_ms": 45028.3,
+      "corrected_window_overhead_ms": 13934.150000000001,
+      "iterations": [
+        {
+          "step": 4321,
+          "elapsed_ms": 55279.9,
+          "overhead_ms": 45022.3,
+          "checkpoint_ms_from_prev_iter": 31094.15,
+          "corrected_overhead_ms": 13928.150000000001,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4322,
+          "elapsed_ms": 10263.6,
+          "overhead_ms": 6.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 6.0,
+          "skipped": 0,
+          "loss": 2.968349
+        },
+        {
+          "step": 4323,
+          "elapsed_ms": 10244.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 2.97416
+        }
+      ]
+    },
+    {
+      "number": 77,
+      "step": 4361,
+      "rank": 40,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.226,
+      "repair_phase_b_s_max": 0.226,
+      "window_overhead_ms": 48141.8,
+      "corrected_window_overhead_ms": 16124.010000000002,
+      "iterations": [
+        {
+          "step": 4361,
+          "elapsed_ms": 58383.9,
+          "overhead_ms": 48126.3,
+          "checkpoint_ms_from_prev_iter": 32017.79,
+          "corrected_overhead_ms": 16108.510000000002,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4362,
+          "elapsed_ms": 10234.6,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.039399
+        },
+        {
+          "step": 4363,
+          "elapsed_ms": 10273.1,
+          "overhead_ms": 15.5,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 15.5,
+          "skipped": 0,
+          "loss": 2.836117
+        }
+      ]
+    },
+    {
+      "number": 78,
+      "step": 4401,
+      "rank": 27,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.379,
+      "repair_phase_b_s_max": 0.379,
+      "window_overhead_ms": 39691.4,
+      "corrected_window_overhead_ms": 5139.120000000004,
+      "iterations": [
+        {
+          "step": 4401,
+          "elapsed_ms": 49939.8,
+          "overhead_ms": 39682.200000000004,
+          "checkpoint_ms_from_prev_iter": 34552.28,
+          "corrected_overhead_ms": 5129.9200000000055,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4402,
+          "elapsed_ms": 10252.0,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 2.983479
+        },
+        {
+          "step": 4403,
+          "elapsed_ms": 10266.8,
+          "overhead_ms": 9.199999999998909,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 9.199999999998909,
+          "skipped": 0,
+          "loss": 3.064172
+        }
+      ]
+    },
+    {
+      "number": 79,
+      "step": 4441,
+      "rank": 63,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 60.593,
+      "repair_phase_b_s_max": 59.156,
+      "window_overhead_ms": 82999.79999999999,
+      "corrected_window_overhead_ms": 50603.57999999999,
+      "iterations": [
+        {
+          "step": 4441,
+          "elapsed_ms": 81225.9,
+          "overhead_ms": 70968.29999999999,
+          "checkpoint_ms_from_prev_iter": 32396.22,
+          "corrected_overhead_ms": 38572.07999999999,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4442,
+          "elapsed_ms": 22150.2,
+          "overhead_ms": 11892.6,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 11892.6,
+          "skipped": 0,
+          "loss": 2.967781
+        },
+        {
+          "step": 4443,
+          "elapsed_ms": 10396.5,
+          "overhead_ms": 138.89999999999964,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 138.89999999999964,
+          "skipped": 0,
+          "loss": 2.967424
+        }
+      ]
+    },
+    {
+      "number": 80,
+      "step": 4481,
+      "rank": 50,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.456,
+      "repair_phase_b_s_max": 0.455,
+      "window_overhead_ms": 91573.9,
+      "corrected_window_overhead_ms": 56854.02,
+      "iterations": [
+        {
+          "step": 4481,
+          "elapsed_ms": 82939.7,
+          "overhead_ms": 72682.09999999999,
+          "checkpoint_ms_from_prev_iter": 34719.88,
+          "corrected_overhead_ms": 37962.219999999994,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4482,
+          "elapsed_ms": 29149.4,
+          "overhead_ms": 18891.800000000003,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 18891.800000000003,
+          "skipped": 0,
+          "loss": 3.020318
+        },
+        {
+          "step": 4483,
+          "elapsed_ms": 10231.2,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.009616
+        }
+      ]
+    },
+    {
+      "number": 81,
+      "step": 4521,
+      "rank": 58,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 48.616,
+      "repair_phase_b_s_max": 48.616,
+      "window_overhead_ms": 45308.200000000004,
+      "corrected_window_overhead_ms": 11034.850000000004,
+      "iterations": [
+        {
+          "step": 4521,
+          "elapsed_ms": 55545.9,
+          "overhead_ms": 45288.3,
+          "checkpoint_ms_from_prev_iter": 34273.35,
+          "corrected_overhead_ms": 11014.950000000004,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4522,
+          "elapsed_ms": 10277.5,
+          "overhead_ms": 19.899999999999636,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 19.899999999999636,
+          "skipped": 0,
+          "loss": 3.055733
+        },
+        {
+          "step": 4523,
+          "elapsed_ms": 10241.7,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.006342
+        }
+      ]
+    },
+    {
+      "number": 82,
+      "step": 4561,
+      "rank": 18,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.639,
+      "repair_phase_b_s_max": 0.639,
+      "window_overhead_ms": 93266.7,
+      "corrected_window_overhead_ms": 60552.22999999999,
+      "iterations": [
+        {
+          "step": 4561,
+          "elapsed_ms": 89132.5,
+          "overhead_ms": 78874.9,
+          "checkpoint_ms_from_prev_iter": 32714.47,
+          "corrected_overhead_ms": 46160.42999999999,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4562,
+          "elapsed_ms": 24512.8,
+          "overhead_ms": 14255.199999999999,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 14255.199999999999,
+          "skipped": 0,
+          "loss": 3.031496
+        },
+        {
+          "step": 4563,
+          "elapsed_ms": 10394.2,
+          "overhead_ms": 136.60000000000036,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 136.60000000000036,
+          "skipped": 0,
+          "loss": 3.119228
+        }
+      ]
+    },
+    {
+      "number": 83,
+      "step": 4601,
+      "rank": 33,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.549,
+      "repair_phase_b_s_max": 0.548,
+      "window_overhead_ms": 66138.9,
+      "corrected_window_overhead_ms": 32044.109999999993,
+      "iterations": [
+        {
+          "step": 4601,
+          "elapsed_ms": 69555.9,
+          "overhead_ms": 59298.299999999996,
+          "checkpoint_ms_from_prev_iter": 34094.79,
+          "corrected_overhead_ms": 25203.509999999995,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4602,
+          "elapsed_ms": 17098.2,
+          "overhead_ms": 6840.6,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 6840.6,
+          "skipped": 0,
+          "loss": 2.968342
+        },
+        {
+          "step": 4603,
+          "elapsed_ms": 10224.5,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.035187
+        }
+      ]
+    },
+    {
+      "number": 84,
+      "step": 4641,
+      "rank": 17,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.681,
+      "repair_phase_b_s_max": 0.68,
+      "window_overhead_ms": 41199.5,
+      "corrected_window_overhead_ms": 8114.440000000002,
+      "iterations": [
+        {
+          "step": 4641,
+          "elapsed_ms": 51457.1,
+          "overhead_ms": 41199.5,
+          "checkpoint_ms_from_prev_iter": 33085.06,
+          "corrected_overhead_ms": 8114.440000000002,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4642,
+          "elapsed_ms": 10243.2,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 2.99609
+        },
+        {
+          "step": 4643,
+          "elapsed_ms": 10243.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.036772
+        }
+      ]
+    },
+    {
+      "number": 85,
+      "step": 4681,
+      "rank": 31,
+      "kind": "restart_in_place",
+      "repair_total_s_max": 0.464,
+      "repair_phase_b_s_max": 0.464,
+      "window_overhead_ms": 46176.200000000004,
+      "corrected_window_overhead_ms": 11105.300000000003,
+      "iterations": [
+        {
+          "step": 4681,
+          "elapsed_ms": 56433.8,
+          "overhead_ms": 46176.200000000004,
+          "checkpoint_ms_from_prev_iter": 35070.9,
+          "corrected_overhead_ms": 11105.300000000003,
+          "skipped": 1,
+          "loss": null
+        },
+        {
+          "step": 4682,
+          "elapsed_ms": 10249.3,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 2.959182
+        },
+        {
+          "step": 4683,
+          "elapsed_ms": 10234.8,
+          "overhead_ms": 0.0,
+          "checkpoint_ms_from_prev_iter": 0.0,
+          "corrected_overhead_ms": 0.0,
+          "skipped": 0,
+          "loss": 3.076162
+        }
+      ]
+    }
+  ],
+  "fault_window_stats_ms": {
+    "count": 85,
+    "min": 21392.1,
+    "mean": 60461.07176470588,
+    "p50": 61193.3,
+    "p90": 82221.84,
+    "p95": 86338.81999999998,
+    "p99": 118334.1319999996,
+    "max": 214423.99999999997
+  },
+  "corrected_fault_window_stats_ms": {
+    "count": 85,
+    "min": 0.0,
+    "mean": 28790.836352941176,
+    "p50": 28433.260000000002,
+    "p90": 48593.081999999995,
+    "p95": 54022.03599999999,
+    "p99": 91060.98679999949,
+    "max": 214423.99999999997
+  },
+  "loss": {
+    "baseline_loss": 3.1863764999999997,
+    "sigma": 0.17801874720000058,
+    "threshold": 4.076470236000002,
+    "spikes": []
+  },
+  "timers": {
+    "load-checkpoint": {
+      "count": 1,
+      "min_ms": {
+        "count": 1,
+        "min": 30250.27,
+        "mean": 30250.27,
+        "p50": 30250.27,
+        "p90": 30250.27,
+        "p95": 30250.27,
+        "p99": 30250.27,
+        "max": 30250.27
+      },
+      "max_ms": {
+        "count": 1,
+        "min": 30251.13,
+        "mean": 30251.13,
+        "p50": 30251.13,
+        "p90": 30251.13,
+        "p95": 30251.13,
+        "p99": 30251.13,
+        "max": 30251.13
+      }
+    },
+    "model-and-optimizer-setup": {
+      "count": 1,
+      "min_ms": {
+        "count": 1,
+        "min": 31242.71,
+        "mean": 31242.71,
+        "p50": 31242.71,
+        "p90": 31242.71,
+        "p95": 31242.71,
+        "p99": 31242.71,
+        "max": 31242.71
+      },
+      "max_ms": {
+        "count": 1,
+        "min": 31282.1,
+        "mean": 31282.1,
+        "p50": 31282.1,
+        "p90": 31282.1,
+        "p95": 31282.1,
+        "p99": 31282.1,
+        "max": 31282.1
+      }
+    },
+    "save-checkpoint": {
+      "count": 84,
+      "min_ms": {
+        "count": 84,
+        "min": 30816.87,
+        "mean": 32795.896785714285,
+        "p50": 32756.875,
+        "p90": 34226.058,
+        "p95": 34573.837999999996,
+        "p99": 35159.1932,
+        "max": 35594.91
+      },
+      "max_ms": {
+        "count": 84,
+        "min": 30818.03,
+        "mean": 32796.937261904764,
+        "p50": 32757.75,
+        "p90": 34227.03,
+        "p95": 34574.839,
+        "p99": 35160.1262,
+        "max": 35595.76
+      }
+    },
+    "train/valid/test-data-iterators-setup": {
+      "count": 1,
+      "min_ms": {
+        "count": 1,
+        "min": 43.26,
+        "mean": 43.26,
+        "p50": 43.26,
+        "p90": 43.26,
+        "p95": 43.26,
+        "p99": 43.26,
+        "max": 43.26
+      },
+      "max_ms": {
+        "count": 1,
+        "min": 148.61,
+        "mean": 148.61,
+        "p50": 148.61,
+        "p90": 148.61,
+        "p95": 148.61,
+        "p99": 148.61,
+        "max": 148.61
+      }
+    }
+  },
+  "phase_stats_s": {
+    "dense_sync": {
+      "count": 680,
+      "min": 0.0,
+      "mean": 0.02994264705882353,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p95": 0.016,
+      "p99": 2.464,
+      "max": 2.466
+    },
+    "expert_restore (sync weights, deferred optimizer)": {
+      "count": 680,
+      "min": 0.0,
+      "mean": 0.3801294117647059,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p95": 0.0,
+      "p99": 0.001,
+      "max": 61.561
+    }
+  },
+  "expert_success_stats_s": {
+    "count": 12,
+    "min": 25.36,
+    "mean": 28.906666666666666,
+    "p50": 28.475,
+    "p90": 33.926,
+    "p95": 34.19,
+    "p99": 34.19,
+    "max": 34.19
+  },
+  "dense_success_stats_s": {
+    "count": 6,
+    "min": 0.01,
+    "mean": 0.4266666666666667,
+    "p50": 0.02,
+    "p90": 1.245,
+    "p95": 1.8575,
+    "p99": 2.3475000000000006,
+    "max": 2.47
+  },
+  "dense_sources": [
+    56
+  ],
+  "optimizer_submit_counts": {
+    "count": 6,
+    "min": 96,
+    "mean": 96.0,
+    "p50": 96.0,
+    "p90": 96.0,
+    "p95": 96.0,
+    "p99": 96.0,
+    "max": 96
+  },
+  "optimizer_complete_counts": {
+    "count": 0,
+    "min": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null
+  },
+  "optimizer_finalize_counts": {
+    "count": 0,
+    "min": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null
+  },
+  "zero_invalidations": [],
+  "checkpoint": {
+    "save_start_steps": [],
+    "save_done_steps": [],
+    "checkpoint_meta_steps": [
+      1360,
+      1400,
+      1440,
+      1480,
+      1520,
+      1560,
+      1600,
+      1640,
+      1680,
+      1720,
+      1760,
+      1800,
+      1840,
+      1880,
+      1920,
+      1960,
+      2000,
+      2040,
+      2080,
+      2120,
+      2160,
+      2200,
+      2240,
+      2280,
+      2320,
+      2360,
+      2400,
+      2440,
+      2480,
+      2520,
+      2560,
+      2600,
+      2640,
+      2680,
+      2720,
+      2760,
+      2800,
+      2840,
+      2880,
+      2920,
+      2960,
+      3000,
+      3040,
+      3080,
+      3120,
+      3160,
+      3200,
+      3240,
+      3280,
+      3320,
+      3360,
+      3400,
+      3440,
+      3480,
+      3520,
+      3560,
+      3600,
+      3640,
+      3680,
+      3720,
+      3760,
+      3800,
+      3840,
+      3880,
+      3920,
+      3960,
+      4000,
+      4040,
+      4080,
+      4120,
+      4160,
+      4200,
+      4240,
+      4280,
+      4320,
+      4360,
+      4400,
+      4440,
+      4480,
+      4520,
+      4560,
+      4600,
+      4640,
+      4680
+    ],
+    "save_ms_by_next_iter": {
+      "1361": 33534.02,
+      "1401": 31730.02,
+      "1441": 32689.95,
+      "1481": 31002.57,
+      "1521": 31892.88,
+      "1561": 33635.87,
+      "1601": 33303.4,
+      "1641": 32617.04,
+      "1681": 33234.71,
+      "1721": 31110.5,
+      "1761": 33457.52,
+      "1801": 33229.52,
+      "1841": 32606.66,
+      "1881": 33596.98,
+      "1921": 33331.0,
+      "1961": 31285.69,
+      "2001": 31343.29,
+      "2041": 33022.62,
+      "2081": 33019.22,
+      "2121": 34281.14,
+      "2161": 32675.25,
+      "2201": 32884.64,
+      "2241": 31492.07,
+      "2281": 32741.86,
+      "2321": 31796.27,
+      "2361": 32717.51,
+      "2401": 33196.49,
+      "2441": 33332.32,
+      "2481": 33604.31,
+      "2521": 31012.68,
+      "2561": 32109.88,
+      "2601": 32468.03,
+      "2641": 35595.76,
+      "2681": 32374.56,
+      "2721": 31390.46,
+      "2761": 32452.79,
+      "2801": 32835.64,
+      "2841": 32322.26,
+      "2881": 31671.7,
+      "2921": 30818.03,
+      "2961": 32811.77,
+      "3001": 32187.07,
+      "3041": 34578.82,
+      "3081": 32912.43,
+      "3121": 33661.77,
+      "3161": 32645.88,
+      "3201": 31251.1,
+      "3241": 32168.96,
+      "3281": 31936.86,
+      "3321": 32380.21,
+      "3361": 32630.21,
+      "3401": 33268.56,
+      "3441": 32844.34,
+      "3481": 32419.32,
+      "3521": 32568.15,
+      "3561": 31273.3,
+      "3601": 32773.64,
+      "3641": 33233.51,
+      "3681": 33799.16,
+      "3721": 33145.45,
+      "3761": 32493.42,
+      "3801": 33211.96,
+      "3841": 32393.89,
+      "3881": 34496.86,
+      "3921": 34602.79,
+      "3961": 33006.26,
+      "4001": 33590.32,
+      "4041": 32029.85,
+      "4081": 31798.7,
+      "4121": 33360.41,
+      "4161": 32805.93,
+      "4201": 34118.95,
+      "4241": 33292.69,
+      "4281": 31814.19,
+      "4321": 31094.15,
+      "4361": 32017.79,
+      "4401": 34552.28,
+      "4441": 32396.22,
+      "4481": 34719.88,
+      "4521": 34273.35,
+      "4561": 32714.47,
+      "4601": 34094.79,
+      "4641": 33085.06,
+      "4681": 35070.9
+    },
+    "state_load_paths_top": [
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0002040/mp_rank_00_007_001/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0002760/mp_rank_00_007_002/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0003400/mp_rank_00_007_002/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0003840/mp_rank_00_007_003/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0004440/mp_rank_00_007_007/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0004520/mp_rank_00_007_002/model_optim_rng.pt",
+        1
+      ]
+    ],
+    "load_paths_top": [
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0002040/mp_rank_00_007_001/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0002760/mp_rank_00_007_002/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0003400/mp_rank_00_007_002/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0003840/mp_rank_00_007_003/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0004440/mp_rank_00_007_007/model_optim_rng.pt",
+        1
+      ],
+      [
+        "/mnt/ais-c1/dataset/zds/5.13/bsr/2/iter_0004520/mp_rank_00_007_002/model_optim_rng.pt",
+        1
+      ]
+    ]
+  },
+  "severe_examples": []
+}

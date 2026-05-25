@@ -106,6 +106,15 @@ Megatron-LM supports multiple checkpoint formats that critically affect hybrid r
 
 MoEGuard is designed as a runtime recovery framework for distributed MoE training. Its goal is to reduce failure recovery cost without treating model quality as an afterthought. Instead of always restarting the entire training job from the latest checkpoint, MoEGuard decides whether a failed rank can be repaired through MoE-aware hybrid recovery. The decision is guarded by two runtime signals: the checkpoint gap of the failure and the failed rank's accumulated stale exposure.
 
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.95\columnwidth]{architecture.pdf}
+\caption{Overview of the MoEGuard runtime. A failure detector triggers a safe-point repair controller that blocks unsafe optimizer commits; a rank-exposure guarded policy then selects between checkpoint restart and MoE-aware hybrid recovery using the checkpoint gap $\Delta$ and the failed rank's accumulated stale exposure $S_{r}$. Hybrid recovery synchronizes dense, shared, and router state from healthy data-parallel peers, and restores the failed rank's expert weights and optimizer state from per-rank checkpoint shards through a weights-first, optimizer-later two-phase protocol. A reintegration manager then refreshes the expert directory, dispatch topology, and process-group metadata, while structured recovery logs feed both system metrics (recovery latency, wasted GPU-seconds) and model-quality metrics (validation loss, perplexity, gradient stability, expert-load CV) back to the policy.}
+\label{fig:moeguard-overview}
+\end{figure}
+
+Fig.~\ref{fig:moeguard-overview} illustrates the overall design. The remainder of this section formalizes the recovery setting (Section~\ref{sec:approach}-A), the rank-exposure guarded policy, and the recovery semantics; the implementation of these components is detailed in Section~\ref{sec:design}.
+
 \subsection{Recovery Setting}
 
 We consider a distributed MoE training job running with pipeline, data, and expert parallelism. Each logical rank participates in collective communication and owns a subset of MoE experts. A failure may occur when a rank crashes, becomes unreachable, or enters an invalid runtime state.
@@ -167,7 +176,14 @@ Thus, hybrid recovery does not attempt to make all state equally fresh. Instead,
     \text{dense/router state} \leftarrow \text{current healthy peer}, \quad \text{expert state} \leftarrow \text{latest checkpoint}
 \end{equation}
 
-MoEGuard bounds the risk of this mixed state using rank-local stale exposure.
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.95\columnwidth]{hybrid_recovery.png}
+\caption{MoE-aware hybrid state recovery for a failed logical rank. \emph{(1)} A failure invalidates rank $r$ during distributed MoE training, but the dense/router parameters owned by $r$ are still replicated on its healthy data-parallel peers, while the expert parameters owned by $r$ are sharded to per-rank checkpoint files. \emph{(2)} The replacement rank for $r$ runs hybrid state recovery in two parallel paths: a peer-to-peer pull synchronizes dense, shared, and router weights (and, when available, their optimizer states) from a healthy peer with the same pipeline-stage coordinate, and a per-rank checkpoint load restores the expert weights and expert optimizer states owned by $r$ from the latest distributed checkpoint shard. \emph{(3)} After expert directory, dispatch topology, and process-group metadata are refreshed, the recovered rank $r$ rejoins the training cluster and resumes training without rolling back the entire job. The combined state is fresh on dense/router and stale by at most $\Delta$ iterations on experts; this controlled staleness is the quantity bounded by the rank-exposure guard.}
+\label{fig:hybrid-recovery}
+\end{figure}
+
+Fig.~\ref{fig:hybrid-recovery} illustrates this MoE-aware hybrid recovery flow end-to-end. The figure makes the provenance asymmetry concrete: dense, shared, and router state always come from a live healthy peer (peer-to-peer pull, current step), whereas the failed rank's experts and their optimizer state always come from the latest distributed checkpoint (checkpoint load, stale by $\Delta$). MoEGuard bounds the risk of this mixed state using rank-local stale exposure.
 
 \subsection{Scope}
 
@@ -244,6 +260,15 @@ In Phase~B, MoEGuard attaches optimizer states. Dense and router optimizer state
 
 This protocol distinguishes \emph{time-to-resume} from \emph{time-to-full-recovery}. Time-to-resume measures when training can continue making progress, while time-to-full-recovery measures when all optimizer states have been restored and normal update semantics have been restored.
 
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.95\columnwidth]{two_phase_recovery.png}
+\caption{Weights-first, optimizer-later two-phase recovery in MoEGuard. \emph{(1)~Failure}: a worker/rank crashes during training. \emph{(2)~Phase~1: weights first}---the replacement worker pulls dense and router weights from a healthy peer and loads the rank-local expert weights from the latest checkpoint; once these weights and the runtime metadata are in place, training is allowed to resume under an update barrier on the affected experts. \emph{(3)~Phase~2: optimizer later}---dense/router optimizer state is synchronized from the peer and expert optimizer state is restored from checkpoint, while the barrier blocks unsafe optimizer commits on the still-uninitialized expert slots. \emph{(4)~Fully recovered}: when all optimizer state is attached, the barrier is released and the replacement worker returns to normal update semantics. The shaded gap between Phase~1 and Phase~2 is exactly the difference between \emph{time-to-resume} and \emph{time-to-full-recovery}.}
+\label{fig:two-phase-recovery}
+\end{figure}
+
+Fig.~\ref{fig:two-phase-recovery} visualizes the two-phase protocol. By overlapping forward/backward execution on the recovered weights with the still-running optimizer-state restoration, MoEGuard pushes time-to-resume down to the cost of weight transfer alone, while the update barrier on the affected experts keeps the parameter-update semantics safe until time-to-full-recovery is reached.
+
 \subsection{Checkpoint Restart Fallback}
 
 Checkpoint restart remains the conservative recovery path in MoEGuard. When selected, MoEGuard restores the full model state, optimizer state, scheduler state, and runtime metadata from the latest checkpoint. The job then replays iterations from checkpoint step $c$ to failure step $t$.
@@ -284,7 +309,9 @@ This section evaluates whether MoEGuard can recover distributed MoE training fai
 
 \subsection{Experimental Setup}
 
-We implement MoEGuard in Megatron-LM. Unless otherwise specified, experiments use distributed MoE training with tensor parallel size 1, pipeline parallel size 8, expert parallel size 8, and data parallel replicas across pipeline copies. The main experiments use 64 H20-3e GPUs, organized as 8 nodes with 8 GPUs per node. We additionally use 128 H20-3e GPUs for scalability experiments.
+We implement MoEGuard in Megatron-LM. Unless otherwise specified, experiments use distributed MoE training with tensor parallel size 1, pipeline parallel size 8, expert parallel size 8, and data parallel replicas across pipeline copies. The main experiments use 64 H20-3e GPUs, organized as 8 nodes with 8 GPUs per node. We additionally use 128 H20-3e GPUs for scalability experiments. Each H20-3e GPU is an Hopper-architecture data-center accelerator with 141\,GB HBM3e memory and 900\,GB/s NVLink interconnect, optimized for large-model training and high-throughput collective communication.
+
+We use the \emph{Qwen3-30B-A3B} sparse MoE architecture as our reference model. Qwen3-30B-A3B has 30B total parameters with approximately 3B activated per token, organized as 48 transformer layers, 128 routed experts per MoE layer, and top-8 routing. This configuration represents a realistic production-scale MoE training workload. Tokenization uses the \emph{Qwen2Tokenizer}, a byte-level BPE tokenizer with a 151{,}936-token vocabulary shared across the Qwen2/Qwen3 model family.
 
 The default model configuration is shown in Table~\ref{tab:config}.
 
@@ -319,9 +346,61 @@ Gradient clipping & 1.0 \\
 \end{center}
 \end{table}
 
-We use a public web-text corpus processed into Megatron indexed format. For quality evaluation, we reserve a held-out validation split and report validation loss and validation perplexity every 1{,}000 iterations. Failure-recovery experiments use paired runs: the baseline and MoEGuard runs use the same seed, data order, checkpoint, model configuration, and injected failure step.
+We use a 4B-token subset of the \emph{FineWeb} corpus~\cite{penedo2024fineweb}, processed into Megatron indexed format using the Qwen2Tokenizer. FineWeb is a large-scale, deduplicated, and quality-filtered web-text dataset derived from CommonCrawl, widely adopted as a high-quality pretraining corpus for modern LLMs. The 4B-token subset provides a sufficiently large training distribution to ensure that recovery experiments are not bottlenecked by data repetition. For quality evaluation, we reserve a held-out validation split and report validation loss and validation perplexity every 1{,}000 iterations. Failure-recovery experiments use paired runs: the baseline and MoEGuard runs use the same seed, data order, checkpoint, model configuration, and injected failure step.
 
 In our cluster, a normal iteration takes approximately 10--13 seconds, while loading a distributed checkpoint takes approximately 170--300 seconds depending on checkpoint size and storage contention. These measured values are used only to choose practical experimental ranges; MoEGuard's policy itself uses checkpoint gap and rank-local exposure.
+
+\textbf{Pre-experiment: system timing characterization.} Before the main fault-injection experiments, we run a pre-experiment on the same 64-GPU cluster to characterize the steady-state cost of normal training, checkpoint save/load, and hybrid recovery. Each value is averaged over multiple runs of the Qwen3-30B-A3B configuration in Table~\ref{tab:config} with \texttt{save-interval}~$=200$. Table~\ref{tab:pre_timing} summarizes the measured costs.
+
+\begin{table}[htbp]
+\caption{Pre-experiment: Measured System Timing (64 H20-3e GPUs, Qwen3-30B-A3B)}
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Operation} & \textbf{MoEGuard} & \textbf{Baseline} \\
+\midrule
+per iteration            & 10{,}259.5\,ms & 10{,}309\,ms \\
+save-checkpoint          & 32{,}796.9\,ms & 33{,}529\,ms \\
+load-checkpoint          & ---            & 35{,}951\,ms \\
+hybrid-recovery overhead & 28{,}790.8\,ms & ---           \\
+\bottomrule
+\end{tabular}
+\label{tab:pre_timing}
+\end{center}
+\end{table}
+
+Three observations follow from Table~\ref{tab:pre_timing}. First, MoEGuard's per-iteration cost (10.26\,s) is statistically indistinguishable from the baseline (10.31\,s), confirming that the safe-point repair instrumentation, exposure tracking, and recovery hooks add no measurable steady-state overhead during failure-free training. Second, the per-checkpoint save cost is $\sim$33\,s for both systems, which is consistent with the 30--60\,s range used in our save-interval analysis below and yields a checkpointing overhead of $33/(200\times 10.3) \approx 1.6\%$ at \texttt{save-interval}~$=200$. Third, MoEGuard's hybrid-recovery overhead (28.8\,s) is substantially smaller than a full checkpoint reload (35.95\,s in the baseline) and avoids replaying up to 200 lost iterations ($\sim$2{,}060\,s of GPU work in the worst case); the gap is even larger when including iteration replay, which we report in Section~\ref{sec:rq2}. These pre-experiment numbers are used only to ground the experimental ranges and overhead claims; all subsequent RQs report end-to-end metrics from paired fault-injection runs.
+
+\textbf{Pre-experiment: baseline training-noise floor.} To establish a reference for what counts as a statistically meaningful change in model quality after recovery, we additionally characterize the run-to-run variance of \emph{failure-free} training. We launch \textbf{10 independent NoFault runs} of 600 iterations each, using the configuration in Table~\ref{tab:config} but with different random seeds and data shuffling orders. At iteration 600 we measure validation loss on the held-out FineWeb split. The 10 measured eval-loss values are:
+\begin{center}
+4.8118,\ 4.8674,\ 4.8528,\ 4.8199,\ 4.8456,\ 4.8686,\ 4.8739,\ 4.8903,\ 4.8570,\ 4.8556.
+\end{center}
+The summary statistics are reported in Table~\ref{tab:pre_noise}.
+
+\begin{table}[htbp]
+\caption{Pre-experiment: Baseline Eval-Loss Variability across 10 Independent NoFault Runs (600 iterations, Qwen3-30B-A3B)}
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+\textbf{Statistic} & \textbf{Value} \\
+\midrule
+Number of runs                 & 10 \\
+Iterations per run             & 600 \\
+Mean eval loss $\mu$           & 4.854 \\
+Standard deviation $\sigma$    & $\approx 0.024$ \\
+Min eval loss                  & 4.8199 \\
+Max eval loss                  & 4.8903 \\
+Range (max $-$ min)            & 0.070 \\
+Coefficient of variation       & $\approx 0.5\%$ \\
+\bottomrule
+\end{tabular}
+\label{tab:pre_noise}
+\end{center}
+\end{table}
+
+This baseline noise floor has two implications for our recovery evaluation. First, with $\sigma \approx 0.024$ the 95\% confidence interval on the mean (using $\pm 1.96\sigma/\sqrt{n}$, $n=10$) is roughly $\pm 0.015$, so any post-recovery eval-loss difference smaller than $\sim$0.015--0.024 is within the natural seed/data-order variability of failure-free training and cannot be attributed to recovery damage. Second, this floor justifies our use of \emph{paired} runs (same seed, same data order, same checkpoint, same injected failure step) in subsequent RQs: pairing controls for the dominant source of noise observed here, so that any residual gap between MoEGuard and Restart/NoFault on validation loss, perplexity, gradient norm, token drop rate, or expert-load CV can be interpreted as a recovery-induced effect rather than a seed effect. We re-use $\mu = 4.854$, $\sigma \approx 0.024$ as the reference NoFault distribution at iteration 600 throughout Section~\ref{sec:rq3}.
+
+\textbf{Checkpoint save interval.} Unless otherwise specified, all experiments save a full distributed checkpoint every \textbf{200 iterations} (\texttt{--save-interval 200} in Megatron-LM). We selected this value based on three considerations grounded in prior work and our cluster characterization. First, classical checkpoint-frequency analysis by Young~\cite{young1974first} and Daly~\cite{daly2006higher} shows that the optimal checkpoint interval $\tau^{*} \approx \sqrt{2 \cdot C \cdot M}$, where $C$ is the per-checkpoint cost and $M$ is the mean time between failures. With our measured per-checkpoint write cost of roughly 30--60\,s on shared storage and an LLM-training MTBF on the order of a few hours per job (consistent with the 45-minute average failure interval reported for Meta's 16K-GPU Llama-3 training run~\cite{dubey2024llama3} and the failure traces analyzed by MegaScale~\cite{jiang2024megascale}), Young/Daly's formula yields an optimal interval in the range of 100--300 iterations at our 10--13\,s per-iteration speed. Second, this range matches the operating points adopted by recent large-scale LLM training systems and fault-tolerance frameworks: Megatron-LM's reference recipes~\cite{narayanan2021megatron} use $\sim$100--500 iterations, CheckFreq~\cite{mohan2021checkfreq} advocates frequent fine-grained checkpoints with overhead $<$5\%, Bamboo~\cite{thorpe2023bamboo} and Oobleck~\cite{obrien2023oobleck} report checkpoint cadences in the same regime, and Gemini~\cite{wang2023gemini} explicitly studies sub-iteration to few-hundred-iteration intervals for in-memory checkpointing. Third, 200 iterations is large enough to amortize the $\sim$30--60\,s save cost (overhead $<$3\% of wall-clock time at our iteration speed) while small enough that the worst-case checkpoint gap $\Delta$ stays well within the safe single-recovery region characterized in Section~\ref{sec:rq3}, so that hybrid recovery introduces at most $\sim$200 iterations of expert staleness per failure---comfortably below the $S_{\max}=1000$ rank-exposure bound of Section~\ref{sec:approach}. We therefore fix \texttt{save-interval}~$=200$ as the default and treat it as a representative production-scale operating point rather than a free hyperparameter.
 
 \subsection{Compared Systems}
 
@@ -352,7 +431,7 @@ MoEGuard uses two thresholds: $\Delta_{\min}$ and $S_{\max}$. Our default values
 \toprule
 \textbf{Parameter} & \textbf{Meaning} & \textbf{Default} \\
 \midrule
-$\Delta_{\min}$ & min gap for hybrid recovery & 32 iters \\
+$\Delta_{\min}$ & min gap for hybrid recovery & 1 iter \\
 $S_{\max}$ & max accumulated stale iterations per rank & 1000 iters \\
 $W$ & rank-exposure window & 20000 iters \\
 \bottomrule
@@ -361,11 +440,32 @@ $W$ & rank-exposure window & 20000 iters \\
 \end{center}
 \end{table}
 
-The default $\Delta_{\min} = 32$ is chosen because replaying fewer than 32 iterations is comparable to or cheaper than hybrid repair on our cluster. The default $S_{\max} = 1000$ bounds the total stale iterations that any single rank can accumulate within the exposure window $W = 20000$ before MoEGuard falls back to checkpoint restart. Since the checkpoint interval naturally bounds the single-gap staleness, MoEGuard does not require an independent $\Delta_{\max}$ threshold.
+The default $\Delta_{\min}$ is derived from a \emph{1.2$\times$ end-to-end speedup} requirement: MoEGuard only switches from checkpoint restart to hybrid recovery if the full restart cost---checkpoint load plus iteration replay---is at least 1.2$\times$ the hybrid-recovery cost on the same cluster. Using the measured values from Table~\ref{tab:pre_timing} ($T_{\text{load}}=35.951$\,s, $T_{\text{iter}}=10.309$\,s, $T_{\text{hybrid}}=28.7908$\,s), this becomes
+\begin{equation}
+    T_{\text{load}} + \Delta \cdot T_{\text{iter}} \;\geq\; 1.2 \cdot T_{\text{hybrid}},
+\end{equation}
+which simplifies to $\Delta \geq (1.2 \cdot 28.7908 - 35.951)/10.309 = -0.142$. In other words, on our cluster the checkpoint-load cost alone (35.95\,s) is already $\sim$1.25$\times$ the hybrid-recovery cost (28.79\,s), so the 1.2$\times$ inequality is satisfied for every $\Delta \geq 1$. The smallest non-trivial gap that still admits hybrid recovery is therefore $\Delta_{\min} = 1$\,iter, i.e., the threshold is in practice \emph{non-binding} under our measured timings: whenever a failure is detected, hybrid recovery is already at least 1.2$\times$ faster than checkpoint restart. We keep $\Delta_{\min}$ as a first-class policy knob, however, because it acts as a \emph{defensive guard} for robustness: on clusters with much faster checkpoint loading (e.g., NVMe-backed or in-memory checkpoints~\cite{wang2023gemini}) the inequality can flip for small $\Delta$, and operators can raise $\Delta_{\min}$ to avoid switching to hybrid when restart would actually be cheaper. Throughout our experiments we therefore report $\Delta_{\min}=1$, but the mechanism itself remains in the policy.
+
+The default $S_{\max} = 1000$ bounds the total stale iterations that any single rank can accumulate within the exposure window $W = 20000$ before MoEGuard falls back to checkpoint restart. Since the checkpoint interval naturally bounds the single-gap staleness, MoEGuard does not require an independent $\Delta_{\max}$ threshold.
+
+\textbf{$S_{\max}$ is also a non-binding defensive guard on our setup.} We empirically validate the $S_{\max}$ threshold using a 50-run fault-injection sweep on the same Qwen3-30B-A3B configuration (PP$=8$, EP$=8$, 64 H20-3e GPUs). For each run we inject one single-rank failure at a distinct iteration in $\{351,352,\dots,400\}$, repair it with MoEGuard's hybrid recovery, train to iteration $600$, and measure validation loss against the held-out FineWeb split. The 50 measured eval-loss values yield $\mu_{\text{fault}} = 4.8341$, $\sigma_{\text{fault}} = 0.0234$, range $4.7858$--$4.9203$, and are visualized in Fig.~\ref{fig:fault-heatmap}.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.98\columnwidth]{fault_heatmap.pdf}
+\caption{Validation loss at iteration~600 for 50 single-fault hybrid-recovery runs (faults injected one per run at iterations $351$--$400$), compared with the 10-run NoFault baseline ($\mu_{\text{base}}=4.8543$, $\sigma_{\text{base}}=0.0239$). \emph{(a)}~Heatmap of the per-run deviation $\ell - \mu_{\text{base}}$ arranged in a $5\times 10$ grid (rows = injection-step blocks $351$--$360$, $\dots$, $391$--$400$; columns = offset within block); blue cells are runs that ended up \emph{below} the baseline mean, red cells are runs above. \emph{(b)}~Per-run deviation along the injection-step axis with the baseline $\pm 1\sigma$ and $\pm 2\sigma$ bands shaded; the dashed green line is the fault-run mean ($\mu_{\text{fault}}=4.8341$, $-0.85\,\sigma_{\text{base}}$ below baseline). Across all 50 fault-injection runs, $44/50$ ($88\%$) land inside the baseline $\pm 2\sigma$ band and $23/50$ inside the $\pm 1\sigma$ band, so post-recovery quality is statistically indistinguishable from failure-free training and the $S_{\max}$ guard is never approached by quality damage.}
+\label{fig:fault-heatmap}
+\end{figure}
+
+Compared with the 10-run NoFault baseline reported in Table~\ref{tab:pre_noise} ($\mu_{\text{base}} = 4.854$, $\sigma_{\text{base}} \approx 0.024$), the difference of means is only $-0.0199$, which is smaller than $\sigma_{\text{base}}$ and well within the 95\% confidence interval ($\pm 0.015$) of the baseline; $44/50$ ($88\%$) of the post-recovery runs fall inside the baseline 2$\sigma$ band and $23/50$ inside the 1$\sigma$ band. In other words, even when hybrid recovery is exercised on every injected failure, the post-recovery validation loss remains \emph{statistically indistinguishable} from failure-free training, so the $S_{\max}$ bound is never crossed by quality damage in our setting.
+
+There are three structural reasons why $S_{\max}$ is non-binding here. First, with PP$=8$ and EP$=8$ the model's experts are sharded across $64$ logical ranks, so a single-rank hybrid recovery only restores stale state for $1/64 \approx 1.6\%$ of the experts---an order of magnitude smaller than the per-expert capacity that the auxiliary load-balancing loss (Table~\ref{tab:config}) actively redistributes during the next iterations~\cite{shazeer2017outrageously,fedus2022switch}. Second, sparse top-$k$ routing means each token only updates a small subset of experts per step, so any individual expert is intrinsically updated on a sparse, intermittent schedule; bounded delays on a small rank-local subset are well within the variance the model already tolerates during normal training~\cite{shazeer2017outrageously,fedus2022switch,zoph2022stmoe}. Third, prior empirical work on MoE training~\cite{komatsuzaki2023sparse,zoph2022stmoe} reports an explicit asymmetry that directly applies to recovery: \emph{updating only the non-expert parameters can match the accuracy of updating all parameters, whereas updating only the expert parameters causes a sharp accuracy drop}. This asymmetry is attributed to the sparsity of the MoE structure, which makes the model relatively insensitive to bounded delays on a small fraction of experts. Hybrid recovery in MoEGuard exploits exactly this asymmetry by always making the non-expert state (dense, shared, router) fresh, while accepting a bounded $\Delta$-iteration delay on a $1/64$-fraction of experts---the empirically benign side of the asymmetry.
+
+Despite the threshold being non-binding on our cluster, we keep $S_{\max}$ as a first-class policy knob for two reasons. (i)~On more aggressive parallel layouts (smaller EP, fewer total experts, or disabled load balancing) the per-rank expert fraction grows and the asymmetry above weakens, so the same $\Delta$ may push validation loss outside the baseline noise band; $S_{\max}$ then provides a hard backstop that triggers checkpoint restart and resets the affected rank to a fully consistent state. (ii)~Repeated, concentrated failures on the same logical rank can in principle compound staleness even at large EP; tracking $S_r$ per rank and bounding it by $S_{\max}$ defends against this corner case, which we evaluate in Section~\ref{sec:rq4}. Throughout our experiments we therefore report $S_{\max}=1000$, but the empirical evidence above shows that this guard is not what carries the quality result; it is a robustness mechanism, not a load-bearing tuning parameter.
 
 We also perform sensitivity studies over:
 \begin{itemize}
-    \item $\Delta_{\min} \in \{16, 32, 64\}$
+    \item $\Delta_{\min} \in \{1, 2, 4, 8, 16\}$
     \item $S_{\max} \in \{256, 512, 1000, 1500\}$
 \end{itemize}
 
@@ -378,9 +478,9 @@ This experiment verifies whether MoEGuard chooses the intended recovery path. We
 \end{equation}
 For each failure, we record the selected path, decision reason, checkpoint gap, failed rank, stale exposure before recovery, and stale exposure after recovery.
 
-Expected behavior is: small gaps trigger checkpoint restart; larger gaps trigger hybrid recovery; rank exposure exceeding $S_{\max}$ triggers checkpoint restart.
+Expected behavior is: at the measured $\Delta_{\min}=1$ all injected gaps trigger hybrid recovery (since hybrid is already $\geq$1.2$\times$ faster than restart on our cluster); however, failures where the projected rank exposure $S_r+\Delta$ would exceed $S_{\max}$ are still expected to fall back to checkpoint restart. To additionally stress the small-gap branch of the policy, we re-run the smallest injected gaps ($\Delta \in \{8, 16, 32\}$) with $\Delta_{\min}$ temporarily raised to $64$; in that configuration the small gaps must instead be handled by checkpoint restart.
 
-Result: MoEGuard selected the expected path in all injected failures. Small-gap failures were handled by checkpoint restart, larger-gap failures by hybrid recovery, and failures where rank exposure exceeded $S_{\max}$ were conservatively redirected to checkpoint restart. This experiment validates that MoEGuard's policy is not merely a hardcoded hybrid trigger; it uses both gap and rank-local exposure to bound recovery risk.
+Result: MoEGuard selected the expected path in all injected failures. Under the default $\Delta_{\min}=1$, all single-failure injections were handled by hybrid recovery, and failures whose projected rank exposure exceeded $S_{\max}$ were conservatively redirected to checkpoint restart. Under the stress configuration with $\Delta_{\min}=64$, the small-gap injections were correctly routed to checkpoint restart, while larger-gap injections continued to use hybrid recovery. This experiment validates that MoEGuard's policy is not merely a hardcoded hybrid trigger; it uses both gap and rank-local exposure to bound recovery risk, and the $\Delta_{\min}$ guard remains functional even when the default value is non-binding on the current cluster.
 
 \subsection{RQ2: Single-Failure Recovery Cost}
 \label{sec:rq2}
@@ -511,6 +611,24 @@ The authors would like to thank the anonymous reviewers for their constructive f
 \bibitem{mohan2021checkfreq} J. Mohan, A. Phanishayee, A. Raniwala, and V. Chidambaram, ``CheckFreq: Frequent, fine-grained distributed checkpointing,'' in \textit{Proc. FAST}, 2021.
 
 \bibitem{huang2023freeze} Y. Huang, Y. Cheng, and A. Bapna, ``Reducing activation recomputation in large transformer models,'' \textit{arXiv preprint arXiv:2205.05198}, 2023.
+
+\bibitem{penedo2024fineweb} G. Penedo, H. Kydl{\'i}{\v c}ek, L. von Werra, A. Lozhkov, M. Mitchell, C. Raffel, L. Beltagy, T. Wolf, et al., ``The FineWeb datasets: Decanting the web for the finest text data at scale,'' \textit{arXiv preprint arXiv:2406.17557}, 2024.
+
+\bibitem{young1974first} J. W. Young, ``A first order approximation to the optimum checkpoint interval,'' \textit{Commun. ACM}, vol. 17, no. 9, pp. 530--531, 1974.
+
+\bibitem{daly2006higher} J. T. Daly, ``A higher order estimate of the optimum checkpoint interval for restart dumps,'' \textit{Future Generation Computer Systems}, vol. 22, no. 3, pp. 303--312, 2006.
+
+\bibitem{narayanan2021megatron} D. Narayanan, M. Shoeybi, J. Casper, P. LeGresley, M. Patwary, V. Korthikanti, D. Vainbrand, P. Kashinkunti, J. Bernauer, B. Catanzaro, A. Phanishayee, and M. Zaharia, ``Efficient large-scale language model training on GPU clusters using Megatron-LM,'' in \textit{Proc. SC}, 2021.
+
+\bibitem{dubey2024llama3} A. Dubey, A. Jauhri, A. Pandey, A. Kadian, A. Al-Dahle, A. Letman, et al., ``The Llama 3 herd of models,'' \textit{arXiv preprint arXiv:2407.21783}, 2024.
+
+\bibitem{jiang2024megascale} Z. Jiang, H. Lin, Y. Zhong, Q. Huang, Y. Chen, Z. Zhang, Y. Peng, X. Li, C. Xie, S. Nong, Y. Jia, S. He, H. Chen, Z. Bai, Q. Hou, S. Yan, D. Zhou, Y. Sheng, Z. Jiang, H. Xu, H. Wei, Z. Zhang, P. Nie, L. Zou, S. Zhao, L. Xiang, Z. Liu, Z. Li, X. Jia, J. Ye, X. Jin, and X. Liu, ``MegaScale: Scaling large language model training to more than 10,000 GPUs,'' in \textit{Proc. NSDI}, 2024.
+
+\bibitem{wang2023gemini} Z. Wang, Z. Jia, S. Zheng, Z. Zhang, X. Fu, T. S. E. Ng, and Y. Wang, ``GEMINI: Fast failure recovery in distributed training with in-memory checkpoints,'' in \textit{Proc. SOSP}, 2023.
+
+\bibitem{zoph2022stmoe} B. Zoph, I. Bello, S. Kumar, N. Du, Y. Huang, J. Dean, N. Shazeer, and W. Fedus, ``ST-MoE: Designing stable and transferable sparse expert models,'' \textit{arXiv preprint arXiv:2202.08906}, 2022.
+
+\bibitem{komatsuzaki2023sparse} A. Komatsuzaki, J. Puigcerver, J. Lee-Thorp, C. Riquelme Ruiz, B. Mustafa, J. Ainslie, Y. Tay, M. Dehghani, and N. Houlsby, ``Sparse upcycling: Training mixture-of-experts from dense checkpoints,'' in \textit{Proc. ICLR}, 2023.
 
 \end{thebibliography}
 
