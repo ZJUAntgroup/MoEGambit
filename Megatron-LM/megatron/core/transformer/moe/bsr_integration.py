@@ -2732,6 +2732,19 @@ def _wire_recovery_callbacks(
                         len(plan.entries), original_entries,
                     )
 
+            # MoC-System (PEC) emulation hook: redirect each non-fresh expert
+            # entry's checkpoint_dir to its last-fresh PEC round directory.
+            # No-op when BSR_MOC_PEC_EMULATE != 1. See moc_pec_emulation.py.
+            try:
+                from megatron.core.transformer.moe import moc_pec_emulation as _moc_pec
+                if _moc_pec.is_enabled() and checkpoint_dir:
+                    _moc_pec.apply_pec_to_plan(plan, checkpoint_dir)
+            except Exception as _moc_exc:
+                logger.warning(
+                    "MoC-PEC emulation: apply_pec_to_plan skipped (sync path): %s",
+                    _moc_exc,
+                )
+
             # Build the load_fn callback
             # In PP=1 mode, we load from the checkpoint state dict.
             # The actual loading depends on whether we have a real checkpoint.
@@ -4144,6 +4157,18 @@ def _wire_async_recovery_callbacks(
                     host_rank=replacement_rank,
                 ))
 
+        # MoC-System (PEC) emulation hook (async path). See moc_pec_emulation.py.
+        # No-op when BSR_MOC_PEC_EMULATE != 1.
+        try:
+            from megatron.core.transformer.moe import moc_pec_emulation as _moc_pec
+            if _moc_pec.is_enabled() and checkpoint_dir:
+                _moc_pec.apply_pec_to_plan(plan, checkpoint_dir)
+        except Exception as _moc_exc:
+            logger.warning(
+                "MoC-PEC emulation: apply_pec_to_plan skipped (async path): %s",
+                _moc_exc,
+            )
+
         # Build load_fn for async worker
         load_fn = _build_expert_load_fn(
             checkpoint_dir=checkpoint_dir,
@@ -5158,6 +5183,15 @@ def bsr_save_manifest(save_dir: str, iteration: int) -> None:
             "BSR-MoE: manifest saved to %s (%d entries)",
             manifest_path, len(manifest.entries),
         )
+
+        # MoC-System (PEC) emulation: write sidecar metadata declaring which
+        # K_pec experts MoC-System would have written this round. No-op when
+        # BSR_MOC_PEC_EMULATE != 1; never raises (failures are logged only).
+        try:
+            from megatron.core.transformer.moe import moc_pec_emulation as _moc_pec
+            _moc_pec.write_pec_metadata(iter_dir, iteration)
+        except Exception as _moc_exc:
+            logger.warning("MoC-PEC emulation: write_pec_metadata skipped: %s", _moc_exc)
 
     except Exception as e:
         logger.error("BSR-MoE: failed to save manifest: %s", e)

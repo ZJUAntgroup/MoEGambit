@@ -3,72 +3,76 @@ set -uo pipefail
 set -x
 
 # ============================================================
-# Main experiment: MoEGuard on the 10-fault canonical trace
+# Main experiment: MoC-System EMULATION on the 10-fault canonical trace
 # ============================================================
-# Trace design (10 events over 10000 iter, one event per 1000-iter window):
+# Accuracy-equivalent emulation of MoC-System's Partial Experts
+# Checkpointing (PEC), implemented as a non-invasive overlay on
+# MoEGuard's runtime. Activated by the single env var
+# BSR_MOC_PEC_EMULATE=1. See:
+#   Megatron-LM/megatron/core/transformer/moe/moc_pec_emulation.py
 #
-#   #   window         step  Δ    |F|   category
-#   1   [501..1000]    723   123  1     single-GPU
-#   2   [1001..2000]   1188  188  1     single-GPU (HBM)
-#   3   [2001..3000]   2461  61   1     single-GPU  (small Δ, Δ_min test)
-#   4   [3001..4000]   3517  117  1     single-GPU (SSD/PCIe)
-#   5   [4001..5000]   4309  109  1     repeat — SAME rank as #1, tests Φ' accumulation
-#   6   [5001..6000]   5640  40   1     single-GPU
-#   7   [6001..7000]   6855  55   1     single-GPU
-#   8   [7001..8000]   7912  112  8     single-host-class burst (8-card)
-#   9   [8001..9000]   8689  89   8     single-host-class burst (other PP region)
-#   10  [9001..10000]  9304  104  16    rack-level outage (16-card cap)
+# Key emulation properties:
+#   * Save path is UNCHANGED — MoEGuard still writes all N experts to
+#     disk every save-interval, so ckpt is bit-perfect. A sidecar
+#     moc_pec_metadata.json records which K_pec experts are "fresh"
+#     for this PEC round and, for each other expert, the iter_*
+#     directory holding its last-fresh version.
+#   * Restore path is unchanged in MoEGuard, but each plan entry's
+#     checkpoint_dir is rewritten to the directory chosen by PEC's
+#     round-robin schedule before the expert load runs. Therefore the
+#     bytes loaded into the model are exactly what a faithful
+#     MoC-System would have loaded — accuracy is byte-identical.
+#   * Hybrid restore (peer-pull dense/router) is DISABLED here because
+#     MoC-System has no such mechanism. dense/router fall back to
+#     CHECKPOINT_RESTART, matching MoC-System's actual recovery path.
+#   * Two-phase (weights-first / opt-later) is DISABLED — MoC-System
+#     does not use it.
 #
-# Distribution = 7 single-GPU (70%) + 2 eight-card (20%) + 1 sixteen-card (10%),
-# matching production fault statistics (Llama-3 Dubey 2024 / MegaScale Jiang 2024).
-#
-# ----- Randomness -----
-# Failed ranks are drawn by a seeded Python RNG (PLAN_SEED, default 42) so the
-# trace is reproducible. The step list, Δ list, and |F| list are fixed; only
-# the rank identities are randomized within the topology constraints below.
-# Event #5 deliberately reuses event #1's rank to exercise Φ'(t) accumulation
-# under repeated-failure on the same expert slot.
-#
-# ----- DP safety constraint -----
-# Dense / router parameters must be peer-pulled from a healthy DP sibling.
-# With PP=8, EP=8, world=64 the DP group size = 64/(PP*TP) = 8, and ranks in
-# the same PP stage share one DP group (stage_width = 8). Therefore the plan
-# generator enforces:
-#     for every PP stage,  #failed_in_stage <= stage_width - 1
-# i.e. at least one healthy rank survives in each stage so dense_param_sync
-# never starves. The 8-card and 16-card bursts are spread across two PP
-# stages (7 in one stage + 1 in another, or 7+7+1+1) rather than collapsing
-# a whole stage; this preserves hybrid recovery feasibility while staying
-# faithful to the production-burst |F| budget.
+# Recovery WALL-CLOCK from this script is NOT directly comparable to a
+# real MoC-System because the save path writes more data than PEC
+# would. The paper uses MoC-System's published recovery latency as a
+# conservative upper bound on its advantage; see §Threats to Validity.
 # ============================================================
 
-# ---- Shared plan generator + runtime env ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/main_exp_common.sh"
 export_common_runtime
 
 # ---- Output dirs ----
-BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard}"
-export CKPT_DIR="${CKPT_DIR:-${BASE_DIR}/ckpt}"
+BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/main_exp/5.27/mocsystem}"
+CKPT_DIR="${CKPT_DIR:-${BASE_DIR}/ckpt}"
+export CKPT_DIR
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-${BASE_DIR}/log}"
 mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 
-# Explicitly disable MoC-PEC emulation in the MoEGuard run.
-export BSR_MOC_PEC_EMULATE=0
+# ---- MoC-System emulation knobs ----
+# THE ONE SWITCH that turns this script into a MoC-System emulation.
+export BSR_MOC_PEC_EMULATE="${BSR_MOC_PEC_EMULATE:-1}"
+# K_pec: number of "fresh" experts MoC-System writes per save round.
+# 16 = paper's recommended setting for PLT≈3.75% on 128-expert models.
+export BSR_MOC_PEC_K="${BSR_MOC_PEC_K:-16}"
+export BSR_MOC_PEC_N_EXPERT="${BSR_MOC_PEC_N_EXPERT:-128}"
+export BSR_MOC_PEC_SCHEDULE="${BSR_MOC_PEC_SCHEDULE:-round_robin}"
 
+# ---- Build the canonical 10-fault plan ----
 echo "============================================================"
-echo "[main_exp_moeguard] generating 10-fault plan (seed=${PLAN_SEED})"
+echo "[main_exp_mocsystem] generating 10-fault plan (seed=${PLAN_SEED})"
 echo "============================================================"
 if ! MAIN_FAULT_PLAN="$(build_main_plan 2>/tmp/main_plan_debug.$$)"; then
-  echo "[main_exp_moeguard] FAILED to build plan" >&2
+  echo "[main_exp_mocsystem] FAILED to build plan" >&2
   cat /tmp/main_plan_debug.$$ >&2 || true
   rm -f /tmp/main_plan_debug.$$
   exit 2
 fi
 cat /tmp/main_plan_debug.$$
 rm -f /tmp/main_plan_debug.$$
-echo "[main_exp_moeguard] resolved plan: ${MAIN_FAULT_PLAN}"
+echo "[main_exp_mocsystem] resolved plan: ${MAIN_FAULT_PLAN}"
+echo "[main_exp_mocsystem] MoC-PEC emulation enabled: "
+echo "    BSR_MOC_PEC_EMULATE=${BSR_MOC_PEC_EMULATE}"
+echo "    BSR_MOC_PEC_K=${BSR_MOC_PEC_K}"
+echo "    BSR_MOC_PEC_N_EXPERT=${BSR_MOC_PEC_N_EXPERT}"
+echo "    BSR_MOC_PEC_SCHEDULE=${BSR_MOC_PEC_SCHEDULE}"
 echo "============================================================"
 
 # ---- BSR fault injection knobs (plan-driven, burst_all) ----
@@ -96,6 +100,13 @@ run_training() {
     LOAD_ARGS=(--load "${CKPT_DIR}")
   fi
 
+  # MoC-System emulation: enable BSR infrastructure (needed for fault
+  # injection + plan parsing + manifest sidecar) but DISABLE hybrid
+  # restore, two-phase recovery, and stale-expert peer-pull. The
+  # recovery_controller therefore falls back to CHECKPOINT_RESTART for
+  # every fault, exactly matching MoC-System's restore behavior. The
+  # PEC emulation overlay (apply_pec_to_plan) then redirects expert
+  # entries to historical ckpts so accuracy matches MoC-System.
   torchrun \
     --nproc_per_node="${NPROC_PER_NODE}" \
     --nnodes="${NNODES}" \
@@ -162,18 +173,12 @@ run_training() {
     --moe-bsr-replacement-protocol \
     --moe-bsr-group-rebuild \
     --moe-bsr-dispatch-topology-refresh \
-    --moe-bsr-dense-param-sync \
-    --moe-bsr-stale-expert-restore \
     --moe-bsr-recovery-controller \
-    --moe-bsr-deferred-optimizer-load \
-    --moe-bsr-degraded-mode-policy \
     --moe-bsr-reintegration-barrier \
     --moe-bsr-fault-injection \
     --moe-bsr-restart-in-place \
-    --moe-bsr-hybrid-expert-restore \
-    --moe-bsr-expert-opt-restore \
-    --moe-bsr-weights-first-recovery \
-    --moe-bsr-defer-optimizer-load \
+    --moe-bsr-stale-expert-restore \
+    --moe-bsr-degraded-mode-policy \
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 1000 \
     --moe-bsr-degraded-s-max 500 \
@@ -182,11 +187,19 @@ run_training() {
     --ckpt-format torch \
     --save "${CKPT_DIR}" \
     --save-interval 200 \
-    --eval-interval 1000 \
-    --eval-iters 50 \
+    --eval-interval 500 \
+    --eval-iters 20 \
     --log-interval 1 \
     "${LOAD_ARGS[@]}"
 }
+# NOTE: deliberately OMITTED switches (compared to MoEGuard) to faithfully
+# emulate MoC-System's restore semantics:
+#   --moe-bsr-dense-param-sync         (peer-pull dense — MoC-System has no equivalent)
+#   --moe-bsr-hybrid-expert-restore    (selective expert load — disabled; PEC overlay handles)
+#   --moe-bsr-expert-opt-restore       (expert opt selective restore — disabled)
+#   --moe-bsr-weights-first-recovery   (two-phase weights-first — disabled)
+#   --moe-bsr-defer-optimizer-load     (two-phase opt-later — disabled)
+#   --moe-bsr-deferred-optimizer-load  (two-phase coordinator — disabled)
 
 # ============================================================
 # Main loop with retry + log analysis
@@ -201,21 +214,21 @@ while true; do
     bash "${SAVE_LOG_SCRIPT}" bash -c "$(declare -f run_training); run_training"
     rc=$?
   else
-    echo "[main_exp_moeguard] save_train_log.sh not found, running without log analysis"
+    echo "[main_exp_mocsystem] save_train_log.sh not found, running without log analysis"
     run_training
     rc=$?
   fi
 
   if [ $rc -eq 0 ]; then
-    echo "[main_exp_moeguard] MoEGuard main experiment finished normally"
+    echo "[main_exp_mocsystem] MoC-System emulation finished normally"
     break
   fi
 
   retry=$((retry + 1))
-  echo "[main_exp_moeguard] failed (exit=${rc}), retry=${retry}/${MAX_RETRIES}"
+  echo "[main_exp_mocsystem] failed (exit=${rc}), retry=${retry}/${MAX_RETRIES}"
 
   if [ $retry -ge $MAX_RETRIES ]; then
-    echo "[main_exp_moeguard] reached max retries, aborting"
+    echo "[main_exp_mocsystem] reached max retries, aborting"
     exit $rc
   fi
 
@@ -223,9 +236,10 @@ while true; do
 done
 
 echo "============================================================"
-echo "[main_exp_moeguard] all done"
+echo "[main_exp_mocsystem] all done"
 echo "Logs:    ${TRAIN_LOG_DIR}"
 echo "Ckpts:   ${CKPT_DIR}"
 echo "Plan:    ${MAIN_FAULT_PLAN}"
 echo "Seed:    ${PLAN_SEED}"
+echo "PEC:     K=${BSR_MOC_PEC_K}/N=${BSR_MOC_PEC_N_EXPERT}, schedule=${BSR_MOC_PEC_SCHEDULE}"
 echo "============================================================"

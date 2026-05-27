@@ -3,75 +3,57 @@ set -uo pipefail
 set -x
 
 # ============================================================
-# Main experiment: MoEGuard on the 10-fault canonical trace
+# Main experiment: Megatron-LM full-ckpt restart BASELINE
 # ============================================================
-# Trace design (10 events over 10000 iter, one event per 1000-iter window):
+# Native Megatron-LM behavior: on any rank failure, training is aborted,
+# the launcher restarts from the latest distributed checkpoint, and all
+# ranks replay every iteration since that checkpoint. No BSR runtime,
+# no hybrid recovery, no PEC.
 #
-#   #   window         step  Δ    |F|   category
-#   1   [501..1000]    723   123  1     single-GPU
-#   2   [1001..2000]   1188  188  1     single-GPU (HBM)
-#   3   [2001..3000]   2461  61   1     single-GPU  (small Δ, Δ_min test)
-#   4   [3001..4000]   3517  117  1     single-GPU (SSD/PCIe)
-#   5   [4001..5000]   4309  109  1     repeat — SAME rank as #1, tests Φ' accumulation
-#   6   [5001..6000]   5640  40   1     single-GPU
-#   7   [6001..7000]   6855  55   1     single-GPU
-#   8   [7001..8000]   7912  112  8     single-host-class burst (8-card)
-#   9   [8001..9000]   8689  89   8     single-host-class burst (other PP region)
-#   10  [9001..10000]  9304  104  16    rack-level outage (16-card cap)
-#
-# Distribution = 7 single-GPU (70%) + 2 eight-card (20%) + 1 sixteen-card (10%),
-# matching production fault statistics (Llama-3 Dubey 2024 / MegaScale Jiang 2024).
-#
-# ----- Randomness -----
-# Failed ranks are drawn by a seeded Python RNG (PLAN_SEED, default 42) so the
-# trace is reproducible. The step list, Δ list, and |F| list are fixed; only
-# the rank identities are randomized within the topology constraints below.
-# Event #5 deliberately reuses event #1's rank to exercise Φ'(t) accumulation
-# under repeated-failure on the same expert slot.
-#
-# ----- DP safety constraint -----
-# Dense / router parameters must be peer-pulled from a healthy DP sibling.
-# With PP=8, EP=8, world=64 the DP group size = 64/(PP*TP) = 8, and ranks in
-# the same PP stage share one DP group (stage_width = 8). Therefore the plan
-# generator enforces:
-#     for every PP stage,  #failed_in_stage <= stage_width - 1
-# i.e. at least one healthy rank survives in each stage so dense_param_sync
-# never starves. The 8-card and 16-card bursts are spread across two PP
-# stages (7 in one stage + 1 in another, or 7+7+1+1) rather than collapsing
-# a whole stage; this preserves hybrid recovery feasibility while staying
-# faithful to the production-burst |F| budget.
+# To exercise the same 10-fault trace as the other two systems while
+# still letting Megatron run end-to-end, we keep the BSR fault-injection
+# subsystem enabled (it is the trace driver) but explicitly select
+# CHECKPOINT_RESTART for every event by:
+#   * disabling --moe-bsr-stale-expert-restore
+#   * disabling --moe-bsr-hybrid-expert-restore
+#   * disabling --moe-bsr-dense-param-sync
+#   * disabling --moe-bsr-weights-first-recovery
+#   * disabling --moe-bsr-defer-optimizer-load
+#   * setting BSR_REQUIRE_OLD_PARAM_RESTORE=0 so the controller is allowed
+#     to fall back to CHECKPOINT_RESTART when no hybrid path is available
+# This gives a realistic Megatron-LM full-restart wall-clock and accuracy
+# while reusing the same fault trace generator and DP-safety constraints
+# as the MoEGuard / MoC-System runs.
 # ============================================================
 
-# ---- Shared plan generator + runtime env ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/main_exp_common.sh"
 export_common_runtime
 
-# ---- Output dirs ----
-BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard}"
-export CKPT_DIR="${CKPT_DIR:-${BASE_DIR}/ckpt}"
+BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/main_exp/5.27/baseline}"
+CKPT_DIR="${CKPT_DIR:-${BASE_DIR}/ckpt}"
+export CKPT_DIR
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-${BASE_DIR}/log}"
 mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 
-# Explicitly disable MoC-PEC emulation in the MoEGuard run.
+# Explicitly disable MoC-PEC emulation in this run.
 export BSR_MOC_PEC_EMULATE=0
 
 echo "============================================================"
-echo "[main_exp_moeguard] generating 10-fault plan (seed=${PLAN_SEED})"
+echo "[main_exp_baseline] generating 10-fault plan (seed=${PLAN_SEED})"
 echo "============================================================"
 if ! MAIN_FAULT_PLAN="$(build_main_plan 2>/tmp/main_plan_debug.$$)"; then
-  echo "[main_exp_moeguard] FAILED to build plan" >&2
+  echo "[main_exp_baseline] FAILED to build plan" >&2
   cat /tmp/main_plan_debug.$$ >&2 || true
   rm -f /tmp/main_plan_debug.$$
   exit 2
 fi
 cat /tmp/main_plan_debug.$$
 rm -f /tmp/main_plan_debug.$$
-echo "[main_exp_moeguard] resolved plan: ${MAIN_FAULT_PLAN}"
+echo "[main_exp_baseline] resolved plan: ${MAIN_FAULT_PLAN}"
 echo "============================================================"
 
-# ---- BSR fault injection knobs (plan-driven, burst_all) ----
 export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
 export BSR_FAULT_INJECT_PLAN="${MAIN_FAULT_PLAN}"
 export BSR_FAULT_INJECT_PLAN_MODE="${BSR_FAULT_INJECT_PLAN_MODE:-burst_all}"
@@ -83,9 +65,9 @@ export BSR_FAULT_REPLACEMENT_STEP="0"
 export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
 export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
 export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
-export BSR_REQUIRE_OLD_PARAM_RESTORE="${BSR_REQUIRE_OLD_PARAM_RESTORE:-1}"
+# Baseline must fall back to CHECKPOINT_RESTART; do not enforce hybrid restore.
+export BSR_REQUIRE_OLD_PARAM_RESTORE=0
 
-# ---- Log analysis hooks ----
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
 export LOG_ANALYZE_ON_EXIT="${LOG_ANALYZE_ON_EXIT:-0}"
 export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
@@ -154,43 +136,29 @@ run_training() {
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
     --moe-bsr-enable \
-    --moe-bsr-health-mask \
-    --moe-bsr-rank-quarantine \
-    --moe-bsr-dispatch-quarantine-assert \
-    --moe-bsr-dispatch-sanitize \
-    --moe-bsr-expert-directory \
-    --moe-bsr-replacement-protocol \
-    --moe-bsr-group-rebuild \
-    --moe-bsr-dispatch-topology-refresh \
-    --moe-bsr-dense-param-sync \
-    --moe-bsr-stale-expert-restore \
-    --moe-bsr-recovery-controller \
-    --moe-bsr-deferred-optimizer-load \
-    --moe-bsr-degraded-mode-policy \
-    --moe-bsr-reintegration-barrier \
     --moe-bsr-fault-injection \
     --moe-bsr-restart-in-place \
-    --moe-bsr-hybrid-expert-restore \
-    --moe-bsr-expert-opt-restore \
-    --moe-bsr-weights-first-recovery \
-    --moe-bsr-defer-optimizer-load \
-    --moe-bsr-degraded-tau-c 0.5 \
-    --moe-bsr-degraded-t-max 1000 \
-    --moe-bsr-degraded-s-max 500 \
+    --moe-bsr-recovery-controller \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 99,1,0 \
     --ckpt-format torch \
     --save "${CKPT_DIR}" \
     --save-interval 200 \
-    --eval-interval 1000 \
-    --eval-iters 50 \
+    --eval-interval 500 \
+    --eval-iters 20 \
     --log-interval 1 \
     "${LOAD_ARGS[@]}"
 }
+# Deliberately OMITTED (compared to MoEGuard) to force CHECKPOINT_RESTART:
+#   --moe-bsr-dense-param-sync          (no peer-pull)
+#   --moe-bsr-stale-expert-restore      (no selective expert load)
+#   --moe-bsr-hybrid-expert-restore     (no hybrid path)
+#   --moe-bsr-expert-opt-restore        (no selective expert opt restore)
+#   --moe-bsr-weights-first-recovery    (no two-phase weights-first)
+#   --moe-bsr-defer-optimizer-load      (no two-phase opt-later)
+#   --moe-bsr-deferred-optimizer-load   (no two-phase coordinator)
+#   --moe-bsr-degraded-mode-policy      (no degraded-mode logic)
 
-# ============================================================
-# Main loop with retry + log analysis
-# ============================================================
 MAX_RETRIES="${MAX_RETRIES:-1}"
 RETRY_DELAY="${RETRY_DELAY:-30}"
 SAVE_LOG_SCRIPT="${SCRIPT_DIR}/log_analysis/save_train_log.sh"
@@ -201,21 +169,21 @@ while true; do
     bash "${SAVE_LOG_SCRIPT}" bash -c "$(declare -f run_training); run_training"
     rc=$?
   else
-    echo "[main_exp_moeguard] save_train_log.sh not found, running without log analysis"
+    echo "[main_exp_baseline] save_train_log.sh not found, running without log analysis"
     run_training
     rc=$?
   fi
 
   if [ $rc -eq 0 ]; then
-    echo "[main_exp_moeguard] MoEGuard main experiment finished normally"
+    echo "[main_exp_baseline] Megatron baseline finished normally"
     break
   fi
 
   retry=$((retry + 1))
-  echo "[main_exp_moeguard] failed (exit=${rc}), retry=${retry}/${MAX_RETRIES}"
+  echo "[main_exp_baseline] failed (exit=${rc}), retry=${retry}/${MAX_RETRIES}"
 
   if [ $retry -ge $MAX_RETRIES ]; then
-    echo "[main_exp_moeguard] reached max retries, aborting"
+    echo "[main_exp_baseline] reached max retries, aborting"
     exit $rc
   fi
 
@@ -223,9 +191,9 @@ while true; do
 done
 
 echo "============================================================"
-echo "[main_exp_moeguard] all done"
-echo "Logs:    ${TRAIN_LOG_DIR}"
-echo "Ckpts:   ${CKPT_DIR}"
-echo "Plan:    ${MAIN_FAULT_PLAN}"
-echo "Seed:    ${PLAN_SEED}"
+echo "[main_exp_baseline] all done"
+echo "Logs:  ${TRAIN_LOG_DIR}"
+echo "Ckpts: ${CKPT_DIR}"
+echo "Plan:  ${MAIN_FAULT_PLAN}"
+echo "Seed:  ${PLAN_SEED}"
 echo "============================================================"
