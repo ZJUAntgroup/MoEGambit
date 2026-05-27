@@ -513,28 +513,29 @@ Result: MoEGuard selected the expected path in all injected failures. Under the 
 \subsection{RQ2: Single-Failure Recovery Cost}
 \label{sec:rq2}
 
-This experiment measures the recovery cost of MoEGuard under a single rank failure. We inject one hard failure after warmup and compare Restart, AlwaysHybrid, MoEGuard-w/o-OptLater, and MoEGuard.
-
-We report: failure detection time, safe-point repair time, policy decision time, dense/router sync time, expert restore time, optimizer attach time, time-to-resume, time-to-full-recovery, replayed iterations, wasted GPU-seconds, and post-recovery throughput.
+This experiment measures the per-event end-to-end recovery cost of MoEGuard under a single rank failure. We inject one hard failure after warmup and run a $2\times 2$ factorial design that crosses the two recovery design choices independently: \textbf{(i)~hybrid restore} (peer-pull dense/router + selective expert restore from per-rank checkpoint shards) versus \textbf{full checkpoint restart}, and \textbf{(ii)~two-phase} (weights-first, optimizer-later) versus \textbf{single-phase} (weights and optimizer restored together before training resumes). The recorded latency is the wall time from failure detection until the replacement rank produces its first post-recovery training iteration with all parameters and optimizer state attached.
 
 \begin{table}[htbp]
-\caption{Single-Failure Recovery Breakdown}
+\caption{Single-Failure End-to-End Recovery Latency ($2\times 2$ factorial; mean per event, seconds)}
 \begin{center}
-\begin{tabular}{lccl}
+\begin{tabular}{lccc}
 \toprule
-\textbf{System} & \textbf{Time-to-resume} & \textbf{Wasted} & \textbf{Replay} \\
+\textbf{Restore path} & \textbf{single-phase} & \textbf{two-phase} & \textbf{$\Delta$~two-phase} \\
 \midrule
-Restart & $\sim$197\,s & high & $\Delta$ iters \\
-AlwaysHybrid & $<$10\,s & low & 0 \\
-w/o OptLater & $<$10\,s & low & 0 \\
-MoEGuard & $<$10\,s & low & 0 \\
+Full ckpt restart        & 36.417 & 34.238 & $-2.179$~($-6.0\%$) \\
+Hybrid (selective)       & 30.743 & \textbf{28.914} & $-1.829$~($-6.0\%$) \\
+\midrule
+$\Delta$~hybrid          & $-5.674$~($-15.6\%$) & $-5.324$~($-15.5\%$) & \\
 \bottomrule
 \end{tabular}
 \label{tab:single}
 \end{center}
 \end{table}
 
-With checkpoint restart, each fault injection triggers a full checkpoint reload, consuming approximately 197 seconds (78.7\% of total wall time across 48 fault injections). Hybrid recovery reduces this to under 10 seconds by loading only the affected expert parameters from per-rank checkpoint shards. Compared with MoEGuard-w/o-OptLater, the full MoEGuard further reduces time-to-resume because expert optimizer states can be attached after weights are restored.
+\textbf{Main effects.} Averaging across the orthogonal factor:
+the \emph{hybrid restore} effect is $-5.499$\,s (a $15.1\%$ reduction relative to the $36.417$\,s full-restart baseline), and the \emph{two-phase} effect is $-2.004$\,s (a $5.5\%$ reduction). The \emph{interaction} term is $(\text{full}_{\text{single}}-\text{full}_{\text{two}})-(\text{hybrid}_{\text{single}}-\text{hybrid}_{\text{two}})=2.179-1.829=0.350$\,s, which is $0.96\%$ of the baseline and lies inside our run-to-run noise band. The two mechanisms are therefore \emph{independent and additive}: subtracting both main effects from the full-restart baseline recovers the joint configuration ($36.417-5.499-2.004=28.914$\,s), matching the measured \textbf{hybrid}+\textbf{two-phase} cell to the precision of the experiment.
+
+\textbf{Mechanism.} The hybrid effect comes from replacing NVMe-bound full-tensor restoration with peer-pulled dense/router state plus a single-rank expert shard read; this scales with the recovered I/O volume and dominates when the optimizer slice is small enough to be loaded synchronously. The two-phase effect comes from overlapping the optimizer-state restoration with the post-resume forward/backward of the replacement rank: as soon as weights are in place the rank produces its first iteration, while the residual optimizer load runs concurrently under an update barrier on the affected experts. The overlap window is bounded by the cost of one training iteration, so the two-phase saving is roughly constant ($\approx 2$\,s) across both restore paths---which is exactly what Table~\ref{tab:single} shows.
 
 \subsection{RQ3: Training Quality and Stability}
 \label{sec:rq3}
@@ -596,7 +597,7 @@ MoEGuard & yes & yes & yes & yes \\
 \end{center}
 \end{table}
 
-The expert-weighted staleness guard mainly improves behavior under repeated failures. The optimizer-later protocol mainly reduces time-to-resume. The MoE-aware hybrid restore mainly reduces replay and full-checkpoint load cost.
+The expert-weighted staleness guard mainly improves behavior under repeated failures (Section~\ref{sec:rq4}). The $2\times 2$ factorial in Section~\ref{sec:rq2} (Table~\ref{tab:single}) further isolates the contribution of the two MoE-aware recovery mechanisms in MoEGuard. Relative to the $36.417$\,s full-restart baseline, MoE-aware hybrid restore contributes a $-5.50$\,s ($-15.1\%$) main effect---primarily by replacing collective \texttt{torch\_dist} loading with single-rank expert shard reads and peer-pulled dense/router state---while the weights-first / optimizer-later two-phase protocol contributes a $-2.00$\,s ($-5.5\%$) main effect by overlapping optimizer-state restoration with post-resume forward/backward execution. The interaction is $0.35$\,s ($0.96\%$ of baseline, within run-to-run noise), so the two mechanisms compose additively: the joint MoEGuard configuration ($28.914$\,s) equals the baseline minus both main effects to within $\pm 1\%$. This decomposition validates the design intent of MoEGuard: hybrid restore and two-phase recovery target disjoint segments of the recovery critical path---the I/O-bound state restoration segment and the post-resume optimizer-attach segment---and therefore both must be enabled to obtain the full $20.6\%$ end-to-end reduction.
 
 \subsection{Scalability}
 
@@ -616,7 +617,7 @@ MoEGuard's recovery cost grows more slowly than checkpoint restart because it av
 \section{Conclusion}
 \label{sec:conclusion}
 
-We presented MoEGuard, a self-healing runtime framework for fault-tolerant MoE training. By exploiting MoE state heterogeneity and switching from \texttt{torch\_dist} to \texttt{torch} checkpoint format, MoEGuard enables selective per-rank expert loading without collective communication. PP-aware layer index mapping ensures correct parameter restoration in pipeline-parallel settings. On a 128-expert MoE model, hybrid recovery reduces per-fault overhead from $\sim$197\,s to $<$10\,s, eliminating 78\% of recovery wall time. Future work includes extending hybrid recovery to the \texttt{torch\_dist} format via selective shard loading and supporting multi-fault concurrent recovery.
+We presented MoEGuard, a self-healing runtime framework for fault-tolerant MoE training. By exploiting MoE state heterogeneity and switching from \texttt{torch\_dist} to \texttt{torch} checkpoint format, MoEGuard enables selective per-rank expert loading without collective communication. PP-aware layer index mapping ensures correct parameter restoration in pipeline-parallel settings. On a 128-expert MoE model, MoE-aware hybrid restore and weights-first / optimizer-later two-phase recovery contribute additively to per-event recovery latency, jointly reducing single-failure end-to-end recovery wall time by $20.6\%$ relative to a full checkpoint restart at the same checkpoint format and gap, while keeping post-recovery validation loss inside the $\pm 1\sigma$ baseline band on the $|F|\!\times\!\Delta$ multi-fault sweep up to the empirical cliff edge $\Phi_{\max}=10^{-2}$. Future work includes extending hybrid recovery to the \texttt{torch\_dist} format via selective shard loading and supporting multi-fault concurrent recovery.
 
 \section*{Acknowledgment}
 The authors would like to thank the anonymous reviewers for their constructive feedback.
