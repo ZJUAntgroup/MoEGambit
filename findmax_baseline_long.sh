@@ -27,7 +27,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/find_max_baseline_long/5.25}"
+BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/find_max_baseline_long/5.27}"
 TORCHRUN="${TORCHRUN:-torchrun}"
 if ! command -v "${TORCHRUN}" >/dev/null 2>&1 && [ -x "/Users/zds/miniconda3/bin/torchrun" ]; then
   TORCHRUN="/Users/zds/miniconda3/bin/torchrun"
