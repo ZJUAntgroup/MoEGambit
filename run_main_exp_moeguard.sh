@@ -60,8 +60,30 @@ mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 # Explicitly disable MoC-PEC emulation in the MoEGuard run.
 export BSR_MOC_PEC_EMULATE=0
 
+# ---- Auto-detect resume point so already-fired faults are not back-fired ----
+# When CKPT_DIR has a latest_checkpointed_iteration.txt, read it as
+# RESUME_FROM_ITER and pass to build_main_plan, which will drop every
+# scheduled fault with step <= RESUME_FROM_ITER. This is critical: without
+# the filter the injector treats every plan event whose scheduled_step is
+# already in the past as "due now" and back-fires them all in the first
+# 10-20 iterations after resume (observed in 5281.log on the 9200 resume).
+# Override with RESUME_FROM_ITER=0 if you really want to replay everything.
+if [ -z "${RESUME_FROM_ITER:-}" ]; then
+  if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
+    RESUME_FROM_ITER="$(tr -d '[:space:]' < "${CKPT_DIR}/latest_checkpointed_iteration.txt")"
+    if ! [[ "${RESUME_FROM_ITER}" =~ ^[0-9]+$ ]]; then
+      echo "[main_exp_moeguard] latest_checkpointed_iteration.txt is not an int (${RESUME_FROM_ITER}); defaulting to 0" >&2
+      RESUME_FROM_ITER=0
+    fi
+  else
+    RESUME_FROM_ITER=0
+  fi
+fi
+export RESUME_FROM_ITER
+echo "[main_exp_moeguard] RESUME_FROM_ITER=${RESUME_FROM_ITER} (events with step <= this are filtered out)"
+
 echo "============================================================"
-echo "[main_exp_moeguard] generating 10-fault plan (seed=${PLAN_SEED})"
+echo "[main_exp_moeguard] generating 10-fault plan (seed=${PLAN_SEED}, resume_from=${RESUME_FROM_ITER})"
 echo "============================================================"
 if ! MAIN_FAULT_PLAN="$(build_main_plan 2>/tmp/main_plan_debug.$$)"; then
   echo "[main_exp_moeguard] FAILED to build plan" >&2

@@ -62,8 +62,21 @@ export BSR_MOC_PEC_SCHEDULE="${BSR_MOC_PEC_SCHEDULE:-round_robin}"
 # bearing on accuracy or wall-clock cost; we collapse them to [0] and
 # keep only the 10 step indices, which remain bit-identical with
 # build_main_plan so loss-trajectory comparison stays step-aligned.
+
+# ---- Auto-detect resume point so already-fired faults are not back-fired ----
+if [ -z "${RESUME_FROM_ITER:-}" ]; then
+  if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
+    RESUME_FROM_ITER="$(tr -d '[:space:]' < "${CKPT_DIR}/latest_checkpointed_iteration.txt")"
+    [[ "${RESUME_FROM_ITER}" =~ ^[0-9]+$ ]] || RESUME_FROM_ITER=0
+  else
+    RESUME_FROM_ITER=0
+  fi
+fi
+export RESUME_FROM_ITER
+echo "[main_exp_mocsystem] RESUME_FROM_ITER=${RESUME_FROM_ITER} (events with step <= this are filtered out)"
+
 echo "============================================================"
-echo "[main_exp_mocsystem] generating simplified 10-fault plan (steps match MoEGuard)"
+echo "[main_exp_mocsystem] generating simplified 10-fault plan (steps match MoEGuard, resume_from=${RESUME_FROM_ITER})"
 echo "============================================================"
 if ! MAIN_FAULT_PLAN="$(build_mocsystem_plan 2>/tmp/main_plan_debug.$$)"; then
   echo "[main_exp_mocsystem] FAILED to build plan" >&2

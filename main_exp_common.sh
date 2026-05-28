@@ -38,21 +38,34 @@ export_common_runtime() {
 }
 
 # Canonical 10-fault plan, seeded by PLAN_SEED. Stdout -> machine plan; stderr -> debug.
+#
+# Optional env: RESUME_FROM_ITER (default 0)
+#   When >0, events whose scheduled step <= RESUME_FROM_ITER are *dropped* from
+#   the emitted plan (but still drive the deterministic RNG state for later
+#   events, so rank identities for surviving events are bit-identical to a
+#   from-scratch run). This is required when resuming from a checkpoint that
+#   is already past some of the planned faults: without this filter the
+#   injector would back-fire all historical events at the first iterations
+#   after resume (we observed exactly this in 5281.log: a 9200 ckpt was
+#   resumed and faults 1--9 were all replayed on steps 9201--9215, which is
+#   semantically wrong because those faults are supposed to be 1000+ steps
+#   apart and to interact with the running Φ'(t) window).
 build_main_plan() {
-  python3 - "${PLAN_WORLD_SIZE}" "${PP_SIZE}" "${PLAN_SEED}" <<'PY'
+  python3 - "${PLAN_WORLD_SIZE}" "${PP_SIZE}" "${PLAN_SEED}" "${RESUME_FROM_ITER:-0}" <<'PY'
 import random
 import sys
 
-world_size = int(sys.argv[1])
-pp_size    = int(sys.argv[2])
-seed       = int(sys.argv[3])
+world_size      = int(sys.argv[1])
+pp_size         = int(sys.argv[2])
+seed            = int(sys.argv[3])
+resume_from     = int(sys.argv[4])
 
 if pp_size <= 0 or world_size <= 0 or world_size % pp_size != 0:
     raise SystemExit(f"invalid world_size={world_size}, pp_size={pp_size}")
 stage_width   = world_size // pp_size
 max_per_stage = stage_width - 1                # DP safety: >=1 healthy per stage
 
-# Fixed (step, |F|) schedule — 7 single-GPU + 2 eight-card + 1 sixteen-card.
+# Fixed (step, |F|) schedule — 7 single-GPU + 3 eight-card.
 events = [
     ( 723,  1, "single-GPU"),
     (1188,  1, "single-GPU HBM"),
@@ -94,8 +107,11 @@ def sample_ranks(rng, fault_count):
 
 plan_parts  = []
 debug_lines = []
+skipped_lines = []
 event_1_ranks = None
 for idx, (step, fcnt, cat) in enumerate(events, start=1):
+    # Always run the same RNG sequence so that surviving events keep the
+    # bit-identical rank identities they would have in a from-scratch run.
     if idx == 5:
         if event_1_ranks is None:
             raise SystemExit("event #5 needs event #1 ranks but they are missing")
@@ -105,20 +121,35 @@ for idx, (step, fcnt, cat) in enumerate(events, start=1):
         ranks = sample_ranks(rng, fcnt)
     if idx == 1:
         event_1_ranks = list(ranks)
-    plan_parts.append(f"{step}:{','.join(str(r) for r in ranks)}")
+
     stage_hist = [0] * pp_size
     for r in ranks:
         stage_hist[r // stage_width] += 1
+
+    if step <= resume_from:
+        skipped_lines.append(
+            f"  #{idx:>2}  step={step:>4}  |F|={fcnt:>2}  ranks={ranks}  "
+            f"cat={cat}  [SKIPPED: step<=RESUME_FROM_ITER={resume_from}]"
+        )
+        continue
+
+    plan_parts.append(f"{step}:{','.join(str(r) for r in ranks)}")
     debug_lines.append(
         f"  #{idx:>2}  step={step:>4}  |F|={fcnt:>2}  ranks={ranks}  "
         f"stage_hist={stage_hist}  cat={cat}"
     )
 
+if not plan_parts:
+    raise SystemExit(f"no events remain after RESUME_FROM_ITER={resume_from} filter")
+
 print(";".join(plan_parts))
+for ln in skipped_lines:
+    print(ln, file=sys.stderr)
 for ln in debug_lines:
     print(ln, file=sys.stderr)
 print(f"  PLAN_SEED={seed}, world_size={world_size}, pp_size={pp_size}, "
-      f"stage_width={stage_width}, max_per_stage={max_per_stage}", file=sys.stderr)
+      f"stage_width={stage_width}, max_per_stage={max_per_stage}, "
+      f"RESUME_FROM_ITER={resume_from}, kept={len(plan_parts)}/{len(events)}", file=sys.stderr)
 PY
 }
 
@@ -134,16 +165,25 @@ PY
 # rewrites the per-expert load paths to match MoC-System's byte-level
 # checkpoint state.
 build_mocsystem_plan() {
-  python3 - "${PLAN_SEED}" <<'PY'
+  python3 - "${PLAN_SEED}" "${RESUME_FROM_ITER:-0}" <<'PY'
 import sys
-seed = int(sys.argv[1])
+seed        = int(sys.argv[1])
+resume_from = int(sys.argv[2])
 steps = [723, 1188, 2461, 3517, 4309, 5640, 6855, 7912, 8689, 9304]
-plan_parts = [f"{s}:0" for s in steps]
+kept = [(i, s) for i, s in enumerate(steps, 1) if s > resume_from]
+if not kept:
+    raise SystemExit(f"no events remain after RESUME_FROM_ITER={resume_from} filter")
+plan_parts = [f"{s}:0" for _, s in kept]
 print(";".join(plan_parts))
 for i, s in enumerate(steps, 1):
-    print(f"  #{i:>2}  step={s:>4}  ranks=[0]  (MoC-System: full restart from ckpt)",
-          file=sys.stderr)
-print(f"  PLAN_SEED={seed} (informational; ranks are deterministic [0])",
+    if s <= resume_from:
+        print(f"  #{i:>2}  step={s:>4}  ranks=[0]  [SKIPPED: step<=RESUME_FROM_ITER={resume_from}]",
+              file=sys.stderr)
+    else:
+        print(f"  #{i:>2}  step={s:>4}  ranks=[0]  (MoC-System: full restart from ckpt)",
+              file=sys.stderr)
+print(f"  PLAN_SEED={seed} (informational; ranks are deterministic [0]); "
+      f"RESUME_FROM_ITER={resume_from}, kept={len(kept)}/{len(steps)}",
       file=sys.stderr)
 PY
 }

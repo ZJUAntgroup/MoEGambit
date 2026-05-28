@@ -40,8 +40,20 @@ mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 # Explicitly disable MoC-PEC emulation in this run.
 export BSR_MOC_PEC_EMULATE=0
 
+# ---- Auto-detect resume point so already-fired faults are not back-fired ----
+if [ -z "${RESUME_FROM_ITER:-}" ]; then
+  if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
+    RESUME_FROM_ITER="$(tr -d '[:space:]' < "${CKPT_DIR}/latest_checkpointed_iteration.txt")"
+    [[ "${RESUME_FROM_ITER}" =~ ^[0-9]+$ ]] || RESUME_FROM_ITER=0
+  else
+    RESUME_FROM_ITER=0
+  fi
+fi
+export RESUME_FROM_ITER
+echo "[main_exp_baseline] RESUME_FROM_ITER=${RESUME_FROM_ITER} (events with step <= this are filtered out)"
+
 echo "============================================================"
-echo "[main_exp_baseline] generating 10-fault plan (seed=${PLAN_SEED})"
+echo "[main_exp_baseline] generating 10-fault plan (seed=${PLAN_SEED}, resume_from=${RESUME_FROM_ITER})"
 echo "============================================================"
 if ! MAIN_FAULT_PLAN="$(build_main_plan 2>/tmp/main_plan_debug.$$)"; then
   echo "[main_exp_baseline] FAILED to build plan" >&2
