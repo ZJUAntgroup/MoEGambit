@@ -3,3 +3,9 @@
 train.jsonl
 datasets/
 __pycache__/
+
+# evaluation venv & logs & data cache (data is shipped out-of-band)
+eval/.venv/
+eval/data/
+eval/data_download.log
+eval/results/
