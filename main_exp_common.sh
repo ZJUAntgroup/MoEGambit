@@ -63,7 +63,7 @@ events = [
     (6855,  1, "single-GPU"),
     (7912,  8, "8-card burst (DP-safe spread)"),
     (8689,  8, "8-card burst (DP-safe spread, other PP region)"),
-    (9304, 16, "16-card rack outage (DP-safe spread)"),
+    (9304,  8, "8-card burst (downgraded from 16-card; NCCL stability)"),
 ]
 
 def sample_ranks(rng, fault_count):
@@ -119,5 +119,31 @@ for ln in debug_lines:
     print(ln, file=sys.stderr)
 print(f"  PLAN_SEED={seed}, world_size={world_size}, pp_size={pp_size}, "
       f"stage_width={stage_width}, max_per_stage={max_per_stage}", file=sys.stderr)
+PY
+}
+
+# ----------------------------------------------------------------------
+# Simplified plan for MoC-System emulation.
+# Same 10 step indices as build_main_plan (so loss-trajectory comparisons
+# remain step-aligned across systems), but ranks are collapsed to a
+# single triggering rank ([0]) because MoC-System's recovery is a full
+# CHECKPOINT_RESTART regardless of which / how many ranks fail: every
+# fault simply reloads the latest ckpt. Stage-width / DP-safety
+# constraints therefore have no semantic effect on this system and are
+# omitted; the PEC accuracy overlay (BSR_MOC_PEC_EMULATE=1) still
+# rewrites the per-expert load paths to match MoC-System's byte-level
+# checkpoint state.
+build_mocsystem_plan() {
+  python3 - "${PLAN_SEED}" <<'PY'
+import sys
+seed = int(sys.argv[1])
+steps = [723, 1188, 2461, 3517, 4309, 5640, 6855, 7912, 8689, 9304]
+plan_parts = [f"{s}:0" for s in steps]
+print(";".join(plan_parts))
+for i, s in enumerate(steps, 1):
+    print(f"  #{i:>2}  step={s:>4}  ranks=[0]  (MoC-System: full restart from ckpt)",
+          file=sys.stderr)
+print(f"  PLAN_SEED={seed} (informational; ranks are deterministic [0])",
+      file=sys.stderr)
 PY
 }

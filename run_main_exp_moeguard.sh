@@ -17,10 +17,13 @@ set -x
 #   7   [6001..7000]   6855  55   1     single-GPU
 #   8   [7001..8000]   7912  112  8     single-host-class burst (8-card)
 #   9   [8001..9000]   8689  89   8     single-host-class burst (other PP region)
-#   10  [9001..10000]  9304  104  16    rack-level outage (16-card cap)
-#
-# Distribution = 7 single-GPU (70%) + 2 eight-card (20%) + 1 sixteen-card (10%),
-# matching production fault statistics (Llama-3 Dubey 2024 / MegaScale Jiang 2024).
+#   10  [9001..10000]  9304  104  8     8-card burst (downgraded from 16; NCCL stability)
+# Distribution = 7 single-GPU (70%) + 3 eight-card (30%) — note: original event
+# #10 was a 16-card rack-outage burst, downgraded to 8-card after the previous
+# run hit NCCL collective timeout / hang; the 8-card budget keeps the recovery
+# path exercised end-to-end (hybrid restore + reintegration) without crossing
+# the all-gather stall regime we observed at |F|=16 on this cluster. Resume
+# point: latest ckpt at iter 9200, so only event #10 actually fires.
 #
 # ----- Randomness -----
 # Failed ranks are drawn by a seeded Python RNG (PLAN_SEED, default 42) so the

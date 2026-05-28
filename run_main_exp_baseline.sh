@@ -144,8 +144,8 @@ run_training() {
     --ckpt-format torch \
     --save "${CKPT_DIR}" \
     --save-interval 200 \
-    --eval-interval 500 \
-    --eval-iters 20 \
+    --eval-interval 1000 \
+    --eval-iters 50 \
     --log-interval 1 \
     "${LOAD_ARGS[@]}"
 }

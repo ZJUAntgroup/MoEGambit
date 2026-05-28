@@ -55,11 +55,17 @@ export BSR_MOC_PEC_K="${BSR_MOC_PEC_K:-16}"
 export BSR_MOC_PEC_N_EXPERT="${BSR_MOC_PEC_N_EXPERT:-128}"
 export BSR_MOC_PEC_SCHEDULE="${BSR_MOC_PEC_SCHEDULE:-round_robin}"
 
-# ---- Build the canonical 10-fault plan ----
+# ---- Build the simplified 10-fault plan for MoC-System ----
+# MoC-System recovers every fault with a full CHECKPOINT_RESTART (the PEC
+# overlay only changes WHICH expert file gets loaded, not the fact that
+# every rank reloads). Therefore the rank identities in the plan have no
+# bearing on accuracy or wall-clock cost; we collapse them to [0] and
+# keep only the 10 step indices, which remain bit-identical with
+# build_main_plan so loss-trajectory comparison stays step-aligned.
 echo "============================================================"
-echo "[main_exp_mocsystem] generating 10-fault plan (seed=${PLAN_SEED})"
+echo "[main_exp_mocsystem] generating simplified 10-fault plan (steps match MoEGuard)"
 echo "============================================================"
-if ! MAIN_FAULT_PLAN="$(build_main_plan 2>/tmp/main_plan_debug.$$)"; then
+if ! MAIN_FAULT_PLAN="$(build_mocsystem_plan 2>/tmp/main_plan_debug.$$)"; then
   echo "[main_exp_mocsystem] FAILED to build plan" >&2
   cat /tmp/main_plan_debug.$$ >&2 || true
   rm -f /tmp/main_plan_debug.$$
@@ -187,8 +193,8 @@ run_training() {
     --ckpt-format torch \
     --save "${CKPT_DIR}" \
     --save-interval 200 \
-    --eval-interval 500 \
-    --eval-iters 20 \
+    --eval-interval 1000 \
+    --eval-iters 50 \
     --log-interval 1 \
     "${LOAD_ARGS[@]}"
 }
