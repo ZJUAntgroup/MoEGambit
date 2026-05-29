@@ -124,6 +124,12 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 
 if [ "${MODEL_BACKEND}" = "vllm" ]; then
     MODEL_ARGS="pretrained=${HF_MODEL_PATH},tensor_parallel_size=${TP_SIZE},dtype=${DTYPE},gpu_memory_utilization=${GPU_MEM_UTIL},max_model_len=${MAX_MODEL_LEN},trust_remote_code=True,enforce_eager=False"
+    # vLLM's multiproc executor forks 1 worker per TP rank. lm-eval touches
+    # CUDA in the parent during model registration, so the default fork
+    # start method dies with
+    #   RuntimeError: Cannot re-initialize CUDA in forked subprocess.
+    # 'spawn' avoids inheriting the parent's CUDA context.
+    export VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}"
 elif [ "${MODEL_BACKEND}" = "hf" ]; then
     # Naive model-parallel via accelerate: split layers across all visible GPUs.
     MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True,parallelize=True"
