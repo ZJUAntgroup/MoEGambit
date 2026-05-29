@@ -3,6 +3,9 @@
 Patch lm-eval-harness installed task YAMLs so that ``dataset_path``
 matches what is actually present in our local hf_cache (offline use).
 
+Also short-circuits the datasets free-disk-space pre-check that fires
+as a false positive on NFS / mounted volumes.
+
 Why this exists
 ---------------
 ``download_datasets.py`` was run against a different set of HuggingFace
@@ -21,10 +24,14 @@ mirrors than what lm-eval ships in its default task YAMLs, e.g.:
 Without patching, lm_eval ends in offline mode with
     ConnectionError: Couldn't reach 'super_glue' on the Hub (OfflineModeIsEnabled)
 
-This script rewrites the dataset_path (and where needed dataset_kwargs)
-in lm-eval's *installed* YAML files so the offline cache hits. It is
-**idempotent**: it only edits if the line still says the old value, and
-keeps a .bak copy of the file the first time it modifies it.
+Additionally, even after fixing dataset_path, datasets>=2.x calls
+``has_sufficient_disk_space`` inside DatasetBuilder.download_and_prepare
+*even when no download is needed*. On NFS volumes shutil.disk_usage()
+sometimes returns 0, producing a spurious
+    OSError: Not enough disk space. Needed: Unknown size
+This script also disables that guard.
+
+All edits are **idempotent** and keep .bak copies.
 
 Run env:
     EVAL_DATA_ROOT=/mnt/ais-c1/dataset/zds/evaldata \
@@ -180,6 +187,82 @@ def patch_mathqa(tasks_dir: Path, eval_data_root: Path) -> int:
     return 1
 
 
+def patch_datasets_disk_check() -> int:
+    """Disable datasets' bogus free-disk-space pre-check.
+
+    datasets>=2.x calls ``has_sufficient_disk_space(needed, cache_dir)``
+    inside ``DatasetBuilder.download_and_prepare`` *even when the data
+    is already on disk and no download is needed*. On NFS / mounted
+    volumes where ``shutil.disk_usage`` returns 0 or raises, this fires
+    as a false positive:
+
+        OSError: Not enough disk space. Needed: Unknown size
+        (download: Unknown size, generated: Unknown size,
+         post-processed: Unknown size)
+
+    The check is genuinely useful for real downloads but useless for
+    our fully-cached offline setup, so we short-circuit it by injecting
+    a guard in builder.py: any call ``has_sufficient_disk_space(...)``
+    becomes ``True`` regardless of the underlying disk_usage result.
+
+    The patch is **idempotent** (a marker comment prevents re-edit) and
+    keeps a .bak of the original builder.py.
+    """
+    try:
+        import datasets  # noqa: F401
+    except ImportError as e:
+        print(f"[patch] datasets not importable: {e}", file=sys.stderr)
+        return 0
+
+    builder_py = Path(datasets.__file__).resolve().parent / "builder.py"
+    if not builder_py.is_file():
+        print(f"[patch] datasets/builder.py not found: {builder_py}", file=sys.stderr)
+        return 0
+
+    text = builder_py.read_text(encoding="utf-8")
+
+    marker = "# disk-space check disabled by patch_lm_eval_tasks.py"
+    if marker in text:
+        return 0  # already patched
+
+    # Replace
+    #   if not has_sufficient_disk_space(...):
+    # with
+    #   if False and not has_sufficient_disk_space(...):  # <marker>
+    # so the original call still appears (for grep / future audit) but
+    # never triggers the OSError branch.
+    pattern = re.compile(
+        r"^([ \t]*)if not has_sufficient_disk_space\(",
+        re.MULTILINE,
+    )
+
+    def _sub(m: "re.Match[str]") -> str:
+        indent = m.group(1)
+        return f"{indent}if False and not has_sufficient_disk_space("
+
+    new_text, n = pattern.subn(_sub, text)
+    if n == 0:
+        print(
+            "[patch] WARN: no has_sufficient_disk_space() guard found in "
+            f"{builder_py}; datasets internal API may have changed",
+            file=sys.stderr,
+        )
+        return 0
+
+    # Append marker as a top-of-file comment so re-runs are no-ops.
+    new_text = f"{marker}\n" + new_text
+
+    bak = builder_py.with_suffix(builder_py.suffix + ".bak")
+    if not bak.exists():
+        shutil.copy2(builder_py, bak)
+    builder_py.write_text(new_text, encoding="utf-8")
+    print(
+        f"[patch] datasets: {builder_py.name}  "
+        f"short-circuited {n} has_sufficient_disk_space() call(s)"
+    )
+    return n
+
+
 def main() -> int:
     eval_data_root = Path(os.environ.get(
         "EVAL_DATA_ROOT", "/mnt/ais-c1/dataset/zds/evaldata"
@@ -194,7 +277,9 @@ def main() -> int:
 
     n_simple = patch_simple(tasks_dir)
     n_mathqa = patch_mathqa(tasks_dir, eval_data_root)
-    print(f"[patch] done. simple={n_simple} edits, mathqa={n_mathqa} edits")
+    n_disk = patch_datasets_disk_check()
+    print(f"[patch] done. simple={n_simple} edits, mathqa={n_mathqa} edits, "
+          f"datasets_disk_check={n_disk} edits")
     return 0
 
 
