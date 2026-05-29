@@ -113,8 +113,23 @@ MAX_BATCH_SIZE="${MAX_BATCH_SIZE:-64}"
 DEVICE="${DEVICE:-cuda}"
 DTYPE="${DTYPE:-bfloat16}"
 
-MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True"
-MODEL_BACKEND="${MODEL_BACKEND:-hf}"
+# Backend & parallelism. Default to vLLM with TP=8 because we trained on
+# 8 H20-3e per node and a 30B-A3B MoE only fits on one card if the KV
+# cache is starved; spreading it over 8 cards keeps batch_size=auto sane.
+# Override with MODEL_BACKEND=hf to use the slower transformers backend.
+MODEL_BACKEND="${MODEL_BACKEND:-vllm}"
+TP_SIZE="${TP_SIZE:-8}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.85}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
+
+if [ "${MODEL_BACKEND}" = "vllm" ]; then
+    MODEL_ARGS="pretrained=${HF_MODEL_PATH},tensor_parallel_size=${TP_SIZE},dtype=${DTYPE},gpu_memory_utilization=${GPU_MEM_UTIL},max_model_len=${MAX_MODEL_LEN},trust_remote_code=True,enforce_eager=False"
+elif [ "${MODEL_BACKEND}" = "hf" ]; then
+    # Naive model-parallel via accelerate: split layers across all visible GPUs.
+    MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True,parallelize=True"
+else
+    MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True"
+fi
 
 LM_EVAL_BIN="$(command -v lm_eval || true)"
 if [ -z "${LM_EVAL_BIN}" ]; then
@@ -142,17 +157,23 @@ fi
 # ============================================================
 # Step 2: run lm-eval
 # ============================================================
-${LM_EVAL_BIN} \
-    --model "${MODEL_BACKEND}" \
-    --model_args "${MODEL_ARGS}" \
-    --tasks "${TASKS}" \
-    --num_fewshot "${NUM_FEWSHOT}" \
-    --batch_size "${BATCH_SIZE}" \
-    --max_batch_size "${MAX_BATCH_SIZE}" \
-    --device "${DEVICE}" \
-    --output_path "${RESULTS_DIR}" \
-    --log_samples \
-    2>&1 | tee "${RESULTS_DIR}/eval.log"
+# vLLM owns its own device placement (tensor_parallel_size handles it),
+# so --device / --max_batch_size are not passed. For the hf backend the
+# original flags still apply.
+LM_EVAL_ARGS=(
+    --model "${MODEL_BACKEND}"
+    --model_args "${MODEL_ARGS}"
+    --tasks "${TASKS}"
+    --num_fewshot "${NUM_FEWSHOT}"
+    --batch_size "${BATCH_SIZE}"
+    --output_path "${RESULTS_DIR}"
+    --log_samples
+)
+if [ "${MODEL_BACKEND}" != "vllm" ]; then
+    LM_EVAL_ARGS+=(--max_batch_size "${MAX_BATCH_SIZE}" --device "${DEVICE}")
+fi
+
+${LM_EVAL_BIN} "${LM_EVAL_ARGS[@]}" 2>&1 | tee "${RESULTS_DIR}/eval.log"
 
 rc=${PIPESTATUS[0]}
 if [ "${rc}" -ne 0 ]; then
