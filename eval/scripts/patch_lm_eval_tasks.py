@@ -57,7 +57,6 @@ SIMPLE_PATCHES = [
     ("boolq",         "super_glue/boolq/default.yaml",       "super_glue",    "aps/super_glue"),
     ("openbookqa",    "openbookqa/openbookqa.yaml",          "openbookqa",    "allenai/openbookqa"),
     ("piqa",          "piqa/piqa.yaml",                      "piqa",          "lighteval/piqa"),
-    ("race",          "race/race.yaml",                      "EleutherAI/race", "ehovy/race"),
     ("swag",          "swag/swag.yaml",                      "swag",          "allenai/swag"),
     ("winogrande",    "winogrande/default.yaml",             "winogrande",    "allenai/winogrande"),
 ]
@@ -66,15 +65,8 @@ SIMPLE_PATCHES = [
 # tuple shape as SIMPLE_PATCHES but applied to dataset_name instead of
 # dataset_path. Used when our local hf_cache only has a subset of the
 # configs lm-eval defaults to.
-#
-# NOTE: race switched from `high` -> `middle` because our local cache
-# only has the middle config. This DOES change the benchmark semantics
-# (race-high vs race-middle are different difficulty levels, papers
-# usually report race-high). Score reports should label this as
-# `race-middle`, not the canonical `race`.
-NAME_PATCHES = [
+NAME_PATCHES: list[tuple[str, str, str, str]] = [
     # task    yaml relative path     old       new
-    ("race",  "race/race.yaml",      "high",   "middle"),
 ]
 
 # mathqa needs special handling: convert the loader from the broken HF
@@ -83,11 +75,35 @@ NAME_PATCHES = [
 # $EVAL_DATA_ROOT/repos/mathqa/{train,validation,test}.parquet.
 MATHQA_YAML_REL = "mathqa/mathqa.yaml"
 
+# race: the EleutherAI/race HF repo only ships `high/test-*.parquet`
+# (no train/val, no middle config). Our offline download placed it at
+# $EVAL_DATA_ROOT/repos/EleutherAI__race/high/test-*.parquet.
+# lm-eval's race task only evaluates on the test split anyway, and its
+# preprocess_race.py expects the EleutherAI schema (article + problems
+# JSON-string), so we rewire race.yaml to that single parquet via the
+# parquet builder. ehovy/race (the only other mirror we cached) has an
+# incompatible flat schema and would crash preprocess_race.py with
+# KeyError: 'problems'.
+RACE_YAML_REL = "race/race.yaml"
+
 
 def _backup(p: Path) -> None:
     bak = p.with_suffix(p.suffix + ".bak")
     if not bak.exists():
         shutil.copy2(p, bak)
+
+
+def _restore_from_bak(p: Path) -> bool:
+    """Restore ``p`` from its .bak sibling if one exists. Returns True if
+    a restoration happened. Used when we need to override a YAML that an
+    earlier run of this script may have already partially patched, so the
+    fresh patch logic sees the pristine upstream text.
+    """
+    bak = p.with_suffix(p.suffix + ".bak")
+    if bak.exists():
+        shutil.copy2(bak, p)
+        return True
+    return False
 
 
 def _replace_dataset_path(text: str, old: str, new: str) -> tuple[str, int]:
@@ -236,6 +252,88 @@ def patch_mathqa(tasks_dir: Path, eval_data_root: Path) -> int:
     return 1
 
 
+def patch_race(tasks_dir: Path, eval_data_root: Path) -> int:
+    """Rewire the race task to load a local EleutherAI/race parquet.
+
+    Why this is special-cased instead of going through SIMPLE_PATCHES:
+
+    * The EleutherAI/race HF repo only ships ``high/test-*.parquet``
+      (no train/validation, no middle config). It is what lm-eval's
+      ``preprocess_race.py`` was written against, so the schema is
+      correct (``article``, ``problems`` JSON-string).
+    * Our offline mirror is at
+      ``$EVAL_DATA_ROOT/repos/EleutherAI__race/high/test-*.parquet``.
+    * The only other cached mirror, ``ehovy/race``, has an
+      incompatible flat (one-question-per-row) schema and crashes
+      ``preprocess_race.py`` with ``KeyError: 'problems'``.
+
+    So we use the parquet builder (same trick as mathqa) and point only
+    at the test split. Earlier runs of this script may have already
+    edited race.yaml (e.g. changing dataset_path to ehovy/race); we
+    restore from the .bak first so we always start from pristine
+    upstream YAML before applying our parquet rewire.
+    """
+    yaml = tasks_dir / RACE_YAML_REL
+    if not yaml.is_file():
+        print(f"[patch] WARN: race yaml not found: {yaml}", file=sys.stderr)
+        return 0
+
+    repo_dir = eval_data_root / "repos" / "EleutherAI__race" / "high"
+    test_files = sorted(repo_dir.glob("test-*.parquet"))
+    if not test_files:
+        print(
+            f"[patch] WARN: race test parquet missing under {repo_dir}; "
+            f"skipping race patch (task will fail if you try to run it)",
+            file=sys.stderr,
+        )
+        return 0
+
+    # If a prior run of this script edited race.yaml, restore upstream
+    # text first so the regex below sees a known starting state.
+    _restore_from_bak(yaml)
+    text = yaml.read_text(encoding="utf-8")
+
+    marker = "# patched by patch_lm_eval_tasks.py (race->local parquet)"
+    if marker in text:
+        return 0
+
+    lines = text.splitlines()
+    kept: list[str] = []
+    skip_until_dedent = False
+    for line in lines:
+        stripped = line.lstrip()
+        if skip_until_dedent:
+            if line.startswith((" ", "\t")) or stripped == "":
+                continue
+            skip_until_dedent = False
+        if stripped.startswith("dataset_path:") or stripped.startswith("dataset_name:"):
+            continue
+        if stripped.startswith("dataset_kwargs:"):
+            skip_until_dedent = True
+            continue
+        # test_split must be `test` (the only split we have); leave any
+        # explicit override alone if it already says test, drop it
+        # otherwise so we don't reference a split we don't have.
+        if stripped.startswith(("training_split:", "validation_split:")):
+            continue
+        kept.append(line)
+
+    data_files_lines = [f"    test: {f}" for f in test_files]
+    header = [
+        marker,
+        "dataset_path: parquet",
+        "dataset_kwargs:",
+        "  data_files:",
+        *data_files_lines,
+        "test_split: test",
+    ]
+    new_text = "\n".join(header + [""] + kept).rstrip() + "\n"
+    _backup(yaml)
+    yaml.write_text(new_text, encoding="utf-8")
+    print(f"[patch] race: {yaml.name}  rewired to local parquet under {repo_dir}")
+    return 1
+
+
 def patch_datasets_disk_check() -> int:
     """Disable datasets' bogus free-disk-space pre-check.
 
@@ -327,9 +425,11 @@ def main() -> int:
     n_simple = patch_simple(tasks_dir)
     n_name = patch_names(tasks_dir)
     n_mathqa = patch_mathqa(tasks_dir, eval_data_root)
+    n_race = patch_race(tasks_dir, eval_data_root)
     n_disk = patch_datasets_disk_check()
     print(f"[patch] done. simple={n_simple} edits, name={n_name} edits, "
-          f"mathqa={n_mathqa} edits, datasets_disk_check={n_disk} edits")
+          f"mathqa={n_mathqa} edits, race={n_race} edits, "
+          f"datasets_disk_check={n_disk} edits")
     return 0
 
 
