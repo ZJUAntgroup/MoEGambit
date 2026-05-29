@@ -61,6 +61,47 @@ except ImportError:  # pragma: no cover
           file=sys.stderr)
     sys.exit(2)
 
+# Megatron pickled ``args`` as an ``argparse.Namespace`` plus a few helper
+# objects whose classes live under the ``megatron`` package (e.g. enum types
+# from ``megatron.core.enums``). torch.load goes through pickle, so the
+# ``megatron`` package MUST be importable, otherwise unpickling crashes with
+# ``ModuleNotFoundError: No module named 'megatron'`` before we get a chance
+# to read a single tensor.
+#
+# We try the in-tree copy first; if the caller already exported PYTHONPATH,
+# nothing changes. If neither works we fail loudly with the fix instructions.
+def _ensure_megatron_importable() -> None:
+    try:
+        import megatron  # noqa: F401
+        return
+    except ImportError:
+        pass
+    here = Path(__file__).resolve()
+    for parent in [here.parent, *here.parents]:
+        candidate = parent / "Megatron-LM"
+        if (candidate / "megatron" / "__init__.py").is_file():
+            sys.path.insert(0, str(candidate))
+            try:
+                import megatron  # noqa: F401
+                print(f"[convert] auto-added {candidate} to sys.path so the "
+                      f"Megatron-pickled args can be unpickled.",
+                      file=sys.stderr)
+                return
+            except ImportError:
+                sys.path.pop(0)
+    raise ImportError(
+        "Cannot import 'megatron'. The Megatron-LM checkpoint pickle "
+        "references types under the 'megatron' package, so this package "
+        "MUST be importable while reading the checkpoint. Either run the "
+        "converter from the repo root that contains a Megatron-LM/ subdir, "
+        "or set PYTHONPATH to include the Megatron-LM root before invoking "
+        "this script:\n"
+        "    export PYTHONPATH=/path/to/repo/Megatron-LM:${PYTHONPATH:-}"
+    )
+
+
+_ensure_megatron_importable()
+
 
 # =====================================================================
 # Discovery

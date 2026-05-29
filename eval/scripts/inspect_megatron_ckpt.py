@@ -32,6 +32,36 @@ from typing import Iterator, Tuple
 import torch
 
 
+# Megatron pickled ``args`` as an ``argparse.Namespace`` plus helper objects
+# (e.g. enums) whose classes live under the ``megatron`` package. ``torch.load``
+# uses pickle so the package MUST be importable, otherwise we hit
+# ``ModuleNotFoundError: No module named 'megatron'`` before reading any tensor.
+def _ensure_megatron_importable() -> None:
+    try:
+        import megatron  # noqa: F401
+        return
+    except ImportError:
+        pass
+    here = Path(__file__).resolve()
+    for parent in [here.parent, *here.parents]:
+        candidate = parent / "Megatron-LM"
+        if (candidate / "megatron" / "__init__.py").is_file():
+            sys.path.insert(0, str(candidate))
+            try:
+                import megatron  # noqa: F401
+                print(f"[inspect] auto-added {candidate} to sys.path",
+                      file=sys.stderr)
+                return
+            except ImportError:
+                sys.path.pop(0)
+    print("[inspect] WARNING: 'megatron' is not importable; torch.load may "
+          "fail on Megatron-pickled args. Set PYTHONPATH to include the "
+          "Megatron-LM root.", file=sys.stderr)
+
+
+_ensure_megatron_importable()
+
+
 def _iter_shards(iter_dir: Path) -> Iterator[Tuple[int, int, int, Path]]:
     """Yield (tp, pp, ep, shard_path) for every mp_rank_* subdir."""
     for sub in sorted(iter_dir.iterdir()):

@@ -25,6 +25,11 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CKPT_IN="${CKPT_IN:?must set CKPT_IN to the Megatron ckpt dir (the one containing iter_*/)}"
 CKPT_OUT="${CKPT_OUT:?must set CKPT_OUT to the HF output dir}"
 TOKENIZER_DIR="${TOKENIZER_DIR:-${REPO_ROOT}/tokenizer}"
+MEGATRON_ROOT="${MEGATRON_ROOT:-${REPO_ROOT}/Megatron-LM}"
+
+# Megatron-pickled args reference classes under the 'megatron' package; the
+# converter unpickles them via torch.load, so 'megatron' must be importable.
+export PYTHONPATH="${MEGATRON_ROOT}:${PYTHONPATH:-}"
 
 # Optional explicit iteration; default = latest_checkpointed_iteration.txt
 CKPT_ITER="${CKPT_ITER:-}"
