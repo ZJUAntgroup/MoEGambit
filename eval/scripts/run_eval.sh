@@ -28,6 +28,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EVAL_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+# ============================================================
+# Force-offline HuggingFace stack (set EARLY, before any python import).
+# The previous placement (right before lm_eval invocation) could be too
+# late if lm_eval performs lazy HuggingFace lookups during import that
+# block silently on socket recv (observed: process stays in sleeping
+# state, 0% CPU, 0% GPU, holding on huggingface_hub network call).
+# ============================================================
+EVAL_DATA_ROOT_EARLY="${EVAL_DATA_ROOT:-/mnt/ais-c1/dataset/zds/evaldata}"
+export HF_HOME="${HF_HOME:-${EVAL_DATA_ROOT_EARLY}/hf_home}"
+export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${EVAL_DATA_ROOT_EARLY}/hf_cache}"
+export HF_HUB_CACHE="${HF_HUB_CACHE:-${EVAL_DATA_ROOT_EARLY}/hf_cache/hub}"
+export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${EVAL_DATA_ROOT_EARLY}/hf_cache/transformers}"
+export HF_DATASETS_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_HUB_OFFLINE=1
+export HF_HUB_DISABLE_TELEMETRY=1
+export HF_HUB_DISABLE_IMPLICIT_TOKEN=1
+export HF_HUB_DISABLE_PROGRESS_BARS=1
+# Avoid tokenizers forking deadlock spam.
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+# Belt-and-suspenders: kill any inherited proxy so even if some lib
+# tries to phone home it fails fast instead of hanging on connect.
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+export NO_PROXY="*"
+export no_proxy="*"
+
 # ---- Paths (match run_main_exp_moeguard.sh /mnt/ais-c1 convention) ----
 EVAL_DATA_ROOT="${EVAL_DATA_ROOT:-/mnt/ais-c1/dataset/zds/evaldata}"
 MODEL_PATH="${MODEL_PATH:?must set MODEL_PATH (Megatron ckpt dir OR HF model dir)}"
@@ -94,16 +120,10 @@ RESULTS_DIR="${RESULTS_DIR:-${RESULTS_ROOT}/$(basename "${HF_MODEL_PATH}")_$(dat
 mkdir -p "${RESULTS_DIR}"
 
 # ============================================================
-# Step 1: force offline HuggingFace stack
+# Step 1: offline HuggingFace stack (already exported at top of script;
+# kept here as a no-op marker for readers).
 # ============================================================
-export HF_HOME="${EVAL_DATA_ROOT}/hf_home"
-export HF_DATASETS_CACHE="${EVAL_DATA_ROOT}/hf_cache"
-export HF_HUB_CACHE="${EVAL_DATA_ROOT}/hf_cache/hub"
-export TRANSFORMERS_CACHE="${EVAL_DATA_ROOT}/hf_cache/transformers"
-export HF_DATASETS_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
-export HF_HUB_OFFLINE=1
-export HF_HUB_DISABLE_TELEMETRY=1
+: "${HF_HUB_OFFLINE:?should have been set at top of script}"
 
 # ---- Eval hyperparameters ----
 TASKS="${TASKS:-boolq,winogrande,race,mathqa,swag,piqa,arc_easy,openbookqa}"
@@ -159,6 +179,15 @@ if [ ! -d "${EVAL_DATA_ROOT}/hf_cache" ]; then
     echo "        and ship ${EVAL_DATA_ROOT} to this machine?" >&2
     exit 2
 fi
+if [ ! -d "${HF_HOME}" ]; then
+    echo "[eval] WARN: HF_HOME=${HF_HOME} does not exist, creating it" >&2
+    mkdir -p "${HF_HOME}"
+fi
+
+# Dump the offline env we are about to inherit into lm_eval, so that
+# the next 'silent hang' is easy to diagnose from eval.log alone.
+echo "[eval] offline env:"
+env | grep -E '^(HF_|TRANSFORMERS_|TOKENIZERS_|NO_PROXY|no_proxy|HTTP_|HTTPS_|http_|https_)' | sort
 
 # ============================================================
 # Step 2: run lm-eval
