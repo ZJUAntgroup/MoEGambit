@@ -40,7 +40,7 @@ source "${SCRIPT_DIR}/main_exp_common.sh"
 export_common_runtime
 
 # ---- Output dirs ----
-BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/main_exp/5.27/mocsystem}"
+BASE_DIR="${BASE_DIR:-/mnt/ais-c1/dataset/zds/main_exp/5.29/mocsystem}"
 CKPT_DIR="${CKPT_DIR:-${BASE_DIR}/ckpt}"
 export CKPT_DIR
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-${BASE_DIR}/log}"
