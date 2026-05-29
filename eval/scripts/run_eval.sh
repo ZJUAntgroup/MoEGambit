@@ -204,6 +204,27 @@ if [ ! -d "${HF_HOME}" ]; then
     mkdir -p "${HF_HOME}"
 fi
 
+# ============================================================
+# Patch dataset cache for backward compat (List -> Sequence).
+# download_datasets.py was last run with datasets>=4.x, which writes
+# `"_type": "List"`. Older datasets (<=3.x) only know `"Sequence"` and
+# crash with "TypeError: must be called with a dataclass type or
+# instance" when reading dataset_info.json. The patch script is
+# idempotent (re-runs are no-ops) and keeps a .bak of every modified
+# file, so it is safe to run unconditionally.
+# ============================================================
+if [ "${SKIP_DATASET_PATCH:-0}" != "1" ]; then
+    PATCH_SCRIPT="${SCRIPT_DIR}/patch_dataset_cache.py"
+    if [ -f "${PATCH_SCRIPT}" ]; then
+        echo "[eval] patching dataset cache for datasets<4 compatibility..."
+        EVAL_DATA_ROOT="${EVAL_DATA_ROOT}" python "${PATCH_SCRIPT}" || {
+            echo "[eval] WARN: patch_dataset_cache.py failed; proceeding anyway" >&2
+        }
+    else
+        echo "[eval] WARN: ${PATCH_SCRIPT} not found, skipping cache patch" >&2
+    fi
+fi
+
 # Dump the offline env we are about to inherit into lm_eval, so that
 # the next 'silent hang' is easy to diagnose from eval.log alone.
 echo "[eval] offline env:"
