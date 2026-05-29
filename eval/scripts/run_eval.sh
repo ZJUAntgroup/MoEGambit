@@ -151,8 +151,28 @@ if [ "${MODEL_BACKEND}" = "vllm" ]; then
     # 'spawn' avoids inheriting the parent's CUDA context.
     export VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}"
 elif [ "${MODEL_BACKEND}" = "hf" ]; then
-    # Naive model-parallel via accelerate: split layers across all visible GPUs.
-    MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True,parallelize=True"
+    # Spread the model across all visible GPUs using transformers' native
+    # device_map=auto. We deliberately do NOT use accelerate's
+    # parallelize=True by default: combined with k8s PyTorchJob env vars
+    # it makes Accelerator() call init_process_group() and hang forever
+    # on TCPStore rendezvous (other worker pods are not running lm_eval).
+    # device_map=auto stays single-process and just shards layers.
+    HF_PARALLEL_MODE="${HF_PARALLEL_MODE:-device_map}"   # device_map | parallelize | single
+    case "${HF_PARALLEL_MODE}" in
+        device_map)
+            MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True,device_map=auto"
+            ;;
+        parallelize)
+            MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True,parallelize=True"
+            ;;
+        single)
+            MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True"
+            ;;
+        *)
+            echo "[eval] ERROR: unknown HF_PARALLEL_MODE=${HF_PARALLEL_MODE}" >&2
+            exit 2
+            ;;
+    esac
 else
     MODEL_ARGS="pretrained=${HF_MODEL_PATH},dtype=${DTYPE},trust_remote_code=True"
 fi
