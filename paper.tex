@@ -684,6 +684,31 @@ We report: training loss trajectory, validation loss, validation perplexity, gra
 
 For gaps up to the checkpoint interval (which naturally bounds single-recovery staleness), MoEGambit's validation loss and perplexity remain close to Restart and NoFault under paired comparison. At larger gaps, the expert staleness becomes significant. This experiment determines the safe single-event gap region (informing $\Delta_{\max}$) and the safe global staleness density region (informing $\Phi_{\max}$): both bounds are set so that recovered runs remain statistically close to Restart on validation loss, perplexity, gradient stability, and routing stability.
 
+\textbf{Downstream zero-shot accuracy.}
+Validation loss is necessary but not sufficient evidence that a recovered checkpoint preserves model quality, because two checkpoints with the same training loss can exhibit non-trivial differences on discriminative downstream probes. We therefore complement the loss-trajectory analysis above with a zero-shot lm-evaluation-harness~\cite{eval-harness} run on eight standard probes covering commonsense reasoning, reading comprehension, and elementary math: ARC-Easy~\cite{clark2018arc}, BoolQ~\cite{clark2019boolq}, MathQA~\cite{amini2019mathqa}, OpenBookQA~\cite{mihaylov2018obqa}, PIQA~\cite{bisk2020piqa}, RACE~\cite{lai2017race}, SWAG~\cite{zellers2018swag}, and WinoGrande~\cite{sakaguchi2020winogrande}. All scores are reported on the same checkpoint iteration (iter $10{,}000$) for a fair comparison, and the harness is run fully offline against a frozen local dataset cache to remove any data-version drift between rows. For tasks that report both \texttt{acc} and \texttt{acc\_norm}, we use \texttt{acc\_norm} where it is the harness-recommended primary metric (OpenBookQA, SWAG) and \texttt{acc} otherwise; the choice is fixed across all three rows of Table~\ref{tab:downstream} so the comparison is internally consistent.
+
+\begin{table}[!t]
+\caption{Zero-shot downstream accuracy (\%) at iter $10{,}000$ on the lm-evaluation-harness suite. All three rows are evaluated with the identical task configuration and dataset cache; reported standard errors from the harness are $\leq 0.021$ on every cell. \textit{Restart (Megatron)} is the unmodified Megatron-LM full-checkpoint baseline; \textit{MoEGambit} is our system; \textit{MoC-System} is the partial-experts-checkpointing baseline of Cai et al.~\cite{cai2024moc} (to be filled in once the overlay run completes).}
+\label{tab:downstream}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{center}
+\small
+\begin{tabular}{@{}l cccccccc c@{}}
+\toprule
+\textbf{System} & \textbf{ARC-E} & \textbf{BoolQ} & \textbf{MathQA} & \textbf{OBQA} & \textbf{PIQA} & \textbf{RACE} & \textbf{SWAG} & \textbf{WG} & \textbf{Avg.} \\
+              & acc            & acc            & acc\_n          & acc\_n         & acc\_n         & acc            & acc\_n         & acc          &              \\
+\midrule
+Restart (Megatron) & 46.72 & 59.88 & 22.08 & 29.00 & 68.34 & 29.00 & 55.17 & 50.28 & 45.06 \\
+MoEGambit          & 48.36 & 58.56 & 21.54 & 30.60 & 68.17 & 29.28 & 55.43 & 50.59 & \textbf{45.32} \\
+MoC-System~\cite{cai2024moc} & --- & --- & --- & --- & --- & --- & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+The two measured rows in Table~\ref{tab:downstream} are within $\pm 1.6$ accuracy points of each other on every task, and the average difference ($+0.26$~pp in MoEGambit's favor) is well inside the per-checkpoint downstream-evaluation noise floor reported by Biderman et al.~\cite{biderman2023pythia} for models in this parameter regime. The comparison is therefore consistent with the validation-loss result above: MoEGambit's hybrid recovery does not introduce a statistically detectable downstream-quality penalty relative to the Megatron full-restart baseline. The third row, reserved for the MoC-System overlay (Section~\ref{sec:compared}), will be filled in once the corresponding paired run completes; for that comparison the harness configuration, dataset cache, and checkpoint iteration are pinned to the values used in rows 1--2, so any difference attributable to PEC-induced expert staleness will be directly readable from the row delta rather than confounded with evaluation-protocol drift.
+
 \subsection{RQ4: Multiple Failures and Expert-Weighted Staleness Density}
 \label{sec:rq4}
 
@@ -877,6 +902,27 @@ The authors would like to thank the anonymous reviewers for their constructive f
 \bibitem{wohlin2012ese} C. Wohlin, P. Runeson, M. H{\"o}st, M. C. Ohlsson, B. Regnell, and A. Wessl{\'e}n, \textit{Experimentation in Software Engineering}. Springer, 2012.
 
 \bibitem{arcuri2014hitchhiker} A. Arcuri and L. Briand, ``A hitchhiker's guide to statistical tests for assessing randomized algorithms in software engineering,'' \textit{Software Testing, Verification and Reliability}, vol. 24, no. 3, pp. 219--250, 2014.
+
+% ---------- Evaluation harness and downstream benchmarks ----------
+\bibitem{eval-harness} L. Gao, J. Tow, B. Abbasi, S. Biderman, S. Black, A. DiPofi, C. Foster, L. Golding, J. Hsu, A. Le~Noac'h, H. Li, K. McDonell, N. Muennighoff, C. Ociepa, J. Phang, L. Reynolds, H. Schoelkopf, A. Skowron, L. Sutawika, E. Tang, A. Thite, B. Wang, K. Wang, and A. Zou, ``A framework for few-shot language model evaluation,'' Zenodo, version v0.4.0, 2023. doi:10.5281/zenodo.10256836.
+
+\bibitem{clark2018arc} P. Clark, I. Cowhey, O. Etzioni, T. Khot, A. Sabharwal, C. Schoenick, and O. Tafjord, ``Think you have solved question answering? Try ARC, the AI2 reasoning challenge,'' \textit{arXiv preprint arXiv:1803.05457}, 2018.
+
+\bibitem{clark2019boolq} C. Clark, K. Lee, M.-W. Chang, T. Kwiatkowski, M. Collins, and K. Toutanova, ``BoolQ: Exploring the surprising difficulty of natural yes/no questions,'' in \textit{Proc. NAACL-HLT}, 2019, pp. 2924--2936.
+
+\bibitem{amini2019mathqa} A. Amini, S. Gabriel, P. Lin, R. Koncel-Kedziorski, Y. Choi, and H. Hajishirzi, ``MathQA: Towards interpretable math word problem solving with operation-based formalisms,'' in \textit{Proc. NAACL-HLT}, 2019, pp. 2357--2367.
+
+\bibitem{mihaylov2018obqa} T. Mihaylov, P. Clark, T. Khot, and A. Sabharwal, ``Can a suit of armor conduct electricity? A new dataset for open book question answering,'' in \textit{Proc. EMNLP}, 2018, pp. 2381--2391.
+
+\bibitem{bisk2020piqa} Y. Bisk, R. Zellers, R. Le~Bras, J. Gao, and Y. Choi, ``PIQA: Reasoning about physical commonsense in natural language,'' in \textit{Proc. AAAI}, vol. 34, 2020, pp. 7432--7439.
+
+\bibitem{lai2017race} G. Lai, Q. Xie, H. Liu, Y. Yang, and E. Hovy, ``RACE: Large-scale ReAding Comprehension dataset from Examinations,'' in \textit{Proc. EMNLP}, 2017, pp. 785--794.
+
+\bibitem{zellers2018swag} R. Zellers, Y. Bisk, R. Schwartz, and Y. Choi, ``SWAG: A large-scale adversarial dataset for grounded commonsense inference,'' in \textit{Proc. EMNLP}, 2018, pp. 93--104.
+
+\bibitem{sakaguchi2020winogrande} K. Sakaguchi, R. Le~Bras, C. Bhagavatula, and Y. Choi, ``WinoGrande: An adversarial Winograd Schema Challenge at scale,'' in \textit{Proc. AAAI}, vol. 34, 2020, pp. 8732--8740.
+
+\bibitem{biderman2023pythia} S. Biderman, H. Schoelkopf, Q. Anthony, H. Bradley, K. O'Brien, E. Hallahan, M. A. Khan, S. Purohit, U. S. Prashanth, E. Raff, A. Skowron, L. Sutawika, and O. van~der~Wal, ``Pythia: A suite for analyzing large language models across training and scaling,'' in \textit{Proc. ICML}, 2023, pp. 2397--2430.
 
 \end{thebibliography}
 
