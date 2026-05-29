@@ -55,6 +55,16 @@ export BSR_MOC_PEC_K="${BSR_MOC_PEC_K:-16}"
 export BSR_MOC_PEC_N_EXPERT="${BSR_MOC_PEC_N_EXPERT:-128}"
 export BSR_MOC_PEC_SCHEDULE="${BSR_MOC_PEC_SCHEDULE:-round_robin}"
 
+# Force every fault recovery onto the CHECKPOINT_RESTART path in the BSR
+# controller, even if some hybrid-path flags are still wired up in argv.
+# Without this, recovery_controller defaults to HYBRID_RECOVERY when the
+# gap-aware policy manager is disabled (see recovery_controller.py around
+# line 1431). The same effect is also achieved by the argv flag
+# --moe-bsr-force-checkpoint-restart (registered via
+# force_checkpoint_restart_fn); we set both so the intent is unambiguous
+# in logs and unaffected by future refactors of either path.
+export BSR_FORCE_CHECKPOINT_RESTART="${BSR_FORCE_CHECKPOINT_RESTART:-1}"
+
 # ---- Build the simplified 10-fault plan for MoC-System ----
 # MoC-System recovers every fault with a full CHECKPOINT_RESTART (the PEC
 # overlay only changes WHICH expert file gets loaded, not the fact that
@@ -92,6 +102,7 @@ echo "    BSR_MOC_PEC_EMULATE=${BSR_MOC_PEC_EMULATE}"
 echo "    BSR_MOC_PEC_K=${BSR_MOC_PEC_K}"
 echo "    BSR_MOC_PEC_N_EXPERT=${BSR_MOC_PEC_N_EXPERT}"
 echo "    BSR_MOC_PEC_SCHEDULE=${BSR_MOC_PEC_SCHEDULE}"
+echo "    BSR_FORCE_CHECKPOINT_RESTART=${BSR_FORCE_CHECKPOINT_RESTART}"
 echo "============================================================"
 
 # ---- BSR fault injection knobs (plan-driven, burst_all) ----
@@ -120,12 +131,13 @@ run_training() {
   fi
 
   # MoC-System emulation: enable BSR infrastructure (needed for fault
-  # injection + plan parsing + manifest sidecar) but DISABLE hybrid
-  # restore, two-phase recovery, and stale-expert peer-pull. The
-  # recovery_controller therefore falls back to CHECKPOINT_RESTART for
-  # every fault, exactly matching MoC-System's restore behavior. The
-  # PEC emulation overlay (apply_pec_to_plan) then redirects expert
-  # entries to historical ckpts so accuracy matches MoC-System.
+  # injection + plan parsing + manifest sidecar) and force every fault
+  # onto the CHECKPOINT_RESTART path via --moe-bsr-force-checkpoint-restart
+  # + BSR_FORCE_CHECKPOINT_RESTART=1. Hybrid restore, two-phase recovery,
+  # and stale-expert peer-pull are NOT used (their flags are absent
+  # below). The PEC emulation overlay (apply_pec_to_plan) then redirects
+  # individual expert entries inside the loaded plan to historical iter_*
+  # ckpts so accuracy matches MoC-System.
   torchrun \
     --nproc_per_node="${NPROC_PER_NODE}" \
     --nnodes="${NNODES}" \
@@ -196,7 +208,7 @@ run_training() {
     --moe-bsr-reintegration-barrier \
     --moe-bsr-fault-injection \
     --moe-bsr-restart-in-place \
-    --moe-bsr-stale-expert-restore \
+    --moe-bsr-force-checkpoint-restart \
     --moe-bsr-degraded-mode-policy \
     --moe-bsr-degraded-tau-c 0.5 \
     --moe-bsr-degraded-t-max 1000 \
@@ -215,6 +227,8 @@ run_training() {
 # emulate MoC-System's restore semantics:
 #   --moe-bsr-dense-param-sync         (peer-pull dense — MoC-System has no equivalent)
 #   --moe-bsr-hybrid-expert-restore    (selective expert load — disabled; PEC overlay handles)
+#   --moe-bsr-stale-expert-restore     (peer-pull stale-runnable — would never fire under
+#                                        force-checkpoint-restart, but omitted for clarity)
 #   --moe-bsr-expert-opt-restore       (expert opt selective restore — disabled)
 #   --moe-bsr-weights-first-recovery   (two-phase weights-first — disabled)
 #   --moe-bsr-defer-optimizer-load     (two-phase opt-later — disabled)

@@ -988,8 +988,36 @@ class GapAwareRecoveryPolicyManager:
     ) -> RecoveryDecision:
         """Evaluate the recovery policy and return a decision.
 
-        If gap-aware recovery is disabled, always returns HYBRID_RECOVERY.
+        Decision precedence:
+          1. ``BSR_FORCE_CHECKPOINT_RESTART=1`` env var (highest priority):
+             force every event to ``CHECKPOINT_RESTART``. Used by the
+             MoC-System emulation script to faithfully reproduce MoC-System's
+             full-ckpt-reload recovery semantics regardless of which BSR
+             switches happen to be on in the argv. The PEC byte-overlay
+             still rewrites which expert shard gets loaded; the path itself
+             is forced to restart.
+          2. If gap-aware recovery is disabled, return ``HYBRID_RECOVERY``
+             (legacy default; matches MoEGuard runs that disable the policy
+             but want the fast path).
+          3. Otherwise consult the configured policy.
         """
+        if os.environ.get("BSR_FORCE_CHECKPOINT_RESTART", "0") == "1":
+            decision = RecoveryDecision(
+                path=RecoveryPath.CHECKPOINT_RESTART,
+                current_step=current_iteration,
+                latest_checkpoint_step=-1,
+                gap=-1,
+                failed_rank=failed_rank,
+                reason="forced_checkpoint_restart",
+                reason_detail=(
+                    "BSR_FORCE_CHECKPOINT_RESTART=1 — recovery path forced "
+                    "to CHECKPOINT_RESTART for MoC-System emulation"
+                ),
+                metadata={"policy": "forced_restart"},
+            )
+            self._decision_history.append(decision)
+            return decision
+
         if not self._enabled:
             decision = RecoveryDecision(
                 path=RecoveryPath.HYBRID_RECOVERY,

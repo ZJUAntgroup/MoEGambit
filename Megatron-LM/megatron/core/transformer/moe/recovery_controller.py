@@ -94,6 +94,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1431,7 +1432,44 @@ class RecoveryController:
         recovery_path_name = "HYBRID_RECOVERY"  # default
         decision = None
 
-        if (self._gap_aware_policy_manager is not None
+        # Highest-priority override: ``BSR_FORCE_CHECKPOINT_RESTART=1`` makes
+        # every recovery event take the CHECKPOINT_RESTART path regardless of
+        # whether the gap-aware policy is enabled or which BSR fast-path
+        # switches happen to be on in argv. This is what the MoC-System
+        # emulation script uses to faithfully reproduce MoC-System's
+        # full-ckpt-reload recovery semantics (the PEC byte overlay still
+        # rewrites which expert shard gets loaded).
+        if os.environ.get("BSR_FORCE_CHECKPOINT_RESTART", "0") == "1":
+            from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+                RecoveryPath,
+                RecoveryDecision,
+            )
+            recovery_path_name = "CHECKPOINT_RESTART"
+            decision = RecoveryDecision(
+                path=RecoveryPath.CHECKPOINT_RESTART,
+                current_step=step,
+                latest_checkpoint_step=-1,
+                gap=-1,
+                failed_rank=failed_rank,
+                reason="forced_checkpoint_restart_env",
+                reason_detail=(
+                    "BSR_FORCE_CHECKPOINT_RESTART=1 — recovery path forced "
+                    "to CHECKPOINT_RESTART (MoC-System emulation)"
+                ),
+                metadata={
+                    "forced": True,
+                    "source": "env",
+                    "failed_rank": failed_rank,
+                    "replacement_rank": replacement_rank,
+                },
+            )
+            logger.warning(
+                "[%s] BSR-MoE controller: CHECKPOINT_RESTART forced by "
+                "BSR_FORCE_CHECKPOINT_RESTART=1 (step=%d, failed=%d, "
+                "replacement=%d)",
+                _ts(), step, failed_rank, replacement_rank,
+            )
+        elif (self._gap_aware_policy_manager is not None
                 and self._gap_aware_policy_manager.enabled):
             from megatron.core.transformer.moe.gap_aware_recovery_policy import (
                 RecoveryPath,
