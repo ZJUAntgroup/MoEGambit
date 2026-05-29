@@ -62,6 +62,21 @@ SIMPLE_PATCHES = [
     ("winogrande",    "winogrande/default.yaml",             "winogrande",    "allenai/winogrande"),
 ]
 
+# Mapping for `dataset_name:` (i.e. HF config name) overrides. Same
+# tuple shape as SIMPLE_PATCHES but applied to dataset_name instead of
+# dataset_path. Used when our local hf_cache only has a subset of the
+# configs lm-eval defaults to.
+#
+# NOTE: race switched from `high` -> `middle` because our local cache
+# only has the middle config. This DOES change the benchmark semantics
+# (race-high vs race-middle are different difficulty levels, papers
+# usually report race-high). Score reports should label this as
+# `race-middle`, not the canonical `race`.
+NAME_PATCHES = [
+    # task    yaml relative path     old       new
+    ("race",  "race/race.yaml",      "high",   "middle"),
+]
+
 # mathqa needs special handling: convert the loader from the broken HF
 # 'math_qa' loading-script repo to a local parquet load via the parquet
 # builder. The data files were materialised by download_datasets.py at
@@ -82,6 +97,18 @@ def _replace_dataset_path(text: str, old: str, new: str) -> tuple[str, int]:
     """
     pattern = re.compile(
         rf"^([ \t]*dataset_path:[ \t]*){re.escape(old)}[ \t]*$",
+        re.MULTILINE,
+    )
+    new_text, n = pattern.subn(rf"\g<1>{new}", text)
+    return new_text, n
+
+
+def _replace_dataset_name(text: str, old: str, new: str) -> tuple[str, int]:
+    """Replace lines like 'dataset_name: <old>' (yaml-style) with new value.
+    Same semantics as _replace_dataset_path but for the config name.
+    """
+    pattern = re.compile(
+        rf"^([ \t]*dataset_name:[ \t]*){re.escape(old)}[ \t]*$",
         re.MULTILINE,
     )
     new_text, n = pattern.subn(rf"\g<1>{new}", text)
@@ -119,6 +146,28 @@ def patch_simple(tasks_dir: Path) -> int:
         _backup(yaml)
         yaml.write_text(new_text, encoding="utf-8")
         print(f"[patch] {task}: {yaml.name}  dataset_path: {old!r} -> {new!r}  ({n} line)")
+        total += n
+    return total
+
+
+def patch_names(tasks_dir: Path) -> int:
+    """Run all NAME_PATCHES (dataset_name overrides). Returns total edits."""
+    total = 0
+    for task, rel, old, new in NAME_PATCHES:
+        yaml = tasks_dir / rel
+        if not yaml.is_file():
+            cand = list(tasks_dir.glob(rel.replace("/default.yaml", "/*.yaml")))
+            if not cand:
+                print(f"[patch] WARN: yaml not found for {task}: {yaml}", file=sys.stderr)
+                continue
+            yaml = cand[0]
+        text = yaml.read_text(encoding="utf-8")
+        new_text, n = _replace_dataset_name(text, old, new)
+        if n == 0:
+            continue
+        _backup(yaml)
+        yaml.write_text(new_text, encoding="utf-8")
+        print(f"[patch] {task}: {yaml.name}  dataset_name: {old!r} -> {new!r}  ({n} line)")
         total += n
     return total
 
@@ -276,10 +325,11 @@ def main() -> int:
     print(f"[patch] EVAL_DATA_ROOT    : {eval_data_root}")
 
     n_simple = patch_simple(tasks_dir)
+    n_name = patch_names(tasks_dir)
     n_mathqa = patch_mathqa(tasks_dir, eval_data_root)
     n_disk = patch_datasets_disk_check()
-    print(f"[patch] done. simple={n_simple} edits, mathqa={n_mathqa} edits, "
-          f"datasets_disk_check={n_disk} edits")
+    print(f"[patch] done. simple={n_simple} edits, name={n_name} edits, "
+          f"mathqa={n_mathqa} edits, datasets_disk_check={n_disk} edits")
     return 0
 
 
