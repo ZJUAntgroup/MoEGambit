@@ -71,7 +71,7 @@ if [ "${MODE}" = "moegambit" ]; then
   export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
 
   export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/128gpu/moegambit}"
-  export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/128gpu/moegambit}"
+  export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/128gpu61/moegambit}"
   MAX_RETRIES="${MAX_RETRIES:-1}"
 else
   # ---------- Baseline (checkpoint-restart loop) ----------
