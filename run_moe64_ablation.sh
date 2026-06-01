@@ -25,7 +25,6 @@
 set -uo pipefail
 set -x
 
-export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
 # Keep ablation logs parseable. Use ABLATION_NCCL_DEBUG=INFO only when
 # debugging NCCL bring-up.
 export NCCL_DEBUG="${ABLATION_NCCL_DEBUG:-WARN}"

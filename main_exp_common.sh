@@ -25,7 +25,6 @@ export PLAN_WORLD_SIZE="${PLAN_WORLD_SIZE:-$((NPROC_PER_NODE * NNODES))}"
 export PLAN_SEED="${PLAN_SEED:-42}"
 
 export_common_runtime() {
-  export NCCL_IB_DISABLE=1
   export NCCL_DEBUG=WARN
   export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
   export HF_HUB_OFFLINE=1
