@@ -3,7 +3,6 @@
 
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
@@ -585,7 +584,7 @@ Compared with the 10-run NoFault baseline reported in Table~\ref{tab:pre_noise} 
 \textbf{$\Phi_{\max}=10^{-2}$ is the empirical cliff edge under multi-rank burst failures.} To stress the upper end of the $\Phi'(t)$ axis we run a $3\times 4$ multi-rank burst sweep. We inject a single burst of $|F|\in\{8,16,24\}$ simultaneous rank failures at a checkpoint-gap $\Delta\in\{50, 100, 150, 200\}$ iterations after the latest save (configured by \texttt{find\_multi\_fault.sh}; PP$=8$, EP$=8$, 64 H20-3e GPUs, same Qwen3-30B-A3B model and tokenizer as Table~\ref{tab:pre_noise}). With $|E_{\text{new}}| = |F|\cdot(N_{\text{expert}}/\text{EP}) = 16\cdot|F|$ and history term $\sum_h |E_h|\Delta_h = 0$ (each cell is a single burst), the projected $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W)$ ranges over $[2.5\times 10^{-3},\,3\times 10^{-2}]$, spanning two orders of magnitude around $\Phi_{\max}$. Each cell trains to iteration~600 and reports validation loss against the held-out FineWeb split; deviations are reported in units of $\sigma_{\text{base}}=0.0239$. Results are summarized in Table~\ref{tab:multi_fault}.
 
 \begin{table*}[!t]
-\caption{Multi-rank burst sweep ($|F|$ simultaneous rank failures at checkpoint gap $\Delta$). Each cell shows the validation loss at iter~600 (top) and the deviation $\ell-\mu_{\text{base}}$ in units of $\sigma_{\text{base}}=0.0239$ (bottom). Cells are color-coded by $\Phi'(t)$: green $=\Phi'(t)\leq \Phi_{\max}=10^{-2}$ (predicted safe, hybrid recovery), red $=\Phi'(t)>\Phi_{\max}$ (predicted unsafe, MoEGambit falls back to checkpoint restart). The script-size expression below each $\Delta$ header gives $\Phi'(t)\times 10^{3}$ as a function of $|F|$ for that column (e.g., at $\Delta=100$, $\Phi'(t)=5.0|F|\times 10^{-3}$). Baseline (NoFault, 10 runs): $\mu_{\text{base}}=4.8543$, $\sigma_{\text{base}}=0.0239$ (Table~\ref{tab:pre_noise}). $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}{\cdot}W)$ with $N_{\text{expert}}=128$, $W=20{,}000$, $|E_{\text{new}}|=16|F|$.}
+\caption{Multi-rank burst sweep ($|F|$ simultaneous rank failures at checkpoint gap $\Delta$)\textsuperscript{*}. Each cell shows the validation loss at iter~600 (top) and the deviation $\ell-\mu_{\text{base}}$ in units of $\sigma_{\text{base}}=0.0239$ (bottom).}
 \label{tab:multi_fault}
 \setlength{\tabcolsep}{8pt}
 \renewcommand{\arraystretch}{1.25}
@@ -616,7 +615,8 @@ $24$\ ($384$)
   & \cellcolor{red!12}\makecell{4.9017\\\scriptsize$+1.98\sigma$}
   & \cellcolor{red!12}\makecell{4.9008\\\scriptsize$+1.95\sigma$} \\
 \bottomrule
-\end{tabular}
+\end{tabular}\\[2pt]
+{\footnotesize\raggedright \textsuperscript{*}\,Cells are color-coded by $\Phi'(t)$: green $=\Phi'(t)\leq \Phi_{\max}=10^{-2}$ (predicted safe, hybrid recovery), red $=\Phi'(t)>\Phi_{\max}$ (predicted unsafe, MoEGambit falls back to checkpoint restart). The script-size expression below each $\Delta$ header gives $\Phi'(t)\times 10^{3}$ as a function of $|F|$ for that column (e.g., at $\Delta=100$, $\Phi'(t)=5.0|F|\times 10^{-3}$). Baseline (NoFault, 10 runs): $\mu_{\text{base}}=4.8543$, $\sigma_{\text{base}}=0.0239$ (Table~\ref{tab:pre_noise}). $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}{\cdot}W)$ with $N_{\text{expert}}=128$, $W=20{,}000$, $|E_{\text{new}}|=16|F|$.\par}
 \end{center}
 \end{table*}
 
@@ -703,7 +703,7 @@ The trajectories in Fig.~\ref{fig:train-loss} corroborate the per-gap paired-run
 Validation loss is necessary but not sufficient evidence that a recovered checkpoint preserves model quality, because two checkpoints with the same training loss can exhibit non-trivial differences on discriminative downstream probes. We therefore complement the loss-trajectory analysis above with a zero-shot lm-evaluation-harness~\cite{eval-harness} run on eight standard probes covering commonsense reasoning, reading comprehension, and elementary math: ARC-Easy~\cite{clark2018arc}, BoolQ~\cite{clark2019boolq}, MathQA~\cite{amini2019mathqa}, OpenBookQA~\cite{mihaylov2018obqa}, PIQA~\cite{bisk2020piqa}, RACE~\cite{lai2017race}, SWAG~\cite{zellers2018swag}, and WinoGrande~\cite{sakaguchi2020winogrande}. All scores are reported on the same checkpoint iteration (iter $10{,}000$) for a fair comparison, and the harness is run fully offline against a frozen local dataset cache to remove any data-version drift between rows. For tasks that report both \texttt{acc} and \texttt{acc\_norm}, we use \texttt{acc\_norm} where it is the harness-recommended primary metric (OpenBookQA, SWAG) and \texttt{acc} otherwise; the choice is fixed across all three rows of Table~\ref{tab:downstream} so the comparison is internally consistent.
 
 \begin{table*}[!t]
-\caption{Zero-shot downstream accuracy (\%) at iter $10{,}000$ on the lm-evaluation-harness suite. All three rows are evaluated with the identical task configuration and dataset cache; reported standard errors from the harness are $\leq 0.021$ on every cell. \textit{Restart (Megatron)} is the unmodified Megatron-LM full-checkpoint baseline; \textit{MoC-System} is the partial-experts-checkpointing baseline of Cai et al.~\cite{cai2024moc}; \textit{MoEGambit} is our system. Per-column best is in \textbf{bold}. Metric row: ``n'' denotes \texttt{acc\_norm}; others are \texttt{acc}.}
+\caption{Zero-shot downstream accuracy (\%) at iter $10{,}000$ on the lm-evaluation-harness suite\textsuperscript{*}. All three rows are evaluated with the identical task configuration and dataset cache; reported standard errors from the harness are $\leq 0.021$ on every cell. \textit{Restart (Megatron)} is the unmodified Megatron-LM full-checkpoint baseline; \textit{MoC-System} is the partial-experts-checkpointing baseline of Cai et al.~\cite{cai2024moc}; \textit{MoEGambit} is our system.}
 \label{tab:downstream}
 \setlength{\tabcolsep}{5pt}
 \renewcommand{\arraystretch}{1.15}
@@ -718,7 +718,8 @@ Restart (Megatron)            & 46.72          & 59.88          & 22.08         
 MoC-System~\cite{cai2024moc}  & 45.41          & \textbf{59.94} & \textbf{22.28} & 28.20          & 67.68          & 29.19          & 54.00          & \textbf{50.67} & 44.67 \\
 MoEGambit                     & \textbf{48.36} & 58.56          & 21.54          & \textbf{30.60} & 68.17          & \textbf{29.28} & \textbf{55.43} & 50.59          & \textbf{45.32} \\
 \bottomrule
-\end{tabular}
+\end{tabular}\\[2pt]
+{\footnotesize\raggedright \textsuperscript{*}\,Per-column best is in \textbf{bold}. Metric row: ``n'' denotes \texttt{acc\_norm}; others are \texttt{acc}.\par}
 \end{center}
 \end{table*}
 
@@ -752,7 +753,7 @@ MoEGambit introduces negligible throughput overhead in failure-free training bec
 We evaluate the contribution of each major component.
 
 \begin{table}[htbp]
-\caption{Ablation Study (\ding{51} = enabled, -- = disabled)}
+\caption{Ablation Study\textsuperscript{*}}
 \label{tab:ablation}
 \setlength{\tabcolsep}{4pt}
 \renewcommand{\arraystretch}{1.1}
@@ -767,7 +768,8 @@ FixedGap          & \ding{51} & --        & \ding{51} & \ding{51} & \ding{51} \\
 w/o\,OptLater     & \ding{51} & \ding{51} & \ding{51} & --        & \ding{51} \\
 \textbf{MoEGambit} & \ding{51} & \ding{51} & \ding{51} & \ding{51} & \ding{51} \\
 \bottomrule
-\end{tabular}
+\end{tabular}\\[2pt]
+{\footnotesize\raggedright \textsuperscript{*}\,\ding{51}~=~enabled, --~=~disabled.\par}
 \end{center}
 \end{table}
 
@@ -794,27 +796,51 @@ MoEGambit's recovery cost grows more slowly than checkpoint restart because it a
 \section{Related Work}
 \label{sec:related}
 
-We organize prior fault-tolerance work for large-model training by \emph{research line}, not by chronology. Each subsection identifies what the line achieves, then states explicitly where MoEGambit sits relative to it.
+We position MoEGambit on a software-engineering coordinate system rather than as a point in a chronology of training systems. \S\ref{sec:rw-sas} anchors the paper in the self-adaptive / self-healing software literature, so that the SE artifacts R1--R3 introduced in \S\ref{sec:moegambit} have an explicit lineage; \S\ref{sec:rw-save}--\S\ref{sec:rw-moe-sys} then survey the three adjacent systems lines (save-side checkpointing, pipeline-adaptive redundancy, MoE throughput infrastructure); \S\ref{sec:rw-moe-ft} contrasts with the only previously published MoE-specific fault-tolerance system. We close with a positioning matrix that locates MoEGambit relative to all five lines simultaneously.
+
+\subsection{Self-Adaptive and Self-Healing Software Systems}
+\label{sec:rw-sas}
+
+The self-adaptive systems literature formalizes runtime repair as a MAPE-K loop (Monitor--Analyze--Plan--Execute--Knowledge)~\cite{kephart2003autonomic,garlan2004rainbow,salehie2009selfadaptive}, and prescribes three engineering disciplines orthogonal to any particular workload: (a) repair decisions must be driven by an explicit, runtime-checkable specification rather than by a hand-tuned heuristic; (b) the execute stage must protect a stated invariant with an explicit barrier rather than rely on best-effort sequencing; and (c) every decision must leave an auditable structured trace whose schema admits post-hoc correlation with downstream outcomes. MoEGambit's R1/R2/R3 contracts (\S\ref{sec:problem}) instantiate exactly these three disciplines for the distributed MoE training runtime: R1 is the execute-stage invariant barrier, R2's $\Phi'(t)$ is the analyze-stage runtime monitor, and R3's log schema is the knowledge layer. \emph{Distinct from} prior self-adaptive work, which has been applied predominantly to enterprise control planes and cloud orchestration~\cite{kephart2003autonomic,garlan2004rainbow}, MoEGambit pushes the same discipline into the \emph{training data plane} and introduces a recovery-quality metric---expert-weighted staleness density---that is specific to MoE training and has no analogue in the classical self-adaptive vocabulary.
 
 \subsection{Save-Side Optimization of Checkpointing}
 \label{sec:rw-save}
 
-One line of work attacks the per-checkpoint cost $C$ in Young/Daly's $\tau^{*}\!\approx\!\sqrt{2CM}$~\cite{young1974first,daly2006higher}. CheckFreq~\cite{mohan2021checkfreq} interleaves fine-grained snapshots with computation to keep overhead below a target budget; DeepFreeze~\cite{nicolae2020deepfreeze} pushes asynchronous and multi-tier writes; Check-N-Run~\cite{eisenman2022check} adds incremental and quantized save for recommendation models; Gemini~\cite{wang2023gemini} replaces NVMe writes with in-memory peer replicas to drive $C$ toward zero. \emph{Unlike} these systems, which all reduce save cost but still recover by reloading a globally consistent snapshot, MoEGambit leaves the save path unchanged (full distributed checkpoint at the operator-chosen save interval) and instead reduces the cost of \emph{recovery} by exploiting MoE-specific state asymmetry; the two directions are compatible and could be composed.
+One systems line attacks the per-checkpoint cost $C$ in Young/Daly's $\tau^{*}\!\approx\!\sqrt{2CM}$~\cite{young1974first,daly2006higher}: CheckFreq~\cite{mohan2021checkfreq} interleaves fine-grained snapshots with computation; DeepFreeze~\cite{nicolae2020deepfreeze} pushes asynchronous and multi-tier writes; Check-N-Run~\cite{eisenman2022check} adds incremental and quantized save for recommendation models; Gemini~\cite{wang2023gemini} replaces NVMe writes with in-memory peer replicas. In the MAPE-K view of \S\ref{sec:rw-sas}, this line contributes \emph{snapshot-frequency tuning} upstream of Monitor and is silent on the post-recovery trajectory. MoEGambit is \emph{orthogonal} to this line---it neither alters $C$ nor changes the save protocol---so CheckFreq/Gemini/Check-N-Run remain stackable beneath MoEGambit's recovery contract.
 
 \subsection{Pipeline-Adaptive and Redundancy-Based Fault Tolerance}
 \label{sec:rw-pipeline}
 
-A second line avoids reloading a snapshot at all by reconfiguring the training topology after a failure. Bamboo~\cite{thorpe2023bamboo} hides save cost behind redundancy on preemptible instances; Oobleck~\cite{jang2023oobleck} pre-compiles pipeline templates so that surviving ranks continue training under a degraded but valid pipeline; ReCycle~\cite{gandhi2024recycle} adapts the pipeline schedule on the fly to absorb stragglers and failures; Varuna~\cite{athlur2022varuna} and Parcae~\cite{duan2024parcae} target cheap commodity and preemptible cloud instances; earlier elastic-training systems Litz~\cite{qiao2019litz} and Or et al.~\cite{or2020resource} address dynamic membership. \emph{Unlike} this family, which is built on the dense-DNN assumption that ranks are interchangeable (so pipeline templates can absorb any rank's role), MoEGambit explicitly models the EP-sharded provenance of expert state (Table~\ref{tab:state-provenance}): the failed rank's experts cannot be supplied by any peer, only by a checkpoint shard. None of the pipeline-template systems exposes a runtime-checkable bound on the post-recovery training trajectory, whereas MoEGambit's $\Phi'(t)$ guard makes accumulated expert staleness an observable and a falsifier of recovery quality.
+A second systems line avoids reloading any snapshot by reconfiguring the training topology after a failure. Bamboo~\cite{thorpe2023bamboo} hides save cost behind redundancy on preemptible instances; Oobleck~\cite{jang2023oobleck} pre-compiles pipeline templates that admit degraded but valid pipelines; ReCycle~\cite{gandhi2024recycle} adapts the pipeline schedule on the fly; Varuna~\cite{athlur2022varuna}, Parcae~\cite{duan2024parcae}, Litz~\cite{qiao2019litz}, and Or et al.~\cite{or2020resource} target elastic and preemptible deployments. The common load-bearing assumption is that \emph{ranks are interchangeable}, which holds for dense Transformers but \emph{fails for MoE}: an EP-sharded expert subset (Table~\ref{tab:state-provenance}) has no in-memory peer at any other rank. MoEGambit does not compete with this line; it \emph{fills the EP-sharded blind spot} the line leaves open by formalizing the recovery semantics of sharded expert state into the R2 contract, and by exposing a runtime-checkable bound ($\Phi'(t)$) on the post-recovery trajectory---an object the pipeline-template family neither defines nor measures.
 
 \subsection{MoE Systems and the Freshness Blind Spot}
 \label{sec:rw-moe-sys}
 
-A third line builds the throughput infrastructure of MoE training itself: GShard~\cite{lepikhin2021gshard}, Switch Transformer~\cite{fedus2022switch}, DeepSpeed-MoE~\cite{rajbhandari2022deepspeedmoe}, Tutel~\cite{hwang2023tutel}, FasterMoE~\cite{he2022fastermoe}, SmartMoE~\cite{zhai2023smartmoe}, and MegaBlocks~\cite{gale2023megablocks} optimize routing, dispatch, and all-to-all bandwidth, while state-of-the-art open models~\cite{jiang2024mixtral,dai2024deepseekmoe,qwen3report} follow the same EP template; ST-MoE~\cite{zoph2022stmoe} and sparse-upcycling~\cite{komatsuzaki2023sparse} study auxiliary-loss balancing dynamics and the asymmetry between non-expert and expert updates that our $\Phi_{\max}$ cliff-edge in §\ref{sec:eval} relies on; V-MoE~\cite{riquelme2021vmoe} extends MoE to vision. \emph{Unlike} this family, which treats expert state as a first-class \emph{performance} concern but assumes every expert at step $t$ is current, MoEGambit treats expert state as a first-class \emph{freshness} concern and provides the machinery to repair a strict subset of experts from an older snapshot while keeping the rest of the model at step $t$.
+A third systems line builds the throughput infrastructure of MoE training: GShard~\cite{lepikhin2021gshard}, Switch Transformer~\cite{fedus2022switch}, DeepSpeed-MoE~\cite{rajbhandari2022deepspeedmoe}, Tutel~\cite{hwang2023tutel}, FasterMoE~\cite{he2022fastermoe}, SmartMoE~\cite{zhai2023smartmoe}, MegaBlocks~\cite{gale2023megablocks}, and the open-model deployments~\cite{jiang2024mixtral,dai2024deepseekmoe,qwen3report} optimize routing, dispatch, and all-to-all bandwidth; ST-MoE~\cite{zoph2022stmoe}, sparse-upcycling~\cite{komatsuzaki2023sparse}, and V-MoE~\cite{riquelme2021vmoe} push the architecture itself. Across this family, \emph{``every expert at step $t$ is current''} is an \emph{implicit performance invariant}, not a stated specification. MoEGambit lifts that implicit invariant into an \emph{explicit, $O(1)$-computable runtime monitor} $\Phi'(t)$ (\S\ref{sec:policy}) and validates it against an empirically grounded cliff edge (\S\ref{sec:eval}); this is, to our knowledge, the first time the MoE systems literature's silent freshness assumption has been written down as a runtime-checkable specification.
 
-\subsection{MoE-Specific Fault Tolerance}
+\subsection{MoE-Specific Fault Tolerance: MoC-System}
 \label{sec:rw-moe-ft}
 
-The closest prior work is MoC-System~\cite{cai2024moc} (ASPLOS'25), the only previously published MoE-specific fault-tolerance system we are aware of. MoC-System's contribution is Partial Experts Checkpointing (PEC): a round-robin schedule that writes only $K_{\text{pec}}$ of $N$ experts as fresh per save round, reducing on-disk save cost by a factor of $\sim$$N/K_{\text{pec}}$. \emph{Unlike} MoC-System, which optimizes the \emph{save} path and recovers via full checkpoint restart---paying the full load + replay bill on every failure and leaving the staleness introduced by older partial-expert shards as an unobserved property of the training trajectory---MoEGambit leaves the save path unchanged and optimizes the \emph{recovery} path with DP-redundancy-driven hybrid restoration governed by $\Phi'(t)$. The two systems target disjoint segments of the fault-tolerance pipeline (save-side vs.\ recovery-side) and could be combined, provided the cliff-edge cap on accumulated staleness accounts for save-side partiality as well as recovery-side hybrid restoration. We use an accuracy-equivalent overlay (§\ref{sec:compared}) to obtain a byte-identical accuracy comparison with MoC-System without re-implementing its full stack; the limits of that comparison are discussed in §\ref{sec:threats}.
+The only previously published MoE-specific fault-tolerance system we are aware of is MoC-System~\cite{cai2024moc} (ASPLOS'25), whose Partial Experts Checkpointing (PEC) writes only $K_{\text{pec}}$ of $N$ experts as fresh per save round, reducing on-disk save cost by a factor of $\sim$$N/K_{\text{pec}}$. The relationship between MoC-System and MoEGambit is best stated as a quadrant assignment (Table~\ref{tab:related-quadrants}): MoC-System lives in the \emph{save-side / no SE contract} quadrant, MoEGambit in the \emph{recovery-side / R1--R3 contract} quadrant; the two are \emph{orthogonal} rather than competing. A combined deployment is admissible provided the $\Phi'(t)$ aggregate in (\ref{eq:phi-prime}) also accounts for the save-side partial-freshness PEC injects, which we leave to future work (\S\ref{sec:conclusion}). For the accuracy-only comparison reported in this paper we use the byte-identical overlay described in \S\ref{sec:compared}; its limits are discussed in \S\ref{sec:threats}.
+
+\begin{table}[!t]
+\caption{Positioning matrix for MoE training fault tolerance.}
+\label{tab:related-quadrants}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}l p{0.30\columnwidth} p{0.30\columnwidth}@{}}
+\toprule
+                       & \textbf{No SE contract on the post-recovery trajectory} & \textbf{Runtime-checkable SE contract (R1--R3)} \\
+\midrule
+Save-side optimization & CheckFreq~\cite{mohan2021checkfreq}, Gemini~\cite{wang2023gemini}, Check-N-Run~\cite{eisenman2022check}, MoC-System~\cite{cai2024moc} & --- (open) \\
+Topology adaptation    & Bamboo~\cite{thorpe2023bamboo}, Oobleck~\cite{jang2023oobleck}, ReCycle~\cite{gandhi2024recycle} & --- (open) \\
+Recovery-side, MoE-aware & --- & \textbf{MoEGambit (this paper)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
 
 \section{Conclusion}
 \label{sec:conclusion}
