@@ -256,7 +256,7 @@ run_training() {
     --max-position-embeddings 40960 \
     --rotary-base 1000000 \
     --rotary-percent 1.0 \
-    --micro-batch-size 8 \
+    --micro-batch-size 4 \
     --global-batch-size 64 \
     --train-iters "${TRAIN_ITERS}" \
     --lr 1e-4 \
