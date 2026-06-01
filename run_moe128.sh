@@ -38,10 +38,12 @@ export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 export MASTER_PORT="${MASTER_PORT:-20115}"
 export NODE_RANK="${NODE_RANK:-0}"
 
-# Pipeline / expert parallelism unchanged from 64-GPU; DP doubles to 2.
+# 128-GPU parallelism: TP=1, PP=8, EP=16, DP=1 (EP doubles vs 64-GPU).
+# With 128 experts and EP=16, each rank owns 128/16 = 8 experts,
+# halving |E_new| per single-rank failure and the per-event phi'(t) contribution.
 TP_SIZE="${TP_SIZE:-1}"
 PP_SIZE="${PP_SIZE:-8}"
-EP_SIZE="${EP_SIZE:-8}"
+EP_SIZE="${EP_SIZE:-16}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -246,7 +248,7 @@ run_training() {
     --max-position-embeddings 40960 \
     --rotary-base 1000000 \
     --rotary-percent 1.0 \
-    --micro-batch-size 8 \
+    --micro-batch-size 4 \
     --global-batch-size 64 \
     --train-iters ${TRAIN_ITERS:-20000} \
     --lr 1e-4 \
