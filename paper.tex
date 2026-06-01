@@ -585,15 +585,20 @@ Compared with the 10-run NoFault baseline reported in Table~\ref{tab:pre_noise} 
 \textbf{$\Phi_{\max}=10^{-2}$ is the empirical cliff edge under multi-rank burst failures.} To stress the upper end of the $\Phi'(t)$ axis we run a $3\times 4$ multi-rank burst sweep. We inject a single burst of $|F|\in\{8,16,24\}$ simultaneous rank failures at a checkpoint-gap $\Delta\in\{50, 100, 150, 200\}$ iterations after the latest save (configured by \texttt{find\_multi\_fault.sh}; PP$=8$, EP$=8$, 64 H20-3e GPUs, same Qwen3-30B-A3B model and tokenizer as Table~\ref{tab:pre_noise}). With $|E_{\text{new}}| = |F|\cdot(N_{\text{expert}}/\text{EP}) = 16\cdot|F|$ and history term $\sum_h |E_h|\Delta_h = 0$ (each cell is a single burst), the projected $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W)$ ranges over $[2.5\times 10^{-3},\,3\times 10^{-2}]$, spanning two orders of magnitude around $\Phi_{\max}$. Each cell trains to iteration~600 and reports validation loss against the held-out FineWeb split; deviations are reported in units of $\sigma_{\text{base}}=0.0239$. Results are summarized in Table~\ref{tab:multi_fault}.
 
 \begin{table*}[!t]
-\caption{Multi-rank burst sweep ($|F|$ simultaneous rank failures at checkpoint gap $\Delta$). Each cell shows the validation loss at iter~600 (top) and the deviation $\ell-\mu_{\text{base}}$ in units of $\sigma_{\text{base}}=0.0239$ (bottom). Cells are color-coded by $\Phi'(t)$: \colorbox{green!12}{green} $=\Phi'(t)\leq \Phi_{\max}=10^{-2}$ (predicted safe, hybrid recovery), \colorbox{red!12}{red} $=\Phi'(t)>\Phi_{\max}$ (predicted unsafe, MoEGambit falls back to checkpoint restart). The scriptsize expression below each $\Delta$ header gives $\Phi'(t)\times 10^{3}$ as a function of $|F|$ for that column (e.g., at $\Delta=100$, $\Phi'(t)=5.0|F|\times 10^{-3}$).}
+\caption{Multi-rank burst sweep ($|F|$ simultaneous rank failures at checkpoint gap $\Delta$). Each cell shows the validation loss at iter~600 (top) and the deviation $\ell-\mu_{\text{base}}$ in units of $\sigma_{\text{base}}=0.0239$ (bottom). Cells are color-coded by $\Phi'(t)$: green $=\Phi'(t)\leq \Phi_{\max}=10^{-2}$ (predicted safe, hybrid recovery), red $=\Phi'(t)>\Phi_{\max}$ (predicted unsafe, MoEGambit falls back to checkpoint restart). The script-size expression below each $\Delta$ header gives $\Phi'(t)\times 10^{3}$ as a function of $|F|$ for that column (e.g., at $\Delta=100$, $\Phi'(t)=5.0|F|\times 10^{-3}$). Baseline (NoFault, 10 runs): $\mu_{\text{base}}=4.8543$, $\sigma_{\text{base}}=0.0239$ (Table~\ref{tab:pre_noise}). $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}{\cdot}W)$ with $N_{\text{expert}}=128$, $W=20{,}000$, $|E_{\text{new}}|=16|F|$.}
 \label{tab:multi_fault}
 \setlength{\tabcolsep}{8pt}
-\renewcommand{\arraystretch}{1.05}
+\renewcommand{\arraystretch}{1.25}
+\setcellgapes{3pt}
+\makegapedcells
 \begin{center}
 \begin{tabular}{@{}r|cccc@{}}
 \toprule
-                                 & $\Delta=50$            & $\Delta=100$           & $\Delta=150$           & $\Delta=200$ \\
-$|F|$ \,($|E_{\text{new}}|$)     & \scriptsize($2.5\,|F|$)& \scriptsize($5.0\,|F|$)& \scriptsize($7.5\,|F|$)& \scriptsize($10.0\,|F|$) \\
+\makecell{\\$|F|$ \,($|E_{\text{new}}|$)}
+  & \makecell{$\Delta=50$\\\scriptsize($2.5\,|F|$)}
+  & \makecell{$\Delta=100$\\\scriptsize($5.0\,|F|$)}
+  & \makecell{$\Delta=150$\\\scriptsize($7.5\,|F|$)}
+  & \makecell{$\Delta=200$\\\scriptsize($10.0\,|F|$)} \\
 \midrule
 $8$\ \ ($128$)
   & \cellcolor{green!12}\makecell{4.8620\\\scriptsize$+0.32\sigma$}
@@ -611,8 +616,6 @@ $24$\ ($384$)
   & \cellcolor{red!12}\makecell{4.9017\\\scriptsize$+1.98\sigma$}
   & \cellcolor{red!12}\makecell{4.9008\\\scriptsize$+1.95\sigma$} \\
 \bottomrule
-\multicolumn{5}{l}{\scriptsize Baseline (NoFault, 10 runs): $\mu_{\text{base}}=4.8543$, $\sigma_{\text{base}}=0.0239$ (Table~\ref{tab:pre_noise}).}\\
-\multicolumn{5}{l}{\scriptsize $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W)$ with $N_{\text{expert}}=128, W=20{,}000$; $|E_{\text{new}}|=16|F|$.}\\
 \end{tabular}
 \end{center}
 \end{table*}
@@ -649,20 +652,20 @@ Result: MoEGambit selected the expected path in all injected failures. Under the
 This experiment measures the per-event end-to-end recovery cost of MoEGambit under a single rank failure. We inject one hard failure after warmup and run a $2\times 2$ factorial design that crosses the two recovery design choices independently: \textbf{(i)~hybrid restore} (peer-pull dense/router + selective expert restore from per-rank checkpoint shards) versus \textbf{full checkpoint restart}, and \textbf{(ii)~two-phase} (weights-first, optimizer-later) versus \textbf{single-phase} (weights and optimizer restored together before training resumes). The recorded latency is the wall time from failure detection until the replacement rank produces its first post-recovery training iteration with all parameters and optimizer state attached.
 
 \begin{table}[htbp]
-\caption{Single-Failure End-to-End Recovery Latency ($2\times 2$ factorial; mean per event, seconds)}
+\caption{Single-Failure End-to-End Recovery Latency ($2{\times}2$ factorial; mean per event, seconds)}
 \label{tab:single}
-\setlength{\tabcolsep}{1pt}
-\renewcommand{\arraystretch}{1.1}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
 \begin{center}
 \footnotesize
-\begin{tabular}{@{}lrrr@{}}
+\begin{tabular}{@{}l r r r@{}}
 \toprule
-\textbf{Restore path} & \textbf{single} & \textbf{two-phase} & \textbf{$\Delta$ 2-phase} \\
+\textbf{Restore path} & \textbf{single} & \textbf{two-phase} & \textbf{$\Delta$ (\%)} \\
 \midrule
-Full ckpt restart  & 36.417 & 34.238          & $-2.179\,(-6.0\%)$ \\
-Hybrid (selective) & 30.743 & \textbf{28.914} & $-1.829\,(-6.0\%)$ \\
+Full ckpt restart  & 36.417 & 34.238          & $-2.179$ ($-6.0$) \\
+Hybrid (selective) & 30.743 & \textbf{28.914} & $-1.829$ ($-6.0$) \\
 \midrule
-$\Delta$ hybrid    & $-5.674\,(-15.6\%)$ & $-5.324\,(-15.5\%)$ & \\
+$\Delta$ hybrid (\%) & $-5.674$ ($-15.6$) & $-5.324$ ($-15.5$) & \\
 \bottomrule
 \end{tabular}
 \end{center}
