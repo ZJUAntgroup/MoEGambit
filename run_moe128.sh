@@ -7,7 +7,7 @@ set -x
 #   MODE=moegambit (default)  -> BSR-MoE hybrid recovery stack (run_moe64.sh)
 #   MODE=baseline             -> plain checkpoint-restart loop (run_moe64_baseline.sh)
 #
-# 128-GPU layout: TP=1, PP=8, EP=8, DP=2 on 16 nodes x 8 GPUs.
+# 128-GPU layout: TP=1, PP=8, EP=16, DP=1 on 16 nodes x 8 GPUs.
 # Set NNODES=16 (default) and NODE_RANK / MASTER_ADDR / MASTER_PORT on launch.
 # =============================================================================
 
@@ -41,9 +41,17 @@ export NODE_RANK="${NODE_RANK:-0}"
 # 128-GPU parallelism: TP=1, PP=8, EP=16, DP=1 (EP doubles vs 64-GPU).
 # With 128 experts and EP=16, each rank owns 128/16 = 8 experts,
 # halving |E_new| per single-rank failure and the per-event phi'(t) contribution.
-TP_SIZE="${TP_SIZE:-1}"
-PP_SIZE="${PP_SIZE:-8}"
-EP_SIZE="${EP_SIZE:-16}"
+# NOTE: must be exported so they survive the `bash -c "$(declare -f run_training); ..."`
+# indirection through save_train_log.sh below; otherwise the subshell sees empty values
+# and argparse fails with `--tensor-model-parallel-size: expected one argument`.
+[ -z "${TP_SIZE:-}" ] && unset TP_SIZE
+[ -z "${PP_SIZE:-}" ] && unset PP_SIZE
+[ -z "${EP_SIZE:-}" ] && unset EP_SIZE
+export TP_SIZE="${TP_SIZE:-1}"
+export PP_SIZE="${PP_SIZE:-8}"
+export EP_SIZE="${EP_SIZE:-16}"
+export TRAIN_ITERS="${TRAIN_ITERS:-20000}"
+export SAVE_INTERVAL="${SAVE_INTERVAL:-40}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -220,16 +228,16 @@ run_training() {
 
   torchrun \
     --nproc_per_node=8 \
-    --nnodes=${NNODES} \
-    --node_rank=${NODE_RANK} \
-    --master_addr=${MASTER_ADDR} \
-    --master_port=${MASTER_PORT} \
+    --nnodes="${NNODES}" \
+    --node_rank="${NODE_RANK}" \
+    --master_addr="${MASTER_ADDR}" \
+    --master_port="${MASTER_PORT}" \
     ./Megatron-LM/pretrain_gpt.py \
     --use-mcore-models \
     --transformer-impl transformer_engine \
-    --tensor-model-parallel-size ${TP_SIZE} \
-    --pipeline-model-parallel-size ${PP_SIZE} \
-    --expert-model-parallel-size ${EP_SIZE} \
+    --tensor-model-parallel-size "${TP_SIZE}" \
+    --pipeline-model-parallel-size "${PP_SIZE}" \
+    --expert-model-parallel-size "${EP_SIZE}" \
     --sequence-parallel \
     --legacy-tokenizer \
     --tokenizer-type HuggingFaceTokenizer \
@@ -250,7 +258,7 @@ run_training() {
     --rotary-percent 1.0 \
     --micro-batch-size 8 \
     --global-batch-size 256 \
-    --train-iters ${TRAIN_ITERS:-20000} \
+    --train-iters "${TRAIN_ITERS}" \
     --lr 1e-4 \
     --min-lr 1e-5 \
     --lr-decay-style cosine \
@@ -280,7 +288,7 @@ run_training() {
     --split 100,0,0 \
     --ckpt-format torch \
     --save "${CKPT_DIR}" \
-    --save-interval ${SAVE_INTERVAL:-40} \
+    --save-interval "${SAVE_INTERVAL}" \
     --eval-interval 1000 \
     --eval-iters 0 \
     --log-interval 1 \
