@@ -249,7 +249,7 @@ run_training() {
     --rotary-base 1000000 \
     --rotary-percent 1.0 \
     --micro-batch-size 8 \
-    --global-batch-size 128 \
+    --global-batch-size 256 \
     --train-iters ${TRAIN_ITERS:-20000} \
     --lr 1e-4 \
     --min-lr 1e-5 \
