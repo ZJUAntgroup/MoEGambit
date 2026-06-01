@@ -1,7 +1,7 @@
 set -uo pipefail
 set -x
 
-export NCCL_IB_DISABLE=1
+
 export NCCL_DEBUG=WARN
 export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
 export HF_HUB_OFFLINE=1

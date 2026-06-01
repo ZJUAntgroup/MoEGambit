@@ -11,7 +11,7 @@ set -x
 # Set NNODES=16 (default) and NODE_RANK / MASTER_ADDR / MASTER_PORT on launch.
 # =============================================================================
 
-export NCCL_IB_DISABLE=1
+
 export NCCL_DEBUG=WARN
 export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
 export HF_HUB_OFFLINE=1
@@ -257,7 +257,7 @@ run_training() {
     --rotary-base 1000000 \
     --rotary-percent 1.0 \
     --micro-batch-size 8 \
-    --global-batch-size 256 \
+    --global-batch-size 64 \
     --train-iters "${TRAIN_ITERS}" \
     --lr 1e-4 \
     --min-lr 1e-5 \

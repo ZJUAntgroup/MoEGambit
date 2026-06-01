@@ -139,21 +139,21 @@ We first state precisely what MoEGambit is asked to do and what it is allowed to
 
 \textbf{Design goals.} MoEGambit is engineered against three explicit goals; each one separates it from generic checkpoint restart and pinpoints why a new system is needed.
 
-\begin{description}
-    \item[\textbf{G1. Recovery-side fast path.}] Reduce end-to-end recovery latency on a single rank failure to well below the full checkpoint-restart cost of Megatron-LM by exploiting the DP-replication redundancy that is already present at step $t$ on healthy peers, so that only the genuinely rank-unique expert state has to traverse the disk path.
-    \item[\textbf{G2. Recovery-side quality contract.}] Bound the post-recovery training trajectory, not just the event of resumption. Concretely, every recovery decision must be justified against a runtime-checkable, cluster-wide quantity whose threshold is calibrated against the failure-free training noise floor, not picked by hand.
-    \item[\textbf{G3. Auditability and structural honesty.}] Make every recovery decision traceable to its inputs and to its downstream model-quality outcome. When the structural pre-conditions of the fast path are violated, the system must fall back to checkpoint restart \emph{transparently}, with the reason recorded.
-\end{description}
+\begin{itemize}
+    \item \textbf{G1.\ Recovery-side fast path.} Reduce end-to-end recovery latency on a single rank failure to well below the full checkpoint-restart cost of Megatron-LM by exploiting the DP-replication redundancy that is already present at step $t$ on healthy peers, so that only the genuinely rank-unique expert state has to traverse the disk path.
+    \item \textbf{G2.\ Recovery-side quality contract.} Bound the post-recovery training trajectory, not just the event of resumption. Concretely, every recovery decision must be justified against a runtime-checkable, cluster-wide quantity whose threshold is calibrated against the failure-free training noise floor, not picked by hand.
+    \item \textbf{G3.\ Auditability and structural honesty.} Make every recovery decision traceable to its inputs and to its downstream model-quality outcome. When the structural pre-conditions of the fast path are violated, the system must fall back to checkpoint restart \emph{transparently}, with the reason recorded.
+\end{itemize}
 
 \textbf{Assumptions.} MoEGambit is correct under four assumptions consistent with standard fault-tolerant training settings~\cite{thorpe2023bamboo,jang2023oobleck,wang2023gemini}: \textbf{(A1)} the failure detector~\cite{jiang2024megascale} reports rank failures in a fail-stop model (no Byzantine ranks~\cite{dubey2024llama3}); \textbf{(A2)} at least one checkpoint exists for $c\!\geq\!0$; \textbf{(A3)} for every failed rank $r$, at least one healthy DP peer holds the current-step replica of $r$'s dense/router state at the same PP/TP coordinate; \textbf{(A4)} the failed rank can be replaced or restarted on a hot-spare GPU within the training job's process-manager infrastructure. (A3) is the structural pre-condition that distinguishes the fast path from restart: when a failure (or concurrent burst) eliminates every healthy DP peer at the failed rank's PP/TP coordinate, (A3) is violated and MoEGambit must fall back to checkpoint restart (§\ref{sec:policy}). Concurrent multi-rank failures, corrupted checkpoints, silent data corruption~\cite{chowdhery2023palm}, and bit-flips are deferred to §\ref{sec:threats}.
 
 \textbf{Requirements (R1--R3).} The three design goals refine into three SE-style contract requirements that the rest of §\ref{sec:moegambit} instantiates one by one. We borrow the vocabulary of self-adaptive and self-healing systems~\cite{kephart2003autonomic,garlan2004rainbow,salehie2009selfadaptive}; existing training runtimes are silent on all three.
 
-\begin{description}
-    \item[(R1) Safe-point pre-conditions.] A repair invoked in the middle of forward/backward propagation or an in-flight optimizer step may commit parameter updates derived from invalid local state. The runtime must define an explicit safe repair point and gate optimizer commits against it.
-    \item[(R2) Runtime-checkable specifications.] Partial repair must be governed by a quantitative, $O(1)$-computable guard that bounds the staleness it injects into the cluster. The guard must distinguish single-event risk, cluster-wide accumulated risk, and per-event size, and its threshold must be supported by a data-driven cliff edge rather than a hand-tuned constant.
-    \item[(R3) Traceable observability.] Every recovery decision must produce a structured record that links policy inputs, the selected path, and the downstream model-quality outcome---turning ``did recovery succeed?'' into a falsifiable question.
-\end{description}
+\begin{itemize}
+    \item \textbf{(R1) Safe-point pre-conditions.} A repair invoked in the middle of forward/backward propagation or an in-flight optimizer step may commit parameter updates derived from invalid local state. The runtime must define an explicit safe repair point and gate optimizer commits against it.
+    \item \textbf{(R2) Runtime-checkable specifications.} Partial repair must be governed by a quantitative, $O(1)$-computable guard that bounds the staleness it injects into the cluster. The guard must distinguish single-event risk, cluster-wide accumulated risk, and per-event size, and its threshold must be supported by a data-driven cliff edge rather than a hand-tuned constant.
+    \item \textbf{(R3) Traceable observability.} Every recovery decision must produce a structured record that links policy inputs, the selected path, and the downstream model-quality outcome---turning ``did recovery succeed?'' into a falsifiable question.
+\end{itemize}
 
 R1--R3 form the spine of the rest of this section: §\ref{sec:safepoint} instantiates R1; §\ref{sec:policy} instantiates R2 as the expert-weighted staleness density $\Phi'(t)$ and the policy function $\pi(t)$; §\ref{sec:obs} instantiates R3. The state-restoration mechanism (§\ref{sec:mechanism}) and the two-phase protocol (§\ref{sec:twophase}) are how MoEGambit repairs state \emph{within} the contract R2 defines. We deliberately separate \emph{what is guaranteed} (the contract) from \emph{how it is achieved} (the mechanism), so the recovery contract is auditable independently of the implementation~\cite{garlan2004rainbow,salehie2009selfadaptive}.
 
@@ -348,12 +348,12 @@ $T_{\text{TTFR}}-T_{\text{TTR}}$ is the savings window the protocol creates comp
 
 \textbf{Process (reintegration as a four-state machine).} The reintegration manager advances the rank through four explicit states; each transition has a guard condition that must be observably true before the next state is entered.
 
-\begin{description}
-    \item[\texttt{RECOVERING}.] Initial state on failure. Guard \emph{(out)}: peer pull (path P) and checkpoint-shard weights read (path C, weights half) both complete.
-    \item[\texttt{REPAIRED\_NOT\_ROUTED}.] Weights are in place but the dispatch topology and expert directory~\cite{hwang2023tutel,he2022fastermoe} still reflect the old layout. The rank does \emph{not} yet receive expert traffic. Guard \emph{(out)}: expert directory and process-group view re-derived from the new rank layout and verified against the layout reported by the process manager.
-    \item[\texttt{ROUTED\_BARRIER}.] The rank receives expert traffic and runs forward/backward, but the update barrier blocks optimizer commits on affected experts. Guard \emph{(out)}: path C, moments half complete.
-    \item[\texttt{HEALTHY}.] The barrier is released; buffered gradients are applied via a single AdamW step and normal update semantics resume.
-\end{description}
+\begin{itemize}
+    \item \textbf{\texttt{RECOVERING}.} Initial state on failure. Guard \emph{(out)}: peer pull (path P) and checkpoint-shard weights read (path C, weights half) both complete.
+    \item \textbf{\texttt{REPAIRED\_NOT\_ROUTED}.} Weights are in place but the dispatch topology and expert directory~\cite{hwang2023tutel,he2022fastermoe} still reflect the old layout. The rank does \emph{not} yet receive expert traffic. Guard \emph{(out)}: expert directory and process-group view re-derived from the new rank layout and verified against the layout reported by the process manager.
+    \item \textbf{\texttt{ROUTED\_BARRIER}.} The rank receives expert traffic and runs forward/backward, but the update barrier blocks optimizer commits on affected experts. Guard \emph{(out)}: path C, moments half complete.
+    \item \textbf{\texttt{HEALTHY}.} The barrier is released; buffered gradients are applied via a single AdamW step and normal update semantics resume.
+\end{itemize}
 
 The state machine makes premature reintegration impossible by construction: a rank cannot receive routed tokens before \texttt{ROUTED\_BARRIER}, and it cannot apply an optimizer update before \texttt{HEALTHY}.
 
