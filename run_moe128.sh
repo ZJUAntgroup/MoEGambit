@@ -7,6 +7,10 @@ set -x
 #   MODE=moegambit (default)  -> BSR-MoE hybrid recovery stack (run_moe64.sh)
 #   MODE=baseline             -> plain checkpoint-restart loop (run_moe64_baseline.sh)
 #
+# For the 10-injection hybrid vs ckpt-restart benchmark, see bench_moe128.sh
+# which invokes this script twice (MODE=moegambit then MODE=baseline) with
+# isolated CKPT_DIR / TRAIN_LOG_DIR and matched injection cadence.
+#
 # 128-GPU layout: TP=1, PP=8, EP=16, DP=1 on 16 nodes x 8 GPUs.
 # Set NNODES=16 (default) and NODE_RANK / MASTER_ADDR / MASTER_PORT on launch.
 # =============================================================================
