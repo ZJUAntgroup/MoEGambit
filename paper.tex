@@ -453,7 +453,7 @@ With $\sigma_{\text{base}}=0.024$, the 95\% CI on the mean is $\pm 0.015$; we us
 
 \subsection{Compared Systems}\label{sec:compared}
 
-We compare MoEGambit with the following baselines: \textbf{NoFault} (no injected failures, reference trajectory); \textbf{Restart} (standard checkpoint restart with full reload and replay); \textbf{AlwaysHybrid} (hybrid on every failure, ignoring all guards); \textbf{FixedGap} (hybrid above a fixed gap, no $\Phi'(t)$); \textbf{MoEGambit-w/o-Exposure} (drops the $\Phi'(t)$ guard); \textbf{MoEGambit-w/o-OptLater} (drops two-phase recovery); \textbf{MoEGambit} (full system).
+We compare MoEGambit with three baselines: \textbf{NoFault} (no injected failures, reference trajectory); \textbf{Restart} (standard Megatron-LM checkpoint restart with full reload and replay); and \textbf{MoC-System} (the only previously published MoE-specific fault-tolerance system~\cite{cai2024moc}, instantiated via the byte-identical accuracy overlay described below).
 
 \textbf{MoC-System (emulated).} Because no reference implementation of MoC-System~\cite{cai2024moc} is publicly available, we build a byte-identical accuracy overlay (env switch \texttt{BSR\_MOC\_PEC\_EMULATE}) on top of MoEGambit: the save path is unchanged, but a sidecar (\texttt{moc\_pec\_metadata.json}) records which contiguous $K_{\text{pec}}$ experts PEC's round-robin would treat as fresh; the restore path then redirects each non-fresh expert to the historical \texttt{iter\_*} directory holding its last-fresh version, so the loaded bytes match a faithful PEC restore. Hybrid recovery and two-phase are disabled to match MoC-System's restart behavior. With $K_{\text{pec}}=16$, $N=128$ this reproduces the paper's PLT~$\approx 3.75\%$ point. We do \emph{not} measure MoC-System's wall-clock from this overlay (it still writes the full checkpoint); for recovery latency we use the most favorable published numbers as a conservative upper bound on MoC-System's advantage (see §\ref{sec:threats}).
 
@@ -619,7 +619,7 @@ To answer RQ4, we evaluate MoEGambit under multi-rank burst failures and directl
 
 We sweep the burst configuration $|F|\in\{8,16,24\}$ across $\Delta\in\{50, 100, 150, 200\}$ iterations after the latest checkpoint, the same $3\times 4$ grid summarized in Table~\ref{tab:multi_fault}. For each cell we record the selected recovery path, the running components of $\Phi'(t)$, validation loss at iteration~600, validation perplexity, gradient norm, token drop rate, and expert load coefficient of variation. The expected $\Phi'(t)$ for each cell is given by $|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W) = 16|F|\Delta/(128\cdot 20000)$.
 
-Expected behavior: FixedGap and AlwaysHybrid treat distributed and concentrated failures similarly and apply hybrid recovery to every cell. MoEGambit distinguishes them through the global expert-weighted staleness density $\Phi'(t)$: in the seven cells with $\Phi'(t)\leq \Phi_{\max}=10^{-2}$ MoEGambit selects hybrid recovery and post-recovery loss is expected to stay inside the baseline $\pm 1\sigma$ band; in the five cells with $\Phi'(t)>\Phi_{\max}$ MoEGambit falls back to checkpoint restart, which resets the global expert state to the last consistent checkpoint and zeros out the staleness debt for events outside the new exposure window. We additionally re-run the five over-threshold cells with the $\Phi_{\max}$ guard temporarily disabled (\textsc{MoEGambit-w/o-Exposure}, hybrid forced) to measure how far the loss would drift if the cliff edge were ignored.
+Expected behavior: a gap-only or always-hybrid policy would treat distributed and concentrated failures alike and apply hybrid recovery to every cell. MoEGambit distinguishes them through the global expert-weighted staleness density $\Phi'(t)$: in the seven cells with $\Phi'(t)\leq \Phi_{\max}=10^{-2}$ MoEGambit selects hybrid recovery and post-recovery loss is expected to stay inside the baseline $\pm 1\sigma$ band; in the five cells with $\Phi'(t)>\Phi_{\max}$ MoEGambit falls back to checkpoint restart, which resets the global expert state to the last consistent checkpoint and zeros out the staleness debt for events outside the new exposure window. We additionally re-run the five over-threshold cells with the $\Phi_{\max}$ guard temporarily disabled (hybrid forced) to measure how far the loss would drift if the cliff edge were ignored.
 
 Result: under the default policy MoEGambit correctly applies hybrid recovery on the seven $\Phi'(t)\leq 10^{-2}$ cells (with measured loss deviations $\leq 0.71\sigma_{\text{base}}$, all inside the baseline $\pm 1\sigma$ band, Table~\ref{tab:multi_fault}) and conservatively redirects the five $\Phi'(t)>10^{-2}$ cells to checkpoint restart, where post-restart loss returns inside the baseline $\pm 1\sigma$ band. With $\Phi_{\max}$ disabled and hybrid forced, the same five cells reproduce the loss values shown in Table~\ref{tab:multi_fault} (deviations $1.21$--$1.98\sigma_{\text{base}}$, with the $|F|=24$ rows touching the $\pm 2\sigma$ edge), confirming that the fallback is what carries the quality result above the cliff. This confirms that an expert-weighted, window-level staleness density captures the risk that global gap-only policies miss, while still admitting the common low-density failure pattern that benefits most from hybrid recovery.
 
@@ -633,30 +633,8 @@ MoEGambit introduces negligible throughput overhead in failure-free training bec
 \subsection{RQ6: Ablation Study}
 \label{sec:rq6}
 
-To answer RQ6, we evaluate the contribution of each major component.
+To answer RQ6, we isolate the contribution of each MoE-aware mechanism in MoEGambit through the $2\times 2$ factorial of Section~\ref{sec:rq2} (Table~\ref{tab:single}), which crosses \emph{hybrid restore} versus \emph{full checkpoint restart} with \emph{two-phase} versus \emph{single-phase} optimizer attachment. Relative to the $36.417$\,s full-restart baseline, MoE-aware hybrid restore contributes a $-5.50$\,s ($-15.1\%$) main effect---primarily by replacing collective \texttt{torch\_dist} loading with single-rank expert shard reads and peer-pulled dense/router state---while the weights-first / optimizer-later two-phase protocol contributes a $-2.00$\,s ($-5.5\%$) main effect by overlapping optimizer-state restoration with post-resume forward/backward execution. The interaction term is $0.35$\,s ($0.96\%$ of baseline, within run-to-run noise), so the two mechanisms compose additively: the joint MoEGambit configuration ($28.914$\,s) equals the baseline minus both main effects to within $\pm 1\%$. This decomposition validates the design intent of MoEGambit: hybrid restore and two-phase recovery target disjoint segments of the recovery critical path---the I/O-bound state restoration segment and the post-resume optimizer-attach segment---and therefore both must be enabled to obtain the full $20.6\%$ end-to-end reduction. The expert-weighted staleness guard $\Phi'(t)$ governs a separate dimension---when hybrid recovery is admissible at all---and its empirical contribution is established directly by the multi-rank burst sweep of Section~\ref{sec:rq4}: removing the guard (forcing hybrid above the cliff) drives the five over-threshold cells from inside the $\pm 1\sigma$ band to $1.21$--$1.98\,\sigma_{\text{base}}$.
 
-\begin{table}[htbp]
-\caption{Ablation Study\textsuperscript{*}}
-\label{tab:ablation}
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.1}
-\begin{center}
-\begin{tabular}{@{}l ccccc@{}}
-\toprule
-\textbf{Variant} & $\Delta_{\min}$ & $\Phi_{\max}$ & Hybrid & 2-phase & Reint. \\
-\midrule
-Restart           & --        & --        & --        & --        & --        \\
-AlwaysHybrid      & --        & --        & \ding{51} & \ding{51} & \ding{51} \\
-FixedGap          & \ding{51} & --        & \ding{51} & \ding{51} & \ding{51} \\
-w/o\,OptLater     & \ding{51} & \ding{51} & \ding{51} & --        & \ding{51} \\
-\textbf{MoEGambit} & \ding{51} & \ding{51} & \ding{51} & \ding{51} & \ding{51} \\
-\bottomrule
-\end{tabular}\\[2pt]
-{\footnotesize\raggedright \textsuperscript{*}\,\ding{51}~=~enabled, --~=~disabled.\par}
-\end{center}
-\end{table}
-
-The expert-weighted staleness guard mainly improves behavior under repeated failures (Section~\ref{sec:rq4}). The $2\times 2$ factorial in Section~\ref{sec:rq2} (Table~\ref{tab:single}) further isolates the contribution of the two MoE-aware recovery mechanisms in MoEGambit. Relative to the $36.417$\,s full-restart baseline, MoE-aware hybrid restore contributes a $-5.50$\,s ($-15.1\%$) main effect---primarily by replacing collective \texttt{torch\_dist} loading with single-rank expert shard reads and peer-pulled dense/router state---while the weights-first / optimizer-later two-phase protocol contributes a $-2.00$\,s ($-5.5\%$) main effect by overlapping optimizer-state restoration with post-resume forward/backward execution. The interaction is $0.35$\,s ($0.96\%$ of baseline, within run-to-run noise), so the two mechanisms compose additively: the joint MoEGambit configuration ($28.914$\,s) equals the baseline minus both main effects to within $\pm 1\%$. This decomposition validates the design intent of MoEGambit: hybrid restore and two-phase recovery target disjoint segments of the recovery critical path---the I/O-bound state restoration segment and the post-resume optimizer-attach segment---and therefore both must be enabled to obtain the full $20.6\%$ end-to-end reduction.
 
 \subsection{RQ7: Scalability}\label{sec:rq7}
 

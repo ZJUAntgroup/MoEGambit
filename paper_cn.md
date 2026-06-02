@@ -226,7 +226,7 @@ $$
 
 ## 5. 实验评估
 
-我们围绕七个把 §3 的契约 (R1--R3) 与机制（hybrid restore、两阶段恢复）连接到可测量结果的研究问题来组织评估。**RQ1（策略正确性）：** 在各种 gap 与 $\Phi'(t)$ 配置下，策略 $\pi(t)$ 是否确定性地按 Algorithm 1 选择期望路径并产生可审计的决策原因？**RQ2（单次故障代价）：** 在标准的单次 rank 故障场景下，hybrid restore 与 two-phase 协议各自对端到端 wall time 贡献多少，它们是加性的还是有交互的？**RQ3（训练质量与稳定性）：** 在重复故障 trace 下，MoEGambit、Restart 与 MoC-System overlay 的 training loss、validation loss、perplexity、下游 zero-shot 准确率如何对比？**RQ4（多故障与 $\Phi_{\max}$ 悬崖）：** 在 $|F|\times\Delta$ 多 rank burst sweep 下，$\Phi'(t)$ 阈值是否对应一条数据驱动的悬崖，能干净分隔 in-band 与 out-of-band 的恢复后训练轨迹？**RQ5（无故障开销）：** MoEGambit 引入的 runtime 检查、元数据跟踪与结构化日志在无故障训练下的吞吐开销是否可忽略？**RQ6（消融）：** 各主要组件（$\Delta_{\min}$、$\Phi_{\max}$、Hybrid、Two-phase、Reintegration）对总体加速的贡献如何？**RQ7（可扩展性）：** MoEGambit 相对 checkpoint restart 的恢复代价优势在集群规模从 16 GPU 扩到 128 GPU 时是收窄还是扩大？
+我们围绕七个把 §3 的契约 (R1--R3) 与机制（hybrid restore、两阶段恢复）连接到可测量结果的研究问题来组织评估。**RQ1（策略正确性）：** 在各种 gap 与 $\Phi'(t)$ 配置下，策略 $\pi(t)$ 是否确定性地按 Algorithm 1 选择期望路径并产生可审计的决策原因？**RQ2（单次故障代价）：** 在标准的单次 rank 故障场景下，hybrid restore 与 two-phase 协议各自对端到端 wall time 贡献多少，它们是加性的还是有交互的？**RQ3（训练质量与稳定性）：** 在重复故障 trace 下，MoEGambit、Restart 与 MoC-System overlay 的 training loss、validation loss、perplexity、下游 zero-shot 准确率如何对比？**RQ4（多故障与 $\Phi_{\max}$ 悬崖）：** 在 $|F|\times\Delta$ 多 rank burst sweep 下，$\Phi'(t)$ 阈值是否对应一条数据驱动的悬崖，能干净分隔 in-band 与 out-of-band 的恢复后训练轨迹？**RQ5（无故障开销）：** MoEGambit 引入的 runtime 检查、元数据跟踪与结构化日志在无故障训练下的吞吐开销是否可忽略？**RQ6（消融）：** 通过 §5.6 的 $2\times 2$ 析因实验，hybrid restore 与 two-phase 协议各自对端到端 wall time 贡献多少？$\Phi'(t)$ guard 对悬崖之上格点的训练质量贡献多少（§5.8）？**RQ7（可扩展性）：** MoEGambit 相对 checkpoint restart 的恢复代价优势在集群规模从 16 GPU 扩到 128 GPU 时是收窄还是扩大？
 
 ### 5.1 实现注记
 
@@ -284,7 +284,7 @@ $$
 
 为回答 RQ4，本实验在多 rank burst 故障下评估 MoEGambit，并直接验证 §4.4 推导出的悬崖 $\Phi_{\max}=10^{-2}$。我们用 burst-failure trace 生成器 `find_multi_fault.sh` 注入 $|F|$ 个同时 rank 故障（在所有 PP stage 上平衡），并在 MoEGambit 策略下重放剩余训练。**分布式故障：** failure 1 在 rank $r_1$、failure 2 在 $r_2$、failure 3 在 $r_3$（不同 rank）；**集中故障：** 三次 failure 都打同一逻辑 rank。
 
-我们在 $|F|\in\{8,16,24\}$ 与 $\Delta\in\{50,100,150,200\}$ 上 sweep $3\times 4$ 网格（表 tab:multi_fault）。每个格点记录所选恢复路径、$\Phi'(t)$ 的运行时分量、iter 600 的 validation loss、validation perplexity、梯度范数、token drop rate 与专家负载 CV。每格点的期望 $\Phi'(t)$ 为 $|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W) = 16|F|\Delta/(128\cdot 20000)$。期望行为：FixedGap 与 AlwaysHybrid 对分布式与集中故障一视同仁地走 hybrid；MoEGambit 通过 $\Phi'(t)$ 区分二者——7 个 $\Phi'(t)\leq 10^{-2}$ 格点走 hybrid，5 个 $\Phi'(t)>10^{-2}$ 格点回退 restart。我们还把这 5 个 over-threshold 格点在 $\Phi_{\max}$ 暂时禁用（\textsc{MoEGambit-w/o-Exposure}，强制 hybrid）下重跑，以测量悬崖被忽略时的漂移幅度。
+我们在 $|F|\in\{8,16,24\}$ 与 $\Delta\in\{50,100,150,200\}$ 上 sweep $3\times 4$ 网格（表 tab:multi_fault）。每个格点记录所选恢复路径、$\Phi'(t)$ 的运行时分量、iter 600 的 validation loss、validation perplexity、梯度范数、token drop rate 与专家负载 CV。每格点的期望 $\Phi'(t)$ 为 $|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W) = 16|F|\Delta/(128\cdot 20000)$。期望行为：gap-only 或 always-hybrid 策略对分布式与集中故障一视同仁地走 hybrid；MoEGambit 通过 $\Phi'(t)$ 区分二者——7 个 $\Phi'(t)\leq 10^{-2}$ 格点走 hybrid，5 个 $\Phi'(t)>10^{-2}$ 格点回退 restart。我们还把这 5 个 over-threshold 格点在 $\Phi_{\max}$ 暂时禁用（强制 hybrid）下重跑，以测量悬崖被忽略时的漂移幅度。
 
 **结果。** 默认策略下，MoEGambit 在 7 个 $\Phi'(t)\leq 10^{-2}$ 格点上正确施行 hybrid recovery（实测 loss 偏离 $\leq 0.71\sigma_{\text{base}}$，全在 baseline $\pm 1\sigma$ 带内）；在 5 个 $\Phi'(t)>10^{-2}$ 格点上保守重定向到 checkpoint restart，post-restart loss 回到带内。$\Phi_{\max}$ 禁用并强制 hybrid 时，相同 5 个格点的 loss 偏离为 $1.21$--$1.98\sigma_{\text{base}}$（$|F|=24$ 行触及 $\pm 2\sigma$ 边缘），证实是该 fallback 在悬崖之上托住了质量结果。这表明专家加权窗口级陈旧度密度捕捉到了全局 gap-only 策略错过的风险，同时仍允许大多数低密度故障模式走最快的 hybrid 路径。
 
@@ -294,19 +294,7 @@ $$
 
 ### 5.10 RQ6：消融实验
 
-为回答 RQ6，我们评估各主要组件的贡献。
-
-表 tab:ablation：消融实验（$\checkmark$ = 启用，-- = 禁用）
-
-| 变体 | $\Delta_{\min}$ | $\Phi_{\max}$ | Hybrid | 2-phase | Reint. |
-| --- | --- | --- | --- | --- | --- |
-| Restart | -- | -- | -- | -- | -- |
-| AlwaysHybrid | -- | -- | $\checkmark$ | $\checkmark$ | $\checkmark$ |
-| FixedGap | $\checkmark$ | -- | $\checkmark$ | $\checkmark$ | $\checkmark$ |
-| w/o OptLater | $\checkmark$ | $\checkmark$ | $\checkmark$ | -- | $\checkmark$ |
-| **MoEGambit** | $\checkmark$ | $\checkmark$ | $\checkmark$ | $\checkmark$ | $\checkmark$ |
-
-专家加权陈旧度 guard 主要改善重复故障下的行为（§5.8）。§5.6 的 $2\times 2$ 析因实验（表 1）进一步隔离 MoEGambit 的两个 MoE 感知恢复机制的贡献：相对 $36.417$ s full-restart baseline，MoE 感知 hybrid restore 贡献 $-5.50$ s ($-15.1\%$) 主效应（主要把 collective `torch_dist` 加载替换为单 rank 专家分片读取加 peer 拉的 dense/router 状态），weights-first/optimizer-later 两阶段协议贡献 $-2.00$ s ($-5.5\%$) 主效应（把优化器状态恢复与 post-resume forward/backward 重叠）。交互项 $0.35$ s ($0.96\%$ of baseline，在 run-to-run 噪声内)，二者加性组合：joint MoEGambit 配置（$28.914$ s）等于 baseline 减两个主效应至 $\pm 1\%$。这一分解验证 MoEGambit 的设计意图——hybrid restore 与两阶段恢复对应恢复关键路径上不相交的两段（I/O-bound 状态恢复段与 post-resume optimizer-attach 段），两者都必须启用才能拿到完整 $20.6\%$ 端到端节省。
+为回答 RQ6，我们通过 §5.6 的 $2\times 2$ 析因实验（表 1）隔离 MoEGambit 中两个 MoE 感知机制的贡献——它独立交叉了 *hybrid restore* vs. *full checkpoint restart* 与 *two-phase* vs. *single-phase* 两个设计选择。相对 $36.417$ s full-restart baseline，MoE 感知 hybrid restore 贡献 $-5.50$ s ($-15.1\%$) 主效应（主要把 collective `torch_dist` 加载替换为单 rank 专家分片读取加 peer 拉的 dense/router 状态），weights-first/optimizer-later 两阶段协议贡献 $-2.00$ s ($-5.5\%$) 主效应（把优化器状态恢复与 post-resume forward/backward 重叠）。交互项 $0.35$ s ($0.96\%$ of baseline，在 run-to-run 噪声内)，二者加性组合：joint MoEGambit 配置（$28.914$ s）等于 baseline 减两个主效应至 $\pm 1\%$。这一分解验证 MoEGambit 的设计意图——hybrid restore 与两阶段恢复对应恢复关键路径上不相交的两段（I/O-bound 状态恢复段与 post-resume optimizer-attach 段），两者都必须启用才能拿到完整 $20.6\%$ 端到端节省。专家加权陈旧度 guard $\Phi'(t)$ 控制的是另一个维度——hybrid recovery 是否被允许——其经验贡献由 §5.8 的多 rank burst sweep 直接给出：禁用该 guard（在悬崖之上强制 hybrid）会让 5 个 over-threshold 格点从 $\pm 1\sigma$ 带内推到 $1.21$--$1.98\,\sigma_{\text{base}}$。
 
 ### 5.11 RQ7：可扩展性
 
