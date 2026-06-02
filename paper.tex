@@ -461,61 +461,35 @@ $N_{\text{expert}}$ & total MoE experts in model                           & 128
 \end{center}
 \end{table}
 
-$\Delta_{\min}$ and $\Delta_{\max}$ are non-binding under our measured timings: with $T_{\text{load}}=35.95$\,s, $T_{\text{iter}}=10.31$\,s, $T_{\text{hybrid}}=28.79$\,s (Table~\ref{tab:pre_timing}), checkpoint load alone already exceeds $1.2\,T_{\text{hybrid}}$, so hybrid recovery is the cheaper path for every $\Delta\!\geq\!1$. $\Delta_{\max}=200$ matches the save interval and serves as a defensive guard for clusters with much faster checkpoint loading. We retain both as first-class knobs but they are never tripped in the regimes we evaluate.
+$\Delta_{\min}$ and $\Delta_{\max}$ are non-binding under our timings ($T_{\text{load}}>1.2\,T_{\text{hybrid}}$ from Table~\ref{tab:pre_timing}, so hybrid is the cheaper path for every $\Delta\!\geq\!1$); we retain both as defensive guards for clusters with much faster checkpoint loading.
 
-\textbf{$\Phi_{\max}=10^{-2}$ is calibrated as an empirical cliff edge.} We characterize the upper end of $\Phi'(t)$ with a $3\times 4$ multi-rank burst sweep: a single burst of $|F|\in\{8,16,24\}$ simultaneous rank failures injected at checkpoint gap $\Delta\in\{50,100,150,200\}$ on the same Qwen3-30B-A3B / 64-GPU configuration as Table~\ref{tab:pre_noise}. With $|E_{\text{new}}|=16|F|$ and history term $0$ (single burst), the projected $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}\!\cdot\!W)$ spans $[2.5\times 10^{-3},\,3\times 10^{-2}]$. Each cell trains to iteration~600 and reports validation loss against the held-out FineWeb split; deviations are in units of $\sigma_{\text{base}}=0.0239$.
+\textbf{$\Phi_{\max}=10^{-2}$ is calibrated as an empirical cliff edge.} A $3\!\times\!4$ multi-rank burst sweep ($|F|\in\{8,16,24\}$, $\Delta\in\{50,100,150,200\}$ on the same Qwen3-30B-A3B / 64-GPU configuration) drives projected $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}\!\cdot\!W)$ across $[2.5\!\times\!10^{-3},3\!\times\!10^{-2}]$, with $|E_{\text{new}}|\!=\!16|F|$. The data (Table~\ref{tab:multi_fault}) exhibit a clean cliff at $10^{-2}$: the seven cells with $\Phi'(t)\!\leq\!10^{-2}$ all stay inside the baseline $\pm 1\sigma$ band (worst $+0.71\sigma$), while the five cells above jump to $1.21$--$1.98\sigma$. We therefore retain $\Phi_{\max}=10^{-2}$ as the default and fall back to checkpoint restart above it.
 
-\begin{table*}[!t]
-\caption{Multi-rank burst sweep ($|F|$ simultaneous rank failures at checkpoint gap $\Delta$)\textsuperscript{*}. Each cell shows the validation loss at iter~600 (top) and the deviation $\ell-\mu_{\text{base}}$ in units of $\sigma_{\text{base}}=0.0239$ (bottom).}
+\begin{table}[htbp]
+\caption{Multi-rank burst sweep: validation-loss deviation at iter~600 in units of $\sigma_{\text{base}}=0.0239$. Shaded cells have $\Phi'(t)>\Phi_{\max}=10^{-2}$ (policy: restart); unshaded have $\Phi'(t)\leq\Phi_{\max}$ (policy: hybrid).}
 \label{tab:multi_fault}
-\setlength{\tabcolsep}{8pt}
-\renewcommand{\arraystretch}{1.25}
-\setcellgapes{3pt}
-\makegapedcells
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.1}
 \begin{center}
+\footnotesize
 \begin{tabular}{@{}r|cccc@{}}
 \toprule
-\makecell{\\$|F|$ \,($|E_{\text{new}}|$)}
-  & \makecell{$\Delta=50$\\\scriptsize($2.5\,|F|$)}
-  & \makecell{$\Delta=100$\\\scriptsize($5.0\,|F|$)}
-  & \makecell{$\Delta=150$\\\scriptsize($7.5\,|F|$)}
-  & \makecell{$\Delta=200$\\\scriptsize($10.0\,|F|$)} \\
+$|F|$ & $\Delta\!=\!50$ & $\Delta\!=\!100$ & $\Delta\!=\!150$ & $\Delta\!=\!200$ \\
 \midrule
-$8$\ \ ($128$)
-  & \cellcolor{green!12}\makecell{4.8620\\\scriptsize$+0.32\sigma$}
-  & \cellcolor{green!12}\makecell{4.8695\\\scriptsize$+0.64\sigma$}
-  & \cellcolor{green!12}\makecell{4.8530\\\scriptsize$-0.05\sigma$}
-  & \cellcolor{green!12}\makecell{4.8545\\\scriptsize$+0.01\sigma$} \\
-$16$\ ($256$)
-  & \cellcolor{green!12}\makecell{4.8500\\\scriptsize$-0.18\sigma$}
-  & \cellcolor{green!12}\makecell{4.8712\\\scriptsize$+0.71\sigma$}
-  & \cellcolor{red!12}\makecell{4.8883\\\scriptsize$+1.42\sigma$}
-  & \cellcolor{red!12}\makecell{4.8892\\\scriptsize$+1.46\sigma$} \\
-$24$\ ($384$)
-  & \cellcolor{green!12}\makecell{4.8685\\\scriptsize$+0.59\sigma$}
-  & \cellcolor{red!12}\makecell{4.8832\\\scriptsize$+1.21\sigma$}
-  & \cellcolor{red!12}\makecell{4.9017\\\scriptsize$+1.98\sigma$}
-  & \cellcolor{red!12}\makecell{4.9008\\\scriptsize$+1.95\sigma$} \\
+$8$  & $+0.32$ & $+0.64$ & $-0.05$ & $+0.01$ \\
+$16$ & $-0.18$ & $+0.71$ & \cellcolor{red!12}$+1.42$ & \cellcolor{red!12}$+1.46$ \\
+$24$ & $+0.59$ & \cellcolor{red!12}$+1.21$ & \cellcolor{red!12}$+1.98$ & \cellcolor{red!12}$+1.95$ \\
 \bottomrule
-\end{tabular}\\[2pt]
-{\footnotesize\raggedright \textsuperscript{*}\,Cells colour-coded by $\Phi'(t)$: green $=\Phi'(t)\leq \Phi_{\max}=10^{-2}$ (predicted safe, hybrid), red $=\Phi'(t)>\Phi_{\max}$ (predicted unsafe, falls back to restart). $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}{\cdot}W)$ with $N_{\text{expert}}=128$, $W=20{,}000$, $|E_{\text{new}}|=16|F|$. Baseline (NoFault, 10 runs): $\mu_{\text{base}}=4.8543$, $\sigma_{\text{base}}=0.0239$ (Table~\ref{tab:pre_noise}).\par}
+\end{tabular}
 \end{center}
-\end{table*}
-
-The data exhibit a clean cliff at $\Phi_{\max}=10^{-2}$. The seven cells with $\Phi'(t)\leq 10^{-2}$ all fall inside the baseline $\pm 1\sigma$ band (worst $+0.71\sigma$); the five cells above the threshold jump to $+1.21\sigma$ to $+1.98\sigma$ and start touching the baseline $\pm 2\sigma$ edge. This is consistent with the structural argument from~\cite{shazeer2017outrageously,fedus2022switch,zoph2022stmoe,komatsuzaki2023sparse}: while $|E_{\text{new}}|/N_{\text{expert}}$ stays small, the auxiliary load-balancing loss reabsorbs the staleness within a few iterations; once the joint $|F|\!\cdot\!\Delta$ pushes $\Phi'(t)$ past $10^{-2}$ the staleness debt exceeds that capacity and the loss diverges. We therefore retain $\Phi_{\max}=10^{-2}$ as the default: it is the largest density at which every measured cell stays statistically indistinguishable from failure-free training. Above $\Phi_{\max}$, MoEGambit falls back to checkpoint restart and resets the staleness debt.
+\end{table}
 
 \subsection{RQ1: Recovery Path Selection}
 \label{sec:rq1}
 
-To answer RQ1, we verify whether MoEGambit chooses the intended recovery path by injecting one rank failure at controlled checkpoint gaps:
-\begin{equation}
-    \Delta \in \{8, 16, 32, 64, 128, 256, 512, 1000, 1500\}
-\end{equation}
-For each failure, we record the selected path, decision reason, checkpoint gap, failed rank, the components of $\Phi'(t)$ before and after recovery, and $|E_{\text{new}}|$.
+To answer RQ1, we verify whether MoEGambit chooses the intended recovery path by injecting one rank failure at controlled checkpoint gaps $\Delta \in \{8, 16, 32, 64, 128, 256, 512, 1000, 1500\}$, recording the selected path, decision reason, and the components of $\Phi'(t)$ for each event. We additionally re-run the smallest gaps ($\Delta\!\in\!\{8,16,32\}$) with $\Delta_{\min}$ temporarily raised to $64$ to stress the small-gap branch.
 
-Expected behavior is: at the measured $\Delta_{\min}=1$ all injected gaps within $[\Delta_{\min}, \Delta_{\max}]$ trigger hybrid recovery (since hybrid is already $\geq$1.2$\times$ faster than restart on our cluster); however, failures whose $\Delta$ exceeds $\Delta_{\max}$ or whose projected $\Phi'(t)$ would exceed $\Phi_{\max}$ are still expected to fall back to checkpoint restart. To additionally stress the small-gap branch of the policy, we re-run the smallest injected gaps ($\Delta \in \{8, 16, 32\}$) with $\Delta_{\min}$ temporarily raised to $64$; in that configuration the small gaps must instead be handled by checkpoint restart.
-
-Result: MoEGambit selected the expected path in all injected failures. Under the default $\Delta_{\min}=1$ and $\Delta_{\max}=200$, all single-failure injections with $\Delta \leq 200$ were handled by hybrid recovery, the $\Delta=256, 512, 1000, 1500$ injections were correctly rejected by the $\Delta_{\max}$ guard and fell back to checkpoint restart, and synthetic failure traces whose projected $\Phi'(t)$ exceeded $\Phi_{\max}$ were also conservatively redirected to restart. Under the stress configuration with $\Delta_{\min}=64$, the small-gap injections were correctly routed to checkpoint restart, while larger-gap injections continued to use hybrid recovery. This experiment validates that MoEGambit's policy is not merely a hardcoded hybrid trigger; it uses the gap, the per-event upper bound, and the global expert-weighted staleness density to bound recovery risk, and the $\Delta_{\min}$ guard remains functional even when the default value is non-binding on the current cluster.
+Result: MoEGambit selected the expected path on every injection. Under the default $\Delta_{\min}\!=\!1$, $\Delta_{\max}\!=\!200$, all $\Delta\!\leq\!200$ failures used hybrid recovery; $\Delta\!\in\!\{256,512,1000,1500\}$ were correctly rejected by the $\Delta_{\max}$ guard, and synthetic traces with projected $\Phi'(t)\!>\!\Phi_{\max}$ were redirected to restart. Under the stress configuration ($\Delta_{\min}\!=\!64$), small-gap injections correctly fell back to restart while larger-gap ones still went hybrid. The policy is therefore not a hardcoded hybrid trigger: gap, per-event upper bound, and global staleness density all bound recovery risk, and the $\Delta_{\min}$ guard remains functional even when its default value is non-binding on our cluster.
 
 \subsection{RQ2: Single-Failure Recovery Cost}
 \label{sec:rq2}
@@ -593,17 +567,9 @@ Restart and MoEGambit (rows 1, 3) agree within $\pm 1.6$~pp on every task; the a
 \subsection{RQ4: Multiple Failures and Expert-Weighted Staleness Density}
 \label{sec:rq4}
 
-To answer RQ4, we evaluate MoEGambit under multi-rank burst failures and directly validate the cliff-edge value $\Phi_{\max}=10^{-2}$ derived in Section~\ref{sec:policy}. We use the burst-failure trace generator \texttt{find\_multi\_fault.sh}, which injects $|F|$ simultaneous rank failures balanced across all PP stages and replays the rest of the training under MoEGambit's policy.
+To answer RQ4, we evaluate MoEGambit under multi-rank burst failures and validate the cliff-edge $\Phi_{\max}=10^{-2}$ from §\ref{sec:policy}. Using \texttt{find\_multi\_fault.sh} we sweep $|F|\!\in\!\{8,16,24\}$ simultaneous rank failures across $\Delta\!\in\!\{50,100,150,200\}$ on the same $3\!\times\!4$ grid as Table~\ref{tab:multi_fault}, covering both \emph{distributed} (failures on distinct ranks) and \emph{concentrated} (repeated failures on one rank) patterns---a gap-only or always-hybrid policy would treat them alike, whereas $\Phi'(t)$ separates them through $|E_{\text{new}}|$.
 
-\textbf{Distributed failures:} failure 1 on rank $r_1$, failure 2 on rank $r_2$, failure 3 on rank $r_3$, where $r_1$, $r_2$, and $r_3$ are different ranks.
-
-\textbf{Concentrated failures:} failure 1 on rank $r$, failure 2 on rank $r$, failure 3 on rank $r$, where all failures occur on the same logical rank.
-
-We sweep the burst configuration $|F|\in\{8,16,24\}$ across $\Delta\in\{50, 100, 150, 200\}$ iterations after the latest checkpoint, the same $3\times 4$ grid summarized in Table~\ref{tab:multi_fault}. For each cell we record the selected recovery path, the running components of $\Phi'(t)$, validation loss at iteration~600, validation perplexity, gradient norm, token drop rate, and expert load coefficient of variation. The expected $\Phi'(t)$ for each cell is given by $|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W) = 16|F|\Delta/(128\cdot 20000)$.
-
-Expected behavior: a gap-only or always-hybrid policy would treat distributed and concentrated failures alike and apply hybrid recovery to every cell. MoEGambit distinguishes them through the global expert-weighted staleness density $\Phi'(t)$: in the seven cells with $\Phi'(t)\leq \Phi_{\max}=10^{-2}$ MoEGambit selects hybrid recovery and post-recovery loss is expected to stay inside the baseline $\pm 1\sigma$ band; in the five cells with $\Phi'(t)>\Phi_{\max}$ MoEGambit falls back to checkpoint restart, which resets the global expert state to the last consistent checkpoint and zeros out the staleness debt for events outside the new exposure window. We additionally re-run the five over-threshold cells with the $\Phi_{\max}$ guard temporarily disabled (hybrid forced) to measure how far the loss would drift if the cliff edge were ignored.
-
-Result: under the default policy MoEGambit correctly applies hybrid recovery on the seven $\Phi'(t)\leq 10^{-2}$ cells (with measured loss deviations $\leq 0.71\sigma_{\text{base}}$, all inside the baseline $\pm 1\sigma$ band, Table~\ref{tab:multi_fault}) and conservatively redirects the five $\Phi'(t)>10^{-2}$ cells to checkpoint restart, where post-restart loss returns inside the baseline $\pm 1\sigma$ band. With $\Phi_{\max}$ disabled and hybrid forced, the same five cells reproduce the loss values shown in Table~\ref{tab:multi_fault} (deviations $1.21$--$1.98\sigma_{\text{base}}$, with the $|F|=24$ rows touching the $\pm 2\sigma$ edge), confirming that the fallback is what carries the quality result above the cliff. This confirms that an expert-weighted, window-level staleness density captures the risk that global gap-only policies miss, while still admitting the common low-density failure pattern that benefits most from hybrid recovery.
+Result: under the default policy MoEGambit applies hybrid recovery on the seven $\Phi'(t)\!\leq\!10^{-2}$ cells (deviations $\leq 0.71\sigma_{\text{base}}$, all inside the baseline $\pm 1\sigma$ band) and redirects the five $\Phi'(t)\!>\!10^{-2}$ cells to checkpoint restart, where post-restart loss returns inside the $\pm 1\sigma$ band. With the $\Phi_{\max}$ guard disabled, those same five cells reproduce the $1.21$--$1.98\sigma_{\text{base}}$ deviations of Table~\ref{tab:multi_fault}, confirming that the fallback---not hybrid itself---carries the quality result above the cliff and that an expert-weighted, window-level density captures risk that global gap-only policies miss.
 
 \subsection{RQ5: Failure-Free Overhead}
 \label{sec:rq5}
@@ -622,9 +588,9 @@ To answer RQ6, we isolate the contribution of each MoE-aware mechanism in MoEGam
 
 \textbf{Question.} Does the recovery-cost gap between MoEGambit and checkpoint restart hold as the cluster size grows? \textbf{Setup.} To answer RQ7, we rerun the single-failure injection of \S\ref{sec:rq2} at four cluster sizes---16, 32, 64, and 128 GPUs---holding the per-rank micro-batch size fixed at 8 and scaling the global batch size proportionally so that the failure-free per-step cost stays in the same regime. The model architecture is held constant ($N=128$ experts, 48 layers, hidden $2048$); the parallelism layout is rebalanced as (TP, PP, EP) $=$ (1, 4, 4) at 16 GPUs, (1, 4, 8) at 32, (1, 8, 8) at 64, and (1, 8, 16) at 128. Each configuration injects one fault at step 70 on a uniformly random rank, repeated 10 times with different seeds; we report median and inter-quartile range.
 
-\textbf{Result: failure-free per-step cost.} The failure-free per-step time grows sub-linearly: $7.8$\,s (16~GPUs) $\to 9.1$\,s (32) $\to 10.0$\,s (64) $\to 13.5$\,s (128). The growth between 16 and 64 GPUs is dominated by the increase in per-step microbatch count $m$ as the global batch size scales, while the 64$\to$128 step adds an EP-group expansion (8$\to$16) that doubles the alltoall participant count and forces the dispatch/combine collectives to traverse inter-node links~\cite{narayanan2021megatron,hwang2023tutel,he2022fastermoe}. Critically, the per-step growth is the same for MoEGambit and Restart (both share the same forward/backward/dispatch path)---scalability is determined entirely by how each system's recovery cost scales.
+\textbf{Result: failure-free per-step cost.} Per-step time grows sub-linearly from $7.8$\,s at 16~GPUs to $13.5$\,s at 128~GPUs, and---critically---grows identically for MoEGambit and Restart (both share the forward/backward/dispatch path), so scalability is determined entirely by how recovery cost scales~\cite{narayanan2021megatron,hwang2023tutel,he2022fastermoe}.
 
-\textbf{Result: recovery cost.} Checkpoint restart's recovery time grows with the global checkpoint size: $24.1$\,s (16~GPUs) $\to 29.3$\,s (32) $\to 36.4$\,s (64) $\to 47.2$\,s (128), an approximately linear trajectory dominated by the bandwidth-bound $\textsc{LoadCkpt}$ collective phase~\cite{eisenman2022check,nicolae2020deepfreeze}. MoEGambit's recovery time grows much more slowly: $19.6$\,s $\to 23.2$\,s $\to 28.9$\,s $\to 33.7$\,s. Two structural reasons drive the divergence. First, hybrid restore (\S\ref{sec:mechanism}) replaces the $O(\text{global ckpt size})$ collective load with an $O(|E_{\text{new}}| \cdot \text{shard size})$ single-rank read, where $|E_{\text{new}}|$---the number of experts assigned to the failed rank---shrinks as EP grows ($128/\text{EP}=8$ at 128~GPUs versus $32$ at 16~GPUs). Second, the two-phase protocol (\S\ref{sec:twophase}) overlaps optimizer-state restoration with post-resume forward/backward, so the $\textsc{LoadCkpt-Optim}$ component is hidden behind productive compute that itself stays roughly constant per rank. The end-to-end recovery-cost ratio Restart/MoEGambit is therefore $1.23\times$ at 16~GPUs and widens to $1.40\times$ at 128~GPUs, indicating that MoEGambit's advantage \emph{strengthens} with cluster size rather than diminishing.
+\textbf{Result: recovery cost.} Checkpoint restart grows roughly linearly with global checkpoint size ($24.1$\,s at 16~GPUs $\to 47.2$\,s at 128~GPUs), bandwidth-bound on the $\textsc{LoadCkpt}$ collective~\cite{eisenman2022check,nicolae2020deepfreeze}; MoEGambit grows much more slowly ($19.6$\,s $\to 33.7$\,s). Two structural reasons: (i)~hybrid restore (\S\ref{sec:mechanism}) replaces an $O(\text{global ckpt})$ collective with an $O(|E_{\text{new}}|\!\cdot\!\text{shard})$ single-rank read, where $|E_{\text{new}}|\!=\!N_{\text{expert}}/\text{EP}$ \emph{shrinks} as EP grows; (ii)~the two-phase protocol (\S\ref{sec:twophase}) hides $\textsc{LoadCkpt-Optim}$ behind productive compute. The Restart/MoEGambit ratio therefore widens from $1.23\times$ at 16~GPUs to $\mathbf{1.40\times}$ at 128~GPUs.
 
 \textbf{Result: post-recovery throughput.} Across all four scales, training throughput recovers to within $\pm 1\%$ of the failure-free baseline within 50 steps after resumption (the policy-mandated reintegration tail of \S\ref{sec:obs}); we observe no drift specific to the larger clusters. The expert-weighted staleness density $\Phi'(t)$ stays below the calibrated threshold $\tau_C$ at all four scales, which means hybrid restore remains the chosen path under the policy of \S\ref{sec:policy} for the operating regimes evaluated.
 
@@ -636,7 +602,7 @@ To answer RQ6, we isolate the contribution of each MoE-aware mechanism in MoEGam
 
 \textbf{Setup.} To answer RQ8, we rerun the four core experiments (single-failure $2\times 2$ factorial of §\ref{sec:rq2}, multi-rank burst sweep of §\ref{sec:rq4}, failure-free overhead of §\ref{sec:rq5}, and a 16$\to$128 GPU recovery-cost scaling slice of §\ref{sec:rq7}) on \textbf{DeepSeek-V2-Lite}~\cite{deepseekv2} (15.7B total / 2.4B activated, 27 layers, 64 routed experts, 2 shared experts, top-6, expert FFN hidden $1408$). To isolate the MoE-structure variable we replace DeepSeek-V2-Lite's MLA attention with a standard GQA configuration (32 heads, 4 KV groups, head dim $128$) of identical activated-parameter budget; the routing topology, shared-expert layout, and EP/PP shard structure on which MoEGambit operates are kept native. Parallelism: TP$=1$, PP$=4$, EP$=8$, DP across pipeline copies on 64 H20-3e GPUs (with the §\ref{sec:rq7} 16/32/128-GPU points covered by the corresponding $(\text{TP},\text{PP},\text{EP})$ rebalances). The two shared experts at every MoE layer are DP-replicated alongside dense and router state and therefore recovered through path~P (§\ref{sec:mechanism}); only the 64 routed experts traverse path~C. Policy parameters are inherited unchanged from Table~\ref{tab:policy} except $N_{\text{expert}}\!=\!64$, which rescales $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W)$ but leaves $\Phi_{\max}=10^{-2}$ as a hypothesis to be re-validated.
 
-\textbf{Hypotheses.} (H8.1) Hybrid restore and two-phase remain independent additive main effects on single-failure recovery latency, with the relative magnitudes shifted by the smaller dense/router footprint of MLA-class architectures: $-15.1\%$ in §\ref{sec:rq2} is expected to compress to roughly $-10$ to $-13\%$ on DeepSeek-V2-Lite, while the two-phase contribution stays at $-5$ to $-6\%$ since it scales with one training iteration regardless of architecture. (H8.2) The $\Phi_{\max}=10^{-2}$ cliff calibrated on $N_{\text{expert}}=128$ continues to bound post-recovery validation loss inside the failure-free $\pm 1\sigma$ band on $N_{\text{expert}}=64$, because $\Phi'(t)$ already normalizes by $N_{\text{expert}}$; only the absolute $|F|\!\cdot\!\Delta$ values that cross the cliff scale by $\times\!2$. (H8.3) Treating shared experts on path~C instead of path~P is a falsification probe: it should visibly degrade the hybrid main effect (since 2/$(64+2)\!\approx\!3\%$ of restored bytes leave peer memory for disk on every MoE layer), confirming that the path-P/path-C decomposition is structurally meaningful rather than an accounting artefact.
+\textbf{Hypotheses.} Hybrid restore and two-phase remain independent additive main effects, with the hybrid magnitude expected to compress on the smaller dense/router footprint and the two-phase contribution to stay near $-5$ to $-6\%$ since it scales with one training iteration; the $\Phi_{\max}=10^{-2}$ cliff should continue to bound post-recovery loss because $\Phi'(t)$ already normalizes by $N_{\text{expert}}$; and treating shared experts on path~C rather than path~P should visibly degrade the hybrid effect, falsifying the path-P/path-C decomposition if it does not.
 
 \textbf{Status.} The DeepSeek-V2-Lite runs are scheduled for the camera-ready revision; the driver script (\texttt{bench\_dsv2lite.sh}, parallel layout, fault-injection trace) and the hypothesis-level pass/fail criteria above are committed in the artifact alongside this submission. We defer the measured tables to the camera-ready and discuss in §\ref{sec:threats} the residual risk that any of H8.1--H8.3 fails.
 

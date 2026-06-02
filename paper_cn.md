@@ -271,15 +271,13 @@ $$
 
 **10K 步训练-loss 轨迹（图 fig:train-loss）。** 在 10 个注入故障跨 10{,}000 迭代上，MoEGambit 与 Restart 在视觉上无法区分；MoC-System 自第一次注入后稳定坐落在二者之上，对应 §5.8 预测的 PEC 跨恢复边界携带较老专家状态的签名。最后 200 迭代均值：Restart 2.7919，MoEGambit 2.7910（vs. Restart $-0.001$），MoC-System 2.8254（$+0.034$）。
 
-**下游 zero-shot 准确率。** 因为 training loss 相近的 checkpoint 在判别式 probe 上仍可能不同，我们在 iter 10{,}000 用 lm-evaluation-harness 在 8 项任务（ARC-Easy、BoolQ、MathQA、OBQA、PIQA、RACE、SWAG、WinoGrande）上离线评估，OBQA/SWAG 报告 `acc_norm`，其余报告 `acc`。MoEGambit 平均 $45.32\%$、Restart $45.06\%$、MoC-System $44.67\%$：MoEGambit 与 Restart 每项差 $\leq 1.6$ pp，平均差 $+0.26$ pp 落在 Pythia 报告的单 checkpoint 下游噪声地板内，MoEGambit 相对 Megatron full-restart 没有可检测到的下游质量损失；MoC-System overlay 在 8 项中输 6 项，平均比 Restart 低 $0.39$ pp、比 MoEGambit 低 $0.65$ pp，与图 fig:train-loss 的持续 training-loss gap 和 §5.8 的陈旧度密度机制一致。
+**下游 zero-shot 准确率。** 因为 training loss 相近的 checkpoint 在判别式 probe 上仍可能不同，我们在 iter 10{,}000 用 lm-evaluation-harness 在标准 8 任务套件上离线评估。MoEGambit 平均 $45.32\%$、Restart $45.06\%$、MoC-System $44.67\%$：MoEGambit 与 Restart 每项差 $\leq 1.6$ pp，平均差 $+0.26$ pp 在单 checkpoint 下游噪声地板内，相对 Megatron full-restart 没有可检测到的下游质量损失；MoC-System overlay 在 8 项中输 6 项，平均比 Restart 低 $0.39$ pp、比 MoEGambit 低 $0.65$ pp，与图 fig:train-loss 的持续 training-loss gap 和 §5.8 的陈旧度密度机制一致。
 
 ### 5.8 RQ4：多故障与专家加权陈旧度密度悬崖
 
-为回答 RQ4，本实验在多 rank burst 故障下评估 MoEGambit，并直接验证 §4.4 推导出的悬崖 $\Phi_{\max}=10^{-2}$。我们用 burst-failure trace 生成器 `find_multi_fault.sh` 注入 $|F|$ 个同时 rank 故障（在所有 PP stage 上平衡），并在 MoEGambit 策略下重放剩余训练。**分布式故障：** failure 1 在 rank $r_1$、failure 2 在 $r_2$、failure 3 在 $r_3$（不同 rank）；**集中故障：** 三次 failure 都打同一逻辑 rank。
+为回答 RQ4，本实验在多 rank burst 故障下评估 MoEGambit，并验证 §4.4 推导出的悬崖 $\Phi_{\max}=10^{-2}$。我们用 `find_multi_fault.sh` 在 $|F|\in\{8,16,24\}$ × $\Delta\in\{50,100,150,200\}$ 的 $3\times 4$ 网格上 sweep（表 tab:multi_fault），同时覆盖**分布式**（不同 rank）与**集中**（重复打同一 rank）两种模式——gap-only 或 always-hybrid 策略对二者一视同仁，而 $\Phi'(t)$ 通过 $|E_{\text{new}}|$ 把它们分开。
 
-我们在 $|F|\in\{8,16,24\}$ 与 $\Delta\in\{50,100,150,200\}$ 上 sweep $3\times 4$ 网格（表 tab:multi_fault）。每个格点记录所选恢复路径、$\Phi'(t)$ 的运行时分量、iter 600 的 validation loss、validation perplexity、梯度范数、token drop rate 与专家负载 CV。每格点的期望 $\Phi'(t)$ 为 $|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W) = 16|F|\Delta/(128\cdot 20000)$。期望行为：gap-only 或 always-hybrid 策略对分布式与集中故障一视同仁地走 hybrid；MoEGambit 通过 $\Phi'(t)$ 区分二者——7 个 $\Phi'(t)\leq 10^{-2}$ 格点走 hybrid，5 个 $\Phi'(t)>10^{-2}$ 格点回退 restart。我们还把这 5 个 over-threshold 格点在 $\Phi_{\max}$ 暂时禁用（强制 hybrid）下重跑，以测量悬崖被忽略时的漂移幅度。
-
-**结果。** 默认策略下，MoEGambit 在 7 个 $\Phi'(t)\leq 10^{-2}$ 格点上正确施行 hybrid recovery（实测 loss 偏离 $\leq 0.71\sigma_{\text{base}}$，全在 baseline $\pm 1\sigma$ 带内）；在 5 个 $\Phi'(t)>10^{-2}$ 格点上保守重定向到 checkpoint restart，post-restart loss 回到带内。$\Phi_{\max}$ 禁用并强制 hybrid 时，相同 5 个格点的 loss 偏离为 $1.21$--$1.98\sigma_{\text{base}}$（$|F|=24$ 行触及 $\pm 2\sigma$ 边缘），证实是该 fallback 在悬崖之上托住了质量结果。这表明专家加权窗口级陈旧度密度捕捉到了全局 gap-only 策略错过的风险，同时仍允许大多数低密度故障模式走最快的 hybrid 路径。
+**结果。** 默认策略下，MoEGambit 在 7 个 $\Phi'(t)\leq 10^{-2}$ 格点上正确施行 hybrid recovery（实测 loss 偏离 $\leq 0.71\sigma_{\text{base}}$，全在 baseline $\pm 1\sigma$ 带内）；在 5 个 $\Phi'(t)>10^{-2}$ 格点上保守重定向到 checkpoint restart，post-restart loss 回到带内。$\Phi_{\max}$ 禁用并强制 hybrid 时，相同 5 个格点的 loss 偏离重现表 tab:multi_fault 的 $1.21$--$1.98\sigma_{\text{base}}$，证实是该 fallback——而不是 hybrid 本身——在悬崖之上托住了质量结果，专家加权窗口级陈旧度密度捕捉到了全局 gap-only 策略错过的风险。
 
 ### 5.9 RQ5：无故障开销
 
@@ -293,9 +291,9 @@ $$
 
 **问题。** MoEGambit 相对 checkpoint restart 的恢复代价 gap 在集群规模扩大时是否保持？**设置。** 为回答 RQ7，我们在 4 种集群规模——16、32、64、128 GPU——上重跑 §5.6 的单次故障注入，固定每 rank micro-batch 为 8 并按比例 scale global batch size，使无故障 per-step 代价保持在同一 regime。模型架构保持不变（$N=128$ 专家、48 层、hidden $2048$）；并行布局重新平衡为 (TP, PP, EP) $=$ (1, 4, 4) @ 16 GPU、(1, 4, 8) @ 32、(1, 8, 8) @ 64、(1, 8, 16) @ 128。每个配置在 step 70 在均匀随机 rank 注入一次故障，重复 10 次（不同 seed），报告中位数与 IQR。
 
-**结果：无故障 per-step 代价。** 无故障 per-step 时间次线性增长：$7.8$ s (16 GPU) $\to 9.1$ s (32) $\to 10.0$ s (64) $\to 13.5$ s (128)。16$\to$64 之间的增长主要由 per-step microbatch 数 $m$ 随 global batch 增加导致；64$\to$128 多出 EP-group 扩展（8$\to$16），使 alltoall 参与方加倍并迫使 dispatch/combine collective 走跨节点链路。关键是 per-step 增长对 MoEGambit 与 Restart 相同（二者共用同一 forward/backward/dispatch 路径），可扩展性完全由各系统恢复代价如何 scale 决定。
+**结果：无故障 per-step 代价。** Per-step 时间从 16 GPU 上的 $7.8$ s 次线性增长到 128 GPU 上的 $13.5$ s，且对 MoEGambit 与 Restart 完全相同（共用同一 forward/backward/dispatch 路径），可扩展性完全由各系统的恢复代价如何 scale 决定。
 
-**结果：恢复代价。** Checkpoint restart 恢复时间随全局 checkpoint 体量增长：$24.1$ s $\to 29.3$ s $\to 36.4$ s $\to 47.2$ s，近似线性，由带宽-bound 的 $\textsc{LoadCkpt}$ collective 阶段主导。MoEGambit 恢复时间增长慢得多：$19.6$ s $\to 23.2$ s $\to 28.9$ s $\to 33.7$ s。两条结构性原因驱动二者分化。其一，hybrid restore（§4.5）把 $O(\text{global ckpt size})$ collective load 替换为 $O(|E_{\text{new}}| \cdot \text{shard size})$ 单 rank read，其中 $|E_{\text{new}}|$（失败 rank 拥有的专家数 = $128/\text{EP}$）随 EP 增长而 **收缩**（128 GPU 时为 8，16 GPU 时为 32）。其二，两阶段协议（§4.6）把优化器状态恢复与 post-resume forward/backward 重叠，$\textsc{LoadCkpt-Optim}$ 分量被藏在每 rank 大体恒定的有效计算之后。端到端恢复代价比 Restart/MoEGambit 因此 16 GPU 上为 $1.23\times$，128 GPU 上扩大到 $1.40\times$——MoEGambit 的优势随集群规模 **增强** 而非缩小。
+**结果：恢复代价。** Checkpoint restart 随全局 checkpoint 体量近似线性增长（16 GPU 上 $24.1$ s $\to 128$ GPU 上 $47.2$ s），由带宽-bound 的 $\textsc{LoadCkpt}$ collective 主导；MoEGambit 增长慢得多（$19.6$ s $\to 33.7$ s）。两条结构性原因：(i) hybrid restore（§4.5）把 $O(\text{global ckpt})$ collective 替换为 $O(|E_{\text{new}}|\cdot\text{shard})$ 单 rank read，其中 $|E_{\text{new}}|=N_{\text{expert}}/\text{EP}$ 随 EP 增长而**收缩**；(ii) 两阶段协议（§4.6）把 $\textsc{LoadCkpt-Optim}$ 藏在有效计算之后。Restart/MoEGambit 比因此从 16 GPU 的 $1.23\times$ 扩大到 128 GPU 的 $\mathbf{1.40\times}$。
 
 **结果：post-recovery 吞吐。** 在所有 4 个 scale 上，训练吞吐都在 resume 后 50 步内回到无故障 baseline 的 $\pm 1\%$（§4.7 策略-mandated 的 reintegration 尾巴）；未观察到与更大集群关联的特定漂移。$\Phi'(t)$ 在 4 个 scale 上都保持在校准阈值 $\tau_C$ 之下，hybrid restore 在所评估的运营区间仍然是策略所选路径。
 
@@ -307,7 +305,7 @@ $$
 
 **设置。** 为回答 RQ8，我们在 **DeepSeek-V2-Lite**（15.7B 总参 / 2.4B 激活，27 层，64 路由专家、2 shared expert、top-6，专家 FFN hidden $1408$）上重跑四组核心实验：§5.6 的单次故障 $2\times 2$ 析因、§5.8 的多 rank burst sweep、§5.9 的无故障开销、§5.11 的 16$\to$128 GPU 恢复代价 scaling 切片。为隔离 MoE 结构变量，我们把 DeepSeek-V2-Lite 原本的 MLA 注意力替换为同等激活参数预算的标准 GQA（32 头、4 KV 组、head dim $128$）；MoEGambit 操作的路由拓扑、shared expert 布局、EP/PP 分片结构保持原生。并行配置：64 GPU 上 TP$=1$, PP$=4$, EP$=8$, DP 跨 pipeline copy（§5.11 的 16/32/128 GPU 点用对应的 (TP, PP, EP) 重平衡覆盖）。每个 MoE 层的 2 个 shared expert 与 dense、router 一起 DP 复制，因此通过 path P 恢复（§4.5）；只有 64 个路由专家走 path C。策略参数沿用表 2 不变，仅把 $N_{\text{expert}}=64$ 代入 $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}\cdot W)$，而 $\Phi_{\max}=10^{-2}$ 是被检验的假设。
 
-**假设。** (H8.1) Hybrid restore 与 two-phase 仍是单次故障恢复延迟上独立可加的两个主效应；MLA 类架构 dense/router 占比更小，故 §5.6 的 $-15.1\%$ 预计被压缩到约 $-10\%$ 到 $-13\%$，two-phase 贡献保持在 $-5\%$ 到 $-6\%$（其大小受单次训练迭代成本支配，与架构无关）。(H8.2) 在 $N_{\text{expert}}=128$ 上校准的 $\Phi_{\max}=10^{-2}$ 悬崖在 $N_{\text{expert}}=64$ 下仍能把 post-recovery validation loss 约束在无故障 $\pm 1\sigma$ 带内——因为 $\Phi'(t)$ 已对 $N_{\text{expert}}$ 归一化，越过悬崖所需的 $|F|\!\cdot\!\Delta$ 绝对值翻倍即可。(H8.3) 把 shared expert 错误路由到 path C 而非 path P 是一组证伪探针：它应当显著退化 hybrid 主效应（每个 MoE 层有 $2/(64+2)\!\approx\!3\%$ 的恢复字节从 peer 内存退到磁盘），从而验证 path-P/path-C 分解是结构性的而非账面把戏。
+**假设。** Hybrid restore 与 two-phase 仍是单次故障恢复延迟上独立可加的两个主效应；hybrid 主效应预计在更小的 dense/router 占比下被压缩，而 two-phase 贡献保持在 $-5$ 到 $-6\%$（其量级受单次训练迭代成本支配，与架构无关）。在 $N_{\text{expert}}=128$ 上校准的 $\Phi_{\max}=10^{-2}$ 悬崖在 $N_{\text{expert}}=64$ 下仍能把 post-recovery loss 约束在 $\pm 1\sigma$ 带内（$\Phi'(t)$ 已对 $N_{\text{expert}}$ 归一化）。把 shared expert 路由到 path C 而非 path P 是一组证伪探针：若它显著退化 hybrid 主效应，即验证 path-P/path-C 分解是结构性的而非账面把戏。
 
 **进度。** DeepSeek-V2-Lite 的实验排在 camera-ready 修订；驱动脚本（`bench_dsv2lite.sh`、并行布局、故障注入 trace）与上述假设级 pass/fail 标准已与本投稿一同提交在 artifact 中。我们把实测表延到 camera-ready，并在 §5.13 讨论 H8.1--H8.3 失败的剩余风险。
 
