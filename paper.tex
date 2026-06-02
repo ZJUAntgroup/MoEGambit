@@ -47,7 +47,7 @@ Mixture of Experts, fault tolerance, distributed training, checkpoint recovery, 
 
 Sparse Mixture-of-Experts (MoE) models have become a dominant architecture for frontier large language models, powering systems such as Mixtral~\cite{jiang2024mixtral}, DeepSeek-MoE~\cite{dai2024deepseekmoe}, and Qwen3-MoE~\cite{qwen3report}, because they decouple model capacity from per-token compute by routing each input through only a small subset of experts. Training these models at scale, however, is a long-running, multi-week, multi-thousand-GPU software process in which failures are routine rather than exceptional. Meta's Llama-3 training trace reports a failure roughly every 45\,minutes across a 16K-GPU cluster~\cite{dubey2024llama3}; MegaScale documents hundreds of distinct failure modes during a 10K-GPU production deployment~\cite{jiang2024megascale}; the OPT-175B logbook records weeks of human-in-the-loop intervention~\cite{zhang2022opt}. Because the dominant recovery mechanism in production is \emph{checkpoint restart}---reload the most recent globally consistent snapshot and replay the lost iterations---each failure event on a large MoE job typically consumes hundreds of seconds of checkpoint I/O plus hundreds of replayed iterations, costing thousands of GPU-seconds per event and, cumulatively, days of wall time over a training run.
 
-A substantial body of fault-tolerant training systems has been developed to reduce this cost, but almost all of it targets dense models. CheckFreq~\cite{mohan2021checkfreq}, DeepFreeze~\cite{nicolae2020deepfreeze}, and Check-N-Run~\cite{eisenman2022check} shrink per-checkpoint cost via asynchronous and incremental writes; Gemini~\cite{wang2023gemini} replaces NVMe writes with in-memory replicas; Bamboo~\cite{thorpe2023bamboo} hides checkpointing behind redundancy on preemptible instances; Oobleck~\cite{jang2023oobleck} and ReCycle~\cite{gandhi2024recycle} avoid rolling back to any saved snapshot at all by reconfiguring pipeline schedules. None of these systems addresses MoE-specific cost asymmetries: the bulk of a MoE checkpoint is per-expert optimizer state, and the dominant Megatron-LM distributed checkpoint format (\texttt{torch\_dist}) requires every rank to participate in the load through a collective \texttt{all\_gather\_object}, which forbids single-rank selective restoration by construction. The only MoE-specific fault-tolerance system we are aware of, MoC-System~\cite{cai2024moc}, optimizes \emph{save-side} cost via Partial Experts Checkpointing but at recovery time still falls back to full global checkpoint restart---paying the full load + replay bill on every failure and leaving the recovery critical path essentially unchanged.
+A substantial body of fault-tolerant training systems has been developed to reduce this cost, but almost all of it targets dense models. CheckFreq~\cite{mohan2021checkfreq}, DeepFreeze~\cite{nicolae2020deepfreeze}, and Check-N-Run~\cite{eisenman2022check} shrink per-checkpoint cost via asynchronous and incremental writes; Gemini~\cite{wang2023gemini} replaces NVMe writes with in-memory replicas; Bamboo~\cite{thorpe2023bamboo} hides checkpointing behind redundancy on preemptible instances; Oobleck~\cite{jang2023oobleck} and ReCycle~\cite{gandhi2024recycle} avoid rolling back to any saved snapshot at all by reconfiguring pipeline schedules. None of these systems addresses MoE-specific cost asymmetries: the bulk of a MoE checkpoint is per-expert optimizer state, and dominant distributed-checkpoint formats require every rank to participate in the load through a collective, which forbids single-rank selective restoration by construction. The only MoE-specific fault-tolerance system we are aware of, MoC-System~\cite{cai2024moc}, optimizes \emph{save-side} cost via Partial Experts Checkpointing but at recovery time still falls back to full global checkpoint restart---paying the full load + replay bill on every failure and leaving the recovery critical path essentially unchanged.
 
 The gap is therefore a \emph{recovery-side} fault-tolerance framework structured around the heterogeneous state of MoE training---one that repairs a failed rank without rolling back the whole job, and does so fast, quality-preserving, and stable across repeated failures. \textbf{Our insight is that distributed MoE training already carries enough cross-rank redundancy to bypass disk-based recovery for most of its state.} Concretely, dense parameters and routers are \emph{replicated} across the data-parallel (DP) dimension, while only expert parameters and their optimizer state are EP-sharded. When a rank fails, the replacement does not need to read dense state from disk at all---it can synchronize the current-step dense and router parameters from a healthy DP peer, and only the rank-local expert weights and expert optimizer state need to load from the latest checkpoint shard. We present \textbf{MoEGambit}\footnote{The name reflects the system's core design philosophy: like a chess gambit, MoEGambit deliberately tolerates a bounded amount of expert staleness ($\Delta$ steps, bounded by $\Delta_{\max}$ and $\Phi_{\max}$) in order to skip global checkpoint restart and resume training at memory-to-memory speed, trading a small, quantified positional sacrifice for a decisive recovery-time advantage. The ``MoE'' prefix names the domain; ``Gambit'' names the move.}, the first such framework, integrated into Megatron-LM~\cite{narayanan2021megatron}. A weights-first / optimizer-later two-phase protocol further overlaps optimizer-state restoration with the replacement rank's resumed forward/backward computation, so time-to-resume is bounded by a single weight transfer rather than by the full optimizer load. To the best of our knowledge, MoEGambit is the first system to repair MoE training failures from cross-rank live state instead of from disk-based checkpoints.
 
@@ -63,7 +63,7 @@ This paper makes the following contributions:
 \section{Background and Motivation}
 \label{sec:background}
 
-This section establishes the minimum context required to read the rest of the paper. §\ref{sec:bg-concept} defines distributed MoE training as a stateful software system and identifies the heterogeneous state we will repair. §\ref{sec:bg-flow} describes the de facto recovery flow in production---checkpoint restart---and the structural reason it fails to exploit MoE-specific redundancy. §\ref{sec:bg-scope} narrows the discussion to the concrete technical surface that MoEGambit operates on: the distributed checkpoint formats supported by Megatron-LM, and the research scope of this paper. Comparison with prior fault-tolerance \emph{systems} is deferred to §\ref{sec:related}.
+This section establishes the minimum context required to read the rest of the paper. §\ref{sec:bg-concept} defines distributed MoE training as a stateful software system and identifies the heterogeneous state we will repair. §\ref{sec:bg-flow} describes the de facto recovery flow in production---checkpoint restart---and the structural reason it fails to exploit MoE-specific redundancy. Comparison with prior fault-tolerance \emph{systems} is deferred to §\ref{sec:related}.
 
 \subsection{Concepts: MoE Training as a Heterogeneous-State Distributed Program}
 \label{sec:bg-concept}
@@ -110,24 +110,12 @@ This staleness is not a binary defect---restored experts still produce valid for
 \end{enumerate}
 A recovery system that admits hybrid repair therefore needs more than a fast mechanism; it needs a \emph{runtime-checkable bound} on both regimes. The MoEGambit policy in §\ref{sec:policy} is exactly that bound.
 
-\subsection{Scope: Distributed Checkpoint Formats and the Surface of This Paper}
-\label{sec:bg-scope}
-
-The feasibility of hybrid recovery in production training runtimes is not a tuning choice---it is a checkpoint-format choice. Megatron-LM~\cite{narayanan2021megatron,korthikanti2023reducing} supports two checkpoint formats whose semantics directly determine whether hybrid recovery can run at all:
-
-\begin{itemize}
-    \item \texttt{torch} (legacy): each rank saves its own \texttt{.pt} file under \texttt{iter\_XXXXXXX/mp\_rank\_\{tp\}\_\{pp\}\_\{ep\}/\\model\_optim\_rng.pt}. These files can be loaded independently by each rank using \texttt{torch.load()}, which requires no collective communication---making them suitable for selective expert loading inside an asynchronous recovery callback.
-    \item \texttt{torch\_dist} (default): uses distributed checkpointing with sharded state dicts and \texttt{metadata.json}. Loading requires \texttt{dist\_checkpointing.load()}, which internally calls \texttt{all\_gather\_object}---a collective operation requiring every rank to participate. This format is fundamentally incompatible with single-rank selective loading and deadlocks when called from a single rank's recovery thread.
-\end{itemize}
-
-\textbf{Scope of this paper.} MoEGambit operates on the recovery side of MoE training and commits to the \texttt{torch} format so that single-rank expert shards can be read collective-free. Within this scope it answers two questions: (i)~how should the heterogeneous state of Table~\ref{tab:state-provenance} be reconstituted on a failure so that recovery is fast on the wall clock and statistically indistinguishable from failure-free training on model quality (§\ref{sec:moegambit}); and (ii)~when does cluster-wide accumulated expert staleness exceed the regime in which hybrid repair is safe, so that the system must fall back to checkpoint restart (§\ref{sec:policy}). Save-side optimization (e.g., partial-experts or in-memory checkpointing), pipeline-template reconfiguration, non-fail-stop fault models, and the \texttt{torch\_dist} format are outside this scope; we contrast MoEGambit with the corresponding lines of prior work in §\ref{sec:related} and discuss the limits of our assumptions in §\ref{sec:threats}.
-
 \section{Problem Statement and Design Goals}
 \label{sec:problem}
 
 We first state precisely what MoEGambit is asked to do and what it is allowed to assume. This section is intentionally self-contained: a reader who skips the rest of the paper should still be able to reproduce the recovery contract from §\ref{sec:problem} alone.
 
-\textbf{Input.} A live distributed MoE training job running with $(\text{TP},\text{PP},\text{DP},\text{EP})$ parallelism on $G$ GPUs, using Megatron-LM~\cite{narayanan2021megatron,korthikanti2023reducing} as the runtime, the \texttt{torch} checkpoint format (§\ref{sec:bg-scope}), and an external fail-stop failure signal published by the existing watchdog / process-manager infrastructure. At step $t$, MoEGambit receives a \emph{failure event} $\langle r, t, c \rangle$ where $r$ is the failed logical rank, $t$ is the training step at which the failure was detected, and $c\!\le\!t$ is the step of the most recent globally consistent checkpoint.
+\textbf{Input.} A live distributed MoE training job running with $(\text{TP},\text{PP},\text{DP},\text{EP})$ parallelism on $G$ GPUs, using Megatron-LM~\cite{narayanan2021megatron,korthikanti2023reducing} as the runtime, and an external fail-stop failure signal published by the existing watchdog / process-manager infrastructure. At step $t$, MoEGambit receives a \emph{failure event} $\langle r, t, c \rangle$ where $r$ is the failed logical rank, $t$ is the training step at which the failure was detected, and $c\!\le\!t$ is the step of the most recent globally consistent checkpoint.
 
 \textbf{Output.} For each failure event, MoEGambit produces (i)~a deterministic \emph{recovery decision} $\pi(t)\in\{\textsc{Hybrid},\textsc{Restart}\}$, (ii)~a fully reconstructed and reintegrated replacement rank such that the job resumes producing post-recovery training iterations whose computation is byte-identical to a fresh \texttt{optimizer.step()} under the chosen recovery path, and (iii)~a structured recovery log entry that records the policy inputs, the chosen path, the per-segment recovery latency, and the rank's state-machine trace.
 
@@ -154,21 +142,6 @@ R1--R3 form the spine of §\ref{sec:moegambit}: §\ref{sec:safepoint} instantiat
 \section{MoEGambit}
 \label{sec:moegambit}
 
-\subsection{Core Abstractions}
-\label{sec:abstractions}
-
-Before describing modules, we define the four core abstractions used throughout §\ref{sec:moegambit}. Each abstraction is given a precise, measurable form so that it can appear in the structured log without ambiguity.
-
-\textbf{(D1) Checkpoint gap $\Delta$.} For a failure event $\langle r, t, c \rangle$, the checkpoint gap is $\Delta = t - c$. In checkpoint restart $\Delta$ determines the number of iterations replayed; in hybrid recovery $\Delta$ determines the magnitude of expert-state staleness that the failed rank's experts are exposed to relative to the rest of the model.
-
-\textbf{(D2) Heterogeneous state classes.} Following Table~\ref{tab:state-provenance}, MoE training state at iteration $t$ partitions into \emph{replicated} (dense, shared, router; DP-replicated, freshly available from a healthy peer at step $t$), \emph{sharded expert} (weights and AdamW moments; EP-sharded, only available from a per-rank checkpoint shard at step $c\!<\!t$), and \emph{derived runtime metadata} (expert directory, dispatch topology, process-group view; recomputable from the rank layout). This three-way split is the fundamental object MoEGambit operates on: different classes have different fresh sources and therefore different recovery semantics.
-
-\textbf{(D3) Safe repair point.} A program point at which (i)~the current iteration's gradients have not yet been applied by \texttt{optimizer.step()}, and (ii)~the runtime guarantees no in-flight commit will reference state computed under the \texttt{RECOVERING} mark. Safe repair points are the only program points at which state restoration is allowed to mutate the model parameters.
-
-\textbf{(D4) Expert-weighted staleness density $\Phi'(t)$.} A scalar, dimensionless, $O(1)$-maintainable summary of the cluster's accumulated post-recovery expert staleness in the sliding window $[t\!-\!W,\,t)$, weighted by per-event expert-set size $|E_h|$ and per-event gap $\Delta_h$. Its formal definition is deferred to (\ref{eq:phi-prime}) in §\ref{sec:policy} because it is the R2 instantiation; here we only note that $\Phi'(t)$ is the quantity the policy $\pi(t)$ guards against and the quantity the multi-rank burst sweep in §\ref{sec:eval} carves an empirical cliff edge through.
-
-\textbf{Notation summary.} Throughout §\ref{sec:moegambit} we use: $r$ for the failed rank; $t$ for the failure step; $c$ for the latest checkpoint step; $\Delta = t - c$; $|E_h|$ for the size of the expert set restored by historical hybrid event $h$; $\Delta_h$ for the gap of that event; $\mathcal{H}_W(t)$ for the set of hybrid events in $[t-W,t)$; $W$ for the exposure window length; $N_{\text{expert}}$ for the total number of MoE experts in the model; $\textsc{PeerAvail}(r,t)$ for the binary structural predicate that encodes (A3).
-
 \subsection{Overview}
 \label{sec:arch}
 
@@ -181,8 +154,6 @@ Before describing modules, we define the four core abstractions used throughout 
 
 Fig.~\ref{fig:moegambit-overview} gives the end-to-end control flow. Reading the figure along the numbered arrows yields the section structure: §\ref{sec:safepoint} expands box \emph{(2)} (Safe-Point Repair, R1); §\ref{sec:policy} expands box \emph{(3)} (the staleness-density guarded policy, R2); §\ref{sec:mechanism} and §\ref{sec:twophase} expand box \emph{(4)} (hybrid state restoration and the two-phase protocol); §\ref{sec:obs} expands box \emph{(5)} (the reintegration state machine and structured logs, R3).
 
-\textbf{Why this structure rather than a monolithic recovery routine?} A naive design would fuse boxes (3)--(5) into a single recovery procedure that always reloads the full checkpoint after a safe-point boundary. We reject that design because it conflates three orthogonal concerns: \emph{when} is repair safe (box 2), \emph{whether} the fast path is admissible (box 3), and \emph{how} state is reconstituted (box 4). Conflating them makes the recovery contract impossible to audit independently of the recovery code, which is precisely the failure mode of existing training runtimes. Separating the boxes is what lets us state R1--R3 as contracts, instantiate each in a single subsection, and verify them experimentally one at a time in §\ref{sec:eval}.
-
 \subsection{Safe-Point Repair Controller (R1)}
 \label{sec:safepoint}
 
@@ -193,8 +164,6 @@ Fig.~\ref{fig:moegambit-overview} gives the end-to-end control flow. Reading the
 \textbf{Process.} On detection at step $t$, the controller atomically (i)~marks $r$ and its local experts as \texttt{RECOVERING}, (ii)~installs an optimizer commit guard---a pre-condition check inserted immediately before AdamW's parameter update---on every rank for the current iteration, and (iii)~marks the iteration as \texttt{DISCARD}. The guard enforces the explicit invariant ``no optimizer commit may use gradients computed under \texttt{RECOVERING}.'' Any rank reaching its \texttt{optimizer.step()} with the iteration in \texttt{DISCARD} skips the update entirely; the in-flight gradients are dropped. Training then resumes at the next iteration either from the safe repair point (hybrid path, §\ref{sec:mechanism}) or from the last checkpoint (restart path).
 
 \textbf{Output.} A pair $\langle\text{safe-point id},\text{iteration status}\rangle$ where the safe-point id is the iteration boundary at which the repair is allowed to proceed and the status is one of $\{\textsc{Committed},\textsc{Discarded}\}$. The status is recorded in the structured log.
-
-\textbf{Rationale and ``why not Y''.} A natural alternative is \emph{mid-iteration rollback}: re-execute only the partially completed sub-steps of the current iteration after repair, instead of discarding the whole iteration. We reject this design for two reasons. First, distributed AdamW updates can be partially applied across DP/EP ranks at the moment of failure, and reconciling those partial commits requires global state that no single rank holds---an issue observed as a soundness pitfall in earlier resilient-training systems~\cite{thorpe2023bamboo,jang2023oobleck}. Second, dropping a single $\sim$10\,s iteration is negligible compared with the tens-to-hundreds of seconds spent on the recovery path itself, so the engineering complexity of mid-iteration rollback buys essentially no wall-time benefit. The deliberate simplicity of R1's contract---``discard, never partially commit''---is therefore a design choice, not a limitation.
 
 \subsection{Staleness-Density Guarded Policy (R2)}
 \label{sec:policy}
@@ -246,8 +215,6 @@ Algorithm~\ref{alg:policy} encodes the same logic; the guard order matches the o
 
 \textbf{Output.} $\langle\pi(t),\text{reason}\rangle$ together with the four values $\Delta$, $|E_{\text{new}}|$, $S(t)$, $\Phi'(t)$ that drove it; all five appear in the structured log of §\ref{sec:obs}.
 
-\textbf{Why an aggregate over $\Delta$ alone?} Because each rank owns a fixed expert subset (§\ref{sec:abstractions}, D2), independent hybrid events on different ranks at small $\Delta$ leave \emph{disjoint} stale subsets while $\Delta$ stays tiny---exactly the regime the multi-rank burst sweep in §\ref{sec:eval} shows crossing the noise floor. Only an $|E_h|$-weighted aggregate can carry that signal in $O(1)$, and $\Phi'(t)$ is the simplest such aggregate. \textbf{Why offline calibration?} An online controller would couple $\Phi_{\max}$ to the loss curve it itself perturbs; instead we calibrate $\Phi_{\max}$ against the failure-free $\pm 1\sigma$ band via the cliff sweep in §\ref{sec:eval}, treating it as a property of the auxiliary-balancing dynamics~\cite{komatsuzaki2023sparse,zoph2022stmoe}. \textbf{Why a hard guard?} A soft penalty would still ship silently degraded runs; R2 is a contract, so $\Phi'(t)\!>\!\Phi_{\max}$ forces a restart, which zeroes out staleness debt outside the new window---at the price of at most one extra restart per long window.
-
 \textbf{Auditability.} Every threshold traces to a measurable source: $\Delta_{\min}$ from the $T_{\text{load}}\!:\!T_{\text{hybrid}}\!:\!T_{\text{iter}}$ ratio (§\ref{sec:rq1}), $\Delta_{\max}$ from the save interval bounded by Young/Daly~\cite{young1974first,daly2006higher}, $\Phi_{\max}$ from the §\ref{sec:eval} cliff sweep, $\textsc{PeerAvail}$ from a binary check on the live process group.
 
 \subsection{MoE-Aware Hybrid State Restoration}
@@ -255,14 +222,7 @@ Algorithm~\ref{alg:policy} encodes the same logic; the guard order matches the o
 
 \textbf{Goal and inputs.} On $\pi(t)=\textsc{Hybrid}$, reconstitute the replacement rank by reading each state class from its fresh source (Table~\ref{tab:state-provenance}), so the recovery I/O scales with rank-unique expert bytes rather than the full distributed checkpoint. Inputs: a healthy DP peer at the same PP/TP coordinate (guaranteed by $\textsc{PeerAvail}(r,t)$) and the per-rank shard at step $c$.
 
-\textbf{Process.} The replacement rank runs two paths concurrently. \emph{Path~P (peer pull, replicated state):} synchronize current-step dense/router parameters (and DP-replicated optimizer state) from a healthy peer at the same PP/TP coordinate via a single P2P broadcast over NCCL/Gloo, completing in tens of milliseconds. \emph{Path~C (shard read, sharded expert state):} read rank-$r$'s experts from the per-rank file
-\begin{equation*}
-\begin{aligned}
-    \texttt{iter\_XXXXXXX/}&\texttt{mp\_rank\_\{tp:02d\}\_\{pp:03d\}\_\{ep:03d\}/} \\
-    &\texttt{model\_optim\_rng.pt},
-\end{aligned}
-\end{equation*}
-loadable independently with \texttt{torch.load()} and \emph{no collective communication}; PP layer indices are remapped via $\text{local\_idx}=\text{layer\_id}-(\text{pp\_rank}\cdot L+1)$ for $L$ layers per stage.
+\textbf{Process.} The replacement rank runs two paths concurrently. \emph{Path~P (peer pull, replicated state):} synchronize current-step dense/router parameters (and DP-replicated optimizer state) from a healthy peer at the same PP/TP coordinate via a single P2P broadcast over NCCL/Gloo, completing in tens of milliseconds. \emph{Path~C (shard read, sharded expert state):} load rank-$r$'s experts from the per-rank checkpoint shard at step $c$ with no collective communication.
 
 \textbf{Output.} A rank whose state is \emph{mixed by construction}: dense/router reflects step $t$ while experts and their optimizer state are stale by exactly $\Delta$. This is the staleness $\Phi'(t)$ bounds in (\ref{eq:phi-prime}); R2 bounds the risk and the mechanism here realizes the repair within that bound (Fig.~\ref{fig:hybrid-recovery}).
 
@@ -273,8 +233,6 @@ loadable independently with \texttt{torch.load()} and \emph{no collective commun
 \label{fig:hybrid-recovery}
 \end{figure}
 
-\textbf{Why not pull experts from peers too?} EP-sharding gives each rank a unique subset (16 of 128 at EP$=$8); no peer holds an in-memory replica, so the disk path is the only fresh source. \textbf{Why not reload everything?} That is full restart---$T_{\text{load}}\!\approx\!36$\,s vs.\ $T_{\text{hybrid}}\!\approx\!29$\,s on our cluster (§\ref{sec:rq2}); the difference is exactly the dense/router bytes path~P avoids reading. \textbf{Why \texttt{torch} format?} \texttt{torch\_dist}'s \texttt{dist\_checkpointing.load()} is collective via \texttt{all\_gather\_object}, structurally incompatible with single-rank shard reads (§\ref{sec:bg-scope}); the format choice is a contract-level prerequisite, not a tuning knob.
-
 \subsection{Two-Phase Recovery Protocol}
 \label{sec:twophase}
 
@@ -282,7 +240,7 @@ loadable independently with \texttt{torch.load()} and \emph{no collective commun
 
 \textbf{Process.} \emph{Phase~A (weights first):} restore the state needed for forward/backward---dense/router from peers (path~P) and rank-$r$'s expert weights from the checkpoint shard (path~C, weights half). The repaired rank rejoins training under an \emph{update barrier} on the affected experts: forward/backward proceeds and contributes to the global loss, but the resulting gradients are buffered rather than applied. \emph{Phase~B (optimizer later):} in parallel with Phase~A, restore DP-replicated dense/router moments from the peer and rank-$r$'s expert moments from the shard; when complete, the barrier is released and the buffered gradients are applied via a single AdamW step. The barrier is enforced by the same pre-\texttt{step()} hook used in §\ref{sec:safepoint}, so the R1 invariant holds throughout the overlap window.
 
-\textbf{Output.} Two latencies in the structured log: $T_{\text{TTR}}$ (time-to-resume, bounded by the weight-transfer cost) and $T_{\text{TTFR}}$ (time-to-full-recovery). $T_{\text{TTFR}}-T_{\text{TTR}}$ is the saving created relative to single-phase restart.
+\textbf{Output.} Two latencies in the structured log: $T_{\text{TTR}}$ (time-to-resume, bounded by the weight-transfer cost) and $T_{\text{TTFR}}$ (time-to-full-recovery). $T_{\text{TTFR}}-T_{\text{TTR}}$ is the saving created relative to single-phase restart. The protocol is orthogonal to hybrid restore---it acts on \emph{when} optimizer state attaches, not \emph{where} bytes come from---which is why the §\ref{sec:rq2} $2{\times}2$ factorial finds the two main effects additive.
 
 \begin{figure}[!t]
 \centering
@@ -291,26 +249,13 @@ loadable independently with \texttt{torch.load()} and \emph{no collective commun
 \label{fig:two-phase-recovery}
 \end{figure}
 
-\textbf{Why two phases?} Splitting optimizer state into first-/second-moment phases would only help if first-moment-only training were safe, which it is not under AdamW; two phases match the actual data dependency between forward/backward and the bias-corrected update. The barrier is what makes this an extension of R1 rather than a violation. The protocol is orthogonal to hybrid restore---it acts on \emph{when} optimizer state attaches, not \emph{where} bytes come from---which is why the §\ref{sec:rq2} $2{\times}2$ factorial finds the two main effects additive.
-
 \subsection{Reintegration State Machine and Structured Logs (R3)}
 \label{sec:obs}
 
-\textbf{Goal.} Instantiate R3 by making every rank transition explicit and every recovery decision traceable to its policy inputs and downstream outcome.
+\textbf{Reintegration state machine.} Each replacement rank advances through a four-state machine, \texttt{RECOVERING}$\to$\texttt{REPAIRED\_NOT\_ROUTED}$\to$\texttt{ROUTED\_BARRIER}$\to$\texttt{HEALTHY}, with a guard between every pair (state restoration complete; dispatch topology re-derived; optimizer state attached; barrier released). The machine makes premature reintegration impossible by construction.
 
-\textbf{Process (four-state machine).} Each transition has an observable guard that must hold before the next state is entered:
+\textbf{Structured log.} Each recovery event emits a single record covering policy inputs ($\Delta$, $|E_{\text{new}}|$, $\Phi'(t)$, $\pi(t)$, decision reason), per-segment latencies, and the state-machine trace. The schema lets every selected path trace back to the guards in (\ref{eq:policy}) and supports post-hoc correlation with training-quality metrics under the paired-run methodology of §\ref{sec:eval}~\cite{wohlin2012ese,arcuri2014hitchhiker}; runtime overhead of accounting and logging is negligible (§\ref{sec:rq5}).
 
-\begin{itemize}
-    \item \textbf{\texttt{RECOVERING}.} Initial state on failure. \emph{Guard out:} path~P and path~C-weights complete.
-    \item \textbf{\texttt{REPAIRED\_NOT\_ROUTED}.} Weights in place; dispatch topology and expert directory~\cite{hwang2023tutel,he2022fastermoe} not yet refreshed; no expert traffic. \emph{Guard out:} directory and process-group view re-derived and verified.
-    \item \textbf{\texttt{ROUTED\_BARRIER}.} Receives traffic and runs forward/backward; the update barrier blocks commits on affected experts. \emph{Guard out:} path~C-moments complete.
-    \item \textbf{\texttt{HEALTHY}.} Barrier released; buffered gradients applied via a single AdamW step.
-\end{itemize}
-The machine makes premature reintegration impossible by construction.
-
-\textbf{Output (structured log).} Each recovery event emits a single record covering four field groups: (i)~\emph{event} fields populated by the failure detector (cause, failed rank, step $t$, last checkpoint step $c$); (ii)~\emph{policy} fields populated by Alg.~\ref{alg:policy} ($\Delta$, $|E_{\text{new}}|$, $S(t)$, $\Phi'(t)$, $\textsc{PeerAvail}$, $\pi(t)$, decision reason); (iii)~\emph{latency} fields per recovery segment (peer pull, checkpoint load, optimizer attach, replay on restart, reintegrate); and (iv)~the rank's \emph{state-machine trace} (\texttt{RECOVERING}$\!\to\!\cdots\!\to\!$\texttt{HEALTHY}). The schema serves two purposes: \emph{explainability}---every selected path traces back to the guards in (\ref{eq:policy}) via the decision reason; and \emph{post-hoc correlation} with training-quality metrics under the paired-run methodology of §\ref{sec:eval}~\cite{wohlin2012ese,arcuri2014hitchhiker}.
-
-\textbf{Why four states, structured logs, and latency fields here?} Collapsing the four invariant guards into one flag would erase which invariant a premature reintegration violated---exactly the auditability R3 requires. A fixed schema makes ``did recovery succeed?'' a falsifiable question across all RQs without bespoke parsing. Including per-segment latencies in R3 keeps the production recovery path and the §\ref{sec:rq2} $2{\times}2$ factorial on the same observability surface.
 
 
 \section{Evaluation}
@@ -328,17 +273,6 @@ This section evaluates whether MoEGambit can recover distributed MoE training fa
     \item \textbf{RQ7.} Does the recovery-cost gap hold as cluster size scales from 16 to 128 GPUs?
     \item \textbf{RQ8.} Does MoEGambit generalize across MoE architectures with different expert granularities and shared-expert structures?
 \end{itemize}
-
-\subsection{Implementation Notes}
-\label{sec:impl}
-
-We implement MoEGambit as a non-invasive layer on top of Megatron-LM in approximately 4.2K lines of Python. The implementation realizes the abstractions and protocols of §\ref{sec:problem}--§\ref{sec:obs} without modifying Megatron-LM's training-loop, parallelism, or optimizer code paths, and is structured around three load-bearing engineering decisions.
-
-\textit{Checkpoint format commitment.} MoEGambit assumes the \texttt{torch\_dist} distributed checkpoint format throughout (§\ref{sec:bg-scope}). This is what makes path~C of §\ref{sec:mechanism} a single-rank shard read rather than a global collective, and is what allows the safe-point repair controller (§\ref{sec:safepoint}) to treat checkpoint \texttt{(t,c)} as a structurally consistent restore target on a per-rank basis. Other distributed formats (e.g., \texttt{torch} legacy or \texttt{zarr}) are recognized as out of scope rather than supported as fallbacks.
-
-\textit{PP-aware layer remapping cache.} Hybrid restoration must reconstruct the failed rank's transformer-layer subset from its PP/TP/EP coordinate. We precompute the (rank $\to$ owned layer ranges) map once per parallelism configuration and cache it in shared memory, so that each recovery event performs an $O(1)$ lookup rather than a global re-derivation. The cache is invalidated only when the parallelism configuration itself changes, which is rare in a training run.
-
-\textit{Update barrier as an AdamW pre-step hook.} The two-phase protocol's update barrier (§\ref{sec:twophase}) is implemented as a pre-\texttt{step()} hook on Megatron-LM's AdamW optimizer, gated by the reintegration state machine of §\ref{sec:obs}. While the recovered rank is in \texttt{REPAIRED\_NOT\_ROUTED} or \texttt{ROUTED\_BARRIER}, the hook short-circuits the optimizer update for the affected parameter groups; once the state machine reaches \texttt{HEALTHY} the hook becomes a no-op. This keeps the barrier mechanism inside a single, auditable code path and avoids touching Megatron-LM's gradient-accumulation or all-reduce logic.
 
 \subsection{Experimental Setup}
 
@@ -379,63 +313,13 @@ Gradient clipping & 1.0 \\
 
 \textbf{Data.} We use a 4B-token subset of \emph{FineWeb}~\cite{penedo2024fineweb}, processed into Megatron indexed format. A held-out validation split is used for loss/perplexity reported every 1{,}000 iterations. All recovery experiments use \emph{paired runs}: baseline and MoEGambit share the same seed, data order, checkpoint, and injected failure step.
 
-\textbf{Pre-experiment 1: system timing.} On the 64-GPU cluster, with \texttt{save-interval}$=200$, we measure steady-state per-iteration cost, save-checkpoint cost, load-checkpoint cost, and hybrid-recovery overhead (Table~\ref{tab:pre_timing}, averaged over multiple runs).
-
-\begin{table}[htbp]
-\caption{Pre-experiment: Measured System Timing (64 H20-3e GPUs, Qwen3-30B-A3B)}
-\begin{center}
-\begin{tabular}{lrr}
-\toprule
-\textbf{Operation} & \textbf{MoEGambit} & \textbf{Baseline} \\
-\midrule
-per iteration            & 10{,}259.5\,ms & 10{,}309\,ms \\
-save-checkpoint          & 32{,}796.9\,ms & 33{,}529\,ms \\
-load-checkpoint          & ---            & 35{,}951\,ms \\
-hybrid-recovery overhead & 28{,}790.8\,ms & ---           \\
-\bottomrule
-\end{tabular}
-\label{tab:pre_timing}
-\end{center}
-\end{table}
-
-Three observations follow. (i)~MoEGambit's per-iteration cost (10.26\,s) is statistically indistinguishable from baseline (10.31\,s), so the safe-point/$\Phi'(t)$/recovery hooks add no measurable failure-free overhead. (ii)~The $\sim$33\,s save cost yields a $\sim$1.6\% checkpointing overhead at \texttt{save-interval}$=200$. (iii)~Hybrid recovery (28.8\,s) is already cheaper than a full checkpoint reload (35.95\,s) before counting up to 200 replayed iterations; the full end-to-end gap is reported in Section~\ref{sec:rq2}.
-
-\textbf{Pre-experiment 2: baseline noise floor.} To define what counts as a statistically meaningful post-recovery quality change, we run \textbf{10 independent NoFault runs} of 600 iterations each with different seeds and shuffling orders. The 10 measured iter-600 eval-loss values are
-\begin{center}
-4.8118,\ 4.8674,\ 4.8528,\ 4.8199,\ 4.8456,\ 4.8686,\ 4.8739,\ 4.8903,\ 4.8570,\ 4.8556,
-\end{center}
-with summary in Table~\ref{tab:pre_noise}.
-
-\begin{table}[htbp]
-\caption{Pre-experiment: Baseline Eval-Loss Variability across 10 Independent NoFault Runs (600 iterations, Qwen3-30B-A3B)}
-\begin{center}
-\begin{tabular}{lr}
-\toprule
-\textbf{Statistic} & \textbf{Value} \\
-\midrule
-Number of runs                 & 10 \\
-Iterations per run             & 600 \\
-Mean eval loss $\mu$           & 4.854 \\
-Standard deviation $\sigma$    & $\approx 0.024$ \\
-Min eval loss                  & 4.8199 \\
-Max eval loss                  & 4.8903 \\
-Range (max $-$ min)            & 0.070 \\
-Coefficient of variation       & $\approx 0.5\%$ \\
-\bottomrule
-\end{tabular}
-\label{tab:pre_noise}
-\end{center}
-\end{table}
-
-With $\sigma_{\text{base}}=0.024$, the 95\% CI on the mean is $\pm 0.015$; we use $\mu_{\text{base}}=4.854$, $\sigma_{\text{base}}=0.024$ as the reference NoFault distribution at iter~600 throughout Section~\ref{sec:rq3}. Paired runs control for this seed/shuffle noise, so any residual MoEGambit$-$Restart gap can be attributed to recovery rather than to seed effects.
-
-\textbf{Checkpoint save interval.} All experiments use \texttt{--save-interval 200}. With per-checkpoint cost $\sim$30--60\,s and LLM-training MTBF on the order of hours~\cite{dubey2024llama3,jiang2024megascale}, Young/Daly~\cite{young1974first,daly2006higher} yields an optimal interval of 100--300 iterations, matching the operating points used by Megatron-LM~\cite{narayanan2021megatron}, CheckFreq~\cite{mohan2021checkfreq}, Bamboo~\cite{thorpe2023bamboo}, Oobleck~\cite{jang2023oobleck}, and Gemini~\cite{wang2023gemini}. At 200 iterations the save overhead is $<$3\% and the worst-case $\Delta$ stays comfortably below the $\Phi_{\max}=10^{-2}$ cliff calibrated in Section~\ref{sec:policy}.
+\textbf{Baseline timing and noise floor.} Steady-state per-iteration cost is $T_{\text{iter}}\!\approx\!10.31$\,s; full-checkpoint load is $T_{\text{load}}\!\approx\!35.95$\,s; hybrid recovery is $T_{\text{hybrid}}\!\approx\!28.79$\,s; save-checkpoint cost is $\sim$33\,s, yielding $\sim$1.6\% overhead at \texttt{save-interval}$=200$. To define a statistically meaningful post-recovery quality change, 10 independent NoFault runs (600 iterations, different seeds) yield $\mu_{\text{base}}=4.854$, $\sigma_{\text{base}}=0.024$ on iter-600 eval loss; we use this as the reference NoFault distribution throughout §\ref{sec:rq3}, and paired runs control for the residual seed/shuffle noise. With per-checkpoint cost $\sim$30--60\,s and LLM-training MTBF on the order of hours~\cite{dubey2024llama3,jiang2024megascale}, Young/Daly~\cite{young1974first,daly2006higher} yields \texttt{save-interval 200} as an optimal operating point matching Megatron-LM~\cite{narayanan2021megatron}, CheckFreq~\cite{mohan2021checkfreq}, Bamboo~\cite{thorpe2023bamboo}, Oobleck~\cite{jang2023oobleck}, and Gemini~\cite{wang2023gemini}.
 
 \subsection{Compared Systems}\label{sec:compared}
 
 We compare MoEGambit with three baselines: \textbf{NoFault} (no injected failures, reference trajectory); \textbf{Restart} (standard Megatron-LM checkpoint restart with full reload and replay); and \textbf{MoC-System} (the only previously published MoE-specific fault-tolerance system~\cite{cai2024moc}, instantiated via the byte-identical accuracy overlay described below).
 
-\textbf{MoC-System (emulated).} Because no reference implementation of MoC-System~\cite{cai2024moc} is publicly available, we build a byte-identical accuracy overlay (env switch \texttt{BSR\_MOC\_PEC\_EMULATE}) on top of MoEGambit: the save path is unchanged, but a sidecar (\texttt{moc\_pec\_metadata.json}) records which contiguous $K_{\text{pec}}$ experts PEC's round-robin would treat as fresh; the restore path then redirects each non-fresh expert to the historical \texttt{iter\_*} directory holding its last-fresh version, so the loaded bytes match a faithful PEC restore. Hybrid recovery and two-phase are disabled to match MoC-System's restart behavior. With $K_{\text{pec}}=16$, $N=128$ this reproduces the paper's PLT~$\approx 3.75\%$ point. We do \emph{not} measure MoC-System's wall-clock from this overlay (it still writes the full checkpoint); for recovery latency we use the most favorable published numbers as a conservative upper bound on MoC-System's advantage (see §\ref{sec:threats}).
+\textbf{MoC-System (emulated).} Because no reference implementation of MoC-System~\cite{cai2024moc} is publicly available, we build a byte-identical accuracy overlay on top of MoEGambit: the save path is unchanged, but the restore path redirects each non-fresh expert to the historical checkpoint holding its last-fresh version, so the loaded bytes match a faithful PEC restore; hybrid recovery and two-phase are disabled to match MoC-System's restart behavior. With $K_{\text{pec}}=16$, $N=128$ this reproduces the paper's PLT~$\approx 3.75\%$ point. We do \emph{not} measure MoC-System's wall-clock from this overlay (it still writes the full checkpoint); for recovery latency we use the most favorable published numbers as a conservative upper bound on MoC-System's advantage (see §\ref{sec:threats}).
 
 \subsection{Policy Parameters}
 
@@ -461,7 +345,7 @@ $N_{\text{expert}}$ & total MoE experts in model                           & 128
 \end{center}
 \end{table}
 
-$\Delta_{\min}$ and $\Delta_{\max}$ are non-binding under our timings ($T_{\text{load}}>1.2\,T_{\text{hybrid}}$ from Table~\ref{tab:pre_timing}, so hybrid is the cheaper path for every $\Delta\!\geq\!1$); we retain both as defensive guards for clusters with much faster checkpoint loading.
+$\Delta_{\min}$ and $\Delta_{\max}$ are non-binding under our timings ($T_{\text{load}}>1.2\,T_{\text{hybrid}}$, so hybrid is the cheaper path for every $\Delta\!\geq\!1$); we retain both as defensive guards for clusters with much faster checkpoint loading.
 
 \textbf{$\Phi_{\max}=10^{-2}$ is calibrated as an empirical cliff edge.} A $3\!\times\!4$ multi-rank burst sweep ($|F|\in\{8,16,24\}$, $\Delta\in\{50,100,150,200\}$ on the same Qwen3-30B-A3B / 64-GPU configuration) drives projected $\Phi'(t)=|E_{\text{new}}|\Delta/(N_{\text{expert}}\!\cdot\!W)$ across $[2.5\!\times\!10^{-3},3\!\times\!10^{-2}]$, with $|E_{\text{new}}|\!=\!16|F|$. The data (Table~\ref{tab:multi_fault}) exhibit a clean cliff at $10^{-2}$: the seven cells with $\Phi'(t)\!\leq\!10^{-2}$ all stay inside the baseline $\pm 1\sigma$ band (worst $+0.71\sigma$), while the five cells above jump to $1.21$--$1.98\sigma$. We therefore retain $\Phi_{\max}=10^{-2}$ as the default and fall back to checkpoint restart above it.
 
@@ -521,7 +405,7 @@ the \emph{hybrid restore} effect is $-5.499$\,s (a $15.1\%$ reduction relative t
 
 \textbf{Mechanism.} The hybrid effect comes from replacing NVMe-bound full-tensor restoration with peer-pulled dense/router state plus a single-rank expert shard read; this scales with the recovered I/O volume and dominates when the optimizer slice is small enough to be loaded synchronously. The two-phase effect comes from overlapping the optimizer-state restoration with the post-resume forward/backward of the replacement rank: as soon as weights are in place the rank produces its first iteration, while the residual optimizer load runs concurrently under an update barrier on the affected experts. The overlap window is bounded by the cost of one training iteration, so the two-phase saving is roughly constant ($\approx 2$\,s) across both restore paths---which is exactly what Table~\ref{tab:single} shows.
 
-\textbf{End-to-end wall-clock including replay.} Table~\ref{tab:single} reports raw recovery latency---the wall time from failure detection until the replacement rank produces its first post-recovery iteration---and therefore deliberately excludes the replay cost that the chosen restore path still has to pay before training reaches the original failure step. Including replay closes the accounting and yields the wall-clock cost an operator actually observes per failure. With save-interval $200$ and a uniform random failure step (Young/Daly~\cite{young1974first,daly2006higher}), the expected checkpoint gap is $\Delta\!=\!100$ iterations; at the measured $T_{\text{iter}}{=}10.31$\,s of Table~\ref{tab:pre_timing} this is $T_{\text{replay}}\!\approx\!1031$\,s. MoC-System's restore path is byte-identical to checkpoint restart (its optimization is save-side, §\ref{sec:rw-moe-ft}), so its end-to-end cost is $36.4 + 1031 = 1067.4$\,s per failure event. MoEGambit's hybrid restore reconstitutes dense/router state from a healthy DP peer at the current step $t$ and only the rank-local experts from the shard at step $c$ (§\ref{sec:mechanism}), so by construction it pays \emph{no} replay---training resumes at step $t$ directly. The end-to-end ratio is therefore $1067.4 / 28.9 = \mathbf{36.9\times}$, the figure quoted in the abstract and Section~\ref{sec:intro}. Raw recovery latency ($36.4 / 28.9 = 1.26\times$) and end-to-end wall-clock ($36.9\times$) measure different things---the former isolates the recovery mechanism, the latter captures what the user sees---and we report both throughout the paper.
+\textbf{End-to-end wall-clock including replay.} Table~\ref{tab:single} reports raw recovery latency---the wall time from failure detection until the replacement rank produces its first post-recovery iteration---and therefore deliberately excludes the replay cost that the chosen restore path still has to pay before training reaches the original failure step. Including replay closes the accounting and yields the wall-clock cost an operator actually observes per failure. With save-interval $200$ and a uniform random failure step (Young/Daly~\cite{young1974first,daly2006higher}), the expected checkpoint gap is $\Delta\!=\!100$ iterations; at the measured $T_{\text{iter}}{=}10.31$\,s this is $T_{\text{replay}}\!\approx\!1031$\,s. MoC-System's restore path is byte-identical to checkpoint restart (its optimization is save-side, §\ref{sec:rw-moe-ft}), so its end-to-end cost is $36.4 + 1031 = 1067.4$\,s per failure event. MoEGambit's hybrid restore reconstitutes dense/router state from a healthy DP peer at the current step $t$ and only the rank-local experts from the shard at step $c$ (§\ref{sec:mechanism}), so by construction it pays \emph{no} replay---training resumes at step $t$ directly. The end-to-end ratio is therefore $1067.4 / 28.9 = \mathbf{36.9\times}$, the figure quoted in the abstract and Section~\ref{sec:intro}. Raw recovery latency ($36.4 / 28.9 = 1.26\times$) and end-to-end wall-clock ($36.9\times$) measure different things---the former isolates the recovery mechanism, the latter captures what the user sees---and we report both throughout the paper.
 
 \subsection{RQ3: Training Quality and Stability}
 \label{sec:rq3}
@@ -581,7 +465,7 @@ MoEGambit introduces negligible throughput overhead in failure-free training bec
 \subsection{RQ6: Ablation Study}
 \label{sec:rq6}
 
-To answer RQ6, we isolate the contribution of each MoE-aware mechanism in MoEGambit through the $2\times 2$ factorial of Section~\ref{sec:rq2} (Table~\ref{tab:single}), which crosses \emph{hybrid restore} versus \emph{full checkpoint restart} with \emph{two-phase} versus \emph{single-phase} optimizer attachment. Relative to the $36.417$\,s full-restart baseline, MoE-aware hybrid restore contributes a $-5.50$\,s ($-15.1\%$) main effect---primarily by replacing collective \texttt{torch\_dist} loading with single-rank expert shard reads and peer-pulled dense/router state---while the weights-first / optimizer-later two-phase protocol contributes a $-2.00$\,s ($-5.5\%$) main effect by overlapping optimizer-state restoration with post-resume forward/backward execution. The interaction term is $0.35$\,s ($0.96\%$ of baseline, within run-to-run noise), so the two mechanisms compose additively: the joint MoEGambit configuration ($28.914$\,s) equals the baseline minus both main effects to within $\pm 1\%$. This decomposition validates the design intent of MoEGambit: hybrid restore and two-phase recovery target disjoint segments of the recovery critical path---the I/O-bound state restoration segment and the post-resume optimizer-attach segment---and therefore both must be enabled to obtain the full $20.6\%$ end-to-end reduction. The expert-weighted staleness guard $\Phi'(t)$ governs a separate dimension---when hybrid recovery is admissible at all---and its empirical contribution is established directly by the multi-rank burst sweep of Section~\ref{sec:rq4}: removing the guard (forcing hybrid above the cliff) drives the five over-threshold cells from inside the $\pm 1\sigma$ band to $1.21$--$1.98\,\sigma_{\text{base}}$.
+To answer RQ6, we isolate the contribution of each MoE-aware mechanism in MoEGambit through the $2\times 2$ factorial of Section~\ref{sec:rq2} (Table~\ref{tab:single}), which crosses \emph{hybrid restore} versus \emph{full checkpoint restart} with \emph{two-phase} versus \emph{single-phase} optimizer attachment. Relative to the $36.417$\,s full-restart baseline, MoE-aware hybrid restore contributes a $-5.50$\,s ($-15.1\%$) main effect---primarily by replacing collective full-checkpoint loading with single-rank expert shard reads and peer-pulled dense/router state---while the weights-first / optimizer-later two-phase protocol contributes a $-2.00$\,s ($-5.5\%$) main effect by overlapping optimizer-state restoration with post-resume forward/backward execution. The interaction term is $0.35$\,s ($0.96\%$ of baseline, within run-to-run noise), so the two mechanisms compose additively: the joint MoEGambit configuration ($28.914$\,s) equals the baseline minus both main effects to within $\pm 1\%$. This decomposition validates the design intent of MoEGambit: hybrid restore and two-phase recovery target disjoint segments of the recovery critical path---the I/O-bound state restoration segment and the post-resume optimizer-attach segment---and therefore both must be enabled to obtain the full $20.6\%$ end-to-end reduction. The expert-weighted staleness guard $\Phi'(t)$ governs a separate dimension---when hybrid recovery is admissible at all---and its empirical contribution is established directly by the multi-rank burst sweep of Section~\ref{sec:rq4}: removing the guard (forcing hybrid above the cliff) drives the five over-threshold cells from inside the $\pm 1\sigma$ band to $1.21$--$1.98\,\sigma_{\text{base}}$.
 
 
 \subsection{RQ7: Scalability}\label{sec:rq7}
@@ -629,7 +513,7 @@ The empirical evidence in \S\ref{sec:rq2}--\S\ref{sec:rq7} supports a small set 
 
 \textbf{Lesson 3: the fast path and auditability infrastructure must be co-designed.} R1 (safe-point repair) and R3 (structured logs) cannot be retrofitted: a hybrid restore updating dense/router state mid-step \emph{requires} a safe point, and a $\Phi'(t)$-conditioned policy is only falsifiable if $\Phi'(t)$, $\pi(t)$, and the loss trajectory are logged at the same key. Without R1/R3, RQ2's speedup numbers are not reproducible at the granularity a deployed runtime needs.
 
-\textbf{Generalizability, limits, and future work.} The dense/router-vs.-expert decomposition is tied to alltoall-dispatched MoE~\cite{narayanan2021megatron,hwang2023tutel}; variants that re-shape it (e.g., expert replication, hybrid sharding~\cite{he2022fastermoe}) shift the path-P/path-C boundary in (\ref{eq:policy}) but leave the SE contract R1--R3 intact. Under \texttt{torch\_dist}, path~C ceases to be collective-free, which shrinks but does not eliminate the §\ref{sec:rq2} advantage. DP$=$1 is the worst case for $\textsc{PeerAvail}(r,t)$; larger DP only strengthens R1--R3. We see no principled obstacle to porting the runtime-checkable-guard / single-rank-fast-path / structured-log decomposition to DeepSpeed-MoE~\cite{rajbhandari2022deepspeedmoe}. Three follow-ups suggest themselves: (i)~closing the no-peer fallback (\S\ref{sec:threats}) via an in-memory replica plane~\cite{wang2023gemini} or save-side PEC~\cite{cai2024moc}; (ii)~extending R1 with a verification predicate to cover silent data corruption / slow degradation, with §\ref{sec:obs}'s log carrying its outcome; (iii)~online calibration of $\tau_C$ against a streaming estimate of the failure-free noise floor.
+\textbf{Generalizability, limits, and future work.} The dense/router-vs.-expert decomposition is tied to alltoall-dispatched MoE~\cite{narayanan2021megatron,hwang2023tutel}; variants that re-shape it (e.g., expert replication, hybrid sharding~\cite{he2022fastermoe}) shift the path-P/path-C boundary in (\ref{eq:policy}) but leave the SE contract R1--R3 intact. DP$=$1 is the worst case for $\textsc{PeerAvail}(r,t)$; larger DP only strengthens R1--R3. We see no principled obstacle to porting the runtime-checkable-guard / single-rank-fast-path / structured-log decomposition to DeepSpeed-MoE~\cite{rajbhandari2022deepspeedmoe}. Three follow-ups suggest themselves: (i)~closing the no-peer fallback (\S\ref{sec:threats}) via an in-memory replica plane~\cite{wang2023gemini} or save-side PEC~\cite{cai2024moc}; (ii)~extending R1 with a verification predicate to cover silent data corruption / slow degradation; (iii)~online calibration of $\tau_C$ against a streaming estimate of the failure-free noise floor.
 
 \section{Related Work}
 \label{sec:related}
@@ -666,7 +550,7 @@ The only previously published MoE-specific fault-tolerance system we are aware o
 
 We argued that runtime failure recovery in distributed MoE training should be engineered as a software reliability artifact rather than as a checkpoint-optimization heuristic. MoEGambit realizes this view inside Megatron-LM~\cite{narayanan2021megatron} as three explicit SE artifacts---safe-point repair with optimizer commit guarding (R1), an expert-weighted staleness density $\Phi'(t)$ as a runtime-checkable recovery specification (R2), and structured recovery logs (R3)---and it cleanly separates the recovery \emph{contract} (when hybrid repair is permitted) from the recovery \emph{mechanism} (how dense, shared, router, and expert state are reconstituted from peers and per-rank shards). The contract is honest about its own pre-conditions: when a failure (or burst of concurrent failures) eliminates every healthy data-parallel peer at the failed rank's PP/TP coordinate---so no surviving rank holds a current-step replica of the dense/router state---hybrid recovery is by construction infeasible and MoEGambit transparently falls back to checkpoint restart, with the policy decision and its inputs preserved in the structured log. Empirically, on a Qwen3-30B-A3B sparse MoE~\cite{qwen3report,dai2024deepseekmoe} (128 experts, top-8) on 64 H20-3e GPUs, MoE-aware hybrid restore contributes a $-15.1\%$ main effect and the weights-first / optimizer-later two-phase protocol an additional $-5.5\%$ main effect on single-failure end-to-end recovery latency, composing additively (interaction $0.96\%$, within noise) for a total $20.6\%$ reduction relative to full checkpoint restart at the same checkpoint format and gap. Across a $|F|\times\Delta$ multi-rank burst sweep, post-recovery validation loss stays inside the failure-free $\pm 1\sigma$ band on every cell with $\Phi'(t)\leq 10^{-2}$ and MoEGambit correctly falls back to checkpoint restart on the cells beyond the empirical cliff edge.
 
-Beyond these point measurements, the broader claim of this paper is methodological: \emph{recovery in large-model training systems must be specified against the post-recovery training trajectory, not merely against the event of resumption.} The $\Phi'(t)$ contract, the paired-run evaluation against an a priori noise floor~\cite{wohlin2012ese,arcuri2014hitchhiker}, and the structured recovery logs are three faces of the same SE discipline: making the recovery decision auditable, the recovered trajectory falsifiable, and the failure surface testable. Future work includes (i)~extending the guarded-recovery contract to the \texttt{torch\_dist} checkpoint format via a collective-free selective shard loader, (ii)~lifting the single-rank assumption to concurrent multi-rank repair and the corresponding multi-event $\Phi'(t)$ accounting, and (iii)~accommodating non-fail-stop fault models such as silent data corruption and slow-degrading hardware observed in production traces~\cite{chowdhery2023palm,jiang2024megascale}.
+Beyond these point measurements, the broader claim of this paper is methodological: \emph{recovery in large-model training systems must be specified against the post-recovery training trajectory, not merely against the event of resumption.} The $\Phi'(t)$ contract, the paired-run evaluation against an a priori noise floor~\cite{wohlin2012ese,arcuri2014hitchhiker}, and the structured recovery logs are three faces of the same SE discipline: making the recovery decision auditable, the recovered trajectory falsifiable, and the failure surface testable. Future work includes (i)~extending the guarded-recovery contract to additional distributed-checkpoint formats via a collective-free selective shard loader, (ii)~lifting the single-rank assumption to concurrent multi-rank repair and the corresponding multi-event $\Phi'(t)$ accounting, and (iii)~accommodating non-fail-stop fault models such as silent data corruption and slow-degrading hardware observed in production traces~\cite{chowdhery2023palm,jiang2024megascale}.
 
 \section*{Acknowledgment}
 The authors would like to thank the anonymous reviewers for their constructive feedback.

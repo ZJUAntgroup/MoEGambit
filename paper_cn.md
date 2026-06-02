@@ -10,7 +10,7 @@
 
 稀疏 Mixture-of-Experts (MoE) 已经成为前沿大语言模型的主流架构，Mixtral [14]、DeepSeek-MoE [6]、Qwen3-MoE [9,8] 等系统都基于它构建——MoE 通过把每个 token 只路由到少数若干专家，把"模型容量"与"每 token 计算量"解耦，从而以可承受的单步代价训练出参数量远超稠密模型的网络。然而在生产规模上训练这种模型是一个跨数周、跨数千 GPU 的长周期软件过程，故障在其中是常规事件而非例外。Meta 的 Llama-3 训练 trace 报告 16K-GPU 集群上大约每 45 分钟一次故障 [1]；MegaScale 记录了 10K-GPU 生产部署中数百种不同故障模式 [2]；OPT-175B logbook 详细记录了数周时间的"人在回路"干预 [3]。生产环境主导的恢复机制是 **checkpoint restart**——重新加载最近的全局一致快照并重放丢失的迭代——这意味着大型 MoE 训练任务的每次故障事件通常都要付出数百秒 checkpoint I/O 加上数百次迭代重放，单事件消耗数千 GPU-秒，整个训练周期累计起来则是数天的 wall time 浪费。
 
-围绕降低这种代价已经出现了一批容错训练系统，但它们几乎全部针对稠密模型设计。CheckFreq [25]、DeepFreeze [29]、Check-N-Run [26] 通过异步与增量写入压低单次 checkpoint 的代价；Gemini [18] 用内存中副本替代 NVMe 写入；Bamboo [16] 利用 preemptible 实例的冗余隐藏 checkpoint 开销；Oobleck [17] 与 ReCycle [19] 在故障后重配置 pipeline 调度，完全避免回滚到任何已保存快照。这些系统都没有处理 MoE 特有的代价不对称性：MoE checkpoint 的主体是每专家的优化器状态，而 Megatron-LM 主导的分布式 checkpoint 格式 `torch_dist` 要求所有 rank 通过 collective `all_gather_object` 共同参与加载，从构造上禁止单 rank 选择性恢复。我们所知的唯一一个 MoE 专用容错系统 MoC-System [15] 在 **保存侧** 通过 Partial Experts Checkpointing 降低代价，但在恢复时仍然回退到完整的全局 checkpoint restart——每次故障都付出完整的 load + replay 账单，恢复关键路径本质上没有被缩短。
+围绕降低这种代价已经出现了一批容错训练系统，但它们几乎全部针对稠密模型设计。CheckFreq [25]、DeepFreeze [29]、Check-N-Run [26] 通过异步与增量写入压低单次 checkpoint 的代价；Gemini [18] 用内存中副本替代 NVMe 写入；Bamboo [16] 利用 preemptible 实例的冗余隐藏 checkpoint 开销；Oobleck [17] 与 ReCycle [19] 在故障后重配置 pipeline 调度，完全避免回滚到任何已保存快照。这些系统都没有处理 MoE 特有的代价不对称性：MoE checkpoint 的主体是每专家的优化器状态，而主流分布式 checkpoint 格式要求所有 rank 通过 collective 共同参与加载，从构造上禁止单 rank 选择性恢复。我们所知的唯一一个 MoE 专用容错系统 MoC-System [15] 在 **保存侧** 通过 Partial Experts Checkpointing 降低代价，但在恢复时仍然回退到完整的全局 checkpoint restart——每次故障都付出完整的 load + replay 账单，恢复关键路径本质上没有被缩短。
 
 因此真正的缺口是一个 **面向恢复侧、围绕 MoE 异构状态结构组织的容错框架**——它能在不回滚整个任务的前提下修复失败 rank，并做到快、保模型质量、在重复故障下保持稳定。**我们的核心洞察是：分布式 MoE 训练已经天然携带足够的跨 rank 冗余，可以让大部分状态绕过基于磁盘的恢复路径。** 具体而言，dense 参数与 router 沿 data-parallel (DP) 维度天然复制，而只有 expert 参数及其优化器状态沿 EP 维度分片。当一个 rank 故障时，替换 rank 完全不需要从磁盘读取 dense 状态——它可以直接从健康的 DP peer 同步当前步的 dense 与 router 参数，只有该 rank 独占的 expert 权重与 expert 优化器状态才需要从最新 checkpoint 分片加载。本文提出 **MoEGambit**，第一个具备上述性质的框架，集成进 Megatron-LM [27]。命名取意国际象棋中的"弃兵开局"（gambit）：MoEGambit 主动容忍一段被界定的 expert 陈旧度（最多 $\Delta_{\max}$ 步、累积量受 $\Phi_{\max}$ 约束），以此跳过全局 checkpoint restart、让训练以内存对拷的速度恢复——用一小块可量化的"局部牺牲"换取决定性的恢复时延优势。一个 weights-first / optimizer-later 的两阶段协议进一步把优化器状态恢复与替换 rank 的恢复后 forward/backward 计算重叠，使 time-to-resume 受限于一次权重传输而不是完整的优化器加载。据我们所知，MoEGambit 是第一个从跨 rank 实时状态而不是从磁盘 checkpoint 修复 MoE 训练故障的系统。
 
@@ -47,14 +47,9 @@
 
 这两种病理共同确定了一个**机理事实**：在 MoE 训练里，"训练是否恢复"已不再是衡量恢复正确性的充分谓词；恢复路径上必须额外携带一个**恢复后训练轨迹**的可校验规约，否则局部恢复就只是把一种沉默的轨迹漂移换给了用户。MoEGambit 在 §3 中给出该规约的具体形式（专家加权陈旧度密度 $\Phi'(t)$）。
 
-### 2.3 范围：分布式 Checkpoint 格式与本文研究面
+### 2.3 范围
 
-是否能做局部恢复在 MoE 训练 runtime 里不是策略问题，而是**checkpoint 格式问题**。Megatron-LM [27,28] 支持两种格式，其语义决定 hybrid recovery 是否在构造上可行：
-
-- **`torch`（legacy）**：每个 rank 在 `iter_XXXXXXX/mp_rank_{tp}_{pp}_{ep}/model_optim_rng.pt` 下保存自己的 `.pt` 文件。可用 `torch.load()` 由每个 rank 独立加载，无需任何 collective 通信——非常适合在异步恢复回调中做选择性专家加载。
-- **`torch_dist`（default）**：使用分布式 checkpoint，配合 sharded state dict 与 `metadata.json`。加载需调用 `dist_checkpointing.load()`，其内部调用 `all_gather_object`——一个要求每个 rank 都参与的 collective 操作，与单 rank 选择性加载**根本不兼容**，从单 rank 的恢复线程调用会死锁。
-
-**本文研究范围。** MoEGambit 处理：(i) 同一 PP/TP 坐标下至少有一个健康 DP peer 存活时的单/多 rank 故障；(ii) 使用 `torch` 格式的 Megatron-LM 部署。下列问题**不在范围内**：(a) 健康 DP peer 全部失联时的恢复（此时回退到 checkpoint restart，本文把它作为结构性 contract 而非"失败模式"）；(b) `torch_dist` 部署下的局部恢复（我们认为这是 Megatron-LM checkpoint API 的工程缺口，超出方法学讨论）；(c) save 端 checkpoint 频率优化（CheckFreq/Gemini/MoC-System 等已有大量工作，§5 详述差异）。
+MoEGambit 处理：(i) 同一 PP/TP 坐标下至少有一个健康 DP peer 存活时的单/多 rank 故障；不在范围：(a) 健康 DP peer 全部失联时的恢复（此时回退到 checkpoint restart，本文把它作为结构性 contract 而非"失败模式"）；(b) save 端 checkpoint 频率优化（CheckFreq/Gemini/MoC-System 等已有大量工作，§5 详述差异）。
 
 ## 3. 问题陈述与设计目标
 
@@ -84,18 +79,7 @@
 
 ## 4. MoEGambit
 
-### 4.1 核心抽象
-
-在描述模块前，我们固定四个所有模块共用的抽象。
-
-- **D1（Checkpoint gap）：** $\Delta = t - c$。在 restart 中决定被重放的迭代数；在 hybrid recovery 中决定被恢复专家状态的陈旧度。
-- **D2（异构状态类）：** MoE 训练状态在 provenance 上分裂为三类——**replicated**（dense/router/shared 权重与 DP 复制的优化器矩，每个 DP peer 都持有当前步副本）、**sharded expert**（每 EP rank 独占的专家权重与专家优化器矩，无任何 peer 持有它的当前步副本）、**derived runtime metadata**（expert dispatch 表、process-group 视图、AdamW step 计数）。这种不对称是机制设计的依据。
-- **D3（Safe repair point）：** 一个迭代边界，使任何 forward/backward/all-reduce/optimizer.step 的部分进度都已被丢弃或全部提交。R1 把所有修复约束在 safe repair point 上。
-- **D4（专家加权陈旧度密度）：** $\Phi'(t) \in [0,1]$，跟踪滑动窗口 $W$ 内 cross-rank 的累积"专家 $\times$ 迭代"陈旧度债务（§4.4 (1) 给出定义）。R2 直接对它设阈。
-
-**记号。** $G$ 个 GPU 上以 TP / PP / DP / EP 并行运行；$N_{\text{expert}}$ 是模型 MoE 专家总数；$|E_h|, \Delta_h$ 是历史 hybrid 事件 $h$ 的恢复专家集合大小与 gap；$|E_{\text{new}}|$ 是当前事件将恢复的专家数。
-
-### 4.2 概览
+### 4.1 概览
 
 图 1（与英文版同图）展示了控制流。当故障事件 $\langle r,t,c\rangle$ 到达，MoEGambit 沿 5 个编号步骤展开，并与本节后续小节一一对应：
 
@@ -159,15 +143,9 @@ $$
 **处理。** 沿两条并行路径执行：
 
 - **Path P（peer pull，对应 replicated 状态）：** 替换 rank 从一个与失败 rank 共享相同 TP/PP 坐标的健康 DP peer 同步 dense/shared/router 权重（及对应的 DP 复制优化器矩）。传输是一次点对点 NCCL/Gloo 广播，相关张量数十毫秒内完成；产生的是反映 **当前步 $t$** 的状态。
-- **Path C（checkpoint 分片读取，对应 sharded expert 状态）：** 替换 rank 从最新分布式 checkpoint 分片读取失败 rank 拥有的专家权重与专家优化器矩。该分片是 `iter_XXXXXXX/mp_rank_{tp:02d}_{pp:03d}_{ep:03d}/model_optim_rng.pt` 下的一个每 rank `.pt` 文件，用 `torch.load()` 独立加载且 **不需要 collective 通信**。全局 MoE 层索引通过 $\text{local\_idx} = \text{layer\_id} - (\text{pp\_rank} \cdot L + 1)$ 重映射为 PP-stage-local 索引。
+- **Path C（checkpoint 分片读取，对应 sharded expert 状态）：** 替换 rank 从最新 checkpoint 分片中独立加载失败 rank 拥有的专家权重与专家优化器矩，**不需要 collective 通信**。
 
 **输出。** 被恢复 rank 的状态在构造上是 **混合的**：dense/shared/router 状态反映步 $t$，专家与专家优化器状态相对步 $t$ 恰好陈旧 $\Delta$ 步。这种被控陈旧度正是 (1) 中 $\Phi'(t)$ 跟踪的量。
-
-**为什么不把 experts 也从 peer 拉？** 因为每个 EP rank 独占其专家子集（D2，sharded expert 类）；没有任何 peer 持有失败 rank 专家的当前步副本，peer pull 在结构上不适用。
-
-**为什么不全从盘加载，包括 dense？** 那就是完整的 checkpoint restart；在我们的集群上代价是 $T_{\text{load}} \approx 36$ s/event，而 hybrid 是 $T_{\text{hybrid}} \approx 29$ s。差额正是 path P **不需要** 读的那部分 dense/router 字节。复制 vs.\ 分片的不对称性是 MoEGambit 恢复侧加速的根源。
-
-**为什么 checkpoint 格式选择是 contract 的一部分？** 在默认的 `torch_dist` 格式下，`dist_checkpointing.load()` 需要 `all_gather_object`，path C 的单 rank 加载在结构上不可用。MoEGambit 因此承诺使用 `torch` 格式——这是契约而非调参旋钮。
 
 ### 4.6 两阶段恢复协议
 
@@ -194,48 +172,21 @@ $$
 
 **输入。** 一个被部分修复的 rank（来自 §4.5/§4.6）以及当时的所有策略输入与延迟测量。
 
-**处理。** Reintegration 管理器把 rank 通过一个显式四状态机推进，每个状态在进入与离开时检查显式 guard：
+**处理。** Reintegration 管理器把 rank 通过一个四状态机推进 `RECOVERING` → `REPAIRED_NOT_ROUTED` → `ROUTED_BARRIER` → `HEALTHY`，每对相邻状态之间有一个显式 guard（状态恢复完成；dispatch 拓扑刷新；optimizer 状态挂载；barrier 释放），构造上排除"已恢复但 dispatch 未刷新"或"已被路由但 barrier 未释放"等不安全中间态。
 
-| 状态 | guard out |
-| --- | --- |
-| `RECOVERING` | path P 与 path C 均完成；权重在该 rank 物理可用 |
-| `REPAIRED_NOT_ROUTED` | expert dispatch 表 / process-group 视图被刷新并验证；token 此前不被路由到该 rank |
-| `ROUTED_BARRIER` | 阶段 B optimizer 状态全部挂载；update barrier 待释放 |
-| `HEALTHY` | barrier 已释放；rank 进入正常优化器更新语义 |
-
-**输出。** 每次恢复事件都产生一条结构化日志条目，包含四组字段：(i) **event** 字段由检测器填写（`cause`, `failed_rank`, `step_t`, `ckpt_c`）；(ii) **policy** 字段由 Alg. 1 填写（`delta`, `e_new`, `S(t)`, `phi_prime`, `peer_avail`, `decision`, `decision_reason`）；(iii) **latency** 字段记录每段恢复的延迟（`t_peer_pull`, `t_ckpt_load`, `t_opt_attach`, `t_replay`, `t_reintegrate`）；(iv) **machine** 字段记录 rank 状态机轨迹（`RECOVERING` → … → `HEALTHY`）。
-
-这些条目使两件事成为可能。首先，每个决策都 **可解释**：每条所选路径都可追溯到 Alg. 1 的输入与阈值。其次，**事后关联** 与训练质量指标（validation loss、perplexity、梯度范数、token drop rate、router 辅助 loss、专家负载 CV）成为可能——这正是把"恢复成功了吗？"变成可证伪问题的关键，也是 §5 中配对 run 方法学的操作主干。
-
-**为什么用四状态机而不是布尔 done 标志？** 因为四状态机让 R3 中 *unsafe but plausible* 的中间状态（如"已恢复但 dispatch 未刷新"或"已被路由但 barrier 未释放"）成为可显式命名、可显式排除的状态，而不是被嵌在 if-else 链里的隐式情况。
-
-**为什么用结构化日志而不是自由文本？** 自由文本日志不允许 §5 那样的 $2 \times 2$ 析因主效应分解：每个延迟分量、每个策略输入都必须成为可被脚本式聚合的字段。
-
-**为什么把延迟字段放进 R3 而不是只放在评估里？** 因为日志中的每段延迟正是 §5 析因实验所依赖的加性分解。如果只把它们放进评估侧，下次想做"hybrid restore vs.\ two-phase"归因就得重新插桩；放进 R3 让生产恢复路径与评估分析共用同一可观测面。
-
-> 注：实现细节（约 4.2K Python 代码、`torch` checkpoint 格式承诺、PP-aware 层重映射缓存、update barrier 作为 AdamW pre-step hook）已从 §5 抽离至 §5.1 \emph{Implementation Notes}。
+**输出。** 每次恢复事件产生一条结构化日志条目，记录策略输入（$\Delta$、$|E_{\text{new}}|$、$\Phi'(t)$、$\pi(t)$、决策原因）、每段恢复延迟与状态机轨迹，使每条所选路径都可追溯到 Alg. 1 的输入与阈值，并支持配对 run 方法学下与训练质量指标的事后关联——这正是把"恢复成功了吗？"变成可证伪问题的关键。运行时日志记账与状态机维护开销在无故障训练下可忽略（§5.7）。
 
 ## 5. 实验评估
 
 我们围绕八个把 §3 的契约 (R1--R3) 与机制（hybrid restore、两阶段恢复）连接到可测量结果的研究问题来组织评估。**RQ1（策略正确性）：** 在各种 gap 与 $\Phi'(t)$ 配置下，策略 $\pi(t)$ 是否确定性地按 Algorithm 1 选择期望路径并产生可审计的决策原因？**RQ2（单次故障代价）：** 在标准的单次 rank 故障场景下，hybrid restore 与 two-phase 协议各自对端到端 wall time 贡献多少，它们是加性的还是有交互的？**RQ3（训练质量与稳定性）、** 在重复故障 trace 下，MoEGambit、Restart 与 MoC-System overlay 的 training loss、validation loss、perplexity、下游 zero-shot 准确率如何对比？**RQ4（多故障与 $\Phi_{\max}$ 悬崖）：** 在 $|F|\times\Delta$ 多 rank burst sweep 下，$\Phi'(t)$ 阈值是否对应一条数据驱动的悬崖，能干净分隔 in-band 与 out-of-band 的恢复后训练轨迹？**RQ5（无故障开销）：** MoEGambit 引入的 runtime 检查、元数据跟踪与结构化日志在无故障训练下的吞吐开销是否可忽略？**RQ6（消融）：** 通过 §5.6 的 $2\times 2$ 析因实验，hybrid restore 与 two-phase 协议各自对端到端 wall time 贡献多少？$\Phi'(t)$ guard 对悬崖之上格点的训练质量贡献多少（§5.8）？**RQ7（可扩展性）：** MoEGambit 相对 checkpoint restart 的恢复代价优势在集群规模从 16 GPU 扩到 128 GPU 时是收窄还是扩大？**RQ8（跨架构泛化）：** 当 MoE 架构变化（不同的专家粒度、shared expert 结构、top-k）时，MoEGambit 的恢复契约 R1--R3 与经验主张是否仍成立？
 
-### 5.1 实现注记
+### 5.1 实现与平台
 
-我们把 MoEGambit 实现为 Megatron-LM 上的一个非侵入层，约 4.2K 行 Python。实现把 §3–§4.7 的抽象与协议落地，不修改 Megatron-LM 的训练循环、并行或优化器代码路径，围绕三个承重的工程决策展开。
+我们在一个生产 H20-3e 集群上运行所有实验，64 个 GPU 跨 8 个节点（每节点 8 GPU，NVLink 节点内、InfiniBand 节点间）。模型是 Qwen3-30B-A3B [9,8]——48 层 Transformer，每层 128 个 routed expert 与 top-8 routing，每 token 激活约 3B 参数，总参数约 30B。并行配置：DP=1, TP=1, PP=8, EP=8（每个 PP stage 持有 6 层；每个 EP rank 持有 $128/8=16$ 个专家）。优化器为 AdamW，learning rate $3\times 10^{-4}$，cosine schedule，权重衰减 0.1。global batch size 256，sequence length 4096。预训练语料为 FineWeb [36] 的 4B-token 子集。Checkpoint 每 200 步保存一次，最坏情况下 $\Delta_{\max} = 200$。所有 wall time 用 `torch.cuda.synchronize()` 测量后再读取 `time.perf_counter()`。
 
-**Checkpoint 格式承诺。** MoEGambit 全程承诺 `torch` legacy 每 rank 分片 checkpoint 格式（§2.3）。这正是让 §4.5 的 path C 退化为单 rank `torch.load` 而不是 `dist_checkpointing.load()` 的全局 `all_gather_object` collective 的前提，也是让 §4.3 的 safe-point 修复控制器能把 checkpoint `(t,c)` 当作每 rank 结构一致的恢复目标的前提。Megatron-LM 默认的 `torch_dist` 格式被显式声明为不在 scope 内，而不是作为 fallback 支持——在该格式下 hybrid recovery 在构造上不可用，策略必须确定性选择 restart。
+### 5.2 方法学
 
-**PP 感知的层重映射缓存。** Hybrid 恢复需要从失败 rank 的 PP/TP/EP 坐标重建其拥有的 Transformer 层子集。我们在每种并行配置启动时一次性预计算 (rank → 持有层范围) 映射，并缓存在共享内存中，使每次恢复事件做 $O(1)$ 查表而非全局重新推导。该缓存只在并行配置本身变更时失效——这在训练任务全生命周期内极少发生。
-
-**Update barrier 作为 AdamW pre-step hook。** §4.6 的两阶段 update barrier 实现为 Megatron-LM AdamW 优化器上的一个 pre-`step()` hook，由 §4.7 的 reintegration 状态机门控。当被恢复 rank 处于 `REPAIRED_NOT_ROUTED` 或 `ROUTED_BARRIER` 时，hook 短路受影响参数组的优化器更新；一旦状态机到达 `HEALTHY`，hook 退化为 no-op。这把 barrier 机制收缩在单一可审计的代码路径内，避免改动 Megatron-LM 的梯度累积或 all-reduce 逻辑。
-
-### 5.2 实现与平台
-
-我们在一个生产 H20-3e 集群上运行所有实验，64 个 GPU 跨 8 个节点（每节点 8 GPU，NVLink 节点内、InfiniBand 节点间）。模型是 Qwen3-30B-A3B [9,8]——48 层 Transformer，每层 128 个 routed expert 与 top-8 routing，每 token 激活约 3B 参数，总参数约 30B。并行配置：DP=1, TP=1, PP=8, EP=8（每个 PP stage 持有 6 层；每个 EP rank 持有 $128/8=16$ 个专家）。优化器为 AdamW，learning rate $3\times 10^{-4}$，cosine schedule，权重衰减 0.1。global batch size 256，sequence length 4096。预训练语料为 FineWeb [36] 的 4B-token 子集。Checkpoint 每 200 步保存一次（`torch` 格式，理由见 §2.3），所以最坏情况下 $\Delta_{\max} = 200$。所有 wall time 用 `torch.cuda.synchronize()` 测量后再读取 `time.perf_counter()`。
-
-### 5.3 方法学
-
-**配对 NoFault 对照。** 每个 Recovered run 都与一个 NoFault baseline 配对：相同 seed、相同数据 shuffle、相同优化器状态、相同 checkpoint，唯一区别是 Recovered run 在预设步上注入一个 rank 故障并执行恢复 [42,43]。这样残留的 loss/perplexity 差异可干净地归因于恢复事件本身，而非 seed 噪声或数据 shuffle 漂移。**先验噪声地板。** 我们先用 5 个独立 NoFault run（不同 seed）测出 validation loss 的 $\pm 1\sigma$ 带（在感兴趣的训练窗口上 $\sigma \approx 0.012$ nat），把它作为判定"恢复后轨迹漂移在带内 / 带外"的先验基准 [42]。**Wall-time 测量。** 每个故障 trace 重复 3 次，报告中位数；中位数旁标 IQR。报告的所有加速比都通过 BCa bootstrap（10K 重抽样）做了 95% CI 检验。
+**配对 NoFault 对照。** 每个 Recovered run 都与一个 NoFault baseline 配对：相同 seed、相同数据 shuffle、相同优化器状态、相同 checkpoint，唯一区别是 Recovered run 在预设步上注入一个 rank 故障并执行恢复 [42,43]。这样残留的 loss/perplexity 差异可干净地归因于恢复事件本身，而非 seed 噪声或数据 shuffle 漂移。**先验噪声地板。** 我们先用 10 个独立 NoFault run（600 迭代、不同 seed）测出 iter-600 validation loss 的 $\mu_{\text{base}}=4.854$、$\sigma_{\text{base}}=0.024$，把它作为判定"恢复后轨迹漂移在带内 / 带外"的先验基准 [42]。**Baseline timing。** 实测 $T_{\text{iter}}\approx 10.31$ s，$T_{\text{load}}\approx 35.95$ s，$T_{\text{hybrid}}\approx 28.79$ s，save-checkpoint $\sim 33$ s（在 save-interval=200 下约 1.6\% 开销）。所有加速比都通过 BCa bootstrap（10K 重抽样）做了 95\% CI 检验。
 
 ### 5.4 故障 trace 设计
 
@@ -285,7 +236,7 @@ $$
 
 ### 5.10 RQ6：消融实验
 
-为回答 RQ6，我们通过 §5.6 的 $2\times 2$ 析因实验（表 1）隔离 MoEGambit 中两个 MoE 感知机制的贡献——它独立交叉了 *hybrid restore* vs. *full checkpoint restart* 与 *two-phase* vs. *single-phase* 两个设计选择。相对 $36.417$ s full-restart baseline，MoE 感知 hybrid restore 贡献 $-5.50$ s ($-15.1\%$) 主效应（主要把 collective `torch_dist` 加载替换为单 rank 专家分片读取加 peer 拉的 dense/router 状态），weights-first/optimizer-later 两阶段协议贡献 $-2.00$ s ($-5.5\%$) 主效应（把优化器状态恢复与 post-resume forward/backward 重叠）。交互项 $0.35$ s ($0.96\%$ of baseline，在 run-to-run 噪声内)，二者加性组合：joint MoEGambit 配置（$28.914$ s）等于 baseline 减两个主效应至 $\pm 1\%$。这一分解验证 MoEGambit 的设计意图——hybrid restore 与两阶段恢复对应恢复关键路径上不相交的两段（I/O-bound 状态恢复段与 post-resume optimizer-attach 段），两者都必须启用才能拿到完整 $20.6\%$ 端到端节省。专家加权陈旧度 guard $\Phi'(t)$ 控制的是另一个维度——hybrid recovery 是否被允许——其经验贡献由 §5.8 的多 rank burst sweep 直接给出：禁用该 guard（在悬崖之上强制 hybrid）会让 5 个 over-threshold 格点从 $\pm 1\sigma$ 带内推到 $1.21$--$1.98\,\sigma_{\text{base}}$。
+为回答 RQ6，我们通过 §5.6 的 $2\times 2$ 析因实验（表 1）隔离 MoEGambit 中两个 MoE 感知机制的贡献——它独立交叉了 *hybrid restore* vs. *full checkpoint restart* 与 *two-phase* vs. *single-phase* 两个设计选择。相对 $36.417$ s full-restart baseline，MoE 感知 hybrid restore 贡献 $-5.50$ s ($-15.1\%$) 主效应（主要把 collective 全 checkpoint 加载替换为单 rank 专家分片读取加 peer 拉的 dense/router 状态），weights-first/optimizer-later 两阶段协议贡献 $-2.00$ s ($-5.5\%$) 主效应（把优化器状态恢复与 post-resume forward/backward 重叠）。交互项 $0.35$ s ($0.96\%$ of baseline，在 run-to-run 噪声内)，二者加性组合：joint MoEGambit 配置（$28.914$ s）等于 baseline 减两个主效应至 $\pm 1\%$。这一分解验证 MoEGambit 的设计意图——hybrid restore 与两阶段恢复对应恢复关键路径上不相交的两段（I/O-bound 状态恢复段与 post-resume optimizer-attach 段），两者都必须启用才能拿到完整 $20.6\%$ 端到端节省。专家加权陈旧度 guard $\Phi'(t)$ 控制的是另一个维度——hybrid recovery 是否被允许——其经验贡献由 §5.8 的多 rank burst sweep 直接给出：禁用该 guard（在悬崖之上强制 hybrid）会让 5 个 over-threshold 格点从 $\pm 1\sigma$ 带内推到 $1.21$--$1.98\,\sigma_{\text{base}}$。
 
 ### 5.11 RQ7：可扩展性
 
@@ -331,7 +282,7 @@ $$
 
 **Lesson 3：快路径与可审计性基础设施必须同设计。** R1（safe-point 修复）与 R3（结构化日志）不可事后追加：一个在 step 中途更新 dense/router 状态的 hybrid restore **要求** 一个 safe point；一个 $\Phi'(t)$-条件策略只有在 $\Phi'(t)$、$\pi(t)$ 与 loss 轨迹被同 key 记录时才可证伪。没有 R1/R3，RQ2 的加速数字达不到 deployed runtime 所需的粒度可复现性。
 
-**可泛化性、限制与未来工作。** dense/router-vs.-expert 分解绑定到 alltoall-dispatched MoE；重塑该 dispatch 的变体（如 expert 复制、hybrid sharding）会改变 (2) 中 path P / path C 的边界但保持 SE 契约 R1--R3 不变。在 `torch_dist` 下，path C 不再是 collective-free，§4.6 的优势会缩小但不会消失。DP$=$1 是 $\textsc{PeerAvail}(r,t)$ 的最坏情况；更大 DP 只会让 R1--R3 更强。我们看不到把"运行时可校验 guard / 单 rank 快路径 / 结构化日志"分解移植到 DeepSpeed-MoE 的原则性障碍。三个后续方向：(i) 通过内存中副本平面（cf. Gemini）或 save 端 PEC（cf. MoC-System）闭合 no-peer fallback（§5.12）；(ii) 把 R1 用一个 verification predicate 扩展以覆盖静默数据损坏与缓降，让 §4.7 的日志承载其结果；(iii) 在 failure-free 噪声地板的流式估计上对 $\tau_C$ 做在线校准。
+**可泛化性、限制与未来工作。** dense/router-vs.-expert 分解绑定到 alltoall-dispatched MoE；重塑该 dispatch 的变体（如 expert 复制、hybrid sharding）会改变 (2) 中 path P / path C 的边界但保持 SE 契约 R1--R3 不变。DP$=$1 是 $\textsc{PeerAvail}(r,t)$ 的最坏情况；更大 DP 只会让 R1--R3 更强。我们看不到把"运行时可校验 guard / 单 rank 快路径 / 结构化日志"分解移植到 DeepSpeed-MoE 的原则性障碍。三个后续方向：(i) 通过内存中副本平面（cf. Gemini）或 save 端 PEC（cf. MoC-System）闭合 no-peer fallback（§5.12）；(ii) 把 R1 用一个 verification predicate 扩展以覆盖静默数据损坏与缓降；(iii) 在 failure-free 噪声地板的流式估计上对 $\tau_C$ 做在线校准。
 
 ## 7. 相关工作
 
@@ -361,7 +312,7 @@ $$
 
 我们论证了分布式 MoE 训练中的运行时故障恢复应该作为软件可靠性 artifact 来工程化，而不是作为 checkpoint-optimization 启发式。MoEGambit 在 Megatron-LM~\cite{narayanan2021megatron} 内部把这一视图实现为三个显式 SE artifact——带优化器提交保护的 safe-point repair (R1)、作为运行时可校验恢复规约的专家加权陈旧度密度 $\Phi'(t)$ (R2)、以及结构化恢复日志 (R3)——并把恢复 **契约**（hybrid repair 何时被允许）与恢复 **机制**（dense、shared、router、expert 状态如何从 peer 与每 rank 分片中重建）干净地分开。契约对自身前置条件诚实：当一次故障（或并发故障 burst）打掉失败 rank 所在 PP/TP 坐标下所有健康 data-parallel peer、使没有任何幸存 rank 持有 dense/router 状态当前步副本时，hybrid recovery 在构造上不可行，MoEGambit 透明回退到 checkpoint restart，策略决策与其输入保留在结构化日志中。在 64 H20-3e GPU、Qwen3-30B-A3B sparse MoE（128 专家、top-8）上的实证显示，MoE 感知 hybrid restore 贡献 $-15.1\%$ 主效应、weights-first/optimizer-later 两阶段协议另贡献 $-5.5\%$ 主效应，二者加性组合（交互项 $0.96\%$，在噪声内），相对相同 checkpoint 格式与 gap 下的 full checkpoint restart 总共降低 $20.6\%$ 单次故障端到端恢复延迟。在 $|F|\times\Delta$ 多 rank burst sweep 上，post-recovery validation loss 在每个 $\Phi'(t)\leq 10^{-2}$ 的格点都保持在 failure-free $\pm 1\sigma$ 带内，而 MoEGambit 在经验悬崖之上的格点上正确回退到 checkpoint restart。
 
-超越这些点测量，本文更广的主张是方法学性的：**大模型训练系统中的恢复必须以 post-recovery 训练轨迹为规约对象，而不仅以 resumption 事件为规约对象。** $\Phi'(t)$ 契约、对照先验噪声地板的配对 run 评估\cite{wohlin2012ese,arcuri2014hitchhiker}、以及结构化恢复日志，是同一 SE 纪律的三个面：让恢复决策可审计、让恢复后轨迹可证伪、让 failure surface 可测试。未来工作包括 (i) 通过一个 collective-free 选择性分片 loader 把 guarded-recovery 契约扩到 `torch_dist` checkpoint 格式；(ii) 把单 rank 假设提升到并发多 rank 修复及对应的多事件 $\Phi'(t)$ 记账；(iii) 容纳生产 trace 中观察到的 non-fail-stop 故障模型——静默数据损坏与缓降硬件\cite{chowdhery2023palm,jiang2024megascale}。
+超越这些点测量，本文更广的主张是方法学性的：**大模型训练系统中的恢复必须以 post-recovery 训练轨迹为规约对象，而不仅以 resumption 事件为规约对象。** $\Phi'(t)$ 契约、对照先验噪声地板的配对 run 评估\cite{wohlin2012ese,arcuri2014hitchhiker}、以及结构化恢复日志，是同一 SE 纪律的三个面：让恢复决策可审计、让恢复后轨迹可证伪、让 failure surface 可测试。未来工作包括 (i) 通过一个 collective-free 选择性分片 loader 把 guarded-recovery 契约扩到更多分布式 checkpoint 格式；(ii) 把单 rank 假设提升到并发多 rank 修复及对应的多事件 $\Phi'(t)$ 记账；(iii) 容纳生产 trace 中观察到的 non-fail-stop 故障模型——静默数据损坏与缓降硬件\cite{chowdhery2023palm,jiang2024megascale}。
 
 ## 致谢
 
