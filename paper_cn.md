@@ -337,7 +337,7 @@ $$
 
 ## 7. 相关工作
 
-我们以**软件工程的坐标系**而不是时间顺序来定位 MoEGambit。§7.1 把本文挂回自适应/自愈系统这一根线索，使 §3 引入的 SE artifact（R1/R2/R3）有显式血脉；§7.2--§7.4 然后梳理三条相邻的系统线索（save-side checkpointing、pipeline 自适应冗余、MoE 吞吐基础设施）；§7.5 与目前唯一公开发表的 MoE 专用容错系统对照；最后用一张定位矩阵把 MoEGambit 相对所有 5 条线索一次性放进同一张图（Table~\ref{tab:related-quadrants}）。
+我们以**软件工程的坐标系**而不是时间顺序来定位 MoEGambit。§7.1 把本文挂回自适应/自愈系统这一根线索，使 §3 引入的 SE artifact（R1/R2/R3）有显式血脉；§7.2--§7.4 然后梳理三条相邻的系统线索（save-side checkpointing、pipeline 自适应冗余、MoE 吞吐基础设施）；§7.5 与目前唯一公开发表的 MoE 专用容错系统对照，并把 MoEGambit 定位为 5 条线索中唯一占据 *recovery 端 / R1--R3 契约* 象限的工作。
 
 ### 7.1 自适应与自愈软件系统
 
@@ -357,11 +357,7 @@ $$
 
 ### 7.5 MoE 专用容错：与 MoC-System 的对比
 
-直接面向 MoE 训练的容错工作，目前公开发表的仅有 MoC-System [15]（ASPLOS'25）。其贡献是 Partial Experts Checkpointing（PEC）：用 round-robin 调度让每轮保存只写 $N$ 个专家中的 $K_{\text{pec}}$ 个作为 fresh，把磁盘保存代价降低约 $N/K_{\text{pec}}$ 倍。本文与 MoC-System 的关系最干净的表述是**象限分配**（Table~\ref{tab:related-quadrants}）：MoC-System 位于 *save 端 / 无 SE 契约* 象限，MoEGambit 位于 *recovery 端 / R1–R3 契约* 象限；二者**正交**而非竞争。一次合并部署是允许的，前提是 $\Phi'(t)$ 在公式 (\ref{eq:phi-prime}) 的窗口聚合也把 PEC 在 save 端注入的部分新鲜度计入分子，本文把这一扩展留作未来工作（§8）。对 MoC-System 的精确性对照我们使用 §5.3 中描述的 byte-identical overlay；该 overlay 的局限性见 §5.12。
-
-### 7.6 定位矩阵
-
-Table~\ref{tab:related-quadrants} 把上述五条线索按"优化端"和"是否提供运行时可校验的恢复后契约"二维归类。MoEGambit 占据原本空缺的 *recovery 端 + R1–R3 契约* 象限，与所有其他线索都不直接竞争，可与 save 端（§7.2、§7.5）方法叠加部署，且补上 topology 适应方法（§7.3）留下的 EP 分片盲点。
+直接面向 MoE 训练的容错工作，目前公开发表的仅有 MoC-System [15]（ASPLOS'25）。其贡献是 Partial Experts Checkpointing（PEC）：用 round-robin 调度让每轮保存只写 $N$ 个专家中的 $K_{\text{pec}}$ 个作为 fresh，把磁盘保存代价降低约 $N/K_{\text{pec}}$ 倍。本文与 MoC-System 的关系最干净的表述是沿两个维度的象限分配——*优化位于恢复流水线的哪一端*（save 端 vs.\ recovery 端）和*系统是否在恢复后轨迹上携带运行时可校验的 SE 契约*：MoC-System 与 CheckFreq~\cite{mohan2021checkfreq}、Gemini~\cite{wang2023gemini}、Check-N-Run~\cite{eisenman2022check} 一起位于 *save 端 / 无 SE 契约* 象限；Bamboo~\cite{thorpe2023bamboo}、Oobleck~\cite{jang2023oobleck}、ReCycle~\cite{gandhi2024recycle} 等拓扑自适应系统占据另一个 *拓扑自适应 / 无 SE 契约* 象限；MoEGambit 据我们所知是首个落在 *recovery 端、MoE 感知 / R1--R3 契约* 象限的系统。二者**正交**而非竞争。一次合并部署是允许的，前提是 $\Phi'(t)$ 在公式 (\ref{eq:phi-prime}) 的窗口聚合也把 PEC 在 save 端注入的部分新鲜度计入分子，本文把这一扩展留作未来工作（§8）。对 MoC-System 的精确性对照我们使用 §5.3 中描述的 byte-identical overlay；该 overlay 的局限性见 §5.12。
 
 ## 8. 结论
 

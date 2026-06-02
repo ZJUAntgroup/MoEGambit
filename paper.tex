@@ -668,7 +668,7 @@ The empirical evidence in \S\ref{sec:rq2}--\S\ref{sec:rq7} supports a small set 
 \section{Related Work}
 \label{sec:related}
 
-We position MoEGambit on a software-engineering coordinate system rather than as a point in a chronology of training systems. \S\ref{sec:rw-sas} anchors the paper in the self-adaptive / self-healing software literature, so that the SE artifacts R1--R3 introduced in \S\ref{sec:moegambit} have an explicit lineage; \S\ref{sec:rw-save}--\S\ref{sec:rw-moe-sys} then survey the three adjacent systems lines (save-side checkpointing, pipeline-adaptive redundancy, MoE throughput infrastructure); \S\ref{sec:rw-moe-ft} contrasts with the only previously published MoE-specific fault-tolerance system. We close with a positioning matrix that locates MoEGambit relative to all five lines simultaneously.
+We position MoEGambit on a software-engineering coordinate system rather than as a point in a chronology of training systems. \S\ref{sec:rw-sas} anchors the paper in the self-adaptive / self-healing software literature, so that the SE artifacts R1--R3 introduced in \S\ref{sec:moegambit} have an explicit lineage; \S\ref{sec:rw-save}--\S\ref{sec:rw-moe-sys} then survey the three adjacent systems lines (save-side checkpointing, pipeline-adaptive redundancy, MoE throughput infrastructure); \S\ref{sec:rw-moe-ft} contrasts with the only previously published MoE-specific fault-tolerance system and locates MoEGambit relative to all five lines as the unique recovery-side / R1--R3-contract entry.
 
 \subsection{Self-Adaptive and Self-Healing Software Systems}
 \label{sec:rw-sas}
@@ -693,26 +693,7 @@ A third systems line builds the throughput infrastructure of MoE training: GShar
 \subsection{MoE-Specific Fault Tolerance: MoC-System}
 \label{sec:rw-moe-ft}
 
-The only previously published MoE-specific fault-tolerance system we are aware of is MoC-System~\cite{cai2024moc} (ASPLOS'25), whose Partial Experts Checkpointing (PEC) writes only $K_{\text{pec}}$ of $N$ experts as fresh per save round, reducing on-disk save cost by a factor of $\sim$$N/K_{\text{pec}}$. The relationship between MoC-System and MoEGambit is best stated as a quadrant assignment (Table~\ref{tab:related-quadrants}): MoC-System lives in the \emph{save-side / no SE contract} quadrant, MoEGambit in the \emph{recovery-side / R1--R3 contract} quadrant; the two are \emph{orthogonal} rather than competing. A combined deployment is admissible provided the $\Phi'(t)$ aggregate in (\ref{eq:phi-prime}) also accounts for the save-side partial-freshness PEC injects, which we leave to future work (\S\ref{sec:conclusion}). For the accuracy-only comparison reported in this paper we use the byte-identical overlay described in \S\ref{sec:compared}; its limits are discussed in \S\ref{sec:threats}.
-
-\begin{table}[!t]
-\caption{Positioning matrix for MoE training fault tolerance.}
-\label{tab:related-quadrants}
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.15}
-\begin{center}
-\footnotesize
-\begin{tabular}{@{}l p{0.30\columnwidth} p{0.30\columnwidth}@{}}
-\toprule
-                       & \textbf{No SE contract on the post-recovery trajectory} & \textbf{Runtime-checkable SE contract (R1--R3)} \\
-\midrule
-Save-side optimization & CheckFreq~\cite{mohan2021checkfreq}, Gemini~\cite{wang2023gemini}, Check-N-Run~\cite{eisenman2022check}, MoC-System~\cite{cai2024moc} & --- (open) \\
-Topology adaptation    & Bamboo~\cite{thorpe2023bamboo}, Oobleck~\cite{jang2023oobleck}, ReCycle~\cite{gandhi2024recycle} & --- (open) \\
-Recovery-side, MoE-aware & --- & \textbf{MoEGambit (this paper)} \\
-\bottomrule
-\end{tabular}
-\end{center}
-\end{table}
+The only previously published MoE-specific fault-tolerance system we are aware of is MoC-System~\cite{cai2024moc} (ASPLOS'25), whose Partial Experts Checkpointing (PEC) writes only $K_{\text{pec}}$ of $N$ experts as fresh per save round, reducing on-disk save cost by a factor of $\sim$$N/K_{\text{pec}}$. The relationship between MoC-System and MoEGambit is best stated as a quadrant assignment along two axes---\emph{where in the recovery pipeline the optimization lives} (save side vs.\ recovery side) and \emph{whether the system carries a runtime-checkable SE contract on the post-recovery trajectory}: MoC-System sits in the \emph{save-side / no SE contract} quadrant alongside CheckFreq~\cite{mohan2021checkfreq}, Gemini~\cite{wang2023gemini}, and Check-N-Run~\cite{eisenman2022check}; topology-adaptation systems like Bamboo~\cite{thorpe2023bamboo}, Oobleck~\cite{jang2023oobleck}, and ReCycle~\cite{gandhi2024recycle} occupy a separate \emph{topology-adaptation / no SE contract} quadrant; and MoEGambit is, to our knowledge, the first system in the \emph{recovery-side, MoE-aware / R1--R3 contract} quadrant. The two are \emph{orthogonal} rather than competing. A combined deployment is admissible provided the $\Phi'(t)$ aggregate in (\ref{eq:phi-prime}) also accounts for the save-side partial-freshness PEC injects, which we leave to future work (\S\ref{sec:conclusion}). For the accuracy-only comparison reported in this paper we use the byte-identical overlay described in \S\ref{sec:compared}; its limits are discussed in \S\ref{sec:threats}.
 
 \section{Conclusion}
 \label{sec:conclusion}
