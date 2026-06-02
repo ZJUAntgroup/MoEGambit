@@ -203,16 +203,7 @@ $$
 | `ROUTED_BARRIER` | 阶段 B optimizer 状态全部挂载；update barrier 待释放 |
 | `HEALTHY` | barrier 已释放；rank 进入正常优化器更新语义 |
 
-**输出。** 每次恢复事件都产生一条结构化日志条目，schema 见下表（与英文版 Table tab:log-schema 同 schema）：
-
-| 字段组 | 字段 | 来源 |
-| --- | --- | --- |
-| event   | `cause`, `failed_rank`, `step_t`, `ckpt_c` | 检测器 |
-| policy  | `delta`, `e_new`, `S(t)`, `phi_prime` | Alg. 1 |
-| policy  | `peer_avail`, `decision`, `decision_reason` | Alg. 1 |
-| latency | `t_peer_pull`, `t_ckpt_load`, `t_opt_attach` | §4.5, §4.6 |
-| latency | `t_replay`（仅 restart）, `t_reintegrate` | §4.6 |
-| machine | `state_trace` (`RECOVERING` → … → `HEALTHY`) | 本节 |
+**输出。** 每次恢复事件都产生一条结构化日志条目，包含四组字段：(i) **event** 字段由检测器填写（`cause`, `failed_rank`, `step_t`, `ckpt_c`）；(ii) **policy** 字段由 Alg. 1 填写（`delta`, `e_new`, `S(t)`, `phi_prime`, `peer_avail`, `decision`, `decision_reason`）；(iii) **latency** 字段记录每段恢复的延迟（`t_peer_pull`, `t_ckpt_load`, `t_opt_attach`, `t_replay`, `t_reintegrate`）；(iv) **machine** 字段记录 rank 状态机轨迹（`RECOVERING` → … → `HEALTHY`）。
 
 这些条目使两件事成为可能。首先，每个决策都 **可解释**：每条所选路径都可追溯到 Alg. 1 的输入与阈值。其次，**事后关联** 与训练质量指标（validation loss、perplexity、梯度范数、token drop rate、router 辅助 loss、专家负载 CV）成为可能——这正是把"恢复成功了吗？"变成可证伪问题的关键，也是 §5 中配对 run 方法学的操作主干。
 

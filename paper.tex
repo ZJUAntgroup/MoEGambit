@@ -308,29 +308,7 @@ loadable independently with \texttt{torch.load()} and \emph{no collective commun
 \end{itemize}
 The machine makes premature reintegration impossible by construction.
 
-\textbf{Output (structured log).} Each event produces one record (Table~\ref{tab:log-schema}) used for: (i)~\emph{explainability}---every selected path traces back to the guards in (\ref{eq:policy}) via \texttt{decision\_reason}; (ii)~\emph{post-hoc correlation} with training-quality metrics under the paired-run methodology of §\ref{sec:eval}~\cite{wohlin2012ese,arcuri2014hitchhiker}.
-
-\begin{table}[!t]
-\caption{Structured recovery log schema (one entry per recovery event).}
-\label{tab:log-schema}
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.15}
-\small
-\begin{center}
-\begin{tabular}{@{}l p{0.46\columnwidth} l@{}}
-\toprule
-\textbf{Group} & \textbf{Field} & \textbf{Source} \\
-\midrule
-event   & \texttt{cause}, \texttt{failed\_rank}, \texttt{step\_t}, \texttt{ckpt\_c}      & detector \\
-policy  & \texttt{delta}, \texttt{e\_new}, \texttt{S(t)}, \texttt{phi\_prime}             & Alg.~\ref{alg:policy} \\
-policy  & \texttt{peer\_avail}, \texttt{decision}, \texttt{decision\_reason}              & Alg.~\ref{alg:policy} \\
-latency & \texttt{t\_peer\_pull}, \texttt{t\_ckpt\_load}, \texttt{t\_opt\_attach}         & §\ref{sec:mechanism} \\
-latency & \texttt{t\_replay} (restart), \texttt{t\_reintegrate}                           & §\ref{sec:twophase} \\
-machine & \texttt{state\_trace} (\texttt{RECOVERING}$\!\to\!\cdots\!\to\!$\texttt{HEALTHY}) & this section \\
-\bottomrule
-\end{tabular}
-\end{center}
-\end{table}
+\textbf{Output (structured log).} Each recovery event emits a single record covering four field groups: (i)~\emph{event} fields populated by the failure detector (cause, failed rank, step $t$, last checkpoint step $c$); (ii)~\emph{policy} fields populated by Alg.~\ref{alg:policy} ($\Delta$, $|E_{\text{new}}|$, $S(t)$, $\Phi'(t)$, $\textsc{PeerAvail}$, $\pi(t)$, decision reason); (iii)~\emph{latency} fields per recovery segment (peer pull, checkpoint load, optimizer attach, replay on restart, reintegrate); and (iv)~the rank's \emph{state-machine trace} (\texttt{RECOVERING}$\!\to\!\cdots\!\to\!$\texttt{HEALTHY}). The schema serves two purposes: \emph{explainability}---every selected path traces back to the guards in (\ref{eq:policy}) via the decision reason; and \emph{post-hoc correlation} with training-quality metrics under the paired-run methodology of §\ref{sec:eval}~\cite{wohlin2012ese,arcuri2014hitchhiker}.
 
 \textbf{Why four states, structured logs, and latency fields here?} Collapsing the four invariant guards into one flag would erase which invariant a premature reintegration violated---exactly the auditability R3 requires. A fixed schema makes ``did recovery succeed?'' a falsifiable question across all RQs without bespoke parsing. Including per-segment latencies in R3 keeps the production recovery path and the §\ref{sec:rq2} $2{\times}2$ factorial on the same observability surface.
 
