@@ -734,101 +734,76 @@ The authors would like to thank the anonymous reviewers for their constructive f
 
 \begin{thebibliography}{00}
 
-% ---------- MoE algorithmics ----------
-\bibitem{shazeer2017outrageously} N. Shazeer, A. Mirhoseini, K. Maziarz, A. Davis, Q. Le, G. Hinton, and J. Dean, ``Outrageously large neural networks: The sparsely-gated mixture-of-experts layer,'' in \textit{Proc. ICLR}, 2017.
-
-\bibitem{lepikhin2021gshard} D. Lepikhin, H. Lee, Y. Xu, D. Chen, O. Firat, Y. Huang, M. Krikun, N. Shazeer, and Z. Chen, ``GShard: Scaling giant models with conditional computation and automatic sharding,'' in \textit{Proc. ICLR}, 2021.
-
-\bibitem{fedus2022switch} W. Fedus, B. Zoph, and N. Shazeer, ``Switch transformers: Scaling to trillion parameter models with simple and efficient sparsity,'' \textit{J. Mach. Learn. Res.}, vol. 23, no. 120, pp. 1--39, 2022.
-
-\bibitem{zoph2022stmoe} B. Zoph, I. Bello, S. Kumar, N. Du, Y. Huang, J. Dean, N. Shazeer, and W. Fedus, ``ST-MoE: Designing stable and transferable sparse expert models,'' \textit{arXiv preprint arXiv:2202.08906}, 2022.
-
-\bibitem{riquelme2021vmoe} C. Riquelme, J. Puigcerver, B. Mustafa, M. Neumann, R. Jenatton, A. Susano Pinto, D. Keysers, and N. Houlsby, ``Scaling vision with sparse mixture of experts,'' in \textit{Proc. NeurIPS}, 2021.
-
-\bibitem{komatsuzaki2023sparse} A. Komatsuzaki, J. Puigcerver, J. Lee-Thorp, C. Riquelme Ruiz, B. Mustafa, J. Ainslie, Y. Tay, M. Dehghani, and N. Houlsby, ``Sparse upcycling: Training mixture-of-experts from dense checkpoints,'' in \textit{Proc. ICLR}, 2023.
-
 \bibitem{jiang2024mixtral} A. Q. Jiang, A. Sablayrolles, A. Roux, A. Mensch, B. Savary, C. Bamford, D. S. Chaplot, D. de las Casas, E. B. Hanna, F. Bressand, G. Lengyel, G. Bour, G. Lample, L. R. Lavaud, L. Saulnier, M.-A. Lachaux, P. Stock, S. Subramanian, S. Yang, S. Antoniak, T. Le Scao, T. Gervet, T. Lavril, T. Wang, T. Lacroix, and W. El Sayed, ``Mixtral of experts,'' \textit{arXiv preprint arXiv:2401.04088}, 2024.
 
 \bibitem{dai2024deepseekmoe} D. Dai, C. Deng, C. Zhao, R. X. Xu, H. Gao, D. Chen, J. Li, W. Zeng, X. Yu, Y. Wu, Z. Xie, Y. K. Li, P. Huang, F. Luo, C. Ruan, Z. Sui, and W. Liang, ``DeepSeekMoE: Towards ultimate expert specialization in mixture-of-experts language models,'' \textit{arXiv preprint arXiv:2401.06066}, 2024.
 
 \bibitem{qwen3report} Qwen Team, ``Qwen3 technical report,'' \textit{arXiv preprint arXiv:2505.09388}, 2025.
 
-% ---------- MoE systems ----------
+\bibitem{dubey2024llama3} A. Dubey, A. Jauhri, A. Pandey, A. Kadian, A. Al-Dahle, A. Letman, A. Mathur, A. Schelten, A. Yang, A. Fan, et al., ``The Llama 3 herd of models,'' \textit{arXiv preprint arXiv:2407.21783}, 2024.
+
+\bibitem{jiang2024megascale} Z. Jiang, H. Lin, Y. Zhong, Q. Huang, Y. Chen, Z. Zhang, Y. Peng, X. Li, C. Xie, S. Nong, Y. Jia, S. He, H. Chen, Z. Bai, Q. Hou, S. Yan, D. Zhou, Y. Sheng, Z. Jiang, H. Xu, H. Wei, Z. Zhang, P. Nie, L. Zou, S. Zhao, L. Xiang, Z. Liu, Z. Li, X. Jia, J. Ye, X. Jin, and X. Liu, ``MegaScale: Scaling large language model training to more than 10,000 GPUs,'' in \textit{Proc. USENIX NSDI}, 2024, pp. 745--760.
+
+\bibitem{zhang2022opt} S. Zhang, S. Roller, N. Goyal, M. Artetxe, M. Chen, S. Chen, C. Dewan, M. Diab, X. Li, X. V. Lin, T. Mihaylov, M. Ott, S. Shleifer, K. Shuster, D. Simig, P. S. Koura, A. Sridhar, T. Wang, and L. Zettlemoyer, ``OPT: Open pre-trained transformer language models,'' \textit{arXiv preprint arXiv:2205.01068}, 2022.
+
+\bibitem{mohan2021checkfreq} J. Mohan, A. Phanishayee, and V. Chidambaram, ``CheckFreq: Frequent, fine-grained DNN checkpointing,'' in \textit{Proc. USENIX FAST}, 2021, pp. 203--216.
+
+\bibitem{nicolae2020deepfreeze} B. Nicolae, J. Li, J. Wozniak, G. Bosilca, M. Dorier, and F. Cappello, ``DeepFreeze: Towards scalable asynchronous checkpointing of deep learning models,'' in \textit{Proc. IEEE/ACM CCGrid}, 2020, pp. 172--181.
+
+\bibitem{eisenman2022check} A. Eisenman, K. K. Matam, S. Ingram, D. Mudigere, R. Krishnamoorthi, K. Nair, M. Smelyanskiy, and M. Annavaram, ``Check-N-Run: A checkpointing system for training deep learning recommendation models,'' in \textit{Proc. USENIX NSDI}, 2022, pp. 929--943.
+
+\bibitem{wang2023gemini} Z. Wang, Z. Jia, S. Zheng, Z. Zhang, X. Fu, T. S. E. Ng, and Y. Wang, ``GEMINI: Fast failure recovery in distributed training with in-memory checkpoints,'' in \textit{Proc. ACM SOSP}, 2023, pp. 364--381.
+
+\bibitem{thorpe2023bamboo} J. Thorpe, P. Zhao, J. Eyolfson, Y. Qiao, Z. Jia, M. Zhang, R. Netravali, and G. H. Xu, ``Bamboo: Making preemptible instances resilient for affordable training of large DNNs,'' in \textit{Proc. USENIX NSDI}, 2023, pp. 497--513.
+
+\bibitem{jang2023oobleck} I. Jang, Z. Yang, Z. Zhang, X. Jin, and M. Chowdhury, ``Oobleck: Resilient distributed training of large models using pipeline templates,'' in \textit{Proc. ACM SOSP}, 2023, pp. 382--395.
+
+\bibitem{gandhi2024recycle} S. Gandhi, M. Zhao, A. Skiadopoulos, and C. Kozyrakis, ``ReCycle: Resilient training of large DNNs using pipeline adaptation,'' in \textit{Proc. ACM SOSP}, 2024.
+
+\bibitem{cai2024moc} W. Cai, Y. Qian, X. Wang, R. Chen, J. Yang, Z. Yang, S. Hu, T. Zhang, C. Zhang, J. Yan, and P. Cheng, ``MoC-System: Efficient fault tolerance for sparse mixture-of-experts model training,'' in \textit{Proc. ASPLOS}, 2025. arXiv:2408.04307.
+
+\bibitem{narayanan2021megatron} D. Narayanan, M. Shoeybi, J. Casper, P. LeGresley, M. Patwary, V. Korthikanti, D. Vainbrand, P. Kashinkunti, J. Bernauer, B. Catanzaro, A. Phanishayee, and M. Zaharia, ``Efficient large-scale language model training on GPU clusters using Megatron-LM,'' in \textit{Proc. SC}, 2021.
+
+\bibitem{wohlin2012ese} C. Wohlin, P. Runeson, M. H{\"o}st, M. C. Ohlsson, B. Regnell, and A. Wessl{\'e}n, \textit{Experimentation in Software Engineering}. Springer, 2012.
+
+\bibitem{arcuri2014hitchhiker} A. Arcuri and L. Briand, ``A hitchhiker's guide to statistical tests for assessing randomized algorithms in software engineering,'' \textit{Software Testing, Verification and Reliability}, vol. 24, no. 3, pp. 219--250, 2014.
+
+\bibitem{lepikhin2021gshard} D. Lepikhin, H. Lee, Y. Xu, D. Chen, O. Firat, Y. Huang, M. Krikun, N. Shazeer, and Z. Chen, ``GShard: Scaling giant models with conditional computation and automatic sharding,'' in \textit{Proc. ICLR}, 2021.
+
+\bibitem{fedus2022switch} W. Fedus, B. Zoph, and N. Shazeer, ``Switch transformers: Scaling to trillion parameter models with simple and efficient sparsity,'' \textit{J. Mach. Learn. Res.}, vol. 23, no. 120, pp. 1--39, 2022.
+
 \bibitem{rajbhandari2022deepspeedmoe} S. Rajbhandari, C. Li, Z. Yao, M. Zhang, R. Y. Aminabadi, A. A. Awan, J. Rasley, and Y. He, ``DeepSpeed-MoE: Advancing mixture-of-experts inference and training to power next-generation AI scale,'' in \textit{Proc. ICML}, 2022.
 
 \bibitem{hwang2023tutel} C. Hwang, W. Cui, Y. Xiong, Z. Yang, Z. Liu, H. Hu, Z. Wang, R. Salas, J. Jose, P. Ram, J. Chau, P. Cheng, F. Yang, M. Yang, and Y. Xiong, ``Tutel: Adaptive mixture-of-experts at scale,'' in \textit{Proc. MLSys}, 2023.
+
+\bibitem{gale2023megablocks} T. Gale, D. Narayanan, C. Young, and M. Zaharia, ``MegaBlocks: Efficient sparse training with mixture-of-experts,'' in \textit{Proc. MLSys}, 2023.
 
 \bibitem{he2022fastermoe} J. He, J. Zhai, T. Antunes, H. Wang, F. Luo, S. Shi, and Q. Li, ``FasterMoE: Modeling and optimizing training of large-scale dynamic pre-trained models,'' in \textit{Proc. PPoPP}, 2022, pp. 120--134.
 
 \bibitem{zhai2023smartmoe} M. Zhai, J. He, Z. Ma, Z. Zong, R. Zhang, and J. Zhai, ``SmartMoE: Efficiently training sparsely-activated models through combining offline and online parallelization,'' in \textit{Proc. USENIX ATC}, 2023, pp. 961--975.
 
-\bibitem{gale2023megablocks} T. Gale, D. Narayanan, C. Young, and M. Zaharia, ``MegaBlocks: Efficient sparse training with mixture-of-experts,'' in \textit{Proc. MLSys}, 2023.
-
-% ---------- MoE-specific fault tolerance ----------
-\bibitem{cai2024moc} W. Cai, Y. Qian, X. Wang, R. Chen, J. Yang, Z. Yang, S. Hu, T. Zhang, C. Zhang, J. Yan, and P. Cheng, ``MoC-System: Efficient fault tolerance for sparse mixture-of-experts model training,'' in \textit{Proc. ASPLOS}, 2025. arXiv:2408.04307.
-
-% ---------- Distributed-training fault tolerance ----------
-\bibitem{thorpe2023bamboo} J. Thorpe, P. Zhao, J. Eyolfson, Y. Qiao, Z. Jia, M. Zhang, R. Netravali, and G. H. Xu, ``Bamboo: Making preemptible instances resilient for affordable training of large DNNs,'' in \textit{Proc. USENIX NSDI}, 2023, pp. 497--513.
-
-\bibitem{jang2023oobleck} I. Jang, Z. Yang, Z. Zhang, X. Jin, and M. Chowdhury, ``Oobleck: Resilient distributed training of large models using pipeline templates,'' in \textit{Proc. ACM SOSP}, 2023, pp. 382--395.
-
-\bibitem{wang2023gemini} Z. Wang, Z. Jia, S. Zheng, Z. Zhang, X. Fu, T. S. E. Ng, and Y. Wang, ``GEMINI: Fast failure recovery in distributed training with in-memory checkpoints,'' in \textit{Proc. ACM SOSP}, 2023, pp. 364--381.
-
-\bibitem{gandhi2024recycle} S. Gandhi, M. Zhao, A. Skiadopoulos, and C. Kozyrakis, ``ReCycle: Resilient training of large DNNs using pipeline adaptation,'' in \textit{Proc. ACM SOSP}, 2024.
-
-\bibitem{athlur2022varuna} S. Athlur, N. Saran, M. Sivathanu, R. Ramjee, and N. Kwatra, ``Varuna: Scalable, low-cost training of massive deep learning models,'' in \textit{Proc. EuroSys}, 2022, pp. 472--487.
-
-\bibitem{duan2024parcae} J. Duan, Z. Song, X. Miao, X. Xi, D. Lin, H. Xu, M. Zhang, and Z. Jia, ``Parcae: Proactive, liveput-optimized DNN training on preemptible instances,'' in \textit{Proc. USENIX NSDI}, 2024, pp. 1121--1139.
-
-\bibitem{qiao2019litz} A. Qiao, A. Aghayev, W. Yu, H. Chen, Q. Ho, G. A. Gibson, and E. P. Xing, ``Litz: Elastic framework for high-performance distributed machine learning,'' in \textit{Proc. USENIX ATC}, 2019, pp. 631--644.
-
-\bibitem{or2020resource} A. Or, H. Zhang, and M. Freedman, ``Resource elasticity in distributed deep learning,'' in \textit{Proc. MLSys}, 2020, pp. 400--411.
-
-% ---------- Checkpointing ----------
 \bibitem{young1974first} J. W. Young, ``A first order approximation to the optimum checkpoint interval,'' \textit{Commun. ACM}, vol. 17, no. 9, pp. 530--531, 1974.
 
 \bibitem{daly2006higher} J. T. Daly, ``A higher order estimate of the optimum checkpoint interval for restart dumps,'' \textit{Future Generation Computer Systems}, vol. 22, no. 3, pp. 303--312, 2006.
 
-\bibitem{mohan2021checkfreq} J. Mohan, A. Phanishayee, and V. Chidambaram, ``CheckFreq: Frequent, fine-grained DNN checkpointing,'' in \textit{Proc. USENIX FAST}, 2021, pp. 203--216.
+\bibitem{shazeer2017outrageously} N. Shazeer, A. Mirhoseini, K. Maziarz, A. Davis, Q. Le, G. Hinton, and J. Dean, ``Outrageously large neural networks: The sparsely-gated mixture-of-experts layer,'' in \textit{Proc. ICLR}, 2017.
 
-\bibitem{eisenman2022check} A. Eisenman, K. K. Matam, S. Ingram, D. Mudigere, R. Krishnamoorthi, K. Nair, M. Smelyanskiy, and M. Annavaram, ``Check-N-Run: A checkpointing system for training deep learning recommendation models,'' in \textit{Proc. USENIX NSDI}, 2022, pp. 929--943.
+\bibitem{zoph2022stmoe} B. Zoph, I. Bello, S. Kumar, N. Du, Y. Huang, J. Dean, N. Shazeer, and W. Fedus, ``ST-MoE: Designing stable and transferable sparse expert models,'' \textit{arXiv preprint arXiv:2202.08906}, 2022.
 
-\bibitem{nicolae2020deepfreeze} B. Nicolae, J. Li, J. Wozniak, G. Bosilca, M. Dorier, and F. Cappello, ``DeepFreeze: Towards scalable asynchronous checkpointing of deep learning models,'' in \textit{Proc. IEEE/ACM CCGrid}, 2020, pp. 172--181.
-
-% ---------- Megatron / large-scale LLM training infrastructure ----------
-\bibitem{narayanan2021megatron} D. Narayanan, M. Shoeybi, J. Casper, P. LeGresley, M. Patwary, V. Korthikanti, D. Vainbrand, P. Kashinkunti, J. Bernauer, B. Catanzaro, A. Phanishayee, and M. Zaharia, ``Efficient large-scale language model training on GPU clusters using Megatron-LM,'' in \textit{Proc. SC}, 2021.
+\bibitem{komatsuzaki2023sparse} A. Komatsuzaki, J. Puigcerver, J. Lee-Thorp, C. Riquelme Ruiz, B. Mustafa, J. Ainslie, Y. Tay, M. Dehghani, and N. Houlsby, ``Sparse upcycling: Training mixture-of-experts from dense checkpoints,'' in \textit{Proc. ICLR}, 2023.
 
 \bibitem{korthikanti2023reducing} V. Korthikanti, J. Casper, S. Lym, L. McAfee, M. Andersch, M. Shoeybi, and B. Catanzaro, ``Reducing activation recomputation in large transformer models,'' in \textit{Proc. MLSys}, 2023.
 
-\bibitem{jiang2024megascale} Z. Jiang, H. Lin, Y. Zhong, Q. Huang, Y. Chen, Z. Zhang, Y. Peng, X. Li, C. Xie, S. Nong, Y. Jia, S. He, H. Chen, Z. Bai, Q. Hou, S. Yan, D. Zhou, Y. Sheng, Z. Jiang, H. Xu, H. Wei, Z. Zhang, P. Nie, L. Zou, S. Zhao, L. Xiang, Z. Liu, Z. Li, X. Jia, J. Ye, X. Jin, and X. Liu, ``MegaScale: Scaling large language model training to more than 10,000 GPUs,'' in \textit{Proc. USENIX NSDI}, 2024, pp. 745--760.
-
-% ---------- Production-scale training logbooks / failure traces ----------
-\bibitem{dubey2024llama3} A. Dubey, A. Jauhri, A. Pandey, A. Kadian, A. Al-Dahle, A. Letman, A. Mathur, A. Schelten, A. Yang, A. Fan, et al., ``The Llama 3 herd of models,'' \textit{arXiv preprint arXiv:2407.21783}, 2024.
-
-\bibitem{zhang2022opt} S. Zhang, S. Roller, N. Goyal, M. Artetxe, M. Chen, S. Chen, C. Dewan, M. Diab, X. Li, X. V. Lin, T. Mihaylov, M. Ott, S. Shleifer, K. Shuster, D. Simig, P. S. Koura, A. Sridhar, T. Wang, and L. Zettlemoyer, ``OPT: Open pre-trained transformer language models,'' \textit{arXiv preprint arXiv:2205.01068}, 2022.
-
 \bibitem{chowdhery2023palm} A. Chowdhery, S. Narang, J. Devlin, M. Bosma, G. Mishra, A. Roberts, P. Barham, H. W. Chung, C. Sutton, S. Gehrmann, et al., ``PaLM: Scaling language modeling with pathways,'' \textit{J. Mach. Learn. Res.}, vol. 24, no. 240, pp. 1--113, 2023.
 
-% ---------- Data ----------
-\bibitem{penedo2024fineweb} G. Penedo, H. Kydl{\'i}{\v c}ek, L. Ben Allal, A. Lozhkov, M. Mitchell, C. Raffel, L. von Werra, and T. Wolf, ``The FineWeb datasets: Decanting the web for the finest text data at scale,'' in \textit{Proc. NeurIPS Datasets and Benchmarks Track}, 2024. arXiv:2406.17557.
-
-% ---------- Self-adaptive / self-healing systems (SE context) ----------
 \bibitem{kephart2003autonomic} J. O. Kephart and D. M. Chess, ``The vision of autonomic computing,'' \textit{IEEE Computer}, vol. 36, no. 1, pp. 41--50, 2003.
 
 \bibitem{garlan2004rainbow} D. Garlan, S.-W. Cheng, A.-C. Huang, B. Schmerl, and P. Steenkiste, ``Rainbow: Architecture-based self-adaptation with reusable infrastructure,'' \textit{IEEE Computer}, vol. 37, no. 10, pp. 46--54, 2004.
 
 \bibitem{salehie2009selfadaptive} M. Salehie and L. Tahvildari, ``Self-adaptive software: Landscape and research challenges,'' \textit{ACM Trans. Auton. Adapt. Syst.}, vol. 4, no. 2, pp. 14:1--14:42, 2009.
 
-\bibitem{cheng2009software} B. H. C. Cheng, R. de Lemos, H. Giese, P. Inverardi, J. Magee \textit{et al.}, ``Software engineering for self-adaptive systems: A research roadmap,'' in \textit{Software Engineering for Self-Adaptive Systems}, LNCS 5525. Springer, 2009, pp. 1--26.
+\bibitem{penedo2024fineweb} G. Penedo, H. Kydl{\'i}{\v c}ek, L. Ben Allal, A. Lozhkov, M. Mitchell, C. Raffel, L. von Werra, and T. Wolf, ``The FineWeb datasets: Decanting the web for the finest text data at scale,'' in \textit{Proc. NeurIPS Datasets and Benchmarks Track}, 2024. arXiv:2406.17557.
 
-\bibitem{weyns2019softwareengineering} D. Weyns, ``Software engineering of self-adaptive systems,'' in \textit{Handbook of Software Engineering}, S. Cha, R. N. Taylor, and K. Kang, Eds. Springer, 2019, pp. 399--443.
-
-% ---------- Empirical software engineering methodology ----------
-\bibitem{wohlin2012ese} C. Wohlin, P. Runeson, M. H{\"o}st, M. C. Ohlsson, B. Regnell, and A. Wessl{\'e}n, \textit{Experimentation in Software Engineering}. Springer, 2012.
-
-\bibitem{arcuri2014hitchhiker} A. Arcuri and L. Briand, ``A hitchhiker's guide to statistical tests for assessing randomized algorithms in software engineering,'' \textit{Software Testing, Verification and Reliability}, vol. 24, no. 3, pp. 219--250, 2014.
-
-% ---------- Evaluation harness and downstream benchmarks ----------
 \bibitem{eval-harness} L. Gao, J. Tow, B. Abbasi, S. Biderman, S. Black, A. DiPofi, C. Foster, L. Golding, J. Hsu, A. Le~Noac'h, H. Li, K. McDonell, N. Muennighoff, C. Ociepa, J. Phang, L. Reynolds, H. Schoelkopf, A. Skowron, L. Sutawika, E. Tang, A. Thite, B. Wang, K. Wang, and A. Zou, ``A framework for few-shot language model evaluation,'' Zenodo, version v0.4.0, 2023. doi:10.5281/zenodo.10256836.
 
 \bibitem{clark2018arc} P. Clark, I. Cowhey, O. Etzioni, T. Khot, A. Sabharwal, C. Schoenick, and O. Tafjord, ``Think you have solved question answering? Try ARC, the AI2 reasoning challenge,'' \textit{arXiv preprint arXiv:1803.05457}, 2018.
@@ -848,6 +823,20 @@ The authors would like to thank the anonymous reviewers for their constructive f
 \bibitem{sakaguchi2020winogrande} K. Sakaguchi, R. Le~Bras, C. Bhagavatula, and Y. Choi, ``WinoGrande: An adversarial Winograd Schema Challenge at scale,'' in \textit{Proc. AAAI}, vol. 34, 2020, pp. 8732--8740.
 
 \bibitem{biderman2023pythia} S. Biderman, H. Schoelkopf, Q. Anthony, H. Bradley, K. O'Brien, E. Hallahan, M. A. Khan, S. Purohit, U. S. Prashanth, E. Raff, A. Skowron, L. Sutawika, and O. van~der~Wal, ``Pythia: A suite for analyzing large language models across training and scaling,'' in \textit{Proc. ICML}, 2023, pp. 2397--2430.
+
+\bibitem{cheng2009software} B. H. C. Cheng, R. de Lemos, H. Giese, P. Inverardi, J. Magee \textit{et al.}, ``Software engineering for self-adaptive systems: A research roadmap,'' in \textit{Software Engineering for Self-Adaptive Systems}, LNCS 5525. Springer, 2009, pp. 1--26.
+
+\bibitem{weyns2019softwareengineering} D. Weyns, ``Software engineering of self-adaptive systems,'' in \textit{Handbook of Software Engineering}, S. Cha, R. N. Taylor, and K. Kang, Eds. Springer, 2019, pp. 399--443.
+
+\bibitem{athlur2022varuna} S. Athlur, N. Saran, M. Sivathanu, R. Ramjee, and N. Kwatra, ``Varuna: Scalable, low-cost training of massive deep learning models,'' in \textit{Proc. EuroSys}, 2022, pp. 472--487.
+
+\bibitem{duan2024parcae} J. Duan, Z. Song, X. Miao, X. Xi, D. Lin, H. Xu, M. Zhang, and Z. Jia, ``Parcae: Proactive, liveput-optimized DNN training on preemptible instances,'' in \textit{Proc. USENIX NSDI}, 2024, pp. 1121--1139.
+
+\bibitem{qiao2019litz} A. Qiao, A. Aghayev, W. Yu, H. Chen, Q. Ho, G. A. Gibson, and E. P. Xing, ``Litz: Elastic framework for high-performance distributed machine learning,'' in \textit{Proc. USENIX ATC}, 2019, pp. 631--644.
+
+\bibitem{or2020resource} A. Or, H. Zhang, and M. Freedman, ``Resource elasticity in distributed deep learning,'' in \textit{Proc. MLSys}, 2020, pp. 400--411.
+
+\bibitem{riquelme2021vmoe} C. Riquelme, J. Puigcerver, B. Mustafa, M. Neumann, R. Jenatton, A. Susano Pinto, D. Keysers, and N. Houlsby, ``Scaling vision with sparse mixture of experts,'' in \textit{Proc. NeurIPS}, 2021.
 
 \end{thebibliography}
 
