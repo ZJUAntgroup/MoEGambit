@@ -19,17 +19,13 @@
 
 \title{MoEGambit: Trading Bounded Expert Staleness for Fast Failure Recovery in Sparse MoE Training}
 
-\author{\IEEEauthorblockN{1\textsuperscript{st} Given Name Surname}
-\IEEEauthorblockA{\textit{dept. name of organization} \\
-\textit{name of organization}\\
-City, Country \\
-email@address}
+\author{\IEEEauthorblockN{Anonymous Author 1}
+\IEEEauthorblockA{\textit{Affiliation omitted} \\
+\textit{for double-anonymous review}}
 \and
-\IEEEauthorblockN{2\textsuperscript{nd} Given Name Surname}
-\IEEEauthorblockA{\textit{dept. name of organization} \\
-\textit{name of organization}\\
-City, Country \\
-email@address}
+\IEEEauthorblockN{Anonymous Author 2}
+\IEEEauthorblockA{\textit{Affiliation omitted} \\
+\textit{for double-anonymous review}}
 }
 
 \maketitle
@@ -145,14 +141,14 @@ R1--R3 form the spine of §\ref{sec:moegambit}: §\ref{sec:safepoint} instantiat
 \subsection{Overview}
 \label{sec:arch}
 
-\begin{figure}[!t]
+\begin{figure*}[!t]
 \centering
-\includegraphics[width=0.95\columnwidth]{architecture.pdf}
-\caption{MoEGambit runtime architecture (numbered by control-flow order). \emph{(1)}~The failure detector emits a fail-stop signal $\langle r,t,c\rangle$. \emph{(2)}~The safe-point repair controller (§\ref{sec:safepoint}, R1) installs an optimizer commit guard and marks the iteration as \texttt{DISCARD}. \emph{(3)}~The staleness-density guarded policy (§\ref{sec:policy}, R2) evaluates $\textsc{PeerAvail}(r,t)$, the projected $\Phi'(t)$, and the gap bounds, then deterministically returns $\pi(t)\!\in\!\{\textsc{Hybrid},\textsc{Restart}\}$. \emph{(4)}~Hybrid restoration (§\ref{sec:mechanism}) pulls dense/router state from a healthy DP peer at step $t$ and reads rank-$r$'s experts from the per-rank checkpoint shard at step $c$; the two-phase protocol (§\ref{sec:twophase}) overlaps optimizer-state restoration with resumed forward/backward. \emph{(5)}~The reintegration state machine (§\ref{sec:obs}, R3) advances $r$ through \texttt{RECOVERING}$\to$\texttt{REPAIRED\_NOT\_ROUTED}$\to$\texttt{ROUTED\_BARRIER}$\to$\texttt{HEALTHY}, emitting a structured log entry at every transition. The dashed feedback edge from the log to the policy is what makes the policy thresholds traceable to empirical training-quality outcomes.}
+\includegraphics[width=0.95\textwidth]{architecture.pdf}
+\caption{MoEGambit runtime architecture, numbered by control-flow order. \emph{(1)}~Failure detector emits $\langle r,t,c\rangle$. \emph{(2)}~Safe-point repair (R1) installs an optimizer commit guard. \emph{(3)}~Staleness-density guarded policy (R2) returns $\pi(t)\!\in\!\{\textsc{Hybrid},\textsc{Restart}\}$. \emph{(4)}~Hybrid restoration pulls dense/router from a healthy peer at step $t$ and rank-$r$'s experts from the shard at step $c$; the two-phase protocol overlaps optimizer-state restoration with resumed forward/backward. \emph{(5)}~Reintegration state machine (R3) advances $r$ to \texttt{HEALTHY} and emits a structured log entry per transition.}
 \label{fig:moegambit-overview}
-\end{figure}
+\end{figure*}
 
-Fig.~\ref{fig:moegambit-overview} gives the end-to-end control flow. Reading the figure along the numbered arrows yields the section structure: §\ref{sec:safepoint} expands box \emph{(2)} (Safe-Point Repair, R1); §\ref{sec:policy} expands box \emph{(3)} (the staleness-density guarded policy, R2); §\ref{sec:mechanism} and §\ref{sec:twophase} expand box \emph{(4)} (hybrid state restoration and the two-phase protocol); §\ref{sec:obs} expands box \emph{(5)} (the reintegration state machine and structured logs, R3).
+Fig.~\ref{fig:moegambit-overview} gives the end-to-end control flow: §\ref{sec:safepoint} expands box \emph{(2)}; §\ref{sec:policy} expands \emph{(3)}; §\ref{sec:mechanism}--§\ref{sec:twophase} expand \emph{(4)}; §\ref{sec:obs} expands \emph{(5)}.
 
 \subsection{Safe-Point Repair Controller (R1)}
 \label{sec:safepoint}
@@ -496,7 +492,7 @@ To answer RQ6, we isolate the contribution of each MoE-aware mechanism in MoEGam
 
 \textbf{PEC accuracy emulation is exact; PEC system-level overheads are not.} Our overlay reproduces, byte-for-byte, the model state that a MoC-System restore would have loaded under the same fault trace---because the older fresh expert checkpoint physically exists on disk, the restore path simply redirects to it. As a result, the post-recovery model parameters, optimizer states, and downstream loss trajectories under the overlay are identical to what a faithful MoC-System implementation would produce. However, the overlay still writes the full $N$-expert checkpoint each save round, so its on-disk save cost reflects MoEGambit's save behavior, not PEC's. We therefore do \emph{not} use the overlay to measure MoC-System's save-side or storage-side overheads.
 
-\textbf{Single-cluster, single-model evaluation.} Our end-to-end results are reported on one Megatron-LM MoE configuration (PP=8, EP=8, 128 experts) and one cluster (AIS-C1). Other model shapes (e.g., $N=64$ or $N=256$ experts), other parallelism layouts (e.g., TP$>1$), and other interconnects may shift the relative weights of the hybrid-restore and two-phase main effects reported in Section~\ref{sec:rq6}. The qualitative claim---that the two mechanisms target disjoint segments of the recovery critical path and therefore compose additively---is independent of these axes, but the specific $15.1\%$ and $5.5\%$ contributions are not.
+\textbf{Single-cluster, single-model evaluation.} Our end-to-end results are reported on one Megatron-LM MoE configuration (PP=8, EP=8, 128 experts). Other model shapes (e.g., $N=64$ or $N=256$ experts), other parallelism layouts (e.g., TP$>1$), and other interconnects may shift the relative weights of the hybrid-restore and two-phase main effects reported in Section~\ref{sec:rq6}. The qualitative claim---that the two mechanisms target disjoint segments of the recovery critical path and therefore compose additively---is independent of these axes, but the specific $15.1\%$ and $5.5\%$ contributions are not.
 
 \textbf{No-peer fallback as a structural limitation.} MoEGambit's hybrid recovery is by construction predicated on the structural pre-condition $\textsc{PeerAvail}(r,t)$ (assumption A3 of §\ref{sec:problem}, encoded in the policy (\ref{eq:policy})): at least one healthy DP peer must hold the current-step replica of the failed rank's dense/router state at the same PP/TP coordinate. When a failure---or, more importantly, a \emph{burst of concurrent failures}---eliminates every healthy DP peer at that coordinate (e.g., all DP replicas of the same pipeline stage and tensor-parallel shard go down together), no surviving rank holds the current-step dense/router state, this predicate becomes false, and MoEGambit transparently degrades to checkpoint restart. In these regimes MoEGambit offers \emph{no improvement} over a standard restart baseline, and the SE artifacts it contributes (safe-point repair, $\Phi'(t)$, structured logs) function purely as auditability and policy-input infrastructure rather than as a recovery-speedup mechanism. The likelihood of this regime is largely a property of the failure correlation structure (e.g., a single rack/switch outage taking down co-located DP replicas) rather than of MoEGambit's design. Extending MoE-aware fast recovery to this regime would require either an additional in-memory replica plane (cf.\ peer-memory checkpointing~\cite{wang2023gemini}) or save-side techniques such as partial-experts checkpointing~\cite{cai2024moc}; we explicitly leave this orthogonal direction to future work.
 
