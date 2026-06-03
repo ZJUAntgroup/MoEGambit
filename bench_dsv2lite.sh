@@ -6,7 +6,7 @@
 # DeepSeek-V2-Lite-style configuration to exercise MoEGambit's RQ8
 # cross-architecture generalisation experiment:
 #
-#   - 27 layers (DeepSeek-V2-Lite); first layer is dense FFN, layers 2..27 are MoE
+#   - 32 layers (DeepSeek-V2-Lite-style); first layer is dense FFN, layers 2..32 are MoE
 #   - 64 routed experts, 2 shared experts, top-6 routing
 #   - expert FFN hidden = 1408 (vs. 768 in bench_moe128)
 #   - attention is kept as standard GQA (32 heads / 4 KV groups, head dim 128)
@@ -99,7 +99,7 @@ trap 'rm -f "${INNER_SCRIPT}"' EXIT
 
 # Override scalar args via line-by-line regex replacement.
 sed -E \
-  -e "s|--num-layers[[:space:]]+[0-9]+|--num-layers 27|" \
+  -e "s|--num-layers[[:space:]]+[0-9]+|--num-layers 32|" \
   -e "s|--hidden-size[[:space:]]+[0-9]+|--hidden-size 2048|" \
   -e "s|--ffn-hidden-size[[:space:]]+[0-9]+|--ffn-hidden-size 10944|" \
   -e "s|--num-attention-heads[[:space:]]+[0-9]+|--num-attention-heads 32|" \
