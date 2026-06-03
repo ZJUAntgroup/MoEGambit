@@ -49,7 +49,7 @@ DSV2_GPUS="${DSV2_GPUS:-64}"
 case "${DSV2_GPUS}" in
   16)  PHASE_NNODES=2;  PHASE_TP_SIZE=1; PHASE_PP_SIZE=4; PHASE_EP_SIZE=4;  PHASE_GBS=16  ;;
   32)  PHASE_NNODES=4;  PHASE_TP_SIZE=1; PHASE_PP_SIZE=4; PHASE_EP_SIZE=8;  PHASE_GBS=32  ;;
-  64)  PHASE_NNODES=8;  PHASE_TP_SIZE=1; PHASE_PP_SIZE=4; PHASE_EP_SIZE=8;  PHASE_GBS=64  ;;
+  64)  PHASE_NNODES=8;  PHASE_TP_SIZE=1; PHASE_PP_SIZE=8; PHASE_EP_SIZE=8;  PHASE_GBS=64  ;;
   128) PHASE_NNODES=16; PHASE_TP_SIZE=1; PHASE_PP_SIZE=8; PHASE_EP_SIZE=8;  PHASE_GBS=128 ;;
   *)
     echo "[bench_dsv2lite] DSV2_GPUS must be 16 / 32 / 64 / 128, got ${DSV2_GPUS}"
@@ -57,10 +57,9 @@ case "${DSV2_GPUS}" in
     ;;
 esac
 
-# Sanity: TP * PP * EP * DP = N_GPU; here DP is implicit and equals 1 for the
-# 16/32/64/128 layouts above (PP carries the data-parallel dimension via the
-# pipeline-stage count, exactly as in bench_moe16/32/128.sh).
-PHASE_DP=$(( DSV2_GPUS / (PHASE_TP_SIZE * PHASE_PP_SIZE * PHASE_EP_SIZE) ))
+# In Megatron-LM: Total_GPU = TP * PP * DP, and EP is a sub-dimension within DP
+# (EP <= DP).  So DP = N_GPU / (TP * PP), e.g. 64/(1*8)=8, EP=8 <= DP=8.
+PHASE_DP=$(( DSV2_GPUS / (PHASE_TP_SIZE * PHASE_PP_SIZE) ))
 
 # -----------------------------------------------------------------------------
 # Bench knobs
