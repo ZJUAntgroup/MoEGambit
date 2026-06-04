@@ -690,6 +690,21 @@ class RecoveryController:
         # may not be available at this point.
         return True
 
+    def _should_use_full_peer_recovery(self) -> bool:
+        """Check whether the --moe-bsr-full-peer-recovery CLI flag is set
+        AND the runtime conditions allow full-peer recovery (EDP > 1 and
+        expert_peer_sync_fn registered).
+        """
+        try:
+            from megatron.training import get_args
+            args = get_args()
+            if not getattr(args, 'moe_bsr_full_peer_recovery', False):
+                return False
+        except Exception:
+            return False
+
+        return self._has_expert_dp_peer()
+
     # -----------------------------------------------------------------
     # Phase transitions
     # -----------------------------------------------------------------
@@ -1514,6 +1529,41 @@ class RecoveryController:
                 "BSR_FORCE_CHECKPOINT_RESTART=1 (step=%d, failed=%d, "
                 "replacement=%d)",
                 _ts(), step, failed_rank, replacement_rank,
+            )
+        elif self._should_use_full_peer_recovery():
+            # --moe-bsr-full-peer-recovery flag is set AND EDP > 1 AND
+            # expert_peer_sync_fn is registered.  Force FULL_PEER_RECOVERY
+            # without requiring the gap-aware policy manager.
+            from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+                RecoveryPath,
+                RecoveryDecision,
+            )
+            recovery_path_name = "FULL_PEER_RECOVERY"
+            decision = RecoveryDecision(
+                path=RecoveryPath.FULL_PEER_RECOVERY,
+                current_step=step,
+                latest_checkpoint_step=-1,
+                gap=-1,
+                failed_rank=failed_rank,
+                reason="full_peer_recovery_flag",
+                reason_detail=(
+                    "--moe-bsr-full-peer-recovery enabled and EDP > 1; "
+                    "all params will be pulled from DP peer"
+                ),
+                metadata={
+                    "forced": True,
+                    "source": "cli_flag",
+                    "edp": self._get_expert_data_parallel_size(),
+                    "failed_rank": failed_rank,
+                    "replacement_rank": replacement_rank,
+                },
+            )
+            logger.warning(
+                "[%s] BSR-MoE controller: FULL_PEER_RECOVERY forced by "
+                "--moe-bsr-full-peer-recovery (EDP=%d, step=%d, failed=%d, "
+                "replacement=%d)",
+                _ts(), self._get_expert_data_parallel_size(),
+                step, failed_rank, replacement_rank,
             )
         elif (self._gap_aware_policy_manager is not None
                 and self._gap_aware_policy_manager.enabled):

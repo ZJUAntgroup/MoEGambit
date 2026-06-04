@@ -3285,6 +3285,11 @@ def _add_moe_args(parser):
                        help='Maximum iterations allowed in degraded mode. Default 1000.')
     group.add_argument('--moe-bsr-degraded-s-max', type=int, default=500,
                        help='Maximum staleness (steps) for stale-runnable experts. Default 500.')
+    group.add_argument('--moe-bsr-full-peer-recovery', action='store_true',
+                       help='Enable FULL_PEER_RECOVERY path: when EDP > 1, pull '
+                       'ALL parameters (dense + expert weights + optimizer state) '
+                       'from a healthy DP peer instead of loading experts from '
+                       'checkpoint.  Requires expert data-parallel degree >= 2.')
     return parser
 
 def _add_mla_args(parser):
