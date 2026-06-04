@@ -172,7 +172,7 @@ def log_recovery_path_chosen_json(
 # =====================================================================
 
 class RecoveryPath(enum.Enum):
-    """The two recovery paths available after a hard failure."""
+    """The three recovery paths available after a hard failure."""
 
     CHECKPOINT_RESTART = "checkpoint_restart"
     """Stop training and restart from the latest checkpoint.
@@ -182,6 +182,15 @@ class RecoveryPath(enum.Enum):
     """Online recovery without full restart.
     Dense/shared/router params synced from healthy DP peer;
     MoE expert weights restored from distributed checkpoint."""
+
+    FULL_PEER_RECOVERY = "full_peer_recovery"
+    """Zero-disk, zero-staleness recovery when EDP > 1.
+    Dense/shared/router params synced from healthy DP peer;
+    MoE expert weights + optimizer state synced from healthy Expert-DP
+    peer.  Because the expert state comes from a peer at step t (not
+    from a checkpoint at step c), the recovered expert state has zero
+    staleness and contributes nothing to Phi'(t).  No update barrier
+    or deferred optimizer load is needed."""
 
 
 # =====================================================================
@@ -745,7 +754,16 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
         num_affected_experts: int = 0,
         **kwargs: Any,
     ) -> RecoveryDecision:
-        """Select recovery path based on gap boundaries and rank exposure."""
+        """Select recovery path based on gap boundaries and rank exposure.
+
+        When ``expert_dp_peer_available=True`` is passed (indicating EDP > 1
+        and at least one healthy Expert-DP peer exists for the failed rank),
+        the policy selects ``FULL_PEER_RECOVERY`` — a zero-disk, zero-staleness
+        path that pulls *all* state (dense + expert) from in-memory peers.
+        This path bypasses the gap and exposure checks entirely because the
+        recovered expert state is at step *t* (current), not step *c*
+        (checkpoint), so it introduces zero staleness.
+        """
         cfg = self._config
         gap = current_step - latest_checkpoint_step
 
@@ -755,8 +773,21 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
         exposure_before = 0.0
         exposure_after = 0.0
 
-        # --- Decision logic ---
-        if latest_checkpoint_step < 0:
+        # --- Full-peer fast path (EDP > 1) ---
+        expert_dp_peer_available = kwargs.get("expert_dp_peer_available", False)
+        edp = kwargs.get("expert_data_parallel_size", 1)
+
+        if expert_dp_peer_available:
+            path = RecoveryPath.FULL_PEER_RECOVERY
+            reason = "full_peer_edp_available"
+            reason_detail = (
+                f"EDP={edp} > 1, expert-DP peer available for rank "
+                f"{failed_rank} — zero-disk full-peer recovery "
+                f"(zero staleness, Phi'(t) contribution = 0)"
+            )
+
+        # --- Standard decision logic ---
+        elif latest_checkpoint_step < 0:
             # No checkpoint available
             path = RecoveryPath.HYBRID_RECOVERY
             reason = "no_checkpoint_available"

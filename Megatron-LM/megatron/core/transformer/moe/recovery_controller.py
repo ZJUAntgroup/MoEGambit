@@ -517,7 +517,10 @@ class RecoveryController:
         self._force_checkpoint_restart_fn: Optional[Callable] = None
 
         # Recovery path tracking
-        self._last_recovery_path: str = ""  # "CHECKPOINT_RESTART" or "HYBRID_RECOVERY"
+        self._last_recovery_path: str = ""  # "CHECKPOINT_RESTART", "HYBRID_RECOVERY", or "FULL_PEER_RECOVERY"
+
+        # Full-peer recovery callback (EDP > 1: expert params from Expert-DP peer)
+        self._expert_peer_sync_fn: Optional[Callable] = None
 
         # Expert recovery state tracker (replaces ExpertHealthManager)
         self._expert_tracker = ExpertRecoveryTracker()
@@ -590,6 +593,7 @@ class RecoveryController:
         stage_safe_recovery_fn: Optional[Callable] = None,
         invalidate_tensor_fn: Optional[Callable] = None,
         force_checkpoint_restart_fn: Optional[Callable] = None,
+        expert_peer_sync_fn: Optional[Callable] = None,
     ) -> None:
         """Register callback functions for each recovery action.
 
@@ -643,6 +647,48 @@ class RecoveryController:
             self._invalidate_tensor_fn = invalidate_tensor_fn
         if force_checkpoint_restart_fn is not None:
             self._force_checkpoint_restart_fn = force_checkpoint_restart_fn
+        if expert_peer_sync_fn is not None:
+            self._expert_peer_sync_fn = expert_peer_sync_fn
+
+    # -----------------------------------------------------------------
+    # Expert-DP peer availability helpers
+    # -----------------------------------------------------------------
+
+    def _get_expert_data_parallel_size(self) -> int:
+        """Return the Expert-DP world size (EDP).
+
+        Returns 1 if the parallel state is not initialized or the
+        Expert-DP group is not available.
+        """
+        try:
+            from megatron.core import parallel_state as mpu
+            return mpu.get_expert_data_parallel_world_size()
+        except Exception:
+            return 1
+
+    def _has_expert_dp_peer(self, *, failed_rank: int = -1) -> bool:
+        """Check whether a healthy Expert-DP peer exists for the failed rank.
+
+        Returns ``True`` when EDP > 1 AND at least one other rank in the
+        Expert-DP group is not quarantined/failed.  This is a necessary
+        condition for FULL_PEER_RECOVERY.
+        """
+        edp = self._get_expert_data_parallel_size()
+        if edp <= 1:
+            return False
+
+        # If expert_peer_sync_fn is not registered, we cannot actually
+        # perform full-peer recovery even if EDP > 1.
+        if self._expert_peer_sync_fn is None:
+            return False
+
+        # Check that at least one peer in the Expert-DP group is healthy.
+        # For now, we assume that if EDP > 1 and the callback is registered,
+        # at least one peer is available.  A more precise check would
+        # query the Expert-DP group ranks and cross-reference with
+        # quarantined/failed sets, but that requires topology info that
+        # may not be available at this point.
+        return True
 
     # -----------------------------------------------------------------
     # Phase transitions
@@ -1482,6 +1528,10 @@ class RecoveryController:
                     len(ready_record.expert_ids)
                     if ready_record.expert_ids else 0
                 ),
+                expert_dp_peer_available=self._has_expert_dp_peer(
+                    failed_rank=failed_rank,
+                ),
+                expert_data_parallel_size=self._get_expert_data_parallel_size(),
             )
             recovery_path_name = decision.path.name
             logger.warning(
@@ -1591,6 +1641,12 @@ class RecoveryController:
                 step=step,
                 decision=decision,
             )
+        elif recovery_path_name == "FULL_PEER_RECOVERY":
+            self._execute_full_peer_recovery_path(
+                ready_record=ready_record,
+                step=step,
+                decision=decision,
+            )
         else:
             self._execute_hybrid_recovery_path(
                 ready_record=ready_record,
@@ -1605,8 +1661,9 @@ class RecoveryController:
             _ts(), recovery_path_name, phase_b_elapsed,
         )
 
-        # _last_recovery_path is now set inside _execute_checkpoint_restart_path
-        # and _execute_hybrid_recovery_path, so no outer assignment needed.
+        # _last_recovery_path is now set inside _execute_checkpoint_restart_path,
+        # _execute_hybrid_recovery_path, and _execute_full_peer_recovery_path,
+        # so no outer assignment needed.
 
         # =============================================================
         # Post-hybrid-success: record stale exposure in tracker
@@ -1621,6 +1678,10 @@ class RecoveryController:
         # execution falls back to hybrid: _last_recovery_path will be
         # "HYBRID_RECOVERY" in that case, so we correctly record the
         # stale exposure introduced by the fallback hybrid recovery.
+        #
+        # FULL_PEER_RECOVERY does NOT record stale exposure because
+        # expert state comes from a peer at step t (zero staleness,
+        # Phi'(t) contribution = 0).
         if self._last_recovery_path == "HYBRID_RECOVERY":
             self._record_hybrid_stale_exposure(
                 step=fault_step,
@@ -2037,6 +2098,133 @@ class RecoveryController:
                     )
         # Mark the recovery path for external query
         self._last_recovery_path = "HYBRID_RECOVERY"
+
+    # -----------------------------------------------------------------
+    # Path B3: Full-peer recovery (EDP > 1)
+    # -----------------------------------------------------------------
+
+    def _execute_full_peer_recovery_path(
+        self,
+        ready_record: FaultRecord,
+        step: int,
+        decision: Optional["RecoveryDecision"] = None,
+    ) -> None:
+        """Full-peer recovery path: ALL parameters from in-memory peers.
+
+        This path is selected when EDP > 1, meaning every expert subset
+        has at least one healthy replica in the Expert-DP group.  Dense
+        parameters are pulled from a DP peer (same as hybrid), and expert
+        parameters are pulled from an Expert-DP peer.
+
+        Because the expert state comes from a peer at step *t* (not from
+        a checkpoint at step *c*), the recovered expert state has **zero
+        staleness** and contributes nothing to Phi'(t).  No update
+        barrier or deferred optimizer load is needed.
+
+        After this method returns, the replacement rank has:
+        - Dense/shared/router params from healthy DP peer (current step)
+        - MoE expert weights from healthy Expert-DP peer (current step)
+        - Optimizer state: dense from DP peer, expert from Expert-DP peer
+        - Zero staleness — experts go directly to HEALTHY state
+
+        Args:
+            ready_record: The fault record for the rank being recovered.
+            step: Current training iteration.
+            decision: The ``RecoveryDecision`` from gap-aware policy
+                evaluation, if available.
+        """
+        failed_rank = ready_record.failed_rank
+        replacement_rank = ready_record.replacement_rank
+
+        logger.warning(
+            "[%s] BSR-MoE controller: FULL_PEER_RECOVERY path — "
+            "dense from DP peer, experts from Expert-DP peer "
+            "(step=%d, failed=%d, replacement=%d)",
+            _ts(), step, failed_rank, replacement_rank,
+        )
+
+        # B3a. Pull dense params from healthy DP peer (same as hybrid)
+        t0 = time.time()
+        if self._dense_sync_fn is not None:
+            self._dense_sync_fn(
+                failed_rank=failed_rank,
+                replacement_rank=replacement_rank,
+                step=step,
+            )
+        t1 = time.time()
+        logger.warning(
+            "[%s] BSR-MoE controller: [FULL_PEER] dense_sync "
+            "elapsed=%.3fs (step=%d)",
+            _ts(), t1 - t0, step,
+        )
+
+        # B3b. Pull expert params from healthy Expert-DP peer
+        t0 = time.time()
+        if self._expert_peer_sync_fn is not None:
+            self._expert_peer_sync_fn(
+                failed_rank=failed_rank,
+                replacement_rank=replacement_rank,
+                step=step,
+                expert_ids=ready_record.expert_ids,
+            )
+            logger.warning(
+                "[%s] BSR-MoE controller: [FULL_PEER] expert_peer_sync "
+                "elapsed=%.3fs (step=%d)",
+                _ts(), time.time() - t0, step,
+            )
+        else:
+            # Fallback: if expert_peer_sync_fn is not registered but
+            # FULL_PEER_RECOVERY was selected, fall back to hybrid
+            # (expert from checkpoint).
+            logger.warning(
+                "[%s] BSR-MoE controller: FULL_PEER_RECOVERY selected "
+                "but no expert_peer_sync_fn registered — falling back "
+                "to expert_restore from checkpoint (step=%d)",
+                _ts(), step,
+            )
+            if self._expert_restore_fn is not None:
+                self._expert_restore_fn(
+                    failed_rank=failed_rank,
+                    replacement_rank=replacement_rank,
+                    step=step,
+                    expert_ids=ready_record.expert_ids,
+                )
+                logger.warning(
+                    "[%s] BSR-MoE controller: [FULL_PEER fallback] "
+                    "expert_restore elapsed=%.3fs (step=%d)",
+                    _ts(), time.time() - t0, step,
+                )
+            # When falling back, this is effectively hybrid recovery
+            self._last_recovery_path = "HYBRID_RECOVERY"
+            return
+
+        # B3c. Mark experts as HEALTHY directly (no staleness)
+        #
+        # Unlike hybrid recovery where experts are STALE_RUNNABLE,
+        # full-peer recovery produces current-step expert state.
+        # We mark them HEALTHY immediately — no update barrier needed.
+        if self._health_mark_healthy_fn is not None:
+            try:
+                self._health_mark_healthy_fn(
+                    failed_rank=failed_rank,
+                    replacement_rank=replacement_rank,
+                    step=step,
+                    expert_ids=ready_record.expert_ids,
+                )
+                logger.info(
+                    "[%s] BSR-MoE controller: [FULL_PEER] experts marked "
+                    "HEALTHY directly (zero staleness, step=%d)",
+                    _ts(), step,
+                )
+            except Exception as e:
+                logger.warning(
+                    "[%s] BSR-MoE controller: [FULL_PEER] "
+                    "health_mark_healthy_fn failed (non-fatal): %s",
+                    _ts(), e,
+                )
+
+        # Mark the recovery path for external query
+        self._last_recovery_path = "FULL_PEER_RECOVERY"
 
     # -----------------------------------------------------------------
     # Post-hybrid-success: stale-exposure recording

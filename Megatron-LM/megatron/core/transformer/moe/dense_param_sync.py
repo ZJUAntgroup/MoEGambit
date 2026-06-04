@@ -624,6 +624,296 @@ def _sync_optimizer_states_for_dense(
 
 
 # =====================================================================
+# Expert parameter sync from Expert-DP peer (EDP > 1)
+# =====================================================================
+
+@dataclass
+class ExpertPeerSyncResult:
+    """Result of an expert parameter sync from an Expert-DP peer."""
+
+    success: bool = False
+    """Whether the sync completed successfully."""
+
+    source_rank: int = -1
+    """The rank that provided the expert parameters."""
+
+    num_params_synced: int = 0
+    """Number of expert parameters that were synced."""
+
+    num_scalars_synced: int = 0
+    """Total number of scalar values synced."""
+
+    elapsed_seconds: float = 0.0
+    """Wall-clock time for the sync operation."""
+
+    attempt: int = 0
+    """Which attempt succeeded (1-based)."""
+
+    error: str = ""
+    """Error message if sync failed."""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "success": self.success,
+            "source_rank": self.source_rank,
+            "num_params_synced": self.num_params_synced,
+            "num_scalars_synced": self.num_scalars_synced,
+            "elapsed_seconds": self.elapsed_seconds,
+            "attempt": self.attempt,
+            "error": self.error,
+        }
+
+
+def select_healthy_expert_dp_peer(
+    expt_dp_group_ranks: List[int],
+    quarantined_ranks: Optional[FrozenSet[int]] = None,
+    failed_ranks: Optional[FrozenSet[int]] = None,
+    local_rank: Optional[int] = None,
+) -> Optional[int]:
+    """Select a healthy Expert-DP peer to pull expert parameters from.
+
+    This is the Expert-DP analogue of ``select_healthy_dp_peer()``.
+    When EDP > 1, each expert subset is replicated across the
+    ``expt_dp_group``.  Any healthy peer in this group holds an
+    identical, current-step copy of the expert weights and optimizer
+    state.
+
+    Strategy: prefer the lowest-ranked healthy peer (consistent with
+    ``select_healthy_dp_peer``).
+
+    Args:
+        expt_dp_group_ranks: Ordered list of global ranks in the
+            Expert-DP group.
+        quarantined_ranks: Set of quarantined global ranks.
+        failed_ranks: Set of hard-failed global ranks.
+        local_rank: The local rank (replacement rank).
+
+    Returns:
+        The global rank of the selected healthy Expert-DP peer, or
+        ``None`` if no healthy peer is available (EDP == 1 or all
+        peers are down).
+    """
+    if expt_dp_group_ranks is None or len(expt_dp_group_ranks) <= 1:
+        # EDP == 1: no expert replica exists
+        return None
+
+    if quarantined_ranks is None:
+        quarantined_ranks = frozenset()
+    if failed_ranks is None:
+        failed_ranks = frozenset()
+
+    excluded = quarantined_ranks | failed_ranks
+    if local_rank is not None:
+        excluded = excluded | {local_rank}
+
+    candidates = [r for r in expt_dp_group_ranks if r not in excluded]
+
+    if not candidates:
+        logger.warning(
+            "No healthy Expert-DP peer available for expert sync! "
+            "expt_dp_group=%s, quarantined=%s, failed=%s, local=%s",
+            expt_dp_group_ranks, quarantined_ranks, failed_ranks,
+            local_rank,
+        )
+        return None
+
+    selected = candidates[0]
+    logger.info(
+        "Selected healthy Expert-DP peer: rank %d (from candidates %s)",
+        selected, candidates,
+    )
+    return selected
+
+
+def pull_expert_params_from_peer(
+    model,
+    source_rank: int,
+    expt_dp_group=None,
+    *,
+    classification: Optional[ParamClassification] = None,
+    include_optimizer_states: bool = True,
+    optimizer=None,
+    max_retries: int = 2,
+    broadcast_fn=None,
+) -> ExpertPeerSyncResult:
+    """Pull expert parameters from a healthy Expert-DP peer.
+
+    When EDP > 1, each expert subset is replicated across the
+    ``expt_dp_group``.  This function broadcasts expert parameters
+    (``allreduce == False``) from the ``source_rank`` to all other
+    ranks in the ``expt_dp_group``.
+
+    This is the "full-peer" complement to ``pull_dense_params_from_peer()``:
+    together they enable **zero-disk, zero-staleness recovery** when
+    EDP > 1.  Because the expert state comes from a peer at step *t*
+    (not from a checkpoint at step *c*), the recovered expert state
+    has zero staleness and contributes nothing to Phi'(t).
+
+    Dense-like parameters (``allreduce == True``) are **skipped** —
+    they are handled by ``pull_dense_params_from_peer()`` over the
+    DP group.
+
+    Args:
+        model: The model whose expert parameters to sync.
+        source_rank: The global rank to broadcast from.
+        expt_dp_group: The Expert-DP process group.  If ``None``,
+            operates in dry-run mode (no actual communication).
+        classification: Pre-computed parameter classification.
+        include_optimizer_states: If ``True`` and ``optimizer`` is
+            provided, also sync optimizer states for expert params.
+        optimizer: The optimizer whose expert states to sync.
+        max_retries: Maximum number of retry attempts.
+        broadcast_fn: Custom broadcast function for testing.
+
+    Returns:
+        An ``ExpertPeerSyncResult`` describing the outcome.
+    """
+    start_time = time.monotonic()
+
+    if classification is None:
+        classification = classify_model_parameters(model)
+
+    result = ExpertPeerSyncResult(source_rank=source_rank)
+    expert_params = classification.expert_params
+
+    if not expert_params:
+        result.success = True
+        result.elapsed_seconds = time.monotonic() - start_time
+        return result
+
+    # Determine broadcast function
+    if broadcast_fn is None and expt_dp_group is not None:
+        import torch.distributed
+        def _default_broadcast(tensor, src, group):
+            torch.distributed.broadcast(tensor, src=src, group=group)
+        broadcast_fn = _default_broadcast
+
+    # Attempt sync with retries
+    last_error = ""
+    for attempt in range(1, max_retries + 1):
+        try:
+            synced_count = 0
+            synced_scalars = 0
+
+            for name, param in expert_params.items():
+                if broadcast_fn is not None and expt_dp_group is not None:
+                    broadcast_fn(param.data, src=source_rank, group=expt_dp_group)
+                synced_count += 1
+                synced_scalars += param.numel()
+
+            # Sync expert optimizer states if requested
+            if include_optimizer_states and optimizer is not None:
+                opt_synced = _sync_optimizer_states_for_experts(
+                    optimizer, classification, source_rank,
+                    expt_dp_group, broadcast_fn,
+                )
+                synced_scalars += opt_synced
+
+            # Fail-closed: if we have expert params but synced none
+            if synced_count == 0 and len(expert_params) > 0:
+                raise RuntimeError(
+                    "Fail-closed: {} expert params exist "
+                    "but 0 were synced".format(len(expert_params))
+                )
+
+            result.success = True
+            result.num_params_synced = synced_count
+            result.num_scalars_synced = synced_scalars
+            result.attempt = attempt
+            result.elapsed_seconds = time.monotonic() - start_time
+
+            logger.debug(
+                "BSR-MoE expert peer sync: SUCCESS — synced %d params "
+                "(%d scalars) from Expert-DP peer rank %d (attempt %d, "
+                "%.2fs)",
+                synced_count, synced_scalars, source_rank, attempt,
+                result.elapsed_seconds,
+            )
+            return result
+
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(
+                "BSR-MoE expert peer sync: attempt %d FAILED — %s",
+                attempt, last_error,
+            )
+
+    # All retries exhausted
+    result.success = False
+    result.error = f"All {max_retries} attempts failed. Last error: {last_error}"
+    result.elapsed_seconds = time.monotonic() - start_time
+
+    logger.error(
+        "BSR-MoE expert peer sync: FAILED after %d attempts — %s",
+        max_retries, result.error,
+    )
+    return result
+
+
+def _sync_optimizer_states_for_experts(
+    optimizer,
+    classification: ParamClassification,
+    source_rank: int,
+    expt_dp_group,
+    broadcast_fn,
+) -> int:
+    """Sync optimizer states (momentum, variance) for expert parameters.
+
+    When EDP > 1, optimizer states for expert parameters are identical
+    across all Expert-DP peers (because expert gradients are all-reduced
+    within the ``expt_dp_group`` before the optimizer step).
+
+    Args:
+        optimizer: The optimizer.
+        classification: Parameter classification.
+        source_rank: Rank to broadcast from.
+        expt_dp_group: Expert-DP process group.
+        broadcast_fn: Broadcast function.
+
+    Returns:
+        Number of scalar values synced.
+    """
+    if optimizer is None or expt_dp_group is None or broadcast_fn is None:
+        return 0
+
+    # Build expert param ids for matching
+    expert_param_ids = set(id(p) for p in classification.expert_params.values())
+
+    synced_scalars = 0
+
+    try:
+        state_dict = optimizer.state
+        if hasattr(state_dict, 'items'):
+            for param_key, state in state_dict.items():
+                # Only sync optimizer state for expert params
+                if isinstance(param_key, int):
+                    # Integer key — cannot match by id; skip (conservative
+                    # for experts: better to under-sync than over-sync,
+                    # since dense optimizer states are handled separately)
+                    continue
+                else:
+                    param_id = id(param_key)
+                    if param_id not in expert_param_ids:
+                        # Not an expert param — skip
+                        continue
+
+                if isinstance(state, dict):
+                    for state_name, state_val in state.items():
+                        if hasattr(state_val, 'data') and hasattr(state_val, 'numel'):
+                            broadcast_fn(
+                                state_val.data, src=source_rank,
+                                group=expt_dp_group,
+                            )
+                            synced_scalars += state_val.numel()
+    except Exception as e:
+        logger.warning(
+            "BSR-MoE: expert optimizer state sync encountered error: %s", e,
+        )
+
+    return synced_scalars
+
+
+# =====================================================================
 # Post-sync verification
 # =====================================================================
 

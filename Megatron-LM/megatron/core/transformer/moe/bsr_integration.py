@@ -2032,6 +2032,15 @@ def bsr_execute_stage_safe_recovery(
                 expert_ids=expert_ids,
             )
 
+    def _expert_peer_sync_fn(*, failed_rank, replacement_rank, step, expert_ids):
+        if ctrl._expert_peer_sync_fn is not None:
+            ctrl._expert_peer_sync_fn(
+                failed_rank=failed_rank,
+                replacement_rank=replacement_rank,
+                step=step,
+                expert_ids=expert_ids,
+            )
+
     def _checkpoint_restart_fn(*, failed_rank, replacement_rank, step):
         if ctrl._checkpoint_restart_fn is not None:
             ctrl._checkpoint_restart_fn(
@@ -2068,6 +2077,7 @@ def bsr_execute_stage_safe_recovery(
         p2p_rebind_fn=_p2p_rebind_fn,
         dense_sync_fn=_dense_sync_fn,
         expert_restore_fn=_expert_restore_fn,
+        expert_peer_sync_fn=_expert_peer_sync_fn,
         checkpoint_restart_fn=_checkpoint_restart_fn,
         convergence_fn=_convergence_fn,
     )
@@ -3592,6 +3602,133 @@ def _wire_recovery_callbacks(
             )
         return None
 
+    # ---- Expert peer sync (FULL_PEER_RECOVERY, EDP > 1) ----
+
+    def expert_peer_sync_fn(
+        *, failed_rank, replacement_rank, step=-1, expert_ids=None,
+    ):
+        """Pull expert params from a healthy Expert-DP peer (broadcast).
+
+        This callback is used by the FULL_PEER_RECOVERY path when EDP > 1.
+        It broadcasts expert parameters (allreduce=False) from a healthy
+        Expert-DP peer to the replacement rank.  Because the expert state
+        comes from a peer at step t (not from a checkpoint at step c),
+        the recovered expert state has zero staleness.
+
+        Dense parameters are NOT handled here — they are synced by
+        ``dense_sync_fn`` over the DP group.
+        """
+        t_start = time.time()
+        try:
+            from megatron.core import parallel_state as mpu
+
+            local_rank = _local_distributed_rank()
+            if replacement_rank >= 0 and local_rank != replacement_rank:
+                logger.debug(
+                    "BSR-MoE expert_peer_sync_fn: rank %d skipping expert "
+                    "peer sync for replacement rank %d (failed=%d, step=%d)",
+                    local_rank, replacement_rank, failed_rank, step,
+                )
+                # Non-replacement ranks still participate in broadcast
+                # (they are the source or bystanders in the expt_dp_group)
+
+            # Get Expert-DP group
+            try:
+                expt_dp_group = mpu.get_expert_data_parallel_group()
+            except Exception as e:
+                logger.warning(
+                    "[%s] BSR-MoE expert_peer_sync_fn: cannot get "
+                    "expert_data_parallel_group: %s — skipping",
+                    _ts(), e,
+                )
+                return
+
+            expt_dp_group_ranks = _get_process_group_ranks(expt_dp_group)
+            edp_size = len(expt_dp_group_ranks)
+
+            if edp_size <= 1:
+                logger.warning(
+                    "[%s] BSR-MoE expert_peer_sync_fn: EDP=%d (no expert "
+                    "replicas), cannot perform expert peer sync (step=%d)",
+                    _ts(), edp_size, step,
+                )
+                return
+
+            # Select healthy Expert-DP peer
+            quarantined = frozenset()
+            failed = frozenset({failed_rank}) if failed_rank >= 0 else frozenset()
+            source_rank = ds_mod.select_healthy_expert_dp_peer(
+                expt_dp_group_ranks=expt_dp_group_ranks,
+                quarantined_ranks=quarantined,
+                failed_ranks=failed,
+                local_rank=replacement_rank if replacement_rank >= 0 else local_rank,
+            )
+
+            if source_rank is None:
+                logger.error(
+                    "[%s] BSR-MoE expert_peer_sync_fn: no healthy Expert-DP "
+                    "peer found — cannot perform expert peer sync (step=%d, "
+                    "expt_dp_group=%s)",
+                    _ts(), step, expt_dp_group_ranks,
+                )
+                return
+
+            # Determine optimizer inclusion
+            _opt_for_sync = optimizer
+            _include_opt = True
+            try:
+                target_model = model[0] if isinstance(model, (list, tuple)) else model
+                _cfg = getattr(target_model, 'config', None)
+                if _cfg is not None and hasattr(_cfg, 'moe_bsr_dense_opt_state_sync'):
+                    if not _cfg.moe_bsr_dense_opt_state_sync:
+                        _opt_for_sync = None
+                        _include_opt = False
+            except Exception:
+                pass
+
+            if _include_opt and optimizer is not None:
+                is_distributed_opt = _is_distributed_optimizer(optimizer)
+                if is_distributed_opt:
+                    logger.warning(
+                        "[%s] BSR-MoE expert_peer_sync_fn: DistributedOptimizer "
+                        "detected — skipping expert optimizer state broadcast "
+                        "(step=%d)",
+                        _ts(), step,
+                    )
+                    _opt_for_sync = None
+
+            # Execute expert peer sync
+            target_model = model[0] if isinstance(model, (list, tuple)) else model
+            result = ds_mod.pull_expert_params_from_peer(
+                model=target_model,
+                source_rank=source_rank,
+                expt_dp_group=expt_dp_group,
+                include_optimizer_states=_include_opt,
+                optimizer=_opt_for_sync,
+            )
+
+            elapsed = time.time() - t_start
+            if result.success:
+                logger.warning(
+                    "[%s] BSR-MoE expert peer sync: SUCCESS — synced %d "
+                    "expert params (%d scalars) from Expert-DP peer rank %d "
+                    "(EDP=%d, %.2fs, step=%d)",
+                    _ts(), result.num_params_synced, result.num_scalars_synced,
+                    source_rank, edp_size, elapsed, step,
+                )
+            else:
+                logger.error(
+                    "[%s] BSR-MoE expert peer sync: FAILED — %s (%.2fs, "
+                    "step=%d)",
+                    _ts(), result.error, elapsed, step,
+                )
+        except Exception as e:
+            elapsed = time.time() - t_start
+            logger.error(
+                "[%s] BSR-MoE expert_peer_sync_fn failed: %s (%.2fs)",
+                _ts(), e, elapsed,
+            )
+
     ctrl.register_callbacks(
         health_mark_healthy_fn=health_mark_healthy_fn,
         replacement_announce_fn=replacement_announce_fn,
@@ -3610,6 +3747,7 @@ def _wire_recovery_callbacks(
         enter_waiting_fn=enter_waiting_fn,
         post_recovery_convergence_fn=post_recovery_convergence_fn,
         force_checkpoint_restart_fn=force_checkpoint_restart_fn,
+        expert_peer_sync_fn=expert_peer_sync_fn,
     )
 
 

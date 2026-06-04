@@ -104,7 +104,7 @@ class StageRecoveryResult:
     training_resumed: bool = False
 
     # Recovery path
-    recovery_path: str = ""  # "CHECKPOINT_RESTART" or "HYBRID_RECOVERY"
+    recovery_path: str = ""  # "CHECKPOINT_RESTART", "HYBRID_RECOVERY", or "FULL_PEER_RECOVERY"
 
     elapsed_seconds: float = 0.0
     errors: List[str] = field(default_factory=list)
@@ -210,6 +210,7 @@ class StageSafeRecoveryProtocol:
         p2p_rebind_fn: Optional[Callable] = None,
         dense_sync_fn: Optional[Callable] = None,
         expert_restore_fn: Optional[Callable] = None,
+        expert_peer_sync_fn: Optional[Callable] = None,
         checkpoint_restart_fn: Optional[Callable] = None,
         convergence_fn: Optional[Callable] = None,
         reintegration_fn: Optional[Callable] = None,
@@ -331,6 +332,43 @@ class StageSafeRecoveryProtocol:
                     except Exception as e:
                         result.errors.append(
                             f"checkpoint_restart failed: {e}"
+                        )
+            elif recovery_path == "FULL_PEER_RECOVERY":
+                # Dense from DP peer + experts from Expert-DP peer
+                if dense_sync_fn is not None:
+                    try:
+                        dense_sync_fn(
+                            failed_rank=failed_rank,
+                            replacement_rank=replacement_rank,
+                            step=step,
+                        )
+                    except Exception as e:
+                        result.errors.append(f"dense_sync failed: {e}")
+
+                if expert_peer_sync_fn is not None:
+                    try:
+                        expert_peer_sync_fn(
+                            failed_rank=failed_rank,
+                            replacement_rank=replacement_rank,
+                            step=step,
+                            expert_ids=expert_ids,
+                        )
+                    except Exception as e:
+                        result.errors.append(
+                            f"expert_peer_sync failed: {e}"
+                        )
+                elif expert_restore_fn is not None:
+                    # Fallback to checkpoint-based expert restore
+                    try:
+                        expert_restore_fn(
+                            failed_rank=failed_rank,
+                            replacement_rank=replacement_rank,
+                            step=step,
+                            expert_ids=expert_ids,
+                        )
+                    except Exception as e:
+                        result.errors.append(
+                            f"expert_restore (fallback) failed: {e}"
                         )
             else:  # HYBRID_RECOVERY
                 if dense_sync_fn is not None:
