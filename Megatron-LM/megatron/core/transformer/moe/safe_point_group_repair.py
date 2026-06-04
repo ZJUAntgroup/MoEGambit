@@ -9,8 +9,8 @@ and replacement rank registration.
 The key challenge is that ``parallel_state.py`` has no setter/rebind API
 for process groups — only getters and a full ``destroy_model_parallel()``.
 We therefore implement **selective rebuild**: only the affected groups
-(EP, Expert DP, DP, etc.) are destroyed and recreated, while unaffected
-groups (TP, PP, CP) are left untouched.
+(EP, Expert DP, DP, TP, etc.) are destroyed and recreated, while unaffected
+groups (PP, CP) are left untouched.
 
 Protocol
 --------
@@ -121,6 +121,8 @@ _GROUP_VAR_MAP: Dict[str, str] = {
     "PIPELINE_MODEL_PARALLEL_GROUP": "_PIPELINE_MODEL_PARALLEL_GROUP",
     "PIPELINE_MODEL_PARALLEL_GROUP_GLOO": "_PIPELINE_MODEL_PARALLEL_GROUP_GLOO",
     "MODEL_PARALLEL_GROUP": "_MODEL_PARALLEL_GROUP",
+    # TP groups (for TP > 1 support)
+    "TENSOR_MODEL_PARALLEL_GROUP": "_TENSOR_MODEL_PARALLEL_GROUP",
     "TENSOR_AND_DATA_PARALLEL_GROUP": "_TENSOR_AND_DATA_PARALLEL_GROUP",
     "TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP": "_TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP",
 }
@@ -156,6 +158,12 @@ class SafePointGroupRepairer:
     def __init__(self) -> None:
         self._last_result: Optional[RepairResult] = None
         self._total_repairs: int = 0
+        # Rank lists saved during invalidation (before groups are set to
+        # None).  Keyed by canonical group name.  Populated by
+        # ``_invalidate_affected_groups`` and consumed by
+        # ``_compute_new_ranks_for_group`` for groups that do NOT have a
+        # dedicated ``_*_GLOBAL_RANKS`` variable in ``parallel_state``.
+        self._saved_group_ranks: Dict[str, List[int]] = {}
 
     @property
     def last_result(self) -> Optional[RepairResult]:
@@ -193,6 +201,7 @@ class SafePointGroupRepairer:
             A ``RepairResult`` describing the outcome.
         """
         t0 = time.monotonic()
+        self._saved_group_ranks.clear()
         result = RepairResult(
             failed_rank=plan.failed_rank,
             replacement_rank=plan.replacement_rank,
@@ -385,6 +394,18 @@ class SafePointGroupRepairer:
             current_group = getattr(ps, var_name, None)
             if current_group is None:
                 continue
+
+            # Save the group's rank list BEFORE invalidation so that
+            # _compute_new_ranks_for_group can use it for groups that
+            # lack a dedicated _*_GLOBAL_RANKS variable (e.g.
+            # TENSOR_AND_DATA_PARALLEL_GROUP).
+            try:
+                import torch.distributed as _td
+                saved_ranks = _td.get_process_group_ranks(current_group)
+                if saved_ranks:
+                    self._saved_group_ranks[group_name] = list(saved_ranks)
+            except Exception:
+                pass  # best-effort; _compute_new_ranks_for_group has fallbacks
 
             # Destroy Gloo groups explicitly
             if group_name in _GLOO_GROUPS:
@@ -595,6 +616,63 @@ class SafePointGroupRepairer:
             if plan.new_ep_group_ranks:
                 return list(plan.new_ep_group_ranks)
 
+        # For TP-related groups, get current TP ranks and replace
+        # failed_rank with replacement_rank.  When TP > 1, the TP
+        # group's NCCL communicator is bound to physical rank IDs,
+        # so it must be rebuilt even though the logical membership
+        # is the same.
+        tp_group_names = {
+            "TENSOR_MODEL_PARALLEL_GROUP",
+            "TENSOR_AND_DATA_PARALLEL_GROUP",
+            "TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP",
+        }
+
+        if group_name in tp_group_names:
+            # Strategy:
+            #   1. Try the dedicated _*_GLOBAL_RANKS variable (only
+            #      TENSOR_MODEL_PARALLEL_GROUP has one).
+            #   2. Fall back to _saved_group_ranks (populated during
+            #      invalidation, before the group was set to None).
+            #   3. Last resort: try to read ranks from the live group
+            #      object (only works if not yet invalidated).
+            ranks_for_group: Optional[List[int]] = None
+
+            try:
+                from megatron.core import parallel_state as ps
+
+                if group_name == "TENSOR_MODEL_PARALLEL_GROUP":
+                    ranks_for_group = getattr(
+                        ps, '_TENSOR_MODEL_PARALLEL_GLOBAL_RANKS', None,
+                    )
+            except Exception:
+                pass
+
+            # Fallback: saved ranks from invalidation phase
+            if ranks_for_group is None:
+                ranks_for_group = self._saved_group_ranks.get(group_name)
+
+            # Last resort: live group object
+            if ranks_for_group is None:
+                try:
+                    from megatron.core import parallel_state as ps
+                    var_name = _GROUP_VAR_MAP.get(group_name)
+                    if var_name:
+                        live_group = getattr(ps, var_name, None)
+                        if live_group is not None:
+                            import torch.distributed as _td
+                            ranks_for_group = _td.get_process_group_ranks(
+                                live_group,
+                            )
+                except Exception:
+                    pass
+
+            if ranks_for_group is not None:
+                return GroupRebuildCoordinator.compute_new_group_ranks(
+                    ranks_for_group,
+                    plan.failed_rank,
+                    plan.replacement_rank,
+                )
+
         return None
 
     # -----------------------------------------------------------------
@@ -724,6 +802,38 @@ class SafePointGroupRepairer:
             # Fallback to old EP ranks
             if plan.old_ep_group_ranks:
                 return list(plan.old_ep_group_ranks)
+
+        # For TP groups, get original ranks from parallel_state or
+        # saved ranks from invalidation phase.
+        tp_group_names = {
+            "TENSOR_MODEL_PARALLEL_GROUP",
+            "TENSOR_AND_DATA_PARALLEL_GROUP",
+            "TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP",
+        }
+
+        if group_name in tp_group_names:
+            ranks_for_group: Optional[List[int]] = None
+
+            # Try dedicated _*_GLOBAL_RANKS variable (only TP has one)
+            try:
+                from megatron.core import parallel_state as ps
+                if group_name == "TENSOR_MODEL_PARALLEL_GROUP":
+                    tp_ranks = getattr(
+                        ps, '_TENSOR_MODEL_PARALLEL_GLOBAL_RANKS', None,
+                    )
+                    if tp_ranks is not None:
+                        ranks_for_group = list(tp_ranks)
+            except Exception:
+                pass
+
+            # Fallback: saved ranks from invalidation phase
+            if ranks_for_group is None:
+                saved = self._saved_group_ranks.get(group_name)
+                if saved is not None:
+                    ranks_for_group = list(saved)
+
+            if ranks_for_group is not None:
+                return ranks_for_group
 
         return None
 

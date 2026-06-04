@@ -93,14 +93,21 @@ must be rebuilt (because their membership changes):
 5. **Expert Data Parallel** — ``_EXPERT_DATA_PARALLEL_GROUP`` (+ Gloo variant)
 6. **Data Parallel** — ``_DATA_PARALLEL_GROUP`` (+ Gloo variant)
 7. **Data Parallel + CP** — ``_DATA_PARALLEL_GROUP_WITH_CP`` (+ Gloo variant)
+8. **Tensor Parallel (TP)** — ``_TENSOR_MODEL_PARALLEL_GROUP``
+9. **Tensor × Data Parallel** — ``_TENSOR_AND_DATA_PARALLEL_GROUP``
+10. **Tensor × Data Parallel + CP** — ``_TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP``
 
 Groups that are NOT rebuilt (membership unchanged if replacement takes
 the same logical slot):
 
-* **Tensor Parallel (TP)** — same TP group ranks
 * **Pipeline Parallel (PP)** — same PP group ranks
 * **Context Parallel (CP)** — same CP group ranks
 * **Embedding / Position Embedding** — same ranks
+
+Note: When TP > 1, the TP group's NCCL communicator is bound to physical
+rank IDs.  Since the replacement rank has a different physical rank ID,
+the TP group must be rebuilt even though the logical membership is the
+same.  The same applies to composite groups containing TP (TP×DP, etc.).
 
 Note: In practice, since the replacement rank takes the exact same logical
 slot as the failed rank, ALL groups that contained the failed rank need
@@ -174,8 +181,14 @@ DATA_PARALLEL_GROUPS = frozenset({
     "DATA_PARALLEL_GROUP_WITH_CP_GLOO",      # DP+CP (Gloo)
 })
 
+TENSOR_PARALLEL_GROUPS = frozenset({
+    "TENSOR_MODEL_PARALLEL_GROUP",           # TP (attention/FFN)
+    "TENSOR_AND_DATA_PARALLEL_GROUP",        # TP×DP
+    "TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP",  # TP×DP×CP
+})
+
 # All groups that may need rebuilding
-ALL_REBUILDABLE_GROUPS = EXPERT_GROUPS | DATA_PARALLEL_GROUPS
+ALL_REBUILDABLE_GROUPS = EXPERT_GROUPS | DATA_PARALLEL_GROUPS | TENSOR_PARALLEL_GROUPS
 
 
 @dataclass
