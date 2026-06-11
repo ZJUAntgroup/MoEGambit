@@ -370,9 +370,17 @@ def validate_args(args, defaults={}):
 
     total_model_size = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.context_parallel_size
 
+    # When hot-spare pool is enabled, spare ranks are excluded from the
+    # training topology.  Use training_world_size for all parallelism
+    # calculations so that data_parallel_size stays correct.
+    _num_hot_spares = getattr(args, 'moe_bsr_num_hot_spares', 0) or 0
+    _hot_spare_enabled = getattr(args, 'moe_bsr_hot_spare_pool', False) and _num_hot_spares > 0
+    _training_world_size = args.world_size - _num_hot_spares if _hot_spare_enabled else args.world_size
+
     # Total model size.
-    assert args.world_size % total_model_size == 0, (
-        f"world size ({args.world_size}) is not divisible by total_model_size ({total_model_size=})"
+    assert _training_world_size % total_model_size == 0, (
+        f"training world size ({_training_world_size}) is not divisible by total_model_size ({total_model_size=})"
+        + (f" (world_size={args.world_size}, hot_spares={_num_hot_spares})" if _hot_spare_enabled else "")
     )
 
     if args.attention_backend == AttnBackend.local:
@@ -382,7 +390,7 @@ def validate_args(args, defaults={}):
     args.transformer_pipeline_model_parallel_size = args.pipeline_model_parallel_size
 
     total_model_size = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.context_parallel_size
-    args.data_parallel_size = args.world_size // total_model_size
+    args.data_parallel_size = _training_world_size // total_model_size
 
     # Batch size checks if running RL.
     if args.perform_rl_step:

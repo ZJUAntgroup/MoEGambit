@@ -692,12 +692,23 @@ def initialize_model_parallel(
     assert torch.distributed.is_initialized()
     world_size: int = torch.distributed.get_world_size()
 
+    # When hot-spare pool is enabled, spare ranks are excluded from the
+    # training topology.  Read the number of spares from the environment
+    # variable set by the launch script (BSR_NUM_HOT_SPARES).  This keeps
+    # parallel_state free of Megatron-args dependencies.
+    _num_hot_spares = int(os.environ.get("BSR_NUM_HOT_SPARES", "0"))
+    if _num_hot_spares > 0:
+        training_world_size = world_size - _num_hot_spares
+    else:
+        training_world_size = world_size
+
     model_size = tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size
 
-    if world_size % model_size != 0:
-        raise RuntimeError(f"world_size ({world_size}) is not divisible by {model_size}")
+    if training_world_size % model_size != 0:
+        raise RuntimeError(f"training_world_size ({training_world_size}) is not divisible by {model_size}"
+                           + (f" (world_size={world_size}, hot_spares={_num_hot_spares})" if _num_hot_spares > 0 else ""))
 
-    data_parallel_size: int = world_size // model_size
+    data_parallel_size: int = training_world_size // model_size
 
     if virtual_pipeline_model_parallel_size is not None:
         if not pipeline_model_parallel_size > 1:
@@ -745,10 +756,10 @@ def initialize_model_parallel(
     expert_tensor_model_pipeline_parallel_size = (
         expert_tensor_parallel_size * expert_model_parallel_size * pipeline_model_parallel_size
     )
-    expert_data_parallel_size = world_size // expert_tensor_model_pipeline_parallel_size
-    if world_size % expert_tensor_model_pipeline_parallel_size != 0:
+    expert_data_parallel_size = training_world_size // expert_tensor_model_pipeline_parallel_size
+    if training_world_size % expert_tensor_model_pipeline_parallel_size != 0:
         raise RuntimeError(
-            f"world_size ({world_size}) is not divisible by expert_tensor_model_pipeline_parallel size ({expert_tensor_model_pipeline_parallel_size})"
+            f"training_world_size ({training_world_size}) is not divisible by expert_tensor_model_pipeline_parallel size ({expert_tensor_model_pipeline_parallel_size})"
         )
 
     # TODO: support expert specific ordering
