@@ -615,3 +615,82 @@ def get_spare_ranks_from_config(
         List of global rank IDs for hot spares.
     """
     return list(range(training_world_size, training_world_size + num_hot_spares))
+
+
+# =====================================================================
+# Standby loop for hot-spare ranks
+# =====================================================================
+
+def hot_spare_standby_loop(
+    my_rank: int,
+    training_world_size: int,
+    total_world_size: int,
+) -> None:
+    """Block the current (spare) rank in a standby loop.
+
+    This function is called from initialize.py after the spare rank has
+    participated in all new_group() calls (required by PyTorch) but before
+    any training-specific initialization (random seeds, model build, etc.).
+
+    The spare rank waits here until it receives an activation signal from
+    the RecoveryController (via a Gloo-based TCPStore key or a broadcast
+    on a dedicated spare-coordination process group).
+
+    For the initial implementation, the spare simply sleeps in a polling
+    loop checking a TCPStore key.  When activated, it returns so the
+    caller can proceed with state restoration.
+
+    Args:
+        my_rank: Global rank of this spare process.
+        training_world_size: Number of active training ranks (0..N-1).
+        total_world_size: Total world size including spares.
+    """
+    import time
+    import signal
+    import torch.distributed as dist
+
+    spare_index = my_rank - training_world_size
+    print(f"[HotSpare] Rank {my_rank} (spare #{spare_index}) entering standby loop. "
+          f"Waiting for activation signal...", flush=True)
+
+    # Graceful shutdown on SIGTERM
+    _shutdown = False
+
+    def _handle_sigterm(signum, frame):
+        nonlocal _shutdown
+        _shutdown = True
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
+    # Poll for activation via environment-based TCPStore or a simple
+    # distributed key-value store.  The key format is:
+    #   "bsr_spare_activate_{spare_rank}" = "1"
+    # Set by the RecoveryController on the training ranks when a spare
+    # is allocated to replace a failed rank.
+    store = None
+    try:
+        if dist.is_initialized():
+            # Use the default PG's store for coordination
+            store = dist.distributed_c10d._get_default_store()
+    except Exception:
+        pass
+
+    activation_key = f"bsr_spare_activate_{my_rank}"
+
+    while not _shutdown:
+        # Check for activation signal
+        if store is not None:
+            try:
+                val = store.get(activation_key)
+                if val is not None and val != b"0":
+                    print(f"[HotSpare] Rank {my_rank} activated! "
+                          f"Leaving standby loop.", flush=True)
+                    return
+            except Exception:
+                # Key not yet set, continue waiting
+                pass
+
+        time.sleep(1.0)  # 1-second polling interval
+
+    # Reached here on SIGTERM
+    print(f"[HotSpare] Rank {my_rank} received shutdown signal. Exiting.", flush=True)

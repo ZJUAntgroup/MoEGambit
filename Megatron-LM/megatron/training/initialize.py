@@ -120,6 +120,31 @@ def initialize_megatron(
         # Pytorch distributed.
         _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, store)
 
+        # ---- Hot-spare rank early exit ----
+        # Spare ranks (e.g. 64-71 in a 72-GPU / 9-node setup) participate in
+        # new_group() calls during _initialize_distributed() (required by PyTorch)
+        # but are NOT assigned to any training process group.  They must NOT
+        # continue into _set_random_seed() or training setup.  Instead, they
+        # enter a standby loop managed by the HotSparePool module.
+        _num_hot_spares = int(os.environ.get("BSR_NUM_HOT_SPARES", "0"))
+        if _num_hot_spares > 0:
+            _total_world_size = torch.distributed.get_world_size()
+            _training_world_size = _total_world_size - _num_hot_spares
+            _my_rank = torch.distributed.get_rank()
+            if _my_rank >= _training_world_size:
+                # This rank is a hot spare.  Enter standby loop.
+                if _my_rank == _training_world_size:
+                    print(f"[HotSpare] Ranks {_training_world_size}-{_total_world_size-1} "
+                          f"entering standby (not joining training).", flush=True)
+                from megatron.core.transformer.moe.hot_spare_pool import (
+                    hot_spare_standby_loop,
+                )
+                hot_spare_standby_loop(_my_rank, _training_world_size, _total_world_size)
+                # standby_loop should not return during normal operation;
+                # if it does (e.g. shutdown signal), exit cleanly.
+                import sys
+                sys.exit(0)
+
         # Random seeds for reproducibility.
         if args.rank == 0:
             print("> setting random seeds to {} ...".format(args.seed))
