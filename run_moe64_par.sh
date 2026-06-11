@@ -258,6 +258,26 @@ run_training() {
         --moe-bsr-full-peer-recovery
       )
     fi
+
+    # Gap-aware hybrid recovery policy: uses Φ'(t) staleness guard
+    # to choose between hybrid recovery and checkpoint restart.
+    if [ "${BSR_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
+      BSR_ARGS+=(
+        --moe-bsr-gap-aware-recovery
+        --moe-bsr-recovery-policy-type "${BSR_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
+        --moe-bsr-gap-threshold "${BSR_GAP_THRESHOLD:-100}"
+      )
+    fi
+
+    # Hot-spare node pool: pre-launched spare GPU ranks for instant
+    # fault replacement. Spares do NOT join training NCCL groups
+    # until activated at a safe-point.
+    if [ "${BSR_HOT_SPARE_POOL:-0}" = "1" ]; then
+      BSR_ARGS+=(
+        --moe-bsr-hot-spare-pool
+        --moe-bsr-num-hot-spares "${BSR_NUM_HOT_SPARES:-8}"
+      )
+    fi
   fi
 
   torchrun \
