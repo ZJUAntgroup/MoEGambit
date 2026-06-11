@@ -3290,6 +3290,17 @@ def _add_moe_args(parser):
                        'ALL parameters (dense + expert weights + optimizer state) '
                        'from a healthy DP peer instead of loading experts from '
                        'checkpoint.  Requires expert data-parallel degree >= 2.')
+    group.add_argument('--moe-bsr-hot-spare-pool', action='store_true',
+                       help='Enable hot-spare node pool. Pre-launched spare GPU '
+                       'ranks stand by without joining training NCCL groups. '
+                       'On rank failure, a spare is allocated instantly for '
+                       'replacement. Spares communicate via Gloo/TCPStore only '
+                       '(never NCCL) to prevent collective hangs.')
+    group.add_argument('--moe-bsr-num-hot-spares', type=int, default=0,
+                       help='Number of hot-spare GPU ranks to reserve. These are '
+                       'the last N ranks in the torchrun world. E.g., with 64 '
+                       'training ranks and 2 spares, ranks 64-65 are spares. '
+                       'Default 0 (disabled).')
     return parser
 
 def _add_mla_args(parser):

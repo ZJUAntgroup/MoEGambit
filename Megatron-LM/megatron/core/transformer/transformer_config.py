@@ -879,6 +879,22 @@ class TransformerConfig(ModelParallelConfig):
     3. Applies fail-closed verification gate before reintegration
     Requires ``moe_bsr_enable = True`` and ``moe_bsr_fault_injection = True``."""
 
+    moe_bsr_hot_spare_pool: bool = False
+    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    hot-spare node pool.  Pre-launched spare GPU ranks stand by without
+    joining any training NCCL group.  On a rank failure, the pool allocates
+    a spare for instant replacement, avoiding external orchestration latency.
+    Spare ranks communicate with the coordinator only via Gloo/TCPStore
+    (never NCCL) to prevent collective hangs.
+    Requires ``moe_bsr_enable = True``."""
+
+    moe_bsr_num_hot_spares: int = 0
+    """Number of hot-spare GPU ranks to reserve from the total world size.
+    These ranks are the last N ranks in the ``torchrun`` world (e.g., with
+    64 training ranks and 2 spares, ranks 64-65 are spares).  Set to 0 to
+    disable the hot-spare pool even if ``moe_bsr_hot_spare_pool = True``.
+    Requires ``moe_bsr_hot_spare_pool = True``."""
+
     ##################
     # Context Parallel
     ##################

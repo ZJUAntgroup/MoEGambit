@@ -820,6 +820,81 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
                 "(target rank only)"
             )
 
+    # ---- 6. Initialize HotSparePool (if enabled) ----
+    if getattr(args, 'moe_bsr_hot_spare_pool', False):
+        num_hot_spares = getattr(args, 'moe_bsr_num_hot_spares', 0)
+        if num_hot_spares > 0:
+            from megatron.core.transformer.moe import hot_spare_pool as hsp_mod
+
+            training_world_size = world_size - num_hot_spares
+            spare_ranks = hsp_mod.get_spare_ranks_from_config(
+                training_world_size=training_world_size,
+                num_hot_spares=num_hot_spares,
+            )
+
+            # Initialize the pool (on all ranks, including spares)
+            pool = hsp_mod.initialize_hot_spare_pool(
+                spare_ranks=spare_ranks,
+                world_size=world_size,
+                training_world_size=training_world_size,
+                control_store=None,  # Will use TCPStore from env if available
+            )
+
+            # If current rank is a spare, enter standby loop (no NCCL training)
+            if hsp_mod.is_current_rank_spare(rank, training_world_size, world_size):
+                logger.warning(
+                    "[%s] BSR-MoE: rank %d is a HOT SPARE — entering standby "
+                    "(NOT joining training NCCL groups)", _ts(), rank,
+                )
+                # Spare ranks do NOT proceed with normal training.
+                # They wait for activation signal via TCPStore/Gloo.
+                # The spare loop is handled by the launcher; here we just
+                # mark initialization as complete and return.
+                _BSR_INITIALIZED = True
+                return True
+
+            logger.warning(
+                "BSR-MoE: hot-spare pool initialized — %d spares (ranks %s), "
+                "training_world=%d",
+                num_hot_spares, spare_ranks, training_world_size,
+            )
+
+            # Wire spare allocation into recovery controller's replacement_announce
+            if _RECOVERY_CONTROLLER is not None:
+                _original_announce_fn = _RECOVERY_CONTROLLER._replacement_announce_fn
+
+                def _hot_spare_replacement_announce_fn(**kwargs):
+                    """Auto-allocate a hot spare on fault, then announce."""
+                    failed_rank_id = kwargs.get('failed_rank', -1)
+                    step_val = kwargs.get('step', 0)
+                    spare_pool = hsp_mod.get_hot_spare_pool()
+
+                    if spare_pool is not None and spare_pool.has_available_spare():
+                        allocated = spare_pool.allocate_spare(
+                            failed_rank=failed_rank_id,
+                            step=step_val,
+                            reason="auto_hot_spare",
+                        )
+                        if allocated is not None:
+                            kwargs['replacement_rank'] = allocated
+                            logger.warning(
+                                "BSR-MoE: hot-spare auto-allocated rank %d "
+                                "for failed_rank=%d (step=%d, remaining=%d)",
+                                allocated, failed_rank_id, step_val,
+                                spare_pool.num_available,
+                            )
+
+                    # Call original announce function
+                    if _original_announce_fn is not None:
+                        return _original_announce_fn(**kwargs)
+
+                _RECOVERY_CONTROLLER._replacement_announce_fn = (
+                    _hot_spare_replacement_announce_fn
+                )
+                logger.warning(
+                    "BSR-MoE: hot-spare auto-allocation wired to recovery controller"
+                )
+
     _BSR_INITIALIZED = True
     logger.warning("[%s] BSR-MoE: initialization complete on rank %d", _ts(), rank)
     return True
