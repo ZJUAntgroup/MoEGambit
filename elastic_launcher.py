@@ -188,18 +188,23 @@ class RankProcess:
         env["ELASTIC_IS_SPARE"] = "1" if self.is_spare else "0"
         env["ELASTIC_SPARE_RANK_START"] = str(config.spare_rank_start)
 
-        # GPU assignment
-        env["CUDA_VISIBLE_DEVICES"] = str(self.local_rank)
+        # GPU assignment: in single-node mode (all localhost), don't restrict
+        # CUDA_VISIBLE_DEVICES since multiple ranks share the same GPUs.
+        # The training script uses torch.cuda.set_device(local_rank) internally.
+        # In multi-node mode, each node has dedicated GPUs.
+        if self.node not in ("localhost", "127.0.0.1"):
+            env["CUDA_VISIBLE_DEVICES"] = str(self.local_rank)
+        # else: leave CUDA_VISIBLE_DEVICES unset (all GPUs visible)
 
         cmd = [sys.executable, "-u", config.training_script] + config.script_args
 
         if self.node == "localhost" or self.node == "127.0.0.1":
-            # Local launch
+            # Local launch — inherit stdout/stderr so output goes to spare.log
             self.process = subprocess.Popen(
                 cmd,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=None,  # inherit parent's stdout
+                stderr=None,  # inherit parent's stderr
             )
         else:
             # Remote launch via SSH
