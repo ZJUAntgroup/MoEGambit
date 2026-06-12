@@ -370,17 +370,9 @@ def validate_args(args, defaults={}):
 
     total_model_size = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.context_parallel_size
 
-    # When hot-spare pool is enabled, spare ranks are excluded from the
-    # training topology.  Use training_world_size for all parallelism
-    # calculations so that data_parallel_size stays correct.
-    _num_hot_spares = getattr(args, 'moe_bsr_num_hot_spares', 0) or 0
-    _hot_spare_enabled = getattr(args, 'moe_bsr_hot_spare_pool', False) and _num_hot_spares > 0
-    _training_world_size = args.world_size - _num_hot_spares if _hot_spare_enabled else args.world_size
-
     # Total model size.
-    assert _training_world_size % total_model_size == 0, (
-        f"training world size ({_training_world_size}) is not divisible by total_model_size ({total_model_size=})"
-        + (f" (world_size={args.world_size}, hot_spares={_num_hot_spares})" if _hot_spare_enabled else "")
+    assert args.world_size % total_model_size == 0, (
+        f"world size ({args.world_size}) is not divisible by total_model_size ({total_model_size=})"
     )
 
     if args.attention_backend == AttnBackend.local:
@@ -390,7 +382,7 @@ def validate_args(args, defaults={}):
     args.transformer_pipeline_model_parallel_size = args.pipeline_model_parallel_size
 
     total_model_size = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.context_parallel_size
-    args.data_parallel_size = _training_world_size // total_model_size
+    args.data_parallel_size = args.world_size // total_model_size
 
     # Batch size checks if running RL.
     if args.perform_rl_step:
@@ -3299,16 +3291,14 @@ def _add_moe_args(parser):
                        'from a healthy DP peer instead of loading experts from '
                        'checkpoint.  Requires expert data-parallel degree >= 2.')
     group.add_argument('--moe-bsr-hot-spare-pool', action='store_true',
-                       help='Enable hot-spare node pool. Pre-launched spare GPU '
-                       'ranks stand by without joining training NCCL groups. '
-                       'On rank failure, a spare is allocated instantly for '
-                       'replacement. Spares communicate via Gloo/TCPStore only '
-                       '(never NCCL) to prevent collective hangs.')
+                       help='Enable hot-spare node pool.  Hot-spare nodes run as '
+                       'independent daemon processes (not part of the training '
+                       'torchrun world) and join NCCL groups only after a fault '
+                       'triggers activation via the RecoveryController.')
     group.add_argument('--moe-bsr-num-hot-spares', type=int, default=0,
-                       help='Number of hot-spare GPU ranks to reserve. These are '
-                       'the last N ranks in the torchrun world. E.g., with 64 '
-                       'training ranks and 2 spares, ranks 64-65 are spares. '
-                       'Default 0 (disabled).')
+                       help='Number of hot-spare GPU ranks available as daemons.  '
+                       'Used by the RecoveryController to decide if instant '
+                       'replacement is possible.  Does NOT affect torchrun world size.')
     return parser
 
 def _add_mla_args(parser):

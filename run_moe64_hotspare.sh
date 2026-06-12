@@ -2,23 +2,27 @@
 # =============================================================================
 # run_moe64_hotspare.sh
 #
-# Hot-Spare Node Pool experiment:
-#   72 GPUs = 9 nodes × 8 GPUs/node
-#   Ranks 0-63 : training ranks (64 GPUs, 8 nodes)
-#   Ranks 64-71: hot-spare ranks (8 GPUs, 1 node, STANDBY)
+# Hot-Spare Node Pool experiment (daemon mode):
+#   Training: 64 GPUs = 8 nodes × 8 GPUs/node (standard torchrun world)
+#   Hot spares: 8 GPUs on a 9th node, running as independent daemons
+#               (NOT part of the torchrun world)
 #
-# NCCL safety: spare ranks do NOT join any training NCCL process group.
-# They communicate with the coordinator only via Gloo/TCPStore and are
-# integrated into NCCL groups only at safe-points after activation.
+# Architecture:
+#   - torchrun launches 64 ranks (NNODES=8) as normal training
+#   - Hot-spare daemons are started separately on the spare node via
+#     hot_spare_daemon.py (see below)
+#   - On fault, RecoveryController signals a daemon via TCPStore
+#   - The daemon joins a rebuilt NCCL group at the next safe-point
 #
 # Recovery pipeline:
 #   fault injection → hot-spare allocation → gap-aware policy decision
-#   → hybrid recovery (Path P: non-expert from DP peer + Path C: expert
-#     from checkpoint) → reintegration into training
+#   → NCCL group rebuild (spare joins) → hybrid recovery
+#   (Path P: non-expert from DP peer + Path C: expert from checkpoint)
+#   → reintegration into training
 #
-# This script is a thin wrapper around run_moe64_par.sh (same pattern
-# as bench_moe64_tp*.sh).  It exports the necessary environment variables
-# and then delegates to run_moe64_par.sh for the actual training loop.
+# This script launches the TRAINING side only.  For the spare node, run:
+#   python hot_spare_daemon.py --master-addr $MASTER_ADDR \
+#       --master-port $MASTER_PORT --num-gpus 8
 #
 # Overrides (all optional):
 #   NNODES / NODE_RANK / MASTER_ADDR / MASTER_PORT  (passed through)
@@ -37,8 +41,8 @@ if [ ! -f "${INNER_SCRIPT}" ]; then
   exit 2
 fi
 
-# ---- 9-node topology (64 training + 8 spare) ----
-export NNODES="${NNODES:-9}"
+# ---- 8-node training topology (64 GPUs, standard torchrun world) ----
+export NNODES="${NNODES:-8}"
 export NODE_RANK="${NODE_RANK:-0}"
 export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 export MASTER_PORT="${MASTER_PORT:-20115}"
@@ -51,7 +55,7 @@ export EP_SIZE="${EP_SIZE:-8}"
 # ---- Mode: moegambit (BSR-MoE hybrid recovery) ----
 export MODE=moegambit
 
-# ---- Hot-spare pool ----
+# ---- Hot-spare pool (daemon mode: does NOT affect torchrun world size) ----
 export BSR_HOT_SPARE_POOL=1
 export BSR_NUM_HOT_SPARES="${BSR_NUM_HOT_SPARES:-8}"
 
@@ -77,12 +81,13 @@ export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/hotspare}"
 export MAX_RETRIES="${MAX_RETRIES:-1}"
 
 echo "[run_moe64_hotspare] config:"
-echo "  TOPOLOGY   = ${NNODES} nodes × 8 GPUs (${BSR_NUM_HOT_SPARES} hot spares)"
+echo "  TRAINING   = ${NNODES} nodes × 8 GPUs (torchrun world_size=$((NNODES * 8)))"
+echo "  HOT SPARES = ${BSR_NUM_HOT_SPARES} GPUs (daemon mode, separate node)"
 echo "  PARALLEL   = TP=${TP_SIZE}, PP=${PP_SIZE}, EP=${EP_SIZE}"
 echo "  RECOVERY   = gap-aware hybrid (threshold=${BSR_GAP_THRESHOLD})"
 echo "  FAULT      = ${BSR_FAULT_INJECT_TYPE}, step=${BSR_FAULT_INJECT_STEP}, interval=${BSR_FAULT_INJECT_INTERVAL}"
 echo "  CKPT_DIR   = ${CKPT_DIR}"
 echo "  LOG_DIR    = ${TRAIN_LOG_DIR}"
 
-# ---- Delegate to inner script ----
+# ---- Delegate to inner script (NNODES=8, 64 GPUs only) ----
 bash "${INNER_SCRIPT}"

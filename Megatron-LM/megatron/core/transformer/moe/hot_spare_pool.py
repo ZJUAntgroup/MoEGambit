@@ -2,34 +2,30 @@
 
 """Hot-Spare Node Pool for BSR-MoE.
 
-This module manages a pool of pre-launched hot-spare GPU ranks that stand by
-without participating in any NCCL communication group.  When a training rank
-fails, the pool allocates a spare to replace it, enabling near-instant
-recovery without waiting for external orchestration to spawn a new process.
+This module manages a pool of hot-spare GPU ranks that stand by as
+independent daemon processes, completely outside the training torchrun world.
+When a training rank fails, the pool allocates a spare to replace it.
 
-NCCL Safety Design
-------------------
-Hot-spare ranks are launched as part of the ``torchrun`` world but are
-**excluded** from all training NCCL process groups at init time.  They:
+Architecture (Daemon Mode)
+--------------------------
+Hot-spare ranks are NOT launched by torchrun and do NOT participate in the
+initial NCCL world.  They run as independent Python processes on dedicated
+spare nodes, managed by ``hot_spare_daemon.py``.  On fault:
 
-1. Do NOT join any AllReduce / AllToAll / P2P group used by training.
-2. Communicate with the coordinator (rank 0 or a designated control rank)
-   only via ``torch.distributed.TCPStore`` or CPU-side ``send/recv`` on a
-   dedicated control process group (Gloo backend, not NCCL).
-3. Pre-load the model skeleton and latest checkpoint into GPU memory so
-   that activation latency is minimized.
-4. Only join NCCL training groups at a safe-point via ``group_rebuild.py``
-   after being assigned to replace a failed rank.
+1. RecoveryController detects failure and calls ``allocate_spare()``.
+2. The pool signals the daemon via TCPStore / socket.
+3. The daemon joins a NEW NCCL process group created by
+   ``GroupRebuildCoordinator`` at the next safe-point.
+4. State restoration proceeds via DenseParamSync + StaleExpertRestore.
 
-This ensures that spare ranks never cause NCCL collective hangs — they are
-invisible to training collectives until explicitly integrated.
+This design avoids all NCCL collective issues — spare ranks never participate
+in any ``new_group()`` call until they are explicitly activated.
 
 Integration with BSR-MoE Stack
 ------------------------------
 * ``RecoveryController`` (Step 11) calls ``allocate_spare()`` on fault.
 * ``ReplacementRegistry`` (Step 6) registers the allocated spare.
-* ``GroupRebuildCoordinator`` (Step 7) adds the spare to NCCL groups at
-  safe-point.
+* ``GroupRebuildCoordinator`` (Step 7) rebuilds NCCL groups including the spare.
 * ``DenseParamSync`` (Step 9) pulls current non-expert state to the spare.
 * ``StaleExpertRestore`` (Step 10) loads expert shards from checkpoint.
 
@@ -37,6 +33,7 @@ Configuration
 -------------
 Enabled via ``--moe-bsr-hot-spare-pool`` flag (requires ``--moe-bsr-enable``).
 The number of spare ranks is set via ``--moe-bsr-num-hot-spares``.
+Training torchrun world size is NOT affected (remains 64 GPUs for 8 nodes).
 
 Usage::
 
@@ -45,18 +42,18 @@ Usage::
         initialize_hot_spare_pool,
     )
 
-    # At training init (after torch.distributed.init_process_group):
+    # At training init:
     initialize_hot_spare_pool(
-        num_spares=2,
-        world_size=66,  # 64 training + 2 spares
+        num_spares=8,
+        spare_addresses=["node9:gpu0", ..., "node9:gpu7"],
         control_store=store,
     )
 
     # On fault detection:
     pool = get_hot_spare_pool()
-    spare_rank = pool.allocate_spare(failed_rank=4, step=100)
-    if spare_rank is not None:
-        # Proceed with replacement via ReplacementRegistry
+    spare_info = pool.allocate_spare(failed_rank=4, step=100)
+    if spare_info is not None:
+        # Signal daemon to join NCCL group rebuild
         ...
     else:
         # No spares available — fall back to checkpoint restart
@@ -573,124 +570,3 @@ def clear_hot_spare_pool() -> None:
     """Reset the global pool (for testing)."""
     global _POOL
     _POOL = None
-
-
-# =====================================================================
-# Helper: determine if current rank is a spare
-# =====================================================================
-
-def is_current_rank_spare(
-    global_rank: int,
-    training_world_size: int,
-    total_world_size: int,
-) -> bool:
-    """Determine if the current rank should act as a hot spare.
-
-    Convention: spare ranks are the last (total_world_size - training_world_size)
-    ranks in the world.  E.g., with 64 training ranks and 2 spares,
-    ranks 64 and 65 are spares.
-
-    Args:
-        global_rank: This process's global rank.
-        training_world_size: Number of active training ranks.
-        total_world_size: Total world size including spares.
-
-    Returns:
-        True if this rank should be a hot spare.
-    """
-    return global_rank >= training_world_size
-
-
-def get_spare_ranks_from_config(
-    training_world_size: int,
-    num_hot_spares: int,
-) -> List[int]:
-    """Compute the list of spare rank IDs from configuration.
-
-    Args:
-        training_world_size: Number of active training ranks.
-        num_hot_spares: Number of hot-spare ranks to reserve.
-
-    Returns:
-        List of global rank IDs for hot spares.
-    """
-    return list(range(training_world_size, training_world_size + num_hot_spares))
-
-
-# =====================================================================
-# Standby loop for hot-spare ranks
-# =====================================================================
-
-def hot_spare_standby_loop(
-    my_rank: int,
-    training_world_size: int,
-    total_world_size: int,
-) -> None:
-    """Block the current (spare) rank in a standby loop.
-
-    This function is called from initialize.py after the spare rank has
-    participated in all new_group() calls (required by PyTorch) but before
-    any training-specific initialization (random seeds, model build, etc.).
-
-    The spare rank waits here until it receives an activation signal from
-    the RecoveryController (via a Gloo-based TCPStore key or a broadcast
-    on a dedicated spare-coordination process group).
-
-    For the initial implementation, the spare simply sleeps in a polling
-    loop checking a TCPStore key.  When activated, it returns so the
-    caller can proceed with state restoration.
-
-    Args:
-        my_rank: Global rank of this spare process.
-        training_world_size: Number of active training ranks (0..N-1).
-        total_world_size: Total world size including spares.
-    """
-    import time
-    import signal
-    import torch.distributed as dist
-
-    spare_index = my_rank - training_world_size
-    print(f"[HotSpare] Rank {my_rank} (spare #{spare_index}) entering standby loop. "
-          f"Waiting for activation signal...", flush=True)
-
-    # Graceful shutdown on SIGTERM
-    _shutdown = False
-
-    def _handle_sigterm(signum, frame):
-        nonlocal _shutdown
-        _shutdown = True
-
-    signal.signal(signal.SIGTERM, _handle_sigterm)
-
-    # Poll for activation via environment-based TCPStore or a simple
-    # distributed key-value store.  The key format is:
-    #   "bsr_spare_activate_{spare_rank}" = "1"
-    # Set by the RecoveryController on the training ranks when a spare
-    # is allocated to replace a failed rank.
-    store = None
-    try:
-        if dist.is_initialized():
-            # Use the default PG's store for coordination
-            store = dist.distributed_c10d._get_default_store()
-    except Exception:
-        pass
-
-    activation_key = f"bsr_spare_activate_{my_rank}"
-
-    while not _shutdown:
-        # Check for activation signal
-        if store is not None:
-            try:
-                val = store.get(activation_key)
-                if val is not None and val != b"0":
-                    print(f"[HotSpare] Rank {my_rank} activated! "
-                          f"Leaving standby loop.", flush=True)
-                    return
-            except Exception:
-                # Key not yet set, continue waiting
-                pass
-
-        time.sleep(1.0)  # 1-second polling interval
-
-    # Reached here on SIGTERM
-    print(f"[HotSpare] Rank {my_rank} received shutdown signal. Exiting.", flush=True)

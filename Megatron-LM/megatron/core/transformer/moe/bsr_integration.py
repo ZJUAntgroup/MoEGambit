@@ -821,42 +821,29 @@ def maybe_initialize_bsr_moe(model, args, optimizer=None, opt_param_scheduler=No
             )
 
     # ---- 6. Initialize HotSparePool (if enabled) ----
+    # In daemon mode, hot-spare nodes are independent processes NOT part of
+    # the torchrun world.  Training ranks only need to know how many spares
+    # are available so the RecoveryController can signal them on fault.
     if getattr(args, 'moe_bsr_hot_spare_pool', False):
         num_hot_spares = getattr(args, 'moe_bsr_num_hot_spares', 0)
         if num_hot_spares > 0:
             from megatron.core.transformer.moe import hot_spare_pool as hsp_mod
 
-            training_world_size = world_size - num_hot_spares
-            spare_ranks = hsp_mod.get_spare_ranks_from_config(
-                training_world_size=training_world_size,
-                num_hot_spares=num_hot_spares,
-            )
+            # Spare ranks are daemon processes; we assign them logical IDs
+            # starting from world_size (e.g. 64, 65, ..., 71 for 8 spares).
+            spare_ranks = list(range(world_size, world_size + num_hot_spares))
 
-            # Initialize the pool (on all ranks, including spares)
             pool = hsp_mod.initialize_hot_spare_pool(
                 spare_ranks=spare_ranks,
-                world_size=world_size,
-                training_world_size=training_world_size,
+                world_size=world_size + num_hot_spares,  # logical total
+                training_world_size=world_size,
                 control_store=None,  # Will use TCPStore from env if available
             )
 
-            # If current rank is a spare, enter standby loop (no NCCL training)
-            if hsp_mod.is_current_rank_spare(rank, training_world_size, world_size):
-                logger.warning(
-                    "[%s] BSR-MoE: rank %d is a HOT SPARE — entering standby "
-                    "(NOT joining training NCCL groups)", _ts(), rank,
-                )
-                # Spare ranks do NOT proceed with normal training.
-                # They wait for activation signal via TCPStore/Gloo.
-                # The spare loop is handled by the launcher; here we just
-                # mark initialization as complete and return.
-                _BSR_INITIALIZED = True
-                return True
-
             logger.warning(
-                "BSR-MoE: hot-spare pool initialized — %d spares (ranks %s), "
-                "training_world=%d",
-                num_hot_spares, spare_ranks, training_world_size,
+                "BSR-MoE: hot-spare pool initialized (daemon mode) — %d spares "
+                "(logical ranks %s), training_world=%d",
+                num_hot_spares, spare_ranks, world_size,
             )
 
             # Wire spare allocation into recovery controller's replacement_announce

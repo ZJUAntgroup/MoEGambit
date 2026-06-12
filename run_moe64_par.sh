@@ -65,19 +65,12 @@ export SAVE_INTERVAL="${SAVE_INTERVAL:-40}"
 
 # Compute EDP for logging (EDP = world_size / (TP * PP * EP))
 WORLD_SIZE=$((NNODES * 8))
-# When hot-spare pool is enabled, exclude spare ranks from training topology
-_NUM_SPARES="${BSR_NUM_HOT_SPARES:-0}"
-if [ "${BSR_HOT_SPARE_POOL:-0}" = "1" ] && [ "${_NUM_SPARES}" -gt 0 ]; then
-  TRAINING_WORLD_SIZE=$((WORLD_SIZE - _NUM_SPARES))
-else
-  TRAINING_WORLD_SIZE="${WORLD_SIZE}"
-fi
-EDP_SIZE=$((TRAINING_WORLD_SIZE / (TP_SIZE * PP_SIZE * EP_SIZE)))
-echo "[run_moe64_par] parallelism: TP=${TP_SIZE}, PP=${PP_SIZE}, EP=${EP_SIZE}, EDP=${EDP_SIZE}, world_size=${WORLD_SIZE}, training_world_size=${TRAINING_WORLD_SIZE}"
+EDP_SIZE=$((WORLD_SIZE / (TP_SIZE * PP_SIZE * EP_SIZE)))
+echo "[run_moe64_par] parallelism: TP=${TP_SIZE}, PP=${PP_SIZE}, EP=${EP_SIZE}, EDP=${EDP_SIZE}, world_size=${WORLD_SIZE}"
 
 # Global batch size: scale with DP degree.
-# DP = training_world_size / (TP * PP) = EP * EDP.
-DP_SIZE=$((TRAINING_WORLD_SIZE / (TP_SIZE * PP_SIZE)))
+# DP = world_size / (TP * PP) = EP * EDP.
+DP_SIZE=$((WORLD_SIZE / (TP_SIZE * PP_SIZE)))
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-$((8 * DP_SIZE))}"
 export GLOBAL_BATCH_SIZE
 
