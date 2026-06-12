@@ -120,14 +120,6 @@ def initialize_megatron(
         # Pytorch distributed.
         _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, store)
 
-        # Elastic launcher: spare ranks enter standby after init_process_group
-        # and initialize_model_parallel (they participated in all new_group()
-        # calls as required by the collective semantics, but are not assigned
-        # to any sub-group).  They block here until activated by the launcher.
-        if os.environ.get("ELASTIC_IS_SPARE") == "1":
-            _spare_rank_standby()
-            return  # spare exits or proceeds to recovery
-
         # Random seeds for reproducibility.
         if args.rank == 0:
             print("> setting random seeds to {} ...".format(args.seed))

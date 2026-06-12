@@ -1292,6 +1292,25 @@ def initialize_model_parallel(
     # we could stick it there
     _set_global_memory_buffer()
 
+    # Elastic hot-spare: spare ranks are not members of any sub-group (they
+    # participated in all new_group() calls as required by the collective
+    # semantics, but rank >= training_world_size is never in any ranks list).
+    # Set MPU override variables so that code paths querying TP/PP rank/size
+    # (e.g. _set_random_seed, _warmup_jit_function) don't crash.
+    if _elastic_training_ws > 0 and rank >= _elastic_training_ws:
+        global _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE
+        global _MPU_TENSOR_MODEL_PARALLEL_RANK
+        global _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE
+        global _MPU_PIPELINE_MODEL_PARALLEL_RANK
+        global _MPU_EXPERT_MODEL_PARALLEL_RANK
+        global _MPU_DATA_PARALLEL_RANK
+        _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE = tensor_model_parallel_size
+        _MPU_TENSOR_MODEL_PARALLEL_RANK = 0
+        _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE = pipeline_model_parallel_size
+        _MPU_PIPELINE_MODEL_PARALLEL_RANK = 0
+        _MPU_EXPERT_MODEL_PARALLEL_RANK = 0
+        _MPU_DATA_PARALLEL_RANK = 0
+
 
 def is_initialized():
     """Useful for code segments that may be accessed with or without mpu initialization"""

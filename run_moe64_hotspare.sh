@@ -66,6 +66,10 @@ export ELASTIC_NUM_SPARES="${NUM_SPARES}"
 export ELASTIC_SPARE_RANK_START="${TRAINING_WORLD_SIZE}"
 export ELASTIC_FAULT_DIR="${ELASTIC_FAULT_DIR:-/tmp/elastic_faults}"
 
+# Clean stale fault files from previous runs to prevent spurious spare activation
+rm -rf "${ELASTIC_FAULT_DIR}"
+mkdir -p "${ELASTIC_FAULT_DIR}"
+
 # Recovery policy
 export BSR_HOT_SPARE_POOL=1
 export BSR_NUM_HOT_SPARES="${NUM_SPARES}"
