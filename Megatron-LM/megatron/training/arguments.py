@@ -117,6 +117,12 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
 
+    # Elastic launcher: use training_world_size for parallelism calculations
+    # so that spare ranks don't affect data_parallel_size, global_batch_size, etc.
+    _elastic_training_ws = int(os.getenv("ELASTIC_TRAINING_WORLD_SIZE", "0"))
+    if _elastic_training_ws > 0:
+        args.world_size = _elastic_training_ws
+
     # Args to disable MSC
     if not args.enable_msc:
         MultiStorageClientFeature.disable()

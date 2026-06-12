@@ -903,6 +903,9 @@ def bsr_before_iteration(step: int) -> bool:
     if _OPTIMIZER_COMMIT_GUARD is not None:
         _OPTIMIZER_COMMIT_GUARD.begin_iteration(step)
 
+    # Check for elastic launcher fault signals (real rank failures)
+    _maybe_handle_elastic_fault(step)
+
     # Check for scheduled fault injection
     _maybe_inject_fault(step)
 
@@ -3970,6 +3973,85 @@ def _inject_fault_for_rank(
             _schedule_next_injection(cfg, visible_step)
     else:
         logger.error("BSR-MoE: unknown fault injection type: %s", inject_type)
+
+
+# Track which elastic fault epochs we've already processed
+_ELASTIC_FAULT_PROCESSED_EPOCHS: set = set()
+
+
+def _maybe_handle_elastic_fault(step: int) -> None:
+    """Check for real rank failures signaled by the elastic launcher.
+
+    The elastic launcher writes a fault signal file when it detects a rank
+    process has exited.  Training ranks poll this file at safe points
+    (iteration boundaries) and trigger the recovery controller.
+
+    This enables hybrid recovery for real node failures:
+    - Failed rank's process is dead
+    - Spare rank is activated by the launcher
+    - Training ranks rebuild NCCL groups to include the spare rank
+    - Spare rank receives dense params from DP peer (Path P)
+    - Spare rank loads expert params from checkpoint (Path C)
+    """
+    import json
+    from pathlib import Path
+
+    if os.environ.get("ELASTIC_LAUNCHER") != "1":
+        return
+
+    ctrl = _RECOVERY_CONTROLLER
+    if ctrl is None:
+        return
+
+    # Don't process faults if already in recovery
+    try:
+        phase_name = getattr(ctrl.phase, "name", "")
+        if phase_name != "HEALTHY_TRAINING":
+            return
+    except Exception:
+        return
+
+    fault_dir = Path(os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults"))
+    latest_file = fault_dir / "latest"
+
+    if not latest_file.exists():
+        return
+
+    try:
+        info = json.loads(latest_file.read_text())
+        epoch = info.get("epoch", -1)
+
+        # Skip if already processed
+        if epoch in _ELASTIC_FAULT_PROCESSED_EPOCHS:
+            return
+
+        failed_rank = info["failed_rank"]
+        spare_rank = info["spare_rank"]
+
+        _ELASTIC_FAULT_PROCESSED_EPOCHS.add(epoch)
+
+        visible_step = step + 1
+        logger.warning(
+            "[%s] BSR-MoE: ELASTIC FAULT DETECTED — failed_rank=%d, "
+            "spare_rank=%d, epoch=%d, step=%d",
+            _ts(), failed_rank, spare_rank, epoch, visible_step,
+        )
+
+        # Trigger the recovery controller with the real fault
+        # The spare rank will participate in group rebuild once activated
+        ctrl.on_hard_rank_failure(
+            failed_rank=failed_rank,
+            reason=f"elastic_launcher_real_fault_epoch_{epoch}",
+            step=visible_step,
+            expert_ids=None,  # will be computed by the controller
+            ep_group_ranks=None,
+            dp_group_ranks=None,
+            restart_in_place=False,  # NOT restart_in_place — real replacement
+            replacement_rank=spare_rank,
+        )
+
+    except (json.JSONDecodeError, KeyError, OSError, FileNotFoundError):
+        pass
 
 
 def _maybe_inject_fault(step: int) -> None:

@@ -692,6 +692,14 @@ def initialize_model_parallel(
     assert torch.distributed.is_initialized()
     world_size: int = torch.distributed.get_world_size()
 
+    # Elastic launcher support: when spare ranks are present in the world,
+    # use training_world_size for parallelism calculations.  Spare ranks
+    # still participate in new_group() calls (collective) but are not
+    # assigned to any sub-group.
+    _elastic_training_ws = int(os.environ.get("ELASTIC_TRAINING_WORLD_SIZE", "0"))
+    if _elastic_training_ws > 0 and _elastic_training_ws < world_size:
+        world_size = _elastic_training_ws
+
     model_size = tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size
 
     if world_size % model_size != 0:
