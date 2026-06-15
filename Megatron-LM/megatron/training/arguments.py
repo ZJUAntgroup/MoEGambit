@@ -117,12 +117,6 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
 
-    # Elastic launcher: training_world_size excludes spare ranks.
-    # Used for data_parallel_size calculation only; init_process_group
-    # still uses the full args.world_size (all ranks must participate).
-    _elastic_training_ws = int(os.getenv("ELASTIC_TRAINING_WORLD_SIZE", "0"))
-    args.training_world_size = _elastic_training_ws if _elastic_training_ws > 0 else args.world_size
-
     # Args to disable MSC
     if not args.enable_msc:
         MultiStorageClientFeature.disable()
@@ -376,10 +370,9 @@ def validate_args(args, defaults={}):
 
     total_model_size = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.context_parallel_size
 
-    # Total model size — use training_world_size (excludes spare ranks).
-    _ws_for_parallel = getattr(args, 'training_world_size', args.world_size)
-    assert _ws_for_parallel % total_model_size == 0, (
-        f"training_world_size ({_ws_for_parallel}) is not divisible by total_model_size ({total_model_size=})"
+    # Total model size validation
+    assert args.world_size % total_model_size == 0, (
+        f"world_size ({args.world_size}) is not divisible by total_model_size ({total_model_size=})"
     )
 
     if args.attention_backend == AttnBackend.local:

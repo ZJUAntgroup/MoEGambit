@@ -89,6 +89,14 @@ from megatron.core.transformer.moe.bsr_integration import (
 from megatron.training.checkpointing import load_checkpoint
 from megatron.training.checkpointing import save_checkpoint
 from megatron.training.checkpointing import checkpoint_exists
+from megatron.training.elastic_client import (
+    elastic_client_start,
+    elastic_client_update_step,
+    elastic_check_pause,
+    elastic_do_rebuild,
+    elastic_replacement_sync_params,
+    is_rebuild_mode,
+)
 from megatron.core.full_cuda_graph import FullCudaGraphWrapper
 from megatron.core.transformer.cuda_graphs import TECudaGraphHelper
 from megatron.core.transformer.module import Float16Module
@@ -628,94 +636,6 @@ def preprocess_common_state_dict(common_state_dict):
     return preprocessed_common_state_dict
 
 
-def _elastic_spare_rank_relay_and_standby(args, timers):
-    """Barrier relay + standby loop for elastic hot-spare ranks.
-
-    Spare ranks are not members of any TP/PP/DP/EP sub-group, so they cannot
-    run setup_model_and_optimizer or the training loop.  However, they MUST
-    participate in all torch.distributed collectives on the default process
-    group (barriers, all_reduce, all_gather, broadcast) that training ranks
-    execute during model/data setup.  This function replays those collectives
-    in the exact sequence, then enters a standby polling loop.
-
-    The collective sequence matches what training ranks do in pretrain() after
-    the all_reduce(start_time_tensor):
-      1. timers('model-and-optimizer-setup').start(barrier=True)
-      2. timers('load-checkpoint').start(barrier=True)  [if args.load]
-      3. timers('load-checkpoint').stop(barrier=True)   [if args.load]
-      4. timers('train/valid/test-data-iterators-setup').start(barrier=True)
-      5. broadcast(flags, src=0) in build_train_valid_test_data_loaders
-      6. timers.log([...], barrier=True) → barrier + all_gather
-    """
-    import json
-    import logging
-    from pathlib import Path
-
-    logger = logging.getLogger(__name__)
-    rank = torch.distributed.get_rank()
-    world_size = torch.distributed.get_world_size()
-
-    logger.info("Spare rank %d: entering barrier relay phase", rank)
-
-    # 1. timers('model-and-optimizer-setup').start(barrier=True)
-    torch.distributed.barrier()
-
-    # 2-3. timers('load-checkpoint').start/stop(barrier=True) — only if loading
-    if args.load is not None or getattr(args, 'pretrained_checkpoint', None) is not None:
-        torch.distributed.barrier()  # load-checkpoint start
-        torch.distributed.barrier()  # load-checkpoint stop
-
-    # 4. timers('train/valid/test-data-iterators-setup').start(barrier=True)
-    torch.distributed.barrier()
-
-    # 5. broadcast(flags, src=0) in build_train_valid_test_data_loaders
-    flags = torch.tensor([0, 0, 0], dtype=torch.long, device='cuda')
-    torch.distributed.broadcast(flags, 0)
-
-    # 6. timers.log([...], barrier=True) → barrier + all_gather
-    torch.distributed.barrier()
-    # The all_gather: tensor of shape [world_size, num_timers]
-    num_timers = 2  # 'model-and-optimizer-setup', 'train/valid/test-data-iterators-setup'
-    rank_name_to_time = torch.zeros(
-        (world_size, num_timers), dtype=torch.float, device=torch.cuda.current_device()
-    )
-    torch.distributed.all_gather_into_tensor(
-        rank_name_to_time.view(-1),
-        rank_name_to_time[rank, :].contiguous().view(-1),
-    )
-
-    logger.info("Spare rank %d: barrier relay complete, entering standby", rank)
-
-    # Enter standby loop
-    fault_dir = Path(os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults"))
-
-    while True:
-        time.sleep(1.0)
-
-        # Check if training completed
-        done_file = fault_dir / "training_complete"
-        if done_file.exists():
-            logger.info("Spare rank %d: training complete, exiting", rank)
-            return
-
-        # Check if we've been activated
-        latest_file = fault_dir / "latest"
-        if not latest_file.exists():
-            continue
-
-        try:
-            info = json.loads(latest_file.read_text())
-            if info.get("spare_rank") == rank:
-                logger.info(
-                    "Spare rank %d ACTIVATED — replacing failed rank %d",
-                    rank, info.get("failed_rank", -1),
-                )
-                # TODO: proceed to group rebuild + hybrid recovery
-                return
-        except (json.JSONDecodeError, KeyError, OSError):
-            continue
-
-
 def pretrain(
     train_valid_test_dataset_provider,
     model_provider,
@@ -804,17 +724,18 @@ def pretrain(
     _TRAIN_START_TIME = start_time_tensor.item()
 
     # =========================================================================
-    # Elastic hot-spare: spare ranks have completed all initialization
-    # (init_process_group, initialize_model_parallel, _compile_dependencies,
-    # _init_autoresume, set_jit_fusion_options, all_reduce above).
-    # They cannot proceed to setup_model_and_optimizer because they are not
-    # members of any TP/PP/DP/EP sub-group.  Instead they participate in the
-    # remaining default-group barriers that training ranks will hit during
-    # model/data setup, then enter standby.
-    # =========================================================================
-    if os.environ.get("ELASTIC_IS_SPARE") == "1":
-        _elastic_spare_rank_relay_and_standby(args, timers)
-        return  # spare rank exits pretrain after standby
+    # Start elastic client (heartbeat to watcher on spare node)
+    elastic_client_start()
+
+    # Elastic rebuild mode: replacement node skips checkpoint loading.
+    # It will receive params from DP peer after model setup.
+    _elastic_rebuild = is_rebuild_mode()
+    _elastic_saved_load = None
+    if _elastic_rebuild:
+        _elastic_saved_load = args.load
+        args.load = None  # Prevent setup_model_and_optimizer from loading checkpoint
+        logger.warning("[elastic] REBUILD MODE: skipping checkpoint load, "
+                       "will receive params from DP peer")
 
     app_metrics = {}
     app_metrics['app_start_time'] = round(_TRAIN_START_TIME * 1000.0)
@@ -872,6 +793,12 @@ def pretrain(
     timers('model-and-optimizer-setup').stop()
     print_datetime('after model, optimizer, and learning rate ' 'scheduler are built')
     config = get_model_config(model[0])
+
+    # Elastic rebuild mode: replacement node receives params from DP peer
+    if _elastic_rebuild:
+        args.load = _elastic_saved_load  # Restore for future checkpoint saves
+        elastic_replacement_sync_params(model, optimizer)
+        logger.warning("[elastic] REBUILD MODE: param sync complete, joining training loop")
 
     # Data stuff.
     app_metrics['app_build_dataiters_start_time'] = one_logger_utils.get_timestamp_in_ms()
@@ -2503,6 +2430,17 @@ def train(
 
         # Crash injection for checkpoint-restart baseline (BSR-independent).
         _maybe_crash_inject(iteration)
+
+        # Elastic hot-spare: check if watcher requested a pause for group rebuild.
+        # This is the safe point — all ranks are synchronized here.
+        elastic_client_update_step(iteration)
+        if elastic_check_pause():
+            logger.warning(
+                "[elastic] Iteration %d: pause requested, entering rebuild...",
+                iteration,
+            )
+            elastic_do_rebuild(model, optimizer, opt_param_scheduler)
+            logger.warning("[elastic] Rebuild complete, resuming at iteration %d", iteration)
 
         # BSR-MoE: safe-point hook (before forward pass).
         bsr_before_iteration(iteration)

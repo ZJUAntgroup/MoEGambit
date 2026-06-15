@@ -387,61 +387,6 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
                 )
 
 
-def _spare_rank_standby():
-    """Standby loop for elastic launcher spare ranks.
-
-    Spare ranks have completed init_process_group and initialize_model_parallel
-    (participating in all collective new_group() calls), but are not assigned
-    to any training sub-group.  They block here until activated by the launcher
-    to replace a failed rank, or until training completes.
-    """
-    import sys
-    import json
-    import time
-    from pathlib import Path
-
-    rank = int(os.environ.get("RANK", "-1"))
-    fault_dir = Path(os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults"))
-
-    logger.info("Spare rank %d entering standby loop after initialize_model_parallel", rank)
-
-    while True:
-        time.sleep(1.0)
-
-        # Check if training completed
-        done_file = fault_dir / "training_complete"
-        if done_file.exists():
-            logger.info("Spare rank %d: training complete, exiting", rank)
-            sys.exit(0)
-
-        # Check if we've been activated
-        latest_file = fault_dir / "latest"
-        if not latest_file.exists():
-            continue
-
-        try:
-            info = json.loads(latest_file.read_text())
-            if info.get("spare_rank") == rank:
-                logger.info(
-                    "Spare rank %d ACTIVATED — replacing failed rank %d",
-                    rank, info["failed_rank"],
-                )
-                # TODO: proceed to group rebuild + hybrid recovery
-                # For now, the spare rank will participate in the group rebuild
-                # when training ranks signal it at the next safe point.
-                # The spare rank needs to:
-                # 1. Participate in new_group() calls for rebuilt sub-groups
-                # 2. Receive dense params from DP peer (Path P)
-                # 3. Load expert params from checkpoint (Path C)
-                # 4. Join the training loop
-                #
-                # This is orchestrated by the RecoveryController on training ranks
-                # which will call into group_rebuild + dense_param_sync.
-                return
-        except (json.JSONDecodeError, KeyError, OSError):
-            continue
-
-
 def _init_autoresume():
     """Set autoresume start time."""
     autoresume = get_adlr_autoresume()

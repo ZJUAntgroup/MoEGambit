@@ -2,33 +2,30 @@
 # =============================================================================
 # run_moe64_hotspare.sh
 #
-# Hot-spare node replacement for MoEGambit training.
+# Hot-spare node replacement for MoEGambit training (FlashRecovery style).
 #
 # Architecture:
-#   - 9 nodes total: 8 training nodes (64 GPUs) + 1 spare node (8 GPUs)
-#   - All 9 nodes run torchrun with NNODES=9, world_size=72
-#   - Spare ranks (64-71) participate in init_process_group and
-#     initialize_model_parallel (required for collective new_group() calls)
-#     then enter standby loop
-#   - ELASTIC_TRAINING_WORLD_SIZE=64 tells Megatron to compute
-#     data_parallel_size using 64 (not 72)
-#   - On rank failure: spare rank is activated, NCCL groups are rebuilt
-#     at safe point, new rank walks hybrid recovery (dense from peer +
-#     expert from checkpoint)
-#   - Training continues WITHOUT restarting all ranks
+#   - 8 training nodes (64 GPUs): custom launcher with world_size=64
+#   - 1 spare node (8 GPUs): runs elastic_watcher.py (NOT in torch.distributed)
+#   - On fault: surviving ranks pause at safe point → destroy_process_group →
+#     spare node replaces faulty node → all re-init_process_group(world_size=64)
+#     → new rank recovers params from DP peer → training continues (RPO=0)
 #
-# Key advantage over pure torchrun restart:
-#   torchrun --max-restarts kills ALL ranks → must restart from checkpoint
-#   This approach keeps surviving ranks alive → hybrid recovery possible
+# Why NOT torchrun:
+#   torchrun's elastic agent kills ALL workers on a node when ANY worker exits.
+#   This prevents the "hot rebuild" approach where surviving processes stay alive
+#   and rebuild communication groups. Our custom elastic_launcher.py does NOT
+#   auto-kill workers on peer failure.
 #
 # Deployment:
-#   Run this script on EACH of the 9 nodes with appropriate NODE_RANK:
-#     Node 0-7 (training): NODE_RANK=0..7 bash run_moe64_hotspare.sh
-#     Node 8 (spare):      NODE_RANK=8   bash run_moe64_hotspare.sh
+#   Training nodes: NODE_RANK=0..7 bash run_moe64_hotspare.sh
+#   Spare node:     NODE_RANK=8   bash run_moe64_hotspare.sh
 #
-# For single-node testing (SINGLE_NODE_MODE=1):
-#   All 72 ranks run on one machine (requires 8 GPUs, multiple ranks per GPU)
-#   nohup bash run_moe64_hotspare.sh > spare.log 2>&1 &
+# The spare node does NOT run training. It runs elastic_watcher.py which:
+#   - Monitors training ranks via heartbeat (TCP)
+#   - On fault detection: signals surviving ranks to pause
+#   - Launches elastic_launcher.py on itself with the faulty node's NODE_RANK
+#   - Coordinates the group rebuild
 # =============================================================================
 
 set -uo pipefail
@@ -40,44 +37,49 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Configuration
 # =============================================================================
 
-# Mode
-SINGLE_NODE_MODE="${SINGLE_NODE_MODE:-0}"
-
 # Parallelism
 export TP_SIZE="${TP_SIZE:-1}"
 export PP_SIZE="${PP_SIZE:-8}"
 export EP_SIZE="${EP_SIZE:-8}"
 export MODE=moegambit
 
-# Topology: 9 nodes (8 training + 1 spare)
-export NNODES="${NNODES:-9}"
+# Topology
 NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
-NUM_SPARES="${NUM_SPARES:-8}"  # one spare node = 8 GPUs
 export NODE_RANK="${NODE_RANK:-0}"
 export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 export MASTER_PORT="${MASTER_PORT:-20115}"
 
-# Elastic launcher env vars (consumed by Megatron internally)
-TRAINING_WORLD_SIZE=$(( (NNODES - 1) * NPROC_PER_NODE ))  # 8*8=64 (exclude spare node)
-export ELASTIC_TRAINING_WORLD_SIZE="${TRAINING_WORLD_SIZE}"
-export ELASTIC_LAUNCHER=1
-export ELASTIC_IS_SPARE="$( [ "${NODE_RANK}" -ge $((NNODES - 1)) ] && echo 1 || echo 0 )"
-export ELASTIC_NUM_SPARES="${NUM_SPARES}"
-export ELASTIC_SPARE_RANK_START="${TRAINING_WORLD_SIZE}"
-export ELASTIC_FAULT_DIR="${ELASTIC_FAULT_DIR:-/tmp/elastic_faults}"
+# Watcher coordination port (spare node listens, training ranks connect)
+export ELASTIC_WATCHER_PORT="${ELASTIC_WATCHER_PORT:-20200}"
 
-# Clean stale fault files from previous runs to prevent spurious spare activation
+# Determine role: NODE_RANK 0-7 = training, NODE_RANK 8 = spare
+TRAINING_NNODES=8
+if [ "${NODE_RANK}" -ge "${TRAINING_NNODES}" ]; then
+  IS_SPARE=1
+else
+  IS_SPARE=0
+fi
+
+# For training nodes: standard 8-node setup
+export NNODES="${TRAINING_NNODES}"
+
+# Elastic recovery env vars (consumed by elastic_client.py in training code)
+# ELASTIC_WATCHER_ADDR: the spare node's IP where watcher listens
+# In typical deployment, spare node IP is passed via this env var.
+# If spare is on a different machine, set ELASTIC_WATCHER_ADDR to its IP.
+export ELASTIC_WATCHER_ADDR="${ELASTIC_WATCHER_ADDR:-${MASTER_ADDR}}"
+export ELASTIC_FAULT_DIR="${ELASTIC_FAULT_DIR:-/tmp/elastic_faults}"
 rm -rf "${ELASTIC_FAULT_DIR}"
 mkdir -p "${ELASTIC_FAULT_DIR}"
 
 # Recovery policy
 export BSR_HOT_SPARE_POOL=1
-export BSR_NUM_HOT_SPARES="${NUM_SPARES}"
+export BSR_NUM_HOT_SPARES="${NPROC_PER_NODE}"
 export BSR_GAP_AWARE_RECOVERY=1
 export BSR_RECOVERY_POLICY_TYPE="${BSR_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
 export BSR_GAP_THRESHOLD="${BSR_GAP_THRESHOLD:-100}"
 
-# Fault injection (restart_in_place for testing hybrid recovery path)
+# Fault injection
 export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
 export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
 export BSR_FAULT_INJECT_STEP="${BSR_FAULT_INJECT_STEP:-70}"
@@ -112,26 +114,41 @@ mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 # Compute derived values
 # =============================================================================
 
-TOTAL_WORLD_SIZE=$((NNODES * NPROC_PER_NODE))  # 72
+TRAINING_WORLD_SIZE=$((TRAINING_NNODES * NPROC_PER_NODE))  # 64
 DP_SIZE=$((TRAINING_WORLD_SIZE / (TP_SIZE * PP_SIZE)))
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-$((8 * DP_SIZE))}"
 export GLOBAL_BATCH_SIZE
 
 echo "[hotspare] =============================================="
-echo "[hotspare] MoEGambit Hot-Spare Node Launcher"
+echo "[hotspare] MoEGambit Hot-Spare (FlashRecovery style)"
 echo "[hotspare] =============================================="
-echo "[hotspare] NODE_RANK:       ${NODE_RANK} $([ "${ELASTIC_IS_SPARE}" = "1" ] && echo "(SPARE)" || echo "(TRAINING)")"
-echo "[hotspare] Training ranks:  ${TRAINING_WORLD_SIZE} (${NNODES}-1 nodes x ${NPROC_PER_NODE} GPUs)"
-echo "[hotspare] Spare ranks:     ${NUM_SPARES} (node ${NNODES}-1)"
-echo "[hotspare] Total world:     ${TOTAL_WORLD_SIZE}"
+echo "[hotspare] NODE_RANK:       ${NODE_RANK} $([ "${IS_SPARE}" = "1" ] && echo "(SPARE WATCHER)" || echo "(TRAINING)")"
+echo "[hotspare] Training nodes:  ${TRAINING_NNODES} (${TRAINING_WORLD_SIZE} GPUs)"
+echo "[hotspare] Spare node:      1 (${NPROC_PER_NODE} GPUs, standby)"
 echo "[hotspare] Parallelism:     TP=${TP_SIZE}, PP=${PP_SIZE}, EP=${EP_SIZE}, DP=${DP_SIZE}"
 echo "[hotspare] Global batch:    ${GLOBAL_BATCH_SIZE}"
+echo "[hotspare] Launcher:        elastic_launcher.py (no auto-kill on peer failure)"
 echo "[hotspare] CKPT_DIR:        ${CKPT_DIR}"
-echo "[hotspare] Fault dir:       ${ELASTIC_FAULT_DIR}"
 echo "[hotspare] =============================================="
 
 # =============================================================================
-# Build training arguments
+# SPARE NODE: run watcher (does NOT join torch.distributed)
+# =============================================================================
+
+if [ "${IS_SPARE}" = "1" ]; then
+  echo "[hotspare] Starting elastic watcher on spare node..."
+  python3 "${SCRIPT_DIR}/elastic_watcher.py" \
+    --port "${ELASTIC_WATCHER_PORT}" \
+    --training-nnodes "${TRAINING_NNODES}" \
+    --nproc-per-node "${NPROC_PER_NODE}" \
+    --master-addr "${MASTER_ADDR}" \
+    --master-port "${MASTER_PORT}" \
+    --fault-dir "${ELASTIC_FAULT_DIR}"
+  exit $?
+fi
+
+# =============================================================================
+# TRAINING NODE: custom launcher (no torchrun — workers survive peer failures)
 # =============================================================================
 
 LOAD_ARGS=()
@@ -161,7 +178,7 @@ BSR_ARGS=(
   --moe-bsr-degraded-t-max 1000
   --moe-bsr-degraded-s-max 500
   --moe-bsr-hot-spare-pool
-  --moe-bsr-num-hot-spares "${NUM_SPARES}"
+  --moe-bsr-num-hot-spares "${NPROC_PER_NODE}"
 )
 
 if [ "${BSR_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
@@ -172,17 +189,14 @@ if [ "${BSR_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
   )
 fi
 
-# =============================================================================
-# Launch via torchrun (each node runs this independently)
-# =============================================================================
-
-torchrun \
-  --nproc_per_node="${NPROC_PER_NODE}" \
-  --nnodes="${NNODES}" \
-  --node_rank="${NODE_RANK}" \
-  --master_addr="${MASTER_ADDR}" \
-  --master_port="${MASTER_PORT}" \
-  ./Megatron-LM/pretrain_gpt.py \
+python3 "${SCRIPT_DIR}/elastic_launcher.py" \
+  --nproc-per-node "${NPROC_PER_NODE}" \
+  --nnodes "${NNODES}" \
+  --node-rank "${NODE_RANK}" \
+  --master-addr "${MASTER_ADDR}" \
+  --master-port "${MASTER_PORT}" \
+  -- \
+  python3 ./Megatron-LM/pretrain_gpt.py \
   --use-mcore-models \
   --transformer-impl transformer_engine \
   --tensor-model-parallel-size "${TP_SIZE}" \

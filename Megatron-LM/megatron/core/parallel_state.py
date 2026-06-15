@@ -692,14 +692,6 @@ def initialize_model_parallel(
     assert torch.distributed.is_initialized()
     world_size: int = torch.distributed.get_world_size()
 
-    # Elastic launcher support: when spare ranks are present in the world,
-    # use training_world_size for parallelism calculations.  Spare ranks
-    # still participate in new_group() calls (collective) but are not
-    # assigned to any sub-group.
-    _elastic_training_ws = int(os.environ.get("ELASTIC_TRAINING_WORLD_SIZE", "0"))
-    if _elastic_training_ws > 0 and _elastic_training_ws < world_size:
-        world_size = _elastic_training_ws
-
     model_size = tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size
 
     if world_size % model_size != 0:
@@ -1291,25 +1283,6 @@ def initialize_model_parallel(
     # put this. If we end up with a more generic initialization of megatron-core
     # we could stick it there
     _set_global_memory_buffer()
-
-    # Elastic hot-spare: spare ranks are not members of any sub-group (they
-    # participated in all new_group() calls as required by the collective
-    # semantics, but rank >= training_world_size is never in any ranks list).
-    # Set MPU override variables so that code paths querying TP/PP rank/size
-    # (e.g. _set_random_seed, _warmup_jit_function) don't crash.
-    if _elastic_training_ws > 0 and rank >= _elastic_training_ws:
-        global _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE
-        global _MPU_TENSOR_MODEL_PARALLEL_RANK
-        global _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE
-        global _MPU_PIPELINE_MODEL_PARALLEL_RANK
-        global _MPU_EXPERT_MODEL_PARALLEL_RANK
-        global _MPU_DATA_PARALLEL_RANK
-        _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE = tensor_model_parallel_size
-        _MPU_TENSOR_MODEL_PARALLEL_RANK = 0
-        _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE = pipeline_model_parallel_size
-        _MPU_PIPELINE_MODEL_PARALLEL_RANK = 0
-        _MPU_EXPERT_MODEL_PARALLEL_RANK = 0
-        _MPU_DATA_PARALLEL_RANK = 0
 
 
 def is_initialized():
