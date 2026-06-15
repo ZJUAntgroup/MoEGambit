@@ -391,6 +391,24 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     logger.warning(f"[elastic] Rank {rank}: entering rebuild sequence")
 
+    # CRITICAL: Destroy process groups FIRST, before waiting for rebuild signal.
+    # The NCCL watchdog runs in a C++ background thread and will SIGABRT
+    # the process if it detects a timeout on any process group — even while
+    # Python is blocked waiting for the rebuild signal.  Destroying the
+    # groups stops the watchdog immediately.
+    logger.info(f"[elastic] Rank {rank}: destroying process groups (stop watchdog)")
+    try:
+        mpu.destroy_model_parallel()
+    except Exception as e:
+        logger.warning(f"[elastic] destroy_model_parallel failed (expected): {e}")
+    try:
+        dist.destroy_process_group()
+    except Exception as e:
+        logger.warning(f"[elastic] destroy_process_group failed (expected): {e}")
+
+    # Brief sleep to let NCCL resources release
+    time.sleep(2.0)
+
     # Step 1: Wait for rebuild signal from watcher
     # This blocks until watcher confirms spare node is launching
     rebuild_info = elastic_wait_for_rebuild_signal()
@@ -401,21 +419,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     logger.warning(f"[elastic] Rank {rank}: rebuild signal received. "
                    f"Failed node={failed_node}, new master={new_master_addr}:{new_master_port}")
 
-    # Step 2: Destroy all process groups
-    logger.info(f"[elastic] Rank {rank}: destroying process groups")
-    try:
-        mpu.destroy_model_parallel()
-    except Exception as e:
-        logger.warning(f"[elastic] destroy_model_parallel failed (expected if groups corrupted): {e}")
-    try:
-        dist.destroy_process_group()
-    except Exception as e:
-        logger.warning(f"[elastic] destroy_process_group failed (expected if groups corrupted): {e}")
-
-    # Brief sleep to ensure port is released
-    time.sleep(2.0)
-
-    # Step 3: Re-initialize process group with new rendezvous
+    # Step 2: Re-initialize process group with new rendezvous
     # Use a NEW port so there's no conflict with the old TCPStore
     logger.info(f"[elastic] Rank {rank}: re-initializing process group "
                 f"(master={new_master_addr}:{new_master_port})")
