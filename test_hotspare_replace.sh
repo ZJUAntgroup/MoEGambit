@@ -73,16 +73,17 @@ export BSR_RECOVERY_POLICY_TYPE="${BSR_RECOVERY_POLICY_TYPE:-rank_exposure_guard
 export BSR_GAP_THRESHOLD="${BSR_GAP_THRESHOLD:-100}"
 
 # ============================================================================
-# 测试配置：杀死 rank 进程，触发备用节点替换
+# 测试配置：硬故障注入，触发备用节点替换
 # ============================================================================
-# kill_rank: 在指定 step 杀死指定 rank 的进程（模拟真实节点故障）
-export BSR_FAULT_INJECT_TYPE="kill_rank"
+# hard_failure: 清零故障 rank 的参数，触发 recovery controller 的硬故障恢复路径
+# 这不会杀死进程，但会模拟参数丢失并触发从 checkpoint 恢复
+export BSR_FAULT_INJECT_TYPE="hard_failure"
 # 在 step 19 注入故障（确保 step 10 已保存 checkpoint）
 export BSR_FAULT_INJECT_STEP=19
 # 不设置周期性注入
 export BSR_FAULT_INJECT_INTERVAL=0
 export BSR_FAULT_INJECT_SEED=42
-# -1 表示随机选择一个 rank 杀死
+# -1 表示随机选择一个 rank
 export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
 export BSR_FAULT_REPLACEMENT_STEP=19
 export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
