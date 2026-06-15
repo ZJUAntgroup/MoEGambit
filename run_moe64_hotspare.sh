@@ -91,7 +91,7 @@ export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
 export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
 
 # Checkpoint & logging
-export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/ckpt}"
+export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/615ckpt}"
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/hotspare}"
 
 # Environment
