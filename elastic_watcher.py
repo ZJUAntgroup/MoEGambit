@@ -6,15 +6,18 @@ Runs on the spare node (NODE_RANK=8). Does NOT join torch.distributed.
 Responsibilities:
   1. Accept heartbeat connections from training rank 0 (one per node)
   2. Detect node failure via heartbeat timeout
-  3. Signal surviving training ranks to pause at next safe point
-  4. Launch torchrun on this spare node with the failed node's NODE_RANK
-  5. Coordinate group rebuild (all nodes re-init_process_group)
+  3. Optionally inject faults: at a given step, tell a node to kill itself
+  4. Signal surviving training ranks to pause at next safe point
+  5. Launch elastic_launcher on this spare node with the failed node's NODE_RANK
+  6. Coordinate group rebuild (all surviving nodes re-init_process_group)
 
 Protocol (TCP, JSON lines):
   - Training → Watcher: {"type": "heartbeat", "node_rank": N, "step": S}
   - Training → Watcher: {"type": "ready_to_rebuild"}  (after pause)
+  - Training → Watcher: {"type": "nccl_error", "node_rank": N, "error": "..."}
   - Watcher → Training: {"type": "pause", "failed_node": N}
   - Watcher → Training: {"type": "rebuild", "new_master_addr": ..., "new_master_port": ...}
+  - Watcher → Training: {"type": "kill_node", "target_node": N}
 """
 
 import argparse
@@ -50,6 +53,11 @@ class ElasticWatcher:
         self.fault_dir = Path(args.fault_dir)
         self.heartbeat_timeout = args.heartbeat_timeout
 
+        # Fault injection config
+        self.fault_inject_step = args.fault_inject_step
+        self.fault_inject_node = args.fault_inject_node
+        self.fault_injected = False
+
         # State
         self.running = True
         self.node_connections = {}  # node_rank -> socket
@@ -68,6 +76,8 @@ class ElasticWatcher:
         log.info(f"Starting watcher on port {self.port}")
         log.info(f"Monitoring {self.training_nnodes} training nodes")
         log.info(f"Heartbeat timeout: {self.heartbeat_timeout}s")
+        if self.fault_inject_step >= 0:
+            log.info(f"Fault injection: kill node {self.fault_inject_node} at step {self.fault_inject_step}")
 
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -140,21 +150,68 @@ class ElasticWatcher:
             with self.lock:
                 self.node_connections[node_rank] = conn
                 self.last_heartbeat[node_rank] = time.time()
-                self.node_steps[node_rank] = msg.get("step", -1)
+                step = msg.get("step", -1)
+                self.node_steps[node_rank] = step
+
+            # Check for step-based fault injection
+            self._maybe_inject_fault(node_rank, msg.get("step", -1))
             return node_rank
 
         elif msg_type == "ready_to_rebuild":
             with self.lock:
                 self.rebuild_ready_count += 1
+                surviving = self.training_nnodes - 1
                 log.info(f"Node {node_rank} ready to rebuild "
-                         f"({self.rebuild_ready_count}/{self.training_nnodes - 1} surviving)")
-                if self.rebuild_ready_count >= self.training_nnodes - 1:
+                         f"({self.rebuild_ready_count}/{surviving} surviving)")
+                if self.rebuild_ready_count >= surviving:
                     self._trigger_rebuild()
+            return node_rank
+
+        elif msg_type == "nccl_error":
+            log.warning(f"Node {node_rank} reported NCCL error: {msg.get('error', '?')}")
+            # If we haven't started recovery yet, this is a secondary signal
+            # (the heartbeat timeout may have already detected the fault)
+            if not self.recovery_in_progress:
+                log.info("NCCL error report received but no recovery in progress yet — "
+                         "waiting for heartbeat timeout to confirm")
             return node_rank
 
         else:
             log.warning(f"Unknown message type: {msg_type}")
             return node_rank
+
+    def _maybe_inject_fault(self, reporting_node_rank, step):
+        """Check if we should inject a fault based on the reported step."""
+        if self.fault_injected or self.fault_inject_step < 0:
+            return
+        if step < self.fault_inject_step:
+            return
+
+        # Determine which node to kill
+        target = self.fault_inject_node
+        if target < 0:
+            # Default: kill node 0
+            target = 0
+
+        self.fault_injected = True
+        log.warning(f"FAULT INJECTION: step {step} >= {self.fault_inject_step}, "
+                     f"sending kill_node to node {target}")
+
+        # Send kill_node command to the target node
+        with self.lock:
+            target_conn = self.node_connections.get(target)
+            if target_conn is not None:
+                kill_msg = json.dumps({
+                    "type": "kill_node",
+                    "target_node": target,
+                }) + "\n"
+                try:
+                    target_conn.sendall(kill_msg.encode())
+                    log.info(f"kill_node command sent to node {target}")
+                except (BrokenPipeError, OSError) as e:
+                    log.warning(f"Failed to send kill_node to node {target}: {e}")
+            else:
+                log.error(f"Cannot inject fault: node {target} not connected")
 
     def _heartbeat_checker(self):
         """Periodically check for heartbeat timeouts."""
@@ -208,7 +265,7 @@ class ElasticWatcher:
         """All surviving nodes are paused. Launch spare and signal rebuild."""
         log.info("All surviving nodes ready. Launching spare worker...")
 
-        # The spare node will launch torchrun with the failed node's NODE_RANK
+        # The spare node will launch elastic_launcher with the failed node's NODE_RANK
         # This replaces the failed node in the world
         spare_proc = self._launch_spare_worker(self.failed_node)
 
@@ -216,12 +273,12 @@ class ElasticWatcher:
         time.sleep(3.0)
 
         # Signal all surviving nodes to rebuild
-        # Use the same MASTER_ADDR/PORT — the rendezvous will be re-done
+        # Use the same MASTER_ADDR but a different port for rendezvous
         rebuild_msg = json.dumps({
             "type": "rebuild",
             "failed_node": self.failed_node,
             "new_master_addr": self.master_addr,
-            "new_master_port": str(int(self.master_port) + 1),  # Use a different port for rebuild
+            "new_master_port": str(int(self.master_port) + 1),
         }) + "\n"
 
         with self.lock:
@@ -240,12 +297,7 @@ class ElasticWatcher:
         self.failed_node = None
 
     def _launch_spare_worker(self, target_node_rank):
-        """Launch elastic_launcher.py on this spare node, taking over the failed node's rank.
-
-        Uses our custom launcher (not torchrun) so that:
-        - Workers won't be auto-killed on peer failure
-        - We can do destroy_process_group + re-init_process_group for hot rebuild
-        """
+        """Launch elastic_launcher.py on this spare node, taking over the failed node's rank."""
         log.info(f"Launching elastic_launcher with NODE_RANK={target_node_rank} on spare node")
 
         env = os.environ.copy()
@@ -254,8 +306,7 @@ class ElasticWatcher:
         env["ELASTIC_REBUILD_MODE"] = "1"  # Signal: this is a replacement worker
         env["NNODES"] = str(self.training_nnodes)
 
-        # Re-run the same launch script with modified NODE_RANK and ELASTIC_REBUILD_MODE
-        # The script detects ELASTIC_REBUILD_MODE and the training code enters rebuild path
+        # Re-run the same launch script with modified NODE_RANK
         script_dir = os.path.dirname(os.path.abspath(__file__))
         cmd = [
             "bash", os.path.join(script_dir, "run_moe64_hotspare.sh"),
@@ -291,6 +342,11 @@ def main():
     parser.add_argument("--fault-dir", type=str, default="/tmp/elastic_faults")
     parser.add_argument("--heartbeat-timeout", type=float, default=30.0,
                         help="Seconds without heartbeat before declaring node dead")
+    # Fault injection args
+    parser.add_argument("--fault-inject-step", type=int, default=-1,
+                        help="Step at which to inject a fault (-1 = disabled)")
+    parser.add_argument("--fault-inject-node", type=int, default=0,
+                        help="Node rank to kill for fault injection (default: 0)")
     args = parser.parse_args()
 
     watcher = ElasticWatcher(args)

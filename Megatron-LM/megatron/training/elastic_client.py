@@ -4,34 +4,36 @@ elastic_client.py — Training-side client for hot-spare elastic recovery.
 Each training node's rank 0 (local_rank=0) runs a background heartbeat thread
 that connects to the elastic_watcher on the spare node. When the watcher
 detects a fault and sends a "pause" signal, all ranks on the node pause at
-the next safe point (bsr_before_iteration), then coordinate a group rebuild.
+the next safe point, then coordinate a group rebuild.
 
 Architecture:
-  - Surviving nodes: pause at safe point → destroy_process_group →
+  - Surviving nodes: detect fault (via NCCL exception or heartbeat pause) →
+    destroy_process_group → wait for watcher to launch spare →
     re-init_process_group (new port) → re-initialize_model_parallel →
     broadcast params to new rank → resume training
   - Replacement node: starts fresh via elastic_launcher → init_process_group
     (same new port) → initialize_model_parallel → receive params from DP peer
     → join training loop
 
-The key insight: both surviving and replacement nodes call init_process_group
-with the SAME new MASTER_PORT, so they rendezvous together. The replacement
-node goes through Megatron's normal initialization path but with
-ELASTIC_REBUILD_MODE=1, which tells pretrain() to skip checkpoint loading
-and instead receive params from DP peers after model setup.
+CRITICAL: elastic_check_pause() must NEVER use dist.all_reduce or any global
+collective.  If a node is dead, a global collective hangs forever.  We use
+file-based signaling between local ranks on the same node.
 
 Usage in training code:
     from megatron.training.elastic_client import (
         elastic_client_start,
         elastic_check_pause,
         elastic_do_rebuild,
+        elastic_on_nccl_error,
     )
 """
 
 import json
 import logging
 import os
+import signal as signal_module
 import socket
+import subprocess
 import threading
 import time
 from datetime import timedelta
@@ -152,12 +154,23 @@ class ElasticClient:
                 if msg_type == "pause":
                     with _LOCK:
                         _PAUSE_REQUESTED = True
+                    # Write pause signal file for other local ranks
+                    _write_pause_signal()
                     logger.warning(f"[elastic] PAUSE signal received! "
                                    f"Failed node: {msg.get('failed_node')}")
                 elif msg_type == "rebuild":
                     with _LOCK:
                         _REBUILD_INFO = msg
                     logger.info(f"[elastic] REBUILD signal received: {msg}")
+                elif msg_type == "kill_node":
+                    # Watcher is telling this node to die (fault injection)
+                    target_node = msg.get("target_node", -1)
+                    if target_node == self.node_rank:
+                        logger.error(
+                            "[elastic] KILL_NODE received! Killing all "
+                            "workers on node %d", self.node_rank)
+                        _kill_all_local_workers()
+                        return
 
             # Reconnect if disconnected
             if self.sock is None:
@@ -171,6 +184,38 @@ class ElasticClient:
             "type": "ready_to_rebuild",
             "node_rank": self.node_rank,
         })
+
+
+def _write_pause_signal():
+    """Write the pause signal file so all local ranks can see it."""
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    pause_file = os.path.join(fault_dir, "pause_signal")
+    try:
+        os.makedirs(fault_dir, exist_ok=True)
+        with open(pause_file, "w") as f:
+            f.write("1")
+        logger.info("[elastic] Wrote pause signal file: %s", pause_file)
+    except OSError as e:
+        logger.warning("[elastic] Failed to write pause file: %s", e)
+
+
+def _kill_all_local_workers():
+    """Kill all worker processes on this node (for fault injection).
+
+    We kill by sending SIGKILL to the current process group, which kills
+    all workers forked by elastic_launcher.
+    """
+    import sys
+    pid = os.getpid()
+    ppid = os.getppid()
+    logger.error("[elastic] Sending SIGKILL to process group (pid=%d, ppid=%d)", pid, ppid)
+    # Kill the parent (elastic_launcher) process group, which kills all workers
+    try:
+        os.killpg(os.getpgid(ppid), signal_module.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    # Also kill self
+    os.kill(pid, signal_module.SIGKILL)
 
 
 def elastic_client_start():
@@ -211,9 +256,14 @@ def elastic_check_pause() -> bool:
     This should be called at every iteration boundary (safe point).
     Returns True if training should pause for group rebuild.
 
-    All ranks must call this collectively — local_rank 0 has the actual
-    signal, and broadcasts it to other local ranks via all_reduce on
-    the default process group.
+    IMPORTANT: This must NOT use dist.all_reduce or any global collective,
+    because the whole point is that some node may have died.  A global
+    collective would hang waiting for the dead node.
+
+    Instead we use a **local file signal**:
+      - local_rank 0 has the TCP connection to the watcher and receives
+        the pause signal.  When it does, it writes a flag file.
+      - All local ranks check the flag file (no distributed communication).
     """
     global _PAUSE_REQUESTED
 
@@ -221,17 +271,44 @@ def elastic_check_pause() -> bool:
     if not os.environ.get("ELASTIC_WATCHER_ADDR"):
         return False
 
-    # Use a tensor to broadcast the pause signal across all ranks
-    # (local_rank 0 has the TCP connection, others need to know too)
-    pause_flag = torch.tensor([1 if _PAUSE_REQUESTED else 0],
-                              dtype=torch.int32, device="cuda")
-    dist.all_reduce(pause_flag, op=dist.ReduceOp.MAX)
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    pause_file = os.path.join(fault_dir, "pause_signal")
 
-    if pause_flag.item() > 0:
+    # All ranks: check for the flag file (non-blocking, no dist calls)
+    if os.path.exists(pause_file):
         with _LOCK:
             _PAUSE_REQUESTED = True
         return True
+
     return False
+
+
+def elastic_on_nccl_error(exception: Exception):
+    """Called when an NCCL communication error is caught in train_step.
+
+    This sets the pause flag so that at the next safe point (or immediately
+    if we can reach one), the training enters the rebuild path.
+
+    This function must be safe to call from any rank, and must NOT use any
+    distributed calls (the process group may be corrupted).
+    """
+    global _PAUSE_REQUESTED
+
+    logger.error("[elastic] NCCL error detected: %s", exception)
+    with _LOCK:
+        _PAUSE_REQUESTED = True
+
+    # Write pause signal file for all local ranks
+    _write_pause_signal()
+
+    # Notify watcher (best-effort — the watcher may already know via
+    # heartbeat timeout, but sending explicit notification is faster)
+    if _CLIENT is not None:
+        _CLIENT._send({
+            "type": "nccl_error",
+            "node_rank": _CLIENT.node_rank,
+            "error": str(exception)[:200],
+        })
 
 
 def elastic_wait_for_rebuild_signal() -> dict:
@@ -253,6 +330,9 @@ def elastic_wait_for_rebuild_signal() -> dict:
     # Wait for rebuild signal (only local_rank 0 gets it via TCP)
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
 
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    rebuild_file = os.path.join(fault_dir, "rebuild_signal.json")
+
     if local_rank == 0:
         while True:
             with _LOCK:
@@ -263,19 +343,10 @@ def elastic_wait_for_rebuild_signal() -> dict:
             time.sleep(0.5)
 
         # Write to shared file so other local ranks can read it
-        import tempfile
-        rebuild_file = os.path.join(
-            os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults"),
-            "rebuild_signal.json"
-        )
         with open(rebuild_file, "w") as f:
             json.dump(info, f)
     else:
         # Other local ranks wait for the file
-        rebuild_file = os.path.join(
-            os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults"),
-            "rebuild_signal.json"
-        )
         while True:
             if os.path.exists(rebuild_file):
                 try:
@@ -332,8 +403,14 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     # Step 2: Destroy all process groups
     logger.info(f"[elastic] Rank {rank}: destroying process groups")
-    mpu.destroy_model_parallel()
-    dist.destroy_process_group()
+    try:
+        mpu.destroy_model_parallel()
+    except Exception as e:
+        logger.warning(f"[elastic] destroy_model_parallel failed (expected if groups corrupted): {e}")
+    try:
+        dist.destroy_process_group()
+    except Exception as e:
+        logger.warning(f"[elastic] destroy_process_group failed (expected if groups corrupted): {e}")
 
     # Brief sleep to ensure port is released
     time.sleep(2.0)
@@ -386,16 +463,15 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     with _LOCK:
         _PAUSE_REQUESTED = False
 
-    # Clean up rebuild signal file
-    rebuild_file = os.path.join(
-        os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults"),
-        "rebuild_signal.json"
-    )
+    # Clean up signal files
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
     if int(os.environ.get("LOCAL_RANK", "0")) == 0:
-        try:
-            os.remove(rebuild_file)
-        except OSError:
-            pass
+        for fname in ("rebuild_signal.json", "pause_signal"):
+            fpath = os.path.join(fault_dir, fname)
+            try:
+                os.remove(fpath)
+            except OSError:
+                pass
 
     # Restart heartbeat client with new connection
     elastic_client_start()

@@ -77,9 +77,17 @@ def main():
     node_rank = args.node_rank
     world_size = nnodes * nproc
 
+    # Create a new process group so that kill_node can kill the launcher
+    # and all workers without affecting the calling shell (nohup, etc.).
+    try:
+        os.setpgrp()
+    except OSError:
+        pass
+
     print(f"[launcher] Starting {nproc} workers on node {node_rank}/{nnodes} "
           f"(world_size={world_size})", flush=True)
     print(f"[launcher] Master: {args.master_addr}:{args.master_port}", flush=True)
+    print(f"[launcher] PID={os.getpid()}, PGID={os.getpgrp()}", flush=True)
     print(f"[launcher] Command: {' '.join(cmd_args)}", flush=True)
 
     # Fork worker processes

@@ -94,6 +94,7 @@ from megatron.training.elastic_client import (
     elastic_client_update_step,
     elastic_check_pause,
     elastic_do_rebuild,
+    elastic_on_nccl_error,
     elastic_replacement_sync_params,
     is_rebuild_mode,
 )
@@ -2525,6 +2526,11 @@ def train(
                     "iteration %d: %s\n%s",
                     iteration, _bsr_exc, traceback.format_exc(),
                 )
+
+                # Notify elastic watcher about the NCCL error (non-blocking,
+                # best-effort).  This triggers the pause/rebuild flow.
+                elastic_on_nccl_error(_bsr_exc)
+
                 # Report the failure — this triggers quarantine + invalidation.
                 # We use rank -1 as a placeholder; in a real deployment the
                 # failed rank would be identified from the exception or via

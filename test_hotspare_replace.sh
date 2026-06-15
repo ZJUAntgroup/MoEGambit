@@ -4,24 +4,27 @@
 #
 # 测试备用节点替换功能的脚本。
 #
-# 与 run_moe64_hotspare.sh 的区别：
-#   - 不使用 restart_in_place（BSR_FAULT_INJECT_TYPE=kill_rank）
-#   - save interval = 10（更频繁保存 checkpoint）
-#   - 故障注入在 step 19（确保有 checkpoint 可用）
-#   - 目的：验证当一个 rank 被杀死后，备用节点能否接管
+# 工作原理：
+#   1. 训练正常启动在 NODE_RANK=0-7 (64 GPU)
+#   2. 备用节点 (NODE_RANK=8) 运行 elastic_watcher
+#   3. 到达指定步数时，watcher 通过 TCP 发送 kill_node 命令杀死目标节点
+#   4. 目标节点所有 worker 进程被杀死 (SIGKILL)
+#   5. 存活节点检测到 NCCL 超时 → 捕获异常 → 进入 elastic 恢复路径
+#   6. 存活节点通知 watcher "ready_to_rebuild"
+#   7. watcher 在备用节点上用故障节点的 NODE_RANK 启动新 worker
+#   8. 所有节点重新 init_process_group → sync params → 恢复训练
 #
 # 使用方式：
 #   训练节点 (NODE_RANK=0-7):
 #     export NODE_RANK=<0-7>
 #     export MASTER_ADDR=<rank0 IP>
-#     export MASTER_PORT=20117
 #     export ELASTIC_WATCHER_ADDR=<备用节点 IP>
 #     bash test_hotspare_replace.sh
 #
 #   备用节点 (NODE_RANK=8):
 #     export NODE_RANK=8
 #     export MASTER_ADDR=<rank0 IP>
-#     export MASTER_PORT=20117
+#     export ELASTIC_WATCHER_ADDR=<本机 IP>
 #     bash test_hotspare_replace.sh
 # =============================================================================
 
@@ -65,44 +68,53 @@ export ELASTIC_FAULT_DIR="${ELASTIC_FAULT_DIR:-/tmp/elastic_faults}"
 rm -rf "${ELASTIC_FAULT_DIR}"
 mkdir -p "${ELASTIC_FAULT_DIR}"
 
-# Recovery policy
+# ============================================================================
+# Fault injection: watcher 在 step N 时杀死目标节点
+# ============================================================================
+FAULT_INJECT_STEP="${FAULT_INJECT_STEP:-19}"
+FAULT_INJECT_NODE="${FAULT_INJECT_NODE:-0}"
+
+# ============================================================================
+# BSR recovery settings (for surviving nodes during recovery)
+# ============================================================================
 export BSR_HOT_SPARE_POOL=1
 export BSR_NUM_HOT_SPARES="${NPROC_PER_NODE}"
 export BSR_GAP_AWARE_RECOVERY=1
 export BSR_RECOVERY_POLICY_TYPE="${BSR_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
 export BSR_GAP_THRESHOLD="${BSR_GAP_THRESHOLD:-100}"
 
-# ============================================================================
-# 测试配置：硬故障注入，触发备用节点替换
-# ============================================================================
-# hard_failure: 清零故障 rank 的参数，触发 recovery controller 的硬故障恢复路径
-# 这不会杀死进程，但会模拟参数丢失并触发从 checkpoint 恢复
-export BSR_FAULT_INJECT_TYPE="hard_failure"
-# 在 step 19 注入故障（确保 step 10 已保存 checkpoint）
-export BSR_FAULT_INJECT_STEP=19
-# 不设置周期性注入
-export BSR_FAULT_INJECT_INTERVAL=0
-export BSR_FAULT_INJECT_SEED=42
-# -1 表示随机选择一个 rank
-export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
-export BSR_FAULT_REPLACEMENT_STEP=19
-export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
-export BSR_FAULT_ZERO_MEMORY=1
-export BSR_FAULT_MEMORY_FILL=zero
+# NO BSR fault injection — we do real kills via the watcher
+# (BSR's hard_failure doesn't actually kill processes)
+unset BSR_FAULT_INJECT_TYPE 2>/dev/null || true
+unset BSR_FAULT_INJECT_STEP 2>/dev/null || true
 
 # Checkpoint: 每 10 步保存一次（确保故障时有近期 checkpoint）
 export SAVE_INTERVAL=10
 export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/test_replace_ckpt}"
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
 
-# Environment
+# ============================================================================
+# NCCL configuration: short timeout for fast failure detection
+# ============================================================================
 export NCCL_DEBUG=WARN
+# Short NCCL timeout so surviving ranks detect failure in ~60s, not 600s
+# This controls the NCCL watchdog timeout in the process group.
+# With TORCH_NCCL_ASYNC_ERROR_HANDLING=1, the watchdog raises RuntimeError
+# after this timeout, which we catch in the training loop.
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+# Disable the HEARTBEAT MONITOR — this is the mechanism that causes SIGABRT
+# when the watchdog itself gets stuck (e.g., during error handling).
+# Without this, the process gets killed instead of raising an exception.
+export TORCH_NCCL_ENABLE_MONITORING=0
+# Also increase the heartbeat timeout to be safe
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=600
+
+# Other environment
 export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export TORCH_CUDA_ARCH_LIST="9.0"
 
@@ -124,30 +136,34 @@ echo "[test-replace] Hot-Spare REPLACEMENT TEST"
 echo "[test-replace] =============================================="
 echo "[test-replace] NODE_RANK:       ${NODE_RANK} $([ "${IS_SPARE}" = "1" ] && echo "(SPARE WATCHER)" || echo "(TRAINING)")"
 echo "[test-replace] Training nodes:  ${TRAINING_NNODES} (${TRAINING_WORLD_SIZE} GPUs)"
-echo "[test-replace] Fault inject:    kill_rank at step ${BSR_FAULT_INJECT_STEP}"
+echo "[test-replace] Fault inject:    kill node ${FAULT_INJECT_NODE} at step ${FAULT_INJECT_STEP}"
 echo "[test-replace] Save interval:   ${SAVE_INTERVAL}"
 echo "[test-replace] Train iters:     ${TRAIN_ITERS}"
+echo "[test-replace] NCCL timeout:    ${NCCL_TIMEOUT}ms"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
 
 # =============================================================================
-# SPARE NODE: run watcher
+# SPARE NODE: run watcher (with fault injection)
 # =============================================================================
 
 if [ "${IS_SPARE}" = "1" ]; then
   echo "[test-replace] Starting elastic watcher on spare node..."
+  echo "[test-replace] Fault injection: kill node ${FAULT_INJECT_NODE} at step ${FAULT_INJECT_STEP}"
   python3 "${SCRIPT_DIR}/elastic_watcher.py" \
     --port "${ELASTIC_WATCHER_PORT}" \
     --training-nnodes "${TRAINING_NNODES}" \
     --nproc-per-node "${NPROC_PER_NODE}" \
     --master-addr "${MASTER_ADDR}" \
     --master-port "${MASTER_PORT}" \
-    --fault-dir "${ELASTIC_FAULT_DIR}"
+    --fault-dir "${ELASTIC_FAULT_DIR}" \
+    --fault-inject-step "${FAULT_INJECT_STEP}" \
+    --fault-inject-node "${FAULT_INJECT_NODE}"
   exit $?
 fi
 
 # =============================================================================
-# TRAINING NODE: custom launcher
+# TRAINING NODE: custom launcher (no torchrun)
 # =============================================================================
 
 LOAD_ARGS=()
@@ -171,7 +187,7 @@ BSR_ARGS=(
   --moe-bsr-deferred-optimizer-load
   --moe-bsr-degraded-mode-policy
   --moe-bsr-reintegration-barrier
-  --moe-bsr-fault-injection
+  # NOTE: no --moe-bsr-fault-injection — we do real kills via watcher
   --moe-bsr-hot-spare-pool
   --moe-bsr-num-hot-spares "${NPROC_PER_NODE}"
   --moe-bsr-degraded-tau-c 0.5
@@ -245,6 +261,7 @@ python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --moe-router-load-balancing-type aux_loss \
   --moe-aux-loss-coeff 1e-3 \
   --moe-token-dispatcher-type alltoall \
+  --distributed-timeout-minutes 1 \
   "${BSR_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
   --split 100,0,0 \
