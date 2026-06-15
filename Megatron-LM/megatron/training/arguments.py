@@ -382,7 +382,7 @@ def validate_args(args, defaults={}):
     args.transformer_pipeline_model_parallel_size = args.pipeline_model_parallel_size
 
     total_model_size = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.context_parallel_size
-    args.data_parallel_size = _ws_for_parallel // total_model_size
+    args.data_parallel_size = args.world_size // total_model_size
 
     # Batch size checks if running RL.
     if args.perform_rl_step:
