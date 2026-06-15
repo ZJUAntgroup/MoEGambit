@@ -139,7 +139,7 @@ echo "[test-replace] Training nodes:  ${TRAINING_NNODES} (${TRAINING_WORLD_SIZE}
 echo "[test-replace] Fault inject:    kill node ${FAULT_INJECT_NODE} at step ${FAULT_INJECT_STEP}"
 echo "[test-replace] Save interval:   ${SAVE_INTERVAL}"
 echo "[test-replace] Train iters:     ${TRAIN_ITERS}"
-echo "[test-replace] NCCL timeout:    ${NCCL_TIMEOUT}ms"
+echo "[test-replace] NCCL timeout:    60s (--distributed-timeout-minutes 1)"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
 
