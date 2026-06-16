@@ -260,9 +260,38 @@ def destroy_global_state():
 
 def print_datetime(string):
     """Note that this call will sync across all ranks."""
-    torch.distributed.barrier()
+    if not is_rebuild_mode():
+        torch.distributed.barrier()
     time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print_rank_0(f'[{string}] datetime: {time_str} ')
+
+
+def _elastic_apply_resume_state(args):
+    """Seed replacement workers with the safe-point iteration selected by the watcher."""
+    if not is_rebuild_mode():
+        return
+
+    resume_iteration = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
+    if resume_iteration < 0:
+        return
+
+    args.iteration = resume_iteration
+    args.num_floating_point_operations_so_far = getattr(
+        args, 'num_floating_point_operations_so_far', 0
+    )
+    if getattr(args, 'consumed_train_samples', 0) == 0:
+        args.consumed_train_samples = resume_iteration * args.global_batch_size
+    if getattr(args, 'consumed_valid_samples', 0) == 0 and args.eval_interval:
+        eval_iters = sum(args.eval_iters) if isinstance(args.eval_iters, list) else args.eval_iters
+        args.consumed_valid_samples = (
+            (resume_iteration // args.eval_interval) * eval_iters * args.global_batch_size
+        )
+    logger.warning(
+        "[elastic] REBUILD MODE: resuming replacement at iteration %d "
+        "(consumed_train_samples=%d)",
+        args.iteration,
+        args.consumed_train_samples,
+    )
 
 
 def num_floating_point_operations(args, batch_size):
@@ -703,6 +732,7 @@ def pretrain(
 
     args = get_args()
     timers = get_timers()
+    _elastic_rebuild = is_rebuild_mode()
 
     if args.log_progress:
         append_to_progress_log("Starting job")
@@ -720,9 +750,10 @@ def pretrain(
     # This will be closer to what scheduler will see (outside of
     # image ... launches.
     global _TRAIN_START_TIME
-    start_time_tensor = torch.tensor([_TRAIN_START_TIME], dtype=torch.double, device='cuda')
-    torch.distributed.all_reduce(start_time_tensor, op=torch.distributed.ReduceOp.MIN)
-    _TRAIN_START_TIME = start_time_tensor.item()
+    if not _elastic_rebuild:
+        start_time_tensor = torch.tensor([_TRAIN_START_TIME], dtype=torch.double, device='cuda')
+        torch.distributed.all_reduce(start_time_tensor, op=torch.distributed.ReduceOp.MIN)
+        _TRAIN_START_TIME = start_time_tensor.item()
 
     # =========================================================================
     # Start elastic client (heartbeat to watcher on spare node)
@@ -730,7 +761,6 @@ def pretrain(
 
     # Elastic rebuild mode: replacement node skips checkpoint loading.
     # It will receive params from DP peer after model setup.
-    _elastic_rebuild = is_rebuild_mode()
     _elastic_saved_load = None
     if _elastic_rebuild:
         _elastic_saved_load = args.load
@@ -786,7 +816,7 @@ def pretrain(
         checkpointing_context = {}
 
     # Model, optimizer, and learning rate.
-    timers('model-and-optimizer-setup', log_level=0).start(barrier=True)
+    timers('model-and-optimizer-setup', log_level=0).start(barrier=not _elastic_rebuild)
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type, checkpointing_context=checkpointing_context
     )
@@ -799,11 +829,14 @@ def pretrain(
     if _elastic_rebuild:
         args.load = _elastic_saved_load  # Restore for future checkpoint saves
         elastic_replacement_sync_params(model, optimizer)
+        _elastic_apply_resume_state(args)
         logger.warning("[elastic] REBUILD MODE: param sync complete, joining training loop")
 
     # Data stuff.
     app_metrics['app_build_dataiters_start_time'] = one_logger_utils.get_timestamp_in_ms()
-    timers('train/valid/test-data-iterators-setup', log_level=0).start(barrier=True)
+    timers('train/valid/test-data-iterators-setup', log_level=0).start(
+        barrier=not _elastic_rebuild
+    )
     if args.virtual_pipeline_model_parallel_size is not None:
         train_data_iterator = []
         valid_data_iterator = []
@@ -844,7 +877,10 @@ def pretrain(
 
     # Print setup timing.
     print_rank_0('done with setup ...')
-    timers.log(['model-and-optimizer-setup', 'train/valid/test-data-iterators-setup'], barrier=True)
+    timers.log(
+        ['model-and-optimizer-setup', 'train/valid/test-data-iterators-setup'],
+        barrier=not _elastic_rebuild,
+    )
 
     one_logger = get_one_logger()
     one_logger and one_logger.log_metrics(app_metrics)
@@ -2199,6 +2235,7 @@ def train(
     )
 
     num_floating_point_operations_so_far = args.num_floating_point_operations_so_far
+    _elastic_rebuild = is_rebuild_mode()
 
     # Setup some training config params.
     config.grad_scale_func = optimizer.scale_loss
@@ -2225,7 +2262,7 @@ def train(
         energy_monitor.setup()
         energy_monitor.resume()
 
-    timers('interval-time', log_level=0).start(barrier=True)
+    timers('interval-time', log_level=0).start(barrier=not _elastic_rebuild)
     print_datetime('before the start of training step')
     report_memory_flag = True
     pre_hook_enabled = False

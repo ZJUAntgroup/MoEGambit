@@ -195,6 +195,7 @@ class ElasticClient:
         self._send({
             "type": "ready_to_rebuild",
             "node_rank": self.node_rank,
+            "step": self.step,
         })
 
 
@@ -491,9 +492,13 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     killed_global_rank = rebuild_info.get("killed_global_rank", -1)
     new_master_addr = rebuild_info.get("new_master_addr", os.environ.get("MASTER_ADDR"))
     new_master_port = rebuild_info.get("new_master_port", os.environ.get("MASTER_PORT"))
+    resume_iteration = rebuild_info.get("resume_iteration")
+    if resume_iteration is not None:
+        os.environ["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
 
     logger.warning(f"[elastic] Rank {rank}: rebuild signal received. "
                    f"Failed node={failed_node}, killed_rank={killed_global_rank}, "
+                   f"resume_iteration={resume_iteration}, "
                    f"new master={new_master_addr}:{new_master_port}")
 
     # Step 2: Re-initialize process group with new rendezvous

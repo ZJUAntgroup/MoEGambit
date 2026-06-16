@@ -79,6 +79,7 @@ class ElasticWatcher:
         self.recovery_in_progress = False
         self.rebuild_ready_count = 0
         self.rebuild_ready_nodes = set()
+        self.rebuild_ready_steps = {}
         self.rebuild_triggered = False
         self.lock = threading.Lock()
 
@@ -178,6 +179,7 @@ class ElasticWatcher:
                 if node_rank not in self.rebuild_ready_nodes:
                     self.rebuild_ready_nodes.add(node_rank)
                     self.rebuild_ready_count = len(self.rebuild_ready_nodes)
+                    self.rebuild_ready_steps[node_rank] = msg.get("step", -1)
                 else:
                     log.info(f"Duplicate ready_to_rebuild from node {node_rank}; ignoring")
                 total = self.training_nnodes  # All nodes pause (including target)
@@ -262,6 +264,7 @@ class ElasticWatcher:
             self.killed_local_rank = killed_local_rank
             self.rebuild_ready_count = 0
             self.rebuild_ready_nodes = set()
+            self.rebuild_ready_steps = {}
             self.rebuild_triggered = False
             connections = list(self.node_connections.items())
 
@@ -302,6 +305,7 @@ class ElasticWatcher:
         with self.lock:
             failed_node = self.failed_node
             killed_local_rank = self.killed_local_rank
+            ready_steps = dict(self.rebuild_ready_steps)
 
         if failed_node is None:
             log.warning("Rebuild trigger requested but failed_node is not set")
@@ -310,9 +314,15 @@ class ElasticWatcher:
         log.info(f"All {self.training_nnodes} nodes ready. "
                  f"Target rank already killed (node {failed_node} "
                  f"local_rank {killed_local_rank}). Launching spare...")
+        valid_steps = [step for step in ready_steps.values() if step >= 0]
+        resume_iteration = min(valid_steps) if valid_steps else -1
+        log.info(f"Elastic resume iteration selected: {resume_iteration} "
+                 f"from ready steps {ready_steps}")
 
         # Step 1: Launch 1 spare process on this node
-        spare_proc = self._launch_spare_worker(failed_node, killed_local_rank)
+        spare_proc = self._launch_spare_worker(
+            failed_node, killed_local_rank, resume_iteration
+        )
 
         # Give the spare worker a moment to start
         time.sleep(3.0)
@@ -324,6 +334,7 @@ class ElasticWatcher:
             "failed_node": failed_node,
             "killed_local_rank": killed_local_rank,
             "killed_global_rank": killed_global_rank,
+            "resume_iteration": resume_iteration,
             "new_master_addr": self.master_addr,
             "new_master_port": str(int(self.master_port) + 1),
         }) + "\n"
@@ -343,8 +354,9 @@ class ElasticWatcher:
             self.failed_node = None
             self.rebuild_ready_count = 0
             self.rebuild_ready_nodes = set()
+            self.rebuild_ready_steps = {}
 
-    def _launch_spare_worker(self, failed_node, killed_local_rank):
+    def _launch_spare_worker(self, failed_node, killed_local_rank, resume_iteration=-1):
         """Launch 1 replacement process on this spare node.
 
         The replacement process takes over the killed rank's global position.
@@ -358,6 +370,7 @@ class ElasticWatcher:
         env["LOCAL_RANK"] = "0"  # Only 1 GPU visible, so local device is always 0
         env["RANK"] = str(killed_global_rank)
         env["ELASTIC_REPLACEMENT_RANK"] = str(killed_global_rank)
+        env["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
         env["MASTER_PORT"] = str(int(self.master_port) + 1)  # Rebuild uses new port
         env["ELASTIC_REBUILD_MODE"] = "1"
         env["NNODES"] = str(self.training_nnodes)
