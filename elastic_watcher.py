@@ -325,7 +325,7 @@ class ElasticWatcher:
 
         env = os.environ.copy()
         env["NODE_RANK"] = str(self.failed_node)
-        env["LOCAL_RANK"] = str(self.killed_local_rank)
+        env["LOCAL_RANK"] = "0"  # Only 1 GPU visible, so local device is always 0
         env["RANK"] = str(killed_global_rank)
         env["MASTER_PORT"] = str(int(self.master_port) + 1)  # Rebuild uses new port
         env["ELASTIC_REBUILD_MODE"] = "1"
