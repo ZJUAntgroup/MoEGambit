@@ -97,14 +97,14 @@ export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}
 # NCCL configuration: short timeout for fast failure detection
 # ============================================================================
 export NCCL_DEBUG=WARN
-# Short NCCL timeout so surviving ranks detect failure in ~60s, not 600s
-# This controls the NCCL watchdog timeout in the process group.
-# With TORCH_NCCL_ASYNC_ERROR_HANDLING=1, the watchdog raises RuntimeError
-# after this timeout, which we catch in the training loop.
-export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+# CRITICAL: Set to 0 so that NCCL timeout raises a catchable Python RuntimeError
+# instead of calling std::abort() (SIGABRT).  With =1, the C++ watchdog kills
+# the process immediately on timeout — Python never gets a chance to handle it.
+# With =0, the Python thread blocked on the NCCL op gets a RuntimeError after
+# the timeout, which our except handler catches and routes to elastic recovery.
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=0
 # Disable the HEARTBEAT MONITOR — this is the mechanism that causes SIGABRT
 # when the watchdog itself gets stuck (e.g., during error handling).
-# Without this, the process gets killed instead of raising an exception.
 export TORCH_NCCL_ENABLE_MONITORING=0
 # Also increase the heartbeat timeout to be safe
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=600

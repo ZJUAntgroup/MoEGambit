@@ -213,6 +213,20 @@ class ElasticWatcher:
             else:
                 log.error(f"Cannot inject fault: node {target} not connected")
 
+        # CRITICAL: Send PAUSE to surviving nodes IMMEDIATELY after kill_node.
+        # Do NOT wait for heartbeat timeout (30s) — by then surviving nodes
+        # will have entered the next train_step and be stuck in NCCL ops that
+        # hang waiting for the dead node.  The NCCL watchdog (60s) will then
+        # SIGABRT all processes before they can reach elastic_check_pause().
+        #
+        # A short delay ensures the SIGKILL has taken effect before we signal.
+        def _delayed_pause():
+            time.sleep(3.0)  # Wait for SIGKILL to propagate
+            log.info(f"Sending immediate PAUSE after fault injection (target={target})")
+            self._handle_fault(target)
+
+        threading.Thread(target=_delayed_pause, daemon=True).start()
+
     def _heartbeat_checker(self):
         """Periodically check for heartbeat timeouts."""
         # Wait for at least one node to connect before checking

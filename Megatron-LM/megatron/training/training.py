@@ -2531,6 +2531,27 @@ def train(
                 # best-effort).  This triggers the pause/rebuild flow.
                 elastic_on_nccl_error(_bsr_exc)
 
+                # If elastic recovery is active (pause signal already received),
+                # skip BSR logic and go directly to rebuild.  The process group
+                # is corrupted — any further NCCL calls (even in BSR) would hang.
+                if elastic_check_pause():
+                    logger.warning(
+                        "[elastic] NCCL error caught + pause signal present. "
+                        "Skipping BSR logic, entering rebuild immediately."
+                    )
+                    elastic_do_rebuild(model, optimizer, opt_param_scheduler)
+                    logger.warning("[elastic] Rebuild complete after NCCL error recovery.")
+                    # Reset iteration state and continue training
+                    _bsr_hard_failure_caught = False
+                    loss_dict = {}
+                    skipped_iter = 1
+                    should_checkpoint = False
+                    should_exit = False
+                    exit_code = 0
+                    grad_norm = None
+                    num_zeros_in_grad = None
+                    continue
+
                 # Report the failure — this triggers quarantine + invalidation.
                 # We use rank -1 as a placeholder; in a real deployment the
                 # failed rank would be identified from the exception or via
