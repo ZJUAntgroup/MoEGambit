@@ -276,6 +276,13 @@ def elastic_client_start():
     """
     global _CLIENT
 
+    if is_rebuild_mode():
+        logger.info(
+            "[elastic] Replacement worker: watcher heartbeat disabled to avoid "
+            "duplicate node_rank ownership"
+        )
+        return
+
     watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
     watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
 
@@ -298,6 +305,30 @@ def elastic_client_update_step(step: int):
     """Update the current training step (for heartbeat reporting)."""
     if _CLIENT is not None:
         _CLIENT.update_step(step)
+
+
+def _elastic_barrier(label: str):
+    """Run a default-group barrier with explicit CUDA device and useful logs."""
+    rank = dist.get_rank() if dist.is_initialized() else -1
+    device_ids = None
+    if torch.cuda.is_available():
+        device_ids = [torch.cuda.current_device()]
+    logger.warning("[elastic] Rank %d: entering %s barrier", rank, label)
+    if device_ids is None:
+        dist.barrier()
+    else:
+        dist.barrier(device_ids=device_ids)
+    logger.warning("[elastic] Rank %d: exited %s barrier", rank, label)
+
+
+def _elastic_rebuild_timeout(args):
+    timeout_minutes = int(
+        os.environ.get(
+            "ELASTIC_REBUILD_TIMEOUT_MINUTES",
+            str(max(30, int(getattr(args, "distributed_timeout_minutes", 10)))),
+        )
+    )
+    return timedelta(minutes=timeout_minutes)
 
 
 def elastic_check_pause() -> bool:
@@ -510,12 +541,15 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     # Create a new TCPStore for rendezvous
     is_master = (rank == 0)
+    rebuild_timeout = _elastic_rebuild_timeout(args)
+    logger.warning("[elastic] Rank %d: rebuild timeout is %s", rank, rebuild_timeout)
+
     store = dist.TCPStore(
         host_name=new_master_addr,
         port=int(new_master_port),
         world_size=world_size,
         is_master=is_master,
-        timeout=timedelta(minutes=10),
+        timeout=rebuild_timeout,
     )
 
     dist.init_process_group(
@@ -523,7 +557,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         store=store,
         world_size=world_size,
         rank=rank,
-        timeout=timedelta(minutes=10),
+        timeout=rebuild_timeout,
     )
 
     # Step 3: Re-initialize model parallel groups
@@ -541,7 +575,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     _sync_params_to_new_rank(model, optimizer, replacement_rank=killed_global_rank)
 
     # Step 5: Barrier to ensure all ranks are ready
-    dist.barrier()
+    _elastic_barrier("rebuild-final")
     logger.warning(f"[elastic] Rank {rank}: rebuild complete, resuming training")
 
     # Reset pause state
@@ -573,7 +607,7 @@ def elastic_replacement_sync_params(model, optimizer):
     """
     replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", os.environ.get("RANK", "0")))
     _sync_params_to_new_rank(model, optimizer, replacement_rank=replacement_rank)
-    dist.barrier()
+    _elastic_barrier("rebuild-final")
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")
 
 

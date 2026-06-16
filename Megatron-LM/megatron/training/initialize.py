@@ -35,6 +35,11 @@ from megatron.training.yaml_arguments import validate_yaml
 logger = logging.getLogger(__name__)
 
 
+def _is_elastic_rebuild_mode():
+    """Replacement workers must not enter cold-start global collectives."""
+    return os.environ.get("ELASTIC_REBUILD_MODE") == "1"
+
+
 def initialize_megatron(
     extra_args_provider=None,
     args_defaults={},
@@ -155,6 +160,14 @@ def initialize_megatron(
         # Megatron's MPU is the master. Complete initialization right away.
         finish_mpu_init()
 
+        if _is_elastic_rebuild_mode():
+            logger.warning(
+                "[elastic] REBUILD MODE: skipping cold-start init barriers "
+                "after model-parallel setup"
+            )
+            _compile_dependencies(skip_distributed_barriers=True)
+            return None
+
         # Autoresume.
         _init_autoresume()
 
@@ -169,7 +182,7 @@ def initialize_megatron(
         return None
 
 
-def _compile_dependencies():
+def _compile_dependencies(skip_distributed_barriers=False):
 
     args = get_args()
 
@@ -212,6 +225,10 @@ def _compile_dependencies():
                 " back to unfused kernel invocations.",
                 flush=True,
             )
+
+    if skip_distributed_barriers:
+        fused_kernels.load(args)
+        return
 
     # Always build on rank zero first.
     if torch.distributed.get_rank() == 0:

@@ -48,6 +48,7 @@ GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-$((8 * DP_SIZE))}"
 
 CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/test_replace_ckpt}"
 TRAIN_ITERS="${TRAIN_ITERS:-100}"
+ELASTIC_REBUILD_TIMEOUT_MINUTES="${ELASTIC_REBUILD_TIMEOUT_MINUTES:-30}"
 
 # Elastic watcher connection
 export ELASTIC_WATCHER_ADDR="${ELASTIC_WATCHER_ADDR:-${MASTER_ADDR}}"
@@ -141,7 +142,7 @@ exec python3 ./Megatron-LM/pretrain_gpt.py \
   --moe-router-load-balancing-type aux_loss \
   --moe-aux-loss-coeff 1e-3 \
   --moe-token-dispatcher-type alltoall \
-  --distributed-timeout-minutes 10 \
+  --distributed-timeout-minutes "${ELASTIC_REBUILD_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
   "${BSR_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
