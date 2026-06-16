@@ -586,6 +586,35 @@ def _select_dp_sync_src_rank(dp_group, replacement_rank: int) -> int:
     return group_ranks[0]
 
 
+def _get_single_inner_optimizer_for_state_sync(optimizer):
+    """Return a single torch optimizer when optimizer-state sync is safe."""
+    if optimizer is None:
+        return None
+
+    chained_optimizers = getattr(optimizer, "chained_optimizers", None)
+    if chained_optimizers is not None:
+        if len(chained_optimizers) != 1:
+            logger.warning(
+                "[elastic] Skipping optimizer-state sync for ChainedOptimizer "
+                "with %d inner optimizers",
+                len(chained_optimizers),
+            )
+            return None
+        optimizer = chained_optimizers[0]
+
+    try:
+        inner_optimizer = optimizer.optimizer
+    except (AttributeError, AssertionError) as e:
+        logger.warning("[elastic] Skipping optimizer-state sync: %s", e)
+        return None
+
+    if not hasattr(inner_optimizer, "param_groups") or not hasattr(inner_optimizer, "state"):
+        logger.warning("[elastic] Skipping optimizer-state sync: unsupported optimizer type")
+        return None
+
+    return inner_optimizer
+
+
 def _sync_params_to_new_rank(model, optimizer, replacement_rank: int = -1):
     """Broadcast model parameters from a surviving DP peer to all DP peers.
 
@@ -594,7 +623,9 @@ def _sync_params_to_new_rank(model, optimizer, replacement_rank: int = -1):
     gets the correct parameters.  The source must be a *global* rank that
     belongs to the provided process group.
 
-    This also syncs optimizer state (momentum, variance) for RPO=0.
+    Optimizer state sync is best-effort.  For multi-optimizer MoE chains we
+    skip it because the chain wrapper does not expose a single safe underlying
+    optimizer.
     """
     from megatron.core import parallel_state as mpu
 
@@ -618,8 +649,8 @@ def _sync_params_to_new_rank(model, optimizer, replacement_rank: int = -1):
     # not load a checkpoint may have empty optimizer state; in that case all
     # ranks skip optimizer-state sync for that parameter to keep the collective
     # schedule consistent.
-    if optimizer is not None and hasattr(optimizer, 'optimizer'):
-        inner_opt = optimizer.optimizer
+    inner_opt = _get_single_inner_optimizer_for_state_sync(optimizer)
+    if inner_opt is not None:
         skipped_optimizer_state = False
         for group in inner_opt.param_groups:
             for p in group['params']:
