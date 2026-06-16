@@ -530,10 +530,10 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         expert_model_parallel_size=getattr(args, 'expert_model_parallel_size', 1),
     )
 
-    # Step 4: Synchronize parameters to the new rank (DP peer broadcast)
-    # The new rank (on spare node) has random/zero weights.
-    # Broadcast from DP rank 0 to all DP peers for each model chunk.
-    _sync_params_to_new_rank(model, optimizer)
+    # Step 4: Synchronize parameters to the new rank (DP peer broadcast).
+    # The replacement rank has random/zero weights, so choose a surviving
+    # rank in each DP group as the source.
+    _sync_params_to_new_rank(model, optimizer, replacement_rank=killed_global_rank)
 
     # Step 5: Barrier to ensure all ranks are ready
     dist.barrier()
@@ -564,19 +564,35 @@ def elastic_replacement_sync_params(model, optimizer):
     The replacement node has just gone through normal Megatron initialization
     (init_process_group + initialize_model_parallel + setup_model_and_optimizer)
     but with random weights. This function receives the actual weights from
-    the DP rank 0 peer.
+    a surviving DP peer.
     """
-    _sync_params_to_new_rank(model, optimizer)
+    replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", os.environ.get("RANK", "0")))
+    _sync_params_to_new_rank(model, optimizer, replacement_rank=replacement_rank)
     dist.barrier()
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")
 
 
-def _sync_params_to_new_rank(model, optimizer):
-    """Broadcast model parameters from DP rank 0 to all DP peers.
+def _select_dp_sync_src_rank(dp_group, replacement_rank: int) -> int:
+    """Choose a live source rank inside the caller's DP group."""
+    group_ranks = list(dist.get_process_group_ranks(dp_group))
+    if not group_ranks:
+        raise RuntimeError("[elastic] Cannot sync params: empty DP group")
+
+    if replacement_rank >= 0:
+        for candidate in group_ranks:
+            if candidate != replacement_rank:
+                return candidate
+
+    return group_ranks[0]
+
+
+def _sync_params_to_new_rank(model, optimizer, replacement_rank: int = -1):
+    """Broadcast model parameters from a surviving DP peer to all DP peers.
 
     After group rebuild, the replacement rank has random/zero weights.
-    We broadcast from DP rank 0 within each DP group so the new rank
-    gets the correct parameters.
+    We broadcast from a surviving rank within each DP group so the new rank
+    gets the correct parameters.  The source must be a *global* rank that
+    belongs to the provided process group.
 
     This also syncs optimizer state (momentum, variance) for RPO=0.
     """
@@ -584,26 +600,55 @@ def _sync_params_to_new_rank(model, optimizer):
 
     dp_rank = mpu.get_data_parallel_rank()
     dp_group = mpu.get_data_parallel_group()
+    sync_src_rank = _select_dp_sync_src_rank(dp_group, replacement_rank)
 
     rank = dist.get_rank()
-    logger.info(f"[elastic] Rank {rank}: syncing params (dp_rank={dp_rank})")
+    logger.info(
+        f"[elastic] Rank {rank}: syncing params "
+        f"(dp_rank={dp_rank}, src={sync_src_rank}, replacement={replacement_rank})"
+    )
 
     # Broadcast model parameters
     for model_chunk in model:
         for param in model_chunk.parameters():
-            dist.broadcast(param.data, src=0, group=dp_group)
+            dist.broadcast(param.data, src=sync_src_rank, group=dp_group)
 
     # Broadcast optimizer state (momentum, variance) for smooth continuation
-    # Without this, the replacement rank would have zero momentum → training spike
+    # when every rank has matching tensor state.  A replacement worker that did
+    # not load a checkpoint may have empty optimizer state; in that case all
+    # ranks skip optimizer-state sync for that parameter to keep the collective
+    # schedule consistent.
     if optimizer is not None and hasattr(optimizer, 'optimizer'):
         inner_opt = optimizer.optimizer
+        skipped_optimizer_state = False
         for group in inner_opt.param_groups:
             for p in group['params']:
-                if p in inner_opt.state:
-                    state = inner_opt.state[p]
-                    for key, val in state.items():
-                        if isinstance(val, torch.Tensor):
-                            dist.broadcast(val, src=0, group=dp_group)
+                state = inner_opt.state.get(p, None)
+                has_tensor_state = int(
+                    state is not None and any(isinstance(val, torch.Tensor) for val in state.values())
+                )
+                has_tensor_state_tensor = torch.tensor(
+                    [has_tensor_state], dtype=torch.int32, device=p.device
+                )
+                dist.all_reduce(
+                    has_tensor_state_tensor,
+                    op=dist.ReduceOp.MIN,
+                    group=dp_group,
+                )
+                if has_tensor_state_tensor.item() == 0:
+                    skipped_optimizer_state = True
+                    continue
+
+                for key, val in state.items():
+                    if isinstance(val, torch.Tensor):
+                        dist.broadcast(val, src=sync_src_rank, group=dp_group)
+
+        if skipped_optimizer_state:
+            logger.warning(
+                "[elastic] Rank %d: skipped some optimizer-state sync because "
+                "at least one DP peer had no tensor state",
+                rank,
+            )
 
     logger.info(f"[elastic] Rank {rank}: param sync complete")
 
