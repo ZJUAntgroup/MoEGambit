@@ -71,7 +71,7 @@ mkdir -p "${ELASTIC_FAULT_DIR}"
 # ============================================================================
 # Fault injection: watcher 在 step N 时杀死目标节点的指定 local_rank
 # ============================================================================
-FAULT_INJECT_STEP="${FAULT_INJECT_STEP:-19}"
+FAULT_INJECT_STEP="${FAULT_INJECT_STEP:-17}"
 FAULT_INJECT_NODE="${FAULT_INJECT_NODE:-0}"
 # NOTE: Must NOT be 0 — local_rank=0 holds the TCP connection to watcher.
 # If local_rank=0 is killed, other ranks on that node can't receive rebuild signal.
