@@ -9,7 +9,7 @@ Responsibilities:
   3. Optionally inject faults: at a given step, PAUSE all → kill one rank
   4. Signal all training ranks to pause at next safe point
   5. Wait for all nodes to confirm paused (destroy_process_group done)
-  6. Kill the target rank on the target node
+  6. The target node kills the selected local rank
   7. Launch 1 replacement process on spare node with the dead rank
   8. Coordinate group rebuild (all ranks re-init_process_group)
 
@@ -17,8 +17,8 @@ Fault injection flow (safe, no NCCL timeout):
   1. Watcher sees step >= fault_inject_step
   2. Watcher sends PAUSE to ALL training nodes (including target)
   3. All nodes reach safe point → destroy_process_group → send ready_to_rebuild
-  4. Watcher receives 8/8 ready_to_rebuild
-  5. Watcher sends kill_rank to target node (kills local_rank 0 only)
+  4. Target node kills the selected local rank before reporting ready
+  5. Watcher receives 8/8 ready_to_rebuild
   6. Watcher launches 1 spare process on this node
   7. Watcher sends rebuild signal to all surviving ranks
   8. All ranks re-init_process_group → sync params → resume
@@ -78,6 +78,8 @@ class ElasticWatcher:
         self.killed_local_rank = 0
         self.recovery_in_progress = False
         self.rebuild_ready_count = 0
+        self.rebuild_ready_nodes = set()
+        self.rebuild_triggered = False
         self.lock = threading.Lock()
 
         # Server socket
@@ -171,13 +173,21 @@ class ElasticWatcher:
             return node_rank
 
         elif msg_type == "ready_to_rebuild":
+            should_trigger = False
             with self.lock:
-                self.rebuild_ready_count += 1
+                if node_rank not in self.rebuild_ready_nodes:
+                    self.rebuild_ready_nodes.add(node_rank)
+                    self.rebuild_ready_count = len(self.rebuild_ready_nodes)
+                else:
+                    log.info(f"Duplicate ready_to_rebuild from node {node_rank}; ignoring")
                 total = self.training_nnodes  # All nodes pause (including target)
                 log.info(f"Node {node_rank} ready to rebuild "
                          f"({self.rebuild_ready_count}/{total})")
-                if self.rebuild_ready_count >= total:
-                    self._trigger_rebuild()
+                if self.rebuild_ready_count >= total and not self.rebuild_triggered:
+                    self.rebuild_triggered = True
+                    should_trigger = True
+            if should_trigger:
+                self._trigger_rebuild()
             return node_rank
 
         elif msg_type == "nccl_error":
@@ -227,13 +237,16 @@ class ElasticWatcher:
                 continue
 
             now = time.time()
+            timed_out_node = None
             with self.lock:
                 for node_rank, last_ts in list(self.last_heartbeat.items()):
                     if now - last_ts > self.heartbeat_timeout:
                         log.error(f"FAULT DETECTED: Node {node_rank} heartbeat timeout "
                                   f"({now - last_ts:.1f}s > {self.heartbeat_timeout}s)")
-                        self._handle_fault(node_rank)
+                        timed_out_node = node_rank
                         break
+            if timed_out_node is not None:
+                self._handle_fault(timed_out_node)
 
     def _handle_fault(self, failed_node_rank):
         """Handle a detected node failure (or planned fault injection).
@@ -242,16 +255,21 @@ class ElasticWatcher:
         includes the target node — all nodes pause together, destroy their
         process groups, then the target rank is killed.
         """
-        self.recovery_in_progress = True
-        self.failed_node = failed_node_rank
-        self.killed_local_rank = self.fault_inject_local_rank
-        self.rebuild_ready_count = 0
+        with self.lock:
+            self.recovery_in_progress = True
+            self.failed_node = failed_node_rank
+            killed_local_rank = self.fault_inject_local_rank
+            self.killed_local_rank = killed_local_rank
+            self.rebuild_ready_count = 0
+            self.rebuild_ready_nodes = set()
+            self.rebuild_triggered = False
+            connections = list(self.node_connections.items())
 
         # Write fault file (backup signal mechanism)
         fault_file = self.fault_dir / "latest"
         fault_file.write_text(json.dumps({
             "failed_node": failed_node_rank,
-            "killed_local_rank": self.killed_local_rank,
+            "killed_local_rank": killed_local_rank,
             "timestamp": time.time(),
             "action": "rebuild",
         }))
@@ -263,14 +281,13 @@ class ElasticWatcher:
         pause_msg = json.dumps({
             "type": "pause",
             "failed_node": failed_node_rank,
-            "killed_local_rank": self.killed_local_rank,
+            "killed_local_rank": killed_local_rank,
         }) + "\n"
-        with self.lock:
-            for nr, conn in list(self.node_connections.items()):
-                try:
-                    conn.sendall(pause_msg.encode())
-                except (BrokenPipeError, OSError) as e:
-                    log.warning(f"Failed to send pause to node {nr}: {e}")
+        for nr, conn in connections:
+            try:
+                conn.sendall(pause_msg.encode())
+            except (BrokenPipeError, OSError) as e:
+                log.warning(f"Failed to send pause to node {nr}: {e}")
 
     def _trigger_rebuild(self):
         """All nodes are paused and have destroyed process groups.
@@ -282,49 +299,62 @@ class ElasticWatcher:
         1. Launch 1 spare process on this node
         2. Send rebuild signal to all surviving ranks
         """
+        with self.lock:
+            failed_node = self.failed_node
+            killed_local_rank = self.killed_local_rank
+
+        if failed_node is None:
+            log.warning("Rebuild trigger requested but failed_node is not set")
+            return
+
         log.info(f"All {self.training_nnodes} nodes ready. "
-                 f"Target rank already killed (node {self.failed_node} "
-                 f"local_rank {self.killed_local_rank}). Launching spare...")
+                 f"Target rank already killed (node {failed_node} "
+                 f"local_rank {killed_local_rank}). Launching spare...")
 
         # Step 1: Launch 1 spare process on this node
-        spare_proc = self._launch_spare_worker()
+        spare_proc = self._launch_spare_worker(failed_node, killed_local_rank)
 
         # Give the spare worker a moment to start
         time.sleep(3.0)
 
         # Step 2: Signal all nodes to rebuild
-        killed_global_rank = self.failed_node * self.nproc_per_node + self.killed_local_rank
+        killed_global_rank = failed_node * self.nproc_per_node + killed_local_rank
         rebuild_msg = json.dumps({
             "type": "rebuild",
-            "failed_node": self.failed_node,
-            "killed_local_rank": self.killed_local_rank,
+            "failed_node": failed_node,
+            "killed_local_rank": killed_local_rank,
             "killed_global_rank": killed_global_rank,
             "new_master_addr": self.master_addr,
             "new_master_port": str(int(self.master_port) + 1),
         }) + "\n"
 
         with self.lock:
-            for nr, conn in list(self.node_connections.items()):
-                try:
-                    conn.sendall(rebuild_msg.encode())
-                except (BrokenPipeError, OSError) as e:
-                    log.warning(f"Failed to send rebuild to node {nr}: {e}")
+            connections = list(self.node_connections.items())
+
+        for nr, conn in connections:
+            try:
+                conn.sendall(rebuild_msg.encode())
+            except (BrokenPipeError, OSError) as e:
+                log.warning(f"Failed to send rebuild to node {nr}: {e}")
 
         log.info("Rebuild signal sent to all nodes. Waiting for training to resume...")
-        self.recovery_in_progress = False
-        self.failed_node = None
+        with self.lock:
+            self.recovery_in_progress = False
+            self.failed_node = None
+            self.rebuild_ready_count = 0
+            self.rebuild_ready_nodes = set()
 
-    def _launch_spare_worker(self):
+    def _launch_spare_worker(self, failed_node, killed_local_rank):
         """Launch 1 replacement process on this spare node.
 
         The replacement process takes over the killed rank's global position.
         """
-        killed_global_rank = self.failed_node * self.nproc_per_node + self.killed_local_rank
+        killed_global_rank = failed_node * self.nproc_per_node + killed_local_rank
         log.info(f"Launching spare: replacing global_rank={killed_global_rank} "
-                 f"(node {self.failed_node}, local_rank {self.killed_local_rank})")
+                 f"(node {failed_node}, local_rank {killed_local_rank})")
 
         env = os.environ.copy()
-        env["NODE_RANK"] = str(self.failed_node)
+        env["NODE_RANK"] = str(failed_node)
         env["LOCAL_RANK"] = "0"  # Only 1 GPU visible, so local device is always 0
         env["RANK"] = str(killed_global_rank)
         env["MASTER_PORT"] = str(int(self.master_port) + 1)  # Rebuild uses new port
@@ -332,7 +362,7 @@ class ElasticWatcher:
         env["NNODES"] = str(self.training_nnodes)
         env["WORLD_SIZE"] = str(self.training_nnodes * self.nproc_per_node)
         # Use the specific GPU that corresponds to the killed local_rank
-        env["CUDA_VISIBLE_DEVICES"] = str(self.killed_local_rank)
+        env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
 
         # Launch a single training process (not elastic_launcher with 8 workers)
         script_dir = os.path.dirname(os.path.abspath(__file__))
