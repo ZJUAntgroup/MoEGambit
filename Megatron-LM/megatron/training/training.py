@@ -96,6 +96,7 @@ from megatron.training.elastic_client import (
     elastic_do_rebuild,
     elastic_on_nccl_error,
     elastic_replacement_sync_params,
+    elastic_report_recovery_phase,
     is_rebuild_mode,
 )
 from megatron.core.full_cuda_graph import FullCudaGraphWrapper
@@ -820,6 +821,8 @@ def pretrain(
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type, checkpointing_context=checkpointing_context
     )
+    if _elastic_rebuild:
+        elastic_report_recovery_phase("model_optimizer_ready")
 
     timers('model-and-optimizer-setup').stop()
     print_datetime('after model, optimizer, and learning rate ' 'scheduler are built')
@@ -830,6 +833,7 @@ def pretrain(
         args.load = _elastic_saved_load  # Restore for future checkpoint saves
         elastic_replacement_sync_params(model, optimizer)
         _elastic_apply_resume_state(args)
+        elastic_report_recovery_phase("resume_state_applied")
         logger.warning("[elastic] REBUILD MODE: param sync complete, joining training loop")
 
     # Data stuff.
@@ -860,6 +864,8 @@ def pretrain(
             build_train_valid_test_data_iterators(train_valid_test_dataset_provider)
         )
     timers('train/valid/test-data-iterators-setup').stop()
+    if _elastic_rebuild:
+        elastic_report_recovery_phase("data_ready")
     print_datetime('after dataloaders are built')
     app_metrics['app_build_dataiters_finish_time'] = one_logger_utils.get_timestamp_in_ms()
 
@@ -2264,6 +2270,8 @@ def train(
 
     timers('interval-time', log_level=0).start(barrier=not _elastic_rebuild)
     print_datetime('before the start of training step')
+    if _elastic_rebuild:
+        elastic_report_recovery_phase("train_loop_entered")
     report_memory_flag = True
     pre_hook_enabled = False
     should_exit = False

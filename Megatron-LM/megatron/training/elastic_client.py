@@ -307,6 +307,48 @@ def elastic_client_update_step(step: int):
         _CLIENT.update_step(step)
 
 
+def _send_one_shot_to_watcher(msg: dict) -> bool:
+    watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
+    watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
+    if not watcher_addr or not watcher_port:
+        return False
+
+    try:
+        with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
+            sock.sendall((json.dumps(msg) + "\n").encode())
+        return True
+    except (OSError, ValueError) as e:
+        logger.warning("[elastic] Failed to send one-shot watcher event: %s", e)
+        return False
+
+
+def elastic_report_recovery_phase(phase: str, **extra):
+    """Report a rebuild/replacement milestone to the watcher for diagnostics."""
+    if not os.environ.get("ELASTIC_WATCHER_ADDR"):
+        return
+
+    rank = int(os.environ.get("RANK", "-1"))
+    node_rank = int(os.environ.get("NODE_RANK", "-1"))
+    step = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
+    role = "replacement" if is_rebuild_mode() else "survivor"
+    msg = {
+        "type": "recovery_phase",
+        "node_rank": node_rank,
+        "rank": rank,
+        "role": role,
+        "phase": phase,
+        "step": step,
+    }
+    msg.update(extra)
+
+    if _CLIENT is not None and _CLIENT.sock is not None:
+        _CLIENT._send(msg)
+        if _CLIENT.sock is None:
+            _send_one_shot_to_watcher(msg)
+    else:
+        _send_one_shot_to_watcher(msg)
+
+
 def _elastic_barrier(label: str):
     """Run a default-group barrier with explicit CUDA device and useful logs."""
     rank = dist.get_rank() if dist.is_initialized() else -1
@@ -559,6 +601,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         rank=rank,
         timeout=rebuild_timeout,
     )
+    elastic_report_recovery_phase("pg_ready")
 
     # Step 3: Re-initialize model parallel groups
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")
@@ -568,14 +611,17 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         virtual_pipeline_model_parallel_size=getattr(args, 'virtual_pipeline_model_parallel_size', None),
         expert_model_parallel_size=getattr(args, 'expert_model_parallel_size', 1),
     )
+    elastic_report_recovery_phase("mpu_ready")
 
     # Step 4: Synchronize parameters to the new rank (DP peer broadcast).
     # The replacement rank has random/zero weights, so choose a surviving
     # rank in each DP group as the source.
     _sync_params_to_new_rank(model, optimizer, replacement_rank=killed_global_rank)
+    elastic_report_recovery_phase("param_sync_done")
 
     # Step 5: Barrier to ensure all ranks are ready
     _elastic_barrier("rebuild-final")
+    elastic_report_recovery_phase("train_ready")
     logger.warning(f"[elastic] Rank {rank}: rebuild complete, resuming training")
 
     # Reset pause state
@@ -606,8 +652,11 @@ def elastic_replacement_sync_params(model, optimizer):
     a surviving DP peer.
     """
     replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", os.environ.get("RANK", "0")))
+    elastic_report_recovery_phase("param_sync_start")
     _sync_params_to_new_rank(model, optimizer, replacement_rank=replacement_rank)
+    elastic_report_recovery_phase("param_sync_done")
     _elastic_barrier("rebuild-final")
+    elastic_report_recovery_phase("train_ready")
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")
 
 

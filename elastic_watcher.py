@@ -80,6 +80,7 @@ class ElasticWatcher:
         self.rebuild_ready_count = 0
         self.rebuild_ready_nodes = set()
         self.rebuild_ready_steps = {}
+        self.recovery_phases = {}
         self.rebuild_triggered = False
         self.lock = threading.Lock()
 
@@ -199,6 +200,26 @@ class ElasticWatcher:
                          "waiting for heartbeat timeout to confirm")
             return node_rank
 
+        elif msg_type == "recovery_phase":
+            rank = msg.get("rank", "?")
+            phase = msg.get("phase", "?")
+            role = msg.get("role", "survivor")
+            step = msg.get("step", -1)
+            key = f"{role}:{rank}"
+            with self.lock:
+                self.recovery_phases[key] = {
+                    "phase": phase,
+                    "step": step,
+                    "timestamp": time.time(),
+                    "node_rank": node_rank,
+                    "role": role,
+                }
+            log.info(
+                "Recovery phase: role=%s rank=%s node=%s step=%s phase=%s",
+                role, rank, node_rank, step, phase,
+            )
+            return node_rank
+
         else:
             log.warning(f"Unknown message type: {msg_type}")
             return node_rank
@@ -248,7 +269,25 @@ class ElasticWatcher:
                         timed_out_node = node_rank
                         break
             if timed_out_node is not None:
+                self._log_recovery_phase_summary("heartbeat-timeout")
                 self._handle_fault(timed_out_node)
+
+    def _log_recovery_phase_summary(self, reason):
+        with self.lock:
+            phases = dict(self.recovery_phases)
+        if not phases:
+            log.warning("Recovery phase summary (%s): no phase reports", reason)
+            return
+        log.warning("Recovery phase summary (%s):", reason)
+        for key in sorted(phases):
+            item = phases[key]
+            log.warning(
+                "  %s node=%s step=%s phase=%s",
+                key,
+                item.get("node_rank"),
+                item.get("step"),
+                item.get("phase"),
+            )
 
     def _handle_fault(self, failed_node_rank):
         """Handle a detected node failure (or planned fault injection).
@@ -265,6 +304,7 @@ class ElasticWatcher:
             self.rebuild_ready_count = 0
             self.rebuild_ready_nodes = set()
             self.rebuild_ready_steps = {}
+            self.recovery_phases = {}
             self.rebuild_triggered = False
             connections = list(self.node_connections.items())
 
@@ -397,6 +437,8 @@ class ElasticWatcher:
                 log.info(f"[spare-worker] {line.decode().rstrip()}")
             p.wait()
             log.info(f"Spare worker exited with code {p.returncode}")
+            if p.returncode != 0:
+                self._log_recovery_phase_summary("spare-worker-exit")
 
         t = threading.Thread(target=_log_output, args=(proc,), daemon=True)
         t.start()

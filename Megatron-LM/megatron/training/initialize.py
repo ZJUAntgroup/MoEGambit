@@ -161,11 +161,15 @@ def initialize_megatron(
         finish_mpu_init()
 
         if _is_elastic_rebuild_mode():
+            from megatron.training.elastic_client import elastic_report_recovery_phase
+
             logger.warning(
                 "[elastic] REBUILD MODE: skipping cold-start init barriers "
                 "after model-parallel setup"
             )
+            elastic_report_recovery_phase("mpu_ready")
             _compile_dependencies(skip_distributed_barriers=True)
+            elastic_report_recovery_phase("cold_start_deps_ready")
             return None
 
         # Autoresume.
