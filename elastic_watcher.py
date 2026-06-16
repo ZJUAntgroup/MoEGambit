@@ -275,29 +275,24 @@ class ElasticWatcher:
     def _trigger_rebuild(self):
         """All nodes are paused and have destroyed process groups.
 
+        The target rank has already been killed by the target node itself
+        (in elastic_do_rebuild, before sending ready_to_rebuild).
+
         Now:
-        1. Send kill_rank to target node (kills one worker process)
-        2. Launch 1 spare process on this node
-        3. Send rebuild signal to all surviving ranks
+        1. Launch 1 spare process on this node
+        2. Send rebuild signal to all surviving ranks
         """
         log.info(f"All {self.training_nnodes} nodes ready. "
-                 f"Killing rank on node {self.failed_node} local_rank {self.killed_local_rank}...")
+                 f"Target rank already killed (node {self.failed_node} "
+                 f"local_rank {self.killed_local_rank}). Launching spare...")
 
-        # Step 1: Kill the target rank on the target node
-        self._kill_target_rank()
-
-        # Brief delay for the kill to take effect
-        time.sleep(1.0)
-
-        # Step 2: Launch 1 spare process on this node
-        log.info("Launching spare worker process...")
+        # Step 1: Launch 1 spare process on this node
         spare_proc = self._launch_spare_worker()
 
         # Give the spare worker a moment to start
         time.sleep(3.0)
 
-        # Step 3: Signal all nodes to rebuild
-        # The killed rank's global rank = failed_node * nproc_per_node + killed_local_rank
+        # Step 2: Signal all nodes to rebuild
         killed_global_rank = self.failed_node * self.nproc_per_node + self.killed_local_rank
         rebuild_msg = json.dumps({
             "type": "rebuild",
@@ -318,29 +313,6 @@ class ElasticWatcher:
         log.info("Rebuild signal sent to all nodes. Waiting for training to resume...")
         self.recovery_in_progress = False
         self.failed_node = None
-
-    def _kill_target_rank(self):
-        """Send kill_rank command to the target node.
-
-        The target node's elastic_client will kill only the specified
-        local_rank worker process (not the entire node).
-        """
-        target = self.failed_node
-        with self.lock:
-            target_conn = self.node_connections.get(target)
-            if target_conn is not None:
-                kill_msg = json.dumps({
-                    "type": "kill_rank",
-                    "target_node": target,
-                    "local_rank": self.killed_local_rank,
-                }) + "\n"
-                try:
-                    target_conn.sendall(kill_msg.encode())
-                    log.info(f"kill_rank sent to node {target} (local_rank={self.killed_local_rank})")
-                except (BrokenPipeError, OSError) as e:
-                    log.warning(f"Failed to send kill_rank to node {target}: {e}")
-            else:
-                log.warning(f"Node {target} not connected — may already be dead")
 
     def _launch_spare_worker(self):
         """Launch 1 replacement process on this spare node.

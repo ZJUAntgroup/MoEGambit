@@ -454,13 +454,38 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     # Brief sleep to let NCCL resources release
     time.sleep(2.0)
 
+    # If this node is the target node, kill the specified local_rank worker
+    # BEFORE sending ready_to_rebuild.  This way, when the watcher receives
+    # all ready_to_rebuild messages, the target rank is already dead and the
+    # watcher can immediately launch the spare + send rebuild.
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    node_rank = int(os.environ.get("NODE_RANK", "0"))
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    pause_file = os.path.join(fault_dir, "pause_signal")
+
+    if local_rank == 0:
+        # Read pause signal to get target info
+        killed_local_rank = -1
+        failed_node_from_pause = -1
+        try:
+            with open(pause_file, "r") as f:
+                pause_info = json.loads(f.read())
+                failed_node_from_pause = pause_info.get("failed_node", -1)
+                killed_local_rank = pause_info.get("killed_local_rank", -1)
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+
+        if failed_node_from_pause == node_rank and killed_local_rank >= 0:
+            logger.warning(f"[elastic] This is the target node! "
+                           f"Killing local_rank={killed_local_rank} before ready_to_rebuild")
+            _kill_single_worker(killed_local_rank)
+            time.sleep(1.0)  # Let the kill take effect
+
     # Step 1: Wait for rebuild signal from watcher.
     # The watcher will:
     #   - Receive ready_to_rebuild from all nodes
-    #   - Kill the target rank (send kill_rank to target node)
-    #   - Launch spare process
+    #   - Launch spare process (target rank is already dead)
     #   - Send rebuild signal
-    # NOTE: The killed rank will never reach this point (it's dead after kill_rank).
     rebuild_info = elastic_wait_for_rebuild_signal()
     failed_node = rebuild_info.get("failed_node", -1)
     killed_global_rank = rebuild_info.get("killed_global_rank", -1)
