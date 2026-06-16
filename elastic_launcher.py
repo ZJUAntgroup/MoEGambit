@@ -92,6 +92,9 @@ def main():
 
     # Fork worker processes
     processes = []
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    os.makedirs(fault_dir, exist_ok=True)
+
     for local_rank in range(nproc):
         global_rank = node_rank * nproc + local_rank
 
@@ -115,6 +118,11 @@ def main():
         processes.append((local_rank, global_rank, proc))
         print(f"[launcher] Started worker local_rank={local_rank} "
               f"global_rank={global_rank} pid={proc.pid}", flush=True)
+
+        # Write PID file so elastic_client can kill individual workers
+        pid_file = os.path.join(fault_dir, f"worker_pid_{local_rank}")
+        with open(pid_file, "w") as f:
+            f.write(str(proc.pid))
 
     # Wait for all workers to finish
     # Unlike torchrun, we do NOT kill other workers when one exits.

@@ -69,10 +69,13 @@ rm -rf "${ELASTIC_FAULT_DIR}"
 mkdir -p "${ELASTIC_FAULT_DIR}"
 
 # ============================================================================
-# Fault injection: watcher 在 step N 时杀死目标节点
+# Fault injection: watcher 在 step N 时杀死目标节点的指定 local_rank
 # ============================================================================
 FAULT_INJECT_STEP="${FAULT_INJECT_STEP:-19}"
 FAULT_INJECT_NODE="${FAULT_INJECT_NODE:-0}"
+# NOTE: Must NOT be 0 — local_rank=0 holds the TCP connection to watcher.
+# If local_rank=0 is killed, other ranks on that node can't receive rebuild signal.
+FAULT_INJECT_LOCAL_RANK="${FAULT_INJECT_LOCAL_RANK:-1}"
 
 # ============================================================================
 # BSR recovery settings (for surviving nodes during recovery)
@@ -136,7 +139,7 @@ echo "[test-replace] Hot-Spare REPLACEMENT TEST"
 echo "[test-replace] =============================================="
 echo "[test-replace] NODE_RANK:       ${NODE_RANK} $([ "${IS_SPARE}" = "1" ] && echo "(SPARE WATCHER)" || echo "(TRAINING)")"
 echo "[test-replace] Training nodes:  ${TRAINING_NNODES} (${TRAINING_WORLD_SIZE} GPUs)"
-echo "[test-replace] Fault inject:    kill node ${FAULT_INJECT_NODE} at step ${FAULT_INJECT_STEP}"
+echo "[test-replace] Fault inject:    kill node ${FAULT_INJECT_NODE} local_rank ${FAULT_INJECT_LOCAL_RANK} at step ${FAULT_INJECT_STEP}"
 echo "[test-replace] Save interval:   ${SAVE_INTERVAL}"
 echo "[test-replace] Train iters:     ${TRAIN_ITERS}"
 echo "[test-replace] NCCL timeout:    60s (dynamic, after init)"
@@ -149,7 +152,7 @@ echo "[test-replace] =============================================="
 
 if [ "${IS_SPARE}" = "1" ]; then
   echo "[test-replace] Starting elastic watcher on spare node..."
-  echo "[test-replace] Fault injection: kill node ${FAULT_INJECT_NODE} at step ${FAULT_INJECT_STEP}"
+  echo "[test-replace] Fault injection: kill node ${FAULT_INJECT_NODE} local_rank ${FAULT_INJECT_LOCAL_RANK} at step ${FAULT_INJECT_STEP}"
   python3 "${SCRIPT_DIR}/elastic_watcher.py" \
     --port "${ELASTIC_WATCHER_PORT}" \
     --training-nnodes "${TRAINING_NNODES}" \
@@ -158,7 +161,8 @@ if [ "${IS_SPARE}" = "1" ]; then
     --master-port "${MASTER_PORT}" \
     --fault-dir "${ELASTIC_FAULT_DIR}" \
     --fault-inject-step "${FAULT_INJECT_STEP}" \
-    --fault-inject-node "${FAULT_INJECT_NODE}"
+    --fault-inject-node "${FAULT_INJECT_NODE}" \
+    --fault-inject-local-rank "${FAULT_INJECT_LOCAL_RANK}"
   exit $?
 fi
 

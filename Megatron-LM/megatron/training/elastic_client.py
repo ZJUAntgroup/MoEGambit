@@ -6,14 +6,15 @@ that connects to the elastic_watcher on the spare node. When the watcher
 detects a fault and sends a "pause" signal, all ranks on the node pause at
 the next safe point, then coordinate a group rebuild.
 
-Architecture:
-  - Surviving nodes: detect fault (via NCCL exception or heartbeat pause) →
-    destroy_process_group → wait for watcher to launch spare →
-    re-init_process_group (new port) → re-initialize_model_parallel →
-    broadcast params to new rank → resume training
-  - Replacement node: starts fresh via elastic_launcher → init_process_group
-    (same new port) → initialize_model_parallel → receive params from DP peer
-    → join training loop
+Architecture (single-rank replacement):
+  - Watcher sends PAUSE to ALL nodes (including target)
+  - ALL nodes: detect pause → destroy_process_group → send ready_to_rebuild
+  - Watcher: receives all ready → sends kill_rank to target node
+  - Target node: kills only the specified local_rank worker
+  - Watcher: launches 1 spare process on spare node
+  - Watcher: sends rebuild signal to all surviving ranks
+  - All surviving ranks: re-init_process_group → sync params → resume
+  - Spare process: init_process_group → receive params → join training
 
 CRITICAL: elastic_check_pause() must NEVER use dist.all_reduce or any global
 collective.  If a node is dead, a global collective hangs forever.  We use
@@ -155,15 +156,26 @@ class ElasticClient:
                     with _LOCK:
                         _PAUSE_REQUESTED = True
                     # Write pause signal file for other local ranks
-                    _write_pause_signal()
+                    _write_pause_signal(msg)
                     logger.warning(f"[elastic] PAUSE signal received! "
                                    f"Failed node: {msg.get('failed_node')}")
                 elif msg_type == "rebuild":
                     with _LOCK:
                         _REBUILD_INFO = msg
                     logger.info(f"[elastic] REBUILD signal received: {msg}")
+                elif msg_type == "kill_rank":
+                    # Watcher tells us to kill a specific local_rank worker.
+                    # This happens AFTER all nodes have paused and destroyed
+                    # their process groups, so it's safe.
+                    target_node = msg.get("target_node", -1)
+                    target_local_rank = msg.get("local_rank", 0)
+                    if target_node == self.node_rank:
+                        logger.warning(
+                            "[elastic] KILL_RANK received: killing local_rank %d "
+                            "on node %d", target_local_rank, self.node_rank)
+                        _kill_single_worker(target_local_rank)
                 elif msg_type == "kill_node":
-                    # Watcher is telling this node to die (fault injection)
+                    # Legacy: kill entire node (backward compat)
                     target_node = msg.get("target_node", -1)
                     if target_node == self.node_rank:
                         logger.error(
@@ -186,17 +198,54 @@ class ElasticClient:
         })
 
 
-def _write_pause_signal():
+def _write_pause_signal(msg=None):
     """Write the pause signal file so all local ranks can see it."""
     fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
     pause_file = os.path.join(fault_dir, "pause_signal")
     try:
         os.makedirs(fault_dir, exist_ok=True)
+        content = json.dumps(msg) if msg else "1"
         with open(pause_file, "w") as f:
-            f.write("1")
+            f.write(content)
         logger.info("[elastic] Wrote pause signal file: %s", pause_file)
     except OSError as e:
         logger.warning("[elastic] Failed to write pause file: %s", e)
+
+
+def _kill_single_worker(target_local_rank: int):
+    """Kill a single worker process by its local_rank.
+
+    This is called AFTER all process groups have been destroyed, so it's
+    safe — no NCCL operations are in flight.
+
+    The elastic_launcher tracks worker PIDs.  We find the target worker's
+    PID from the launcher's shared state and send SIGKILL to it.
+    """
+    import sys
+
+    # Read the PID file written by elastic_launcher for this local_rank
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    pid_file = os.path.join(fault_dir, f"worker_pid_{target_local_rank}")
+
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, "r") as f:
+                target_pid = int(f.read().strip())
+            logger.warning("[elastic] Killing worker local_rank=%d pid=%d",
+                           target_local_rank, target_pid)
+            os.kill(target_pid, signal_module.SIGKILL)
+            return
+        except (ValueError, ProcessLookupError, PermissionError, OSError) as e:
+            logger.warning("[elastic] Failed to kill via PID file: %s", e)
+
+    # Fallback: if we ARE the target local_rank, kill ourselves
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if local_rank == target_local_rank:
+        logger.warning("[elastic] I am the target rank, killing self (pid=%d)", os.getpid())
+        os.kill(os.getpid(), signal_module.SIGKILL)
+    else:
+        logger.error("[elastic] Cannot find PID for local_rank=%d, no PID file at %s",
+                     target_local_rank, pid_file)
 
 
 def _kill_all_local_workers():
@@ -361,26 +410,22 @@ def elastic_wait_for_rebuild_signal() -> dict:
 
 
 def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
-    """Execute the full group rebuild sequence (SURVIVING nodes only).
+    """Execute the full group rebuild sequence.
 
-    Called when elastic_check_pause() returns True.
-    This function:
-      1. Pauses training (we're already at a safe point)
-      2. Notifies watcher we're ready
-      3. Waits for rebuild signal (spare node has started)
-      4. Destroys current process groups
-      5. Re-initializes process groups (with spare node replacing failed node)
-      6. Re-initializes model parallel groups
-      7. Broadcasts params to new rank (from DP peer)
-      8. Returns to training loop
+    Called when elastic_check_pause() returns True.  ALL nodes (including
+    the target node) go through this path.
 
-    The REPLACEMENT node goes through pretrain() normally with
-    ELASTIC_REBUILD_MODE=1, which makes it:
-      - init_process_group with the new port (rendezvous with surviving nodes)
-      - initialize_model_parallel normally
-      - Skip checkpoint loading
-      - Receive params from DP peer via broadcast
-      - Join the training loop
+    Flow:
+      1. Destroy current process groups (stops NCCL watchdog)
+      2. Notify watcher: ready_to_rebuild
+      3. Wait for rebuild signal (watcher kills target rank + launches spare)
+      4. Re-initialize process groups (with spare replacing dead rank)
+      5. Re-initialize model parallel groups
+      6. Broadcast params to new rank (from DP peer)
+      7. Return to training loop
+
+    The REPLACEMENT process goes through pretrain() normally with
+    ELASTIC_REBUILD_MODE=1.
     """
     from megatron.core import parallel_state as mpu
     from megatron.training.global_vars import get_args
@@ -409,15 +454,22 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     # Brief sleep to let NCCL resources release
     time.sleep(2.0)
 
-    # Step 1: Wait for rebuild signal from watcher
-    # This blocks until watcher confirms spare node is launching
+    # Step 1: Wait for rebuild signal from watcher.
+    # The watcher will:
+    #   - Receive ready_to_rebuild from all nodes
+    #   - Kill the target rank (send kill_rank to target node)
+    #   - Launch spare process
+    #   - Send rebuild signal
+    # NOTE: The killed rank will never reach this point (it's dead after kill_rank).
     rebuild_info = elastic_wait_for_rebuild_signal()
     failed_node = rebuild_info.get("failed_node", -1)
+    killed_global_rank = rebuild_info.get("killed_global_rank", -1)
     new_master_addr = rebuild_info.get("new_master_addr", os.environ.get("MASTER_ADDR"))
     new_master_port = rebuild_info.get("new_master_port", os.environ.get("MASTER_PORT"))
 
     logger.warning(f"[elastic] Rank {rank}: rebuild signal received. "
-                   f"Failed node={failed_node}, new master={new_master_addr}:{new_master_port}")
+                   f"Failed node={failed_node}, killed_rank={killed_global_rank}, "
+                   f"new master={new_master_addr}:{new_master_port}")
 
     # Step 2: Re-initialize process group with new rendezvous
     # Use a NEW port so there's no conflict with the old TCPStore
@@ -444,7 +496,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         timeout=timedelta(minutes=10),
     )
 
-    # Step 4: Re-initialize model parallel groups
+    # Step 3: Re-initialize model parallel groups
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")
     mpu.initialize_model_parallel(
         tensor_model_parallel_size=args.tensor_model_parallel_size,
@@ -453,12 +505,12 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         expert_model_parallel_size=getattr(args, 'expert_model_parallel_size', 1),
     )
 
-    # Step 5: Synchronize parameters to the new rank (DP peer broadcast)
+    # Step 4: Synchronize parameters to the new rank (DP peer broadcast)
     # The new rank (on spare node) has random/zero weights.
     # Broadcast from DP rank 0 to all DP peers for each model chunk.
     _sync_params_to_new_rank(model, optimizer)
 
-    # Step 6: Barrier to ensure all ranks are ready
+    # Step 5: Barrier to ensure all ranks are ready
     dist.barrier()
     logger.warning(f"[elastic] Rank {rank}: rebuild complete, resuming training")
 
