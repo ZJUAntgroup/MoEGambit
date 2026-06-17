@@ -373,6 +373,41 @@ def _elastic_rebuild_timeout(args):
     return timedelta(minutes=timeout_minutes)
 
 
+def _elastic_rebuild_timeout_minutes(args):
+    return int(_elastic_rebuild_timeout(args).total_seconds() // 60)
+
+
+def _initialize_model_parallel_for_rebuild(mpu, args):
+    mpu.initialize_model_parallel(
+        tensor_model_parallel_size=args.tensor_model_parallel_size,
+        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+        virtual_pipeline_model_parallel_size=getattr(
+            args, "virtual_pipeline_model_parallel_size", None
+        ),
+        pipeline_model_parallel_comm_backend=getattr(
+            args, "pipeline_model_parallel_comm_backend", None
+        ),
+        use_sharp=getattr(args, "use_sharp", False),
+        context_parallel_size=getattr(args, "context_parallel_size", 1),
+        hierarchical_context_parallel_sizes=getattr(
+            args, "hierarchical_context_parallel_sizes", None
+        ),
+        expert_model_parallel_size=getattr(args, "expert_model_parallel_size", 1),
+        num_distributed_optimizer_instances=getattr(
+            args, "num_distributed_optimizer_instances", 1
+        ),
+        expert_tensor_parallel_size=getattr(args, "expert_tensor_parallel_size", None),
+        distributed_timeout_minutes=_elastic_rebuild_timeout_minutes(args),
+        nccl_communicator_config_path=getattr(args, "nccl_communicator_config_path", None),
+        order="tp-cp-ep-dp-pp"
+        if not getattr(args, "use_tp_pp_dp_mapping", False)
+        else "tp-cp-ep-pp-dp",
+        create_gloo_process_groups=getattr(args, "enable_gloo_process_groups", True),
+        high_priority_stream_groups=getattr(args, "high_priority_stream_groups", None),
+        sharp_enabled_group=getattr(args, "sharp_enabled_group", None),
+    )
+
+
 def elastic_check_pause() -> bool:
     """Check if a pause has been requested by the watcher.
 
@@ -605,12 +640,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     # Step 3: Re-initialize model parallel groups
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")
-    mpu.initialize_model_parallel(
-        tensor_model_parallel_size=args.tensor_model_parallel_size,
-        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
-        virtual_pipeline_model_parallel_size=getattr(args, 'virtual_pipeline_model_parallel_size', None),
-        expert_model_parallel_size=getattr(args, 'expert_model_parallel_size', 1),
-    )
+    _initialize_model_parallel_for_rebuild(mpu, args)
     elastic_report_recovery_phase("mpu_ready")
 
     # Step 4: Synchronize parameters to the new rank (DP peer broadcast).

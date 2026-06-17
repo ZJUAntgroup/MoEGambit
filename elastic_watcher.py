@@ -411,10 +411,14 @@ class ElasticWatcher:
         env["RANK"] = str(killed_global_rank)
         env["ELASTIC_REPLACEMENT_RANK"] = str(killed_global_rank)
         env["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
+        env["MASTER_ADDR"] = self.master_addr
         env["MASTER_PORT"] = str(int(self.master_port) + 1)  # Rebuild uses new port
+        env["ELASTIC_WATCHER_ADDR"] = self.master_addr
+        env["ELASTIC_WATCHER_PORT"] = str(self.port)
         env["ELASTIC_REBUILD_MODE"] = "1"
         env["NNODES"] = str(self.training_nnodes)
         env["WORLD_SIZE"] = str(self.training_nnodes * self.nproc_per_node)
+        env["PYTHONUNBUFFERED"] = "1"
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
 

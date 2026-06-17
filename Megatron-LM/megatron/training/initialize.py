@@ -40,6 +40,17 @@ def _is_elastic_rebuild_mode():
     return os.environ.get("ELASTIC_REBUILD_MODE") == "1"
 
 
+def _elastic_report_phase_safely(phase, **extra):
+    if not _is_elastic_rebuild_mode():
+        return
+    try:
+        from megatron.training.elastic_client import elastic_report_recovery_phase
+
+        elastic_report_recovery_phase(phase, **extra)
+    except Exception as exc:
+        logger.warning("[elastic] failed to report recovery phase %s: %s", phase, exc)
+
+
 def initialize_megatron(
     extra_args_provider=None,
     args_defaults={},
@@ -167,7 +178,6 @@ def initialize_megatron(
                 "[elastic] REBUILD MODE: skipping cold-start init barriers "
                 "after model-parallel setup"
             )
-            elastic_report_recovery_phase("mpu_ready")
             _compile_dependencies(skip_distributed_barriers=True)
             elastic_report_recovery_phase("cold_start_deps_ready")
             return None
@@ -368,8 +378,15 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             'timeout': timedelta(minutes=args.distributed_timeout_minutes),
         }
 
+        _elastic_report_phase_safely(
+            "init_pg_start",
+            master_addr=os.environ.get("MASTER_ADDR"),
+            master_port=os.environ.get("MASTER_PORT"),
+            world_size=args.world_size,
+        )
         torch.distributed.init_process_group(**init_process_group_kwargs)
         inprocess_restart.maybe_force_nccl_backend_init(device_id)
+        _elastic_report_phase_safely("pg_ready")
 
     # Set the tensor model-parallel, pipeline model-parallel, and
     # data-parallel communicators.
@@ -377,6 +394,7 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
         if mpu.model_parallel_is_initialized():
             print("model parallel is already initialized")
         else:
+            _elastic_report_phase_safely("mpu_init_start")
             mpu.initialize_model_parallel(
                 args.tensor_model_parallel_size,
                 args.pipeline_model_parallel_size,
@@ -397,6 +415,7 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
                 high_priority_stream_groups=args.high_priority_stream_groups,
                 sharp_enabled_group=args.sharp_enabled_group,
             )
+            _elastic_report_phase_safely("mpu_ready")
             if args.rank == 0:
                 print(
                     f"> initialized tensor model parallel with size "
