@@ -407,7 +407,7 @@ def _initialize_model_parallel_for_rebuild(mpu, args):
         order="tp-cp-ep-dp-pp"
         if not getattr(args, "use_tp_pp_dp_mapping", False)
         else "tp-cp-ep-pp-dp",
-        create_gloo_process_groups=getattr(args, "enable_gloo_process_groups", True),
+        create_gloo_process_groups=False,
         high_priority_stream_groups=getattr(args, "high_priority_stream_groups", None),
         sharp_enabled_group=getattr(args, "sharp_enabled_group", None),
     )

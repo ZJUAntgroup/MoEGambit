@@ -766,6 +766,7 @@ def pretrain(
     if _elastic_rebuild:
         _elastic_saved_load = args.load
         args.load = None  # Prevent setup_model_and_optimizer from loading checkpoint
+        args.enable_gloo_process_groups = False
         logger.warning("[elastic] REBUILD MODE: skipping checkpoint load, "
                        "will receive params from DP peer")
 
