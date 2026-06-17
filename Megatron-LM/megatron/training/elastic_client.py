@@ -313,13 +313,18 @@ def _send_one_shot_to_watcher(msg: dict) -> bool:
     if not watcher_addr or not watcher_port:
         return False
 
-    try:
-        with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
-            sock.sendall((json.dumps(msg) + "\n").encode())
-        return True
-    except (OSError, ValueError) as e:
-        logger.warning("[elastic] Failed to send one-shot watcher event: %s", e)
-        return False
+    last_error = None
+    for attempt in range(10):
+        try:
+            with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
+                sock.sendall((json.dumps(msg) + "\n").encode())
+            return True
+        except (OSError, ValueError) as e:
+            last_error = e
+            if attempt < 9:
+                time.sleep(0.2)
+    logger.warning("[elastic] Failed to send one-shot watcher event: %s", last_error)
+    return False
 
 
 def elastic_report_recovery_phase(phase: str, **extra):

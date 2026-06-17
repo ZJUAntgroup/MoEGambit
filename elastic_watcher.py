@@ -82,6 +82,7 @@ class ElasticWatcher:
         self.rebuild_ready_steps = {}
         self.recovery_phases = {}
         self.rebuild_triggered = False
+        self.replacement_ready_event = threading.Event()
         self.lock = threading.Lock()
 
         # Server socket
@@ -214,6 +215,8 @@ class ElasticWatcher:
                     "node_rank": node_rank,
                     "role": role,
                 }
+                if role == "replacement" and phase in ("init_pg_start", "pg_ready"):
+                    self.replacement_ready_event.set()
             log.info(
                 "Recovery phase: role=%s rank=%s node=%s step=%s phase=%s",
                 role, rank, node_rank, step, phase,
@@ -360,12 +363,37 @@ class ElasticWatcher:
                  f"from ready steps {ready_steps}")
 
         # Step 1: Launch 1 spare process on this node
+        self.replacement_ready_event.clear()
         spare_proc = self._launch_spare_worker(
             failed_node, killed_local_rank, resume_iteration
         )
 
-        # Give the spare worker a moment to start
-        time.sleep(3.0)
+        replacement_start_timeout = float(
+            os.environ.get("ELASTIC_REPLACEMENT_START_TIMEOUT", "300")
+        )
+        log.info(
+            "Waiting up to %.1fs for replacement to reach init_pg_start...",
+            replacement_start_timeout,
+        )
+        if not self.replacement_ready_event.wait(timeout=replacement_start_timeout):
+            rc = spare_proc.poll()
+            if rc is None:
+                log.error(
+                    "Replacement did not reach init_pg_start within %.1fs; "
+                    "process is still running with pid=%s. Not sending rebuild "
+                    "signal to avoid deadlocking survivor ranks.",
+                    replacement_start_timeout,
+                    spare_proc.pid,
+                )
+            else:
+                log.error(
+                    "Replacement exited before init_pg_start with code %s. "
+                    "Not sending rebuild signal to avoid deadlocking survivor ranks.",
+                    rc,
+                )
+                self._log_recovery_phase_summary("replacement-start-failed")
+            return
+        log.info("Replacement reached init_pg_start; broadcasting rebuild signal")
 
         # Step 2: Signal all nodes to rebuild
         killed_global_rank = failed_node * self.nproc_per_node + killed_local_rank
@@ -413,7 +441,9 @@ class ElasticWatcher:
         env["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
         env["MASTER_ADDR"] = self.master_addr
         env["MASTER_PORT"] = str(int(self.master_port) + 1)  # Rebuild uses new port
-        env["ELASTIC_WATCHER_ADDR"] = self.master_addr
+        env["ELASTIC_WATCHER_ADDR"] = os.environ.get(
+            "ELASTIC_REPLACEMENT_WATCHER_ADDR", "127.0.0.1"
+        )
         env["ELASTIC_WATCHER_PORT"] = str(self.port)
         env["ELASTIC_REBUILD_MODE"] = "1"
         env["NNODES"] = str(self.training_nnodes)
@@ -433,6 +463,12 @@ class ElasticWatcher:
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+        )
+        log.info(
+            "Spare worker pid=%s started (watcher_addr=%s:%s)",
+            proc.pid,
+            env["ELASTIC_WATCHER_ADDR"],
+            env["ELASTIC_WATCHER_PORT"],
         )
 
         # Log output in background
