@@ -50,6 +50,7 @@ _CLIENT: Optional["ElasticClient"] = None
 _PAUSE_REQUESTED = False
 _REBUILD_INFO: Optional[dict] = None
 _LOCK = threading.Lock()
+_ELASTIC_HOMOGENEOUS_GROUP_CACHE = {}
 
 
 class ElasticClient:
@@ -770,6 +771,42 @@ def _select_dp_sync_src_rank(dp_group, replacement_rank: int) -> int:
     return group_ranks[0]
 
 
+def _get_homogeneous_recovery_group():
+    """Return ranks with the same tensor/pipeline shard as this rank.
+
+    In the current Megatron rank order (pp-last), the built-in data-parallel
+    group may be a contiguous pipeline group. Hot-spare parameter sync needs
+    model-shard-homogeneous ranks instead, otherwise different PP stages try
+    to broadcast different tensors in the same collective.
+    """
+    from megatron.core import parallel_state as mpu
+
+    pp_size = mpu.get_pipeline_model_parallel_world_size()
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
+    world_size = dist.get_world_size()
+    cache_key = (world_size, pp_size)
+
+    cached = _ELASTIC_HOMOGENEOUS_GROUP_CACHE.get(cache_key)
+    if cached is None:
+        groups = []
+        group_ranks = []
+        for pp_idx in range(pp_size):
+            ranks = list(range(pp_idx, world_size, pp_size))
+            group = dist.new_group(
+                ranks=ranks,
+                timeout=timedelta(
+                    minutes=int(os.environ.get("ELASTIC_REBUILD_TIMEOUT_MINUTES", "30"))
+                ),
+            )
+            groups.append(group)
+            group_ranks.append(ranks)
+        cached = (groups, group_ranks)
+        _ELASTIC_HOMOGENEOUS_GROUP_CACHE[cache_key] = cached
+
+    groups, group_ranks = cached
+    return groups[pp_rank], group_ranks[pp_rank], pp_rank
+
+
 def _iter_megatron_optimizers(optimizer):
     if optimizer is None:
         return
@@ -1163,16 +1200,24 @@ def _sync_params_to_new_rank(
     The source must be a *global* rank that belongs to the provided process
     group.
     """
-    from megatron.core import parallel_state as mpu
+    sync_group, sync_group_ranks, pp_rank = _get_homogeneous_recovery_group()
+    if replacement_rank not in sync_group_ranks:
+        logger.info(
+            "[elastic] Rank %d: skipping param sync for pp_rank=%d; "
+            "replacement rank %d is not in homogeneous group %s",
+            dist.get_rank(),
+            pp_rank,
+            replacement_rank,
+            sync_group_ranks,
+        )
+        return
 
-    dp_rank = mpu.get_data_parallel_rank()
-    dp_group = mpu.get_data_parallel_group()
-    sync_src_rank = _select_dp_sync_src_rank(dp_group, replacement_rank)
+    sync_src_rank = _select_dp_sync_src_rank(sync_group, replacement_rank)
 
     rank = dist.get_rank()
     logger.info(
-        f"[elastic] Rank {rank}: syncing dense params "
-        f"(dp_rank={dp_rank}, src={sync_src_rank}, replacement={replacement_rank})"
+        f"[elastic] Rank {rank}: syncing dense params (pp_rank={pp_rank}, "
+        f"group={sync_group_ranks}, src={sync_src_rank}, replacement={replacement_rank})"
     )
 
     if model_param_to_name is None:
@@ -1185,7 +1230,7 @@ def _sync_params_to_new_rank(
                 expert_count += 1
                 continue
             dense_count += 1
-            dist.broadcast(param.data, src=sync_src_rank, group=dp_group)
+            dist.broadcast(param.data, src=sync_src_rank, group=sync_group)
 
     logger.warning(
         "[elastic] Rank %d: dense model param sync complete "
@@ -1194,7 +1239,7 @@ def _sync_params_to_new_rank(
         dense_count,
         expert_count,
     )
-    _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_rank, dp_group)
+    _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_rank, sync_group)
 
     logger.info(f"[elastic] Rank {rank}: param sync complete")
 
