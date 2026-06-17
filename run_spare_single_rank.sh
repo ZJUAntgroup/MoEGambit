@@ -107,6 +107,7 @@ BSR_ARGS=(
   --moe-bsr-stale-expert-restore
   --moe-bsr-recovery-controller
   --moe-bsr-deferred-optimizer-load
+  --no-moe-bsr-weights-first-recovery
   --moe-bsr-degraded-mode-policy
   --moe-bsr-reintegration-barrier
   --moe-bsr-hot-spare-pool

@@ -760,15 +760,24 @@ def pretrain(
     # Start elastic client (heartbeat to watcher on spare node)
     elastic_client_start()
 
-    # Elastic rebuild mode: replacement node skips checkpoint loading.
-    # It will receive params from DP peer after model setup.
+    # Elastic rebuild mode: replacement node loads model weights from the
+    # checkpoint so EP-local experts come from their own shard, then receives
+    # only dense/non-expert params from a live DP peer after model setup.
     _elastic_saved_load = None
+    _elastic_saved_no_load_optim = None
+    _elastic_saved_no_load_rng = None
     if _elastic_rebuild:
         _elastic_saved_load = args.load
-        args.load = None  # Prevent setup_model_and_optimizer from loading checkpoint
+        _elastic_saved_no_load_optim = args.no_load_optim
+        _elastic_saved_no_load_rng = args.no_load_rng
+        args.no_load_optim = False
+        args.no_load_rng = True
         args.enable_gloo_process_groups = False
-        logger.warning("[elastic] REBUILD MODE: skipping checkpoint load, "
-                       "will receive params from DP peer")
+        args.moe_bsr_weights_first_recovery = False
+        args.moe_bsr_async_recovery = False
+        logger.warning("[elastic] REBUILD MODE: loading checkpoint model and "
+                       "optimizer state for experts; dense/non-expert params "
+                       "and optimizer state will be refreshed from DP peer")
 
     app_metrics = {}
     app_metrics['app_start_time'] = round(_TRAIN_START_TIME * 1000.0)
@@ -832,6 +841,8 @@ def pretrain(
     # Elastic rebuild mode: replacement node receives params from DP peer
     if _elastic_rebuild:
         args.load = _elastic_saved_load  # Restore for future checkpoint saves
+        args.no_load_optim = _elastic_saved_no_load_optim
+        args.no_load_rng = _elastic_saved_no_load_rng
         elastic_replacement_sync_params(model, optimizer)
         _elastic_apply_resume_state(args)
         elastic_report_recovery_phase("resume_state_applied")
@@ -1341,7 +1352,7 @@ def setup_model_and_optimizer(
         one_logger and one_logger.log_metrics(
             {'load_checkpoint_start_time': one_logger_utils.get_timestamp_in_ms()}
         )
-        timers('load-checkpoint', log_level=0).start(barrier=True)
+        timers('load-checkpoint', log_level=0).start(barrier=not is_rebuild_mode())
 
         args.iteration, args.num_floating_point_operations_so_far = load_checkpoint(
             model,
@@ -1352,7 +1363,7 @@ def setup_model_and_optimizer(
             and getattr(args, "use_torch_fsdp2", False)
             and args.ckpt_format == "torch_dist",
         )
-        timers('load-checkpoint').stop(barrier=True)
+        timers('load-checkpoint').stop(barrier=not is_rebuild_mode())
         timers.log(['load-checkpoint'])
         one_logger and one_logger.log_metrics(
             {

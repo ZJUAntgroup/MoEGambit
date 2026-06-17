@@ -1722,7 +1722,10 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
             sys.exit()
 
     # Some utilities want to load a checkpoint without distributed being initialized
-    if torch.distributed.is_initialized():
+    if (
+        torch.distributed.is_initialized()
+        and os.environ.get("ELASTIC_REBUILD_MODE") != "1"
+    ):
         torch.distributed.barrier()
 
     print_rank_0(f'  successfully loaded checkpoint from {load_dir} '

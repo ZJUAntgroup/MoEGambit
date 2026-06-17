@@ -763,46 +763,165 @@ def _select_dp_sync_src_rank(dp_group, replacement_rank: int) -> int:
     return group_ranks[0]
 
 
-def _get_single_inner_optimizer_for_state_sync(optimizer):
-    """Return a single torch optimizer when optimizer-state sync is safe."""
+def _iter_megatron_optimizers(optimizer):
     if optimizer is None:
-        return None
-
+        return
     chained_optimizers = getattr(optimizer, "chained_optimizers", None)
     if chained_optimizers is not None:
-        if len(chained_optimizers) != 1:
-            logger.warning(
-                "[elastic] Skipping optimizer-state sync for ChainedOptimizer "
-                "with %d inner optimizers",
-                len(chained_optimizers),
-            )
-            return None
-        optimizer = chained_optimizers[0]
+        for inner in chained_optimizers:
+            yield inner
+    else:
+        yield optimizer
+
+
+def _is_expert_param_name(name: str) -> bool:
+    """Return True for EP-local expert weights that must not be DP-broadcast."""
+    return ".mlp.experts." in name or ".local_experts." in name
+
+
+def _build_model_param_name_map(model):
+    param_to_name = {}
+    for model_chunk in model:
+        for name, param in model_chunk.named_parameters():
+            param_to_name[param] = name
+    return param_to_name
+
+
+def _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name):
+    param_to_name = {}
+
+    float16_groups = getattr(megatron_optimizer, "float16_groups", None)
+    main_groups = getattr(megatron_optimizer, "fp32_from_float16_groups", None)
+    if float16_groups is not None and main_groups is not None:
+        for model_group, main_group in zip(float16_groups, main_groups):
+            for model_param, main_param in zip(model_group, main_group):
+                name = model_param_to_name.get(model_param)
+                if name is not None:
+                    param_to_name[main_param] = name
+
+    fp32_groups = getattr(megatron_optimizer, "fp32_from_fp32_groups", None)
+    if fp32_groups is not None:
+        for group in fp32_groups:
+            for param in group:
+                name = model_param_to_name.get(param)
+                if name is not None:
+                    param_to_name[param] = name
 
     try:
-        inner_optimizer = optimizer.optimizer
-    except (AttributeError, AssertionError) as e:
-        logger.warning("[elastic] Skipping optimizer-state sync: %s", e)
-        return None
+        inner_optimizer = megatron_optimizer.optimizer
+    except (AttributeError, AssertionError):
+        inner_optimizer = None
 
-    if not hasattr(inner_optimizer, "param_groups") or not hasattr(inner_optimizer, "state"):
-        logger.warning("[elastic] Skipping optimizer-state sync: unsupported optimizer type")
-        return None
+    if inner_optimizer is not None:
+        for group in getattr(inner_optimizer, "param_groups", []):
+            for param in group.get("params", []):
+                if param not in param_to_name:
+                    name = model_param_to_name.get(param)
+                    if name is not None:
+                        param_to_name[param] = name
 
-    return inner_optimizer
+    return inner_optimizer, param_to_name
+
+
+def _broadcast_optimizer_state_tensor(val, src_rank, group, device):
+    if val.is_cuda:
+        dist.broadcast(val, src=src_rank, group=group)
+        return
+
+    if isinstance(device, torch.device) and device.type == "cuda":
+        broadcast_device = device
+    else:
+        broadcast_device = torch.device("cuda", torch.cuda.current_device())
+
+    tmp = val.to(device=broadcast_device, non_blocking=True)
+    dist.broadcast(tmp, src=src_rank, group=group)
+    val.copy_(tmp.to(device=val.device))
+
+
+def _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_rank, dp_group):
+    rank = dist.get_rank()
+    main_param_count = 0
+    state_tensor_count = 0
+    skipped_state_count = 0
+    unmapped_count = 0
+
+    for megatron_optimizer in _iter_megatron_optimizers(optimizer):
+        inner_optimizer, optim_param_to_name = _build_optimizer_param_name_map(
+            megatron_optimizer, model_param_to_name
+        )
+        if inner_optimizer is None:
+            logger.warning(
+                "[elastic] Rank %d: skipping optimizer-state sync for unsupported "
+                "optimizer wrapper %s",
+                rank,
+                type(megatron_optimizer).__name__,
+            )
+            continue
+
+        for group in getattr(inner_optimizer, "param_groups", []):
+            for param in group.get("params", []):
+                name = optim_param_to_name.get(param)
+                if name is None:
+                    unmapped_count += 1
+                    continue
+                if _is_expert_param_name(name):
+                    continue
+
+                _broadcast_optimizer_state_tensor(
+                    param.data, sync_src_rank, dp_group, param.device
+                )
+                main_param_count += 1
+
+                state = inner_optimizer.state.get(param, None)
+                has_tensor_state = int(
+                    state is not None and any(
+                        isinstance(val, torch.Tensor) for val in state.values()
+                    )
+                )
+                reduce_device = (
+                    param.device
+                    if isinstance(param.device, torch.device) and param.device.type == "cuda"
+                    else torch.device("cuda", torch.cuda.current_device())
+                )
+                has_tensor_state_tensor = torch.tensor(
+                    [has_tensor_state], dtype=torch.int32, device=reduce_device
+                )
+                dist.all_reduce(
+                    has_tensor_state_tensor,
+                    op=dist.ReduceOp.MIN,
+                    group=dp_group,
+                )
+                if has_tensor_state_tensor.item() == 0:
+                    skipped_state_count += 1
+                    continue
+
+                for _, val in state.items():
+                    if isinstance(val, torch.Tensor):
+                        _broadcast_optimizer_state_tensor(
+                            val, sync_src_rank, dp_group, param.device
+                        )
+                        state_tensor_count += 1
+
+    logger.warning(
+        "[elastic] Rank %d: non-expert optimizer sync complete "
+        "(main_params=%d, state_tensors=%d, skipped=%d, unmapped=%d)",
+        rank,
+        main_param_count,
+        state_tensor_count,
+        skipped_state_count,
+        unmapped_count,
+    )
 
 
 def _sync_params_to_new_rank(model, optimizer, replacement_rank: int = -1):
-    """Broadcast model parameters from a surviving DP peer to all DP peers.
+    """Broadcast dense/non-expert model and optimizer state from a DP peer.
 
-    After group rebuild, the replacement rank has random/zero weights.
-    We broadcast from a surviving rank within each DP group so the new rank
-    gets the correct parameters.  The source must be a *global* rank that
-    belongs to the provided process group.
-
-    Optimizer state sync is best-effort.  For multi-optimizer MoE chains we
-    skip it because the chain wrapper does not expose a single safe underlying
-    optimizer.
+    After group rebuild, the replacement rank restores EP-local expert weights
+    and expert optimizer state from its checkpoint shard. Dense/non-expert
+    parameters are DP-replicated, so we broadcast model weights, main params,
+    and tensor optimizer state from a surviving rank within each DP group.
+    The source must be a *global* rank that belongs to the provided process
+    group.
     """
     from megatron.core import parallel_state as mpu
 
@@ -812,51 +931,29 @@ def _sync_params_to_new_rank(model, optimizer, replacement_rank: int = -1):
 
     rank = dist.get_rank()
     logger.info(
-        f"[elastic] Rank {rank}: syncing params "
+        f"[elastic] Rank {rank}: syncing dense params "
         f"(dp_rank={dp_rank}, src={sync_src_rank}, replacement={replacement_rank})"
     )
 
-    # Broadcast model parameters
+    model_param_to_name = _build_model_param_name_map(model)
+    dense_count = 0
+    expert_count = 0
     for model_chunk in model:
-        for param in model_chunk.parameters():
+        for name, param in model_chunk.named_parameters():
+            if _is_expert_param_name(name):
+                expert_count += 1
+                continue
+            dense_count += 1
             dist.broadcast(param.data, src=sync_src_rank, group=dp_group)
 
-    # Broadcast optimizer state (momentum, variance) for smooth continuation
-    # when every rank has matching tensor state.  A replacement worker that did
-    # not load a checkpoint may have empty optimizer state; in that case all
-    # ranks skip optimizer-state sync for that parameter to keep the collective
-    # schedule consistent.
-    inner_opt = _get_single_inner_optimizer_for_state_sync(optimizer)
-    if inner_opt is not None:
-        skipped_optimizer_state = False
-        for group in inner_opt.param_groups:
-            for p in group['params']:
-                state = inner_opt.state.get(p, None)
-                has_tensor_state = int(
-                    state is not None and any(isinstance(val, torch.Tensor) for val in state.values())
-                )
-                has_tensor_state_tensor = torch.tensor(
-                    [has_tensor_state], dtype=torch.int32, device=p.device
-                )
-                dist.all_reduce(
-                    has_tensor_state_tensor,
-                    op=dist.ReduceOp.MIN,
-                    group=dp_group,
-                )
-                if has_tensor_state_tensor.item() == 0:
-                    skipped_optimizer_state = True
-                    continue
-
-                for key, val in state.items():
-                    if isinstance(val, torch.Tensor):
-                        dist.broadcast(val, src=sync_src_rank, group=dp_group)
-
-        if skipped_optimizer_state:
-            logger.warning(
-                "[elastic] Rank %d: skipped some optimizer-state sync because "
-                "at least one DP peer had no tensor state",
-                rank,
-            )
+    logger.warning(
+        "[elastic] Rank %d: dense model param sync complete "
+        "(broadcast=%d, expert_from_ckpt=%d)",
+        rank,
+        dense_count,
+        expert_count,
+    )
+    _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_rank, dp_group)
 
     logger.info(f"[elastic] Rank {rank}: param sync complete")
 
