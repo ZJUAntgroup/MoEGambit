@@ -899,10 +899,11 @@ def pretrain(
 
     # Print setup timing.
     print_rank_0('done with setup ...')
-    timers.log(
-        ['model-and-optimizer-setup', 'train/valid/test-data-iterators-setup'],
-        barrier=not _elastic_rebuild,
-    )
+    if not _elastic_rebuild:
+        timers.log(
+            ['model-and-optimizer-setup', 'train/valid/test-data-iterators-setup'],
+            barrier=True,
+        )
 
     one_logger = get_one_logger()
     one_logger and one_logger.log_metrics(app_metrics)
@@ -1367,8 +1368,11 @@ def setup_model_and_optimizer(
             and getattr(args, "use_torch_fsdp2", False)
             and args.ckpt_format == "torch_dist",
         )
+        if is_rebuild_mode():
+            elastic_report_recovery_phase("checkpoint_loaded")
         timers('load-checkpoint').stop(barrier=not is_rebuild_mode())
-        timers.log(['load-checkpoint'])
+        if not is_rebuild_mode():
+            timers.log(['load-checkpoint'])
         one_logger and one_logger.log_metrics(
             {
                 'load_checkpoint_finish_time': one_logger_utils.get_timestamp_in_ms(),
