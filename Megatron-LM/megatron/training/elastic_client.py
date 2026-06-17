@@ -1063,7 +1063,7 @@ def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
 
 def _broadcast_optimizer_state_tensor(val, src_rank, group, device):
     if val.is_cuda:
-        dist.broadcast(val, src=src_rank, group=group)
+        _broadcast_tensor_chunked(val, src_rank, group, label="optimizer-state")
         return
 
     if isinstance(device, torch.device) and device.type == "cuda":
@@ -1072,8 +1072,104 @@ def _broadcast_optimizer_state_tensor(val, src_rank, group, device):
         broadcast_device = torch.device("cuda", torch.cuda.current_device())
 
     tmp = val.to(device=broadcast_device, non_blocking=True)
-    dist.broadcast(tmp, src=src_rank, group=group)
+    _broadcast_tensor_chunked(tmp, src_rank, group, label="optimizer-state")
     val.copy_(tmp.to(device=val.device))
+
+
+def _stable_hash_int(text: str) -> int:
+    # FNV-1a 63-bit hash: stable across Python processes and cheap enough per tensor.
+    value = 1469598103934665603
+    for byte in text.encode("utf-8", errors="replace"):
+        value ^= byte
+        value = (value * 1099511628211) & ((1 << 64) - 1)
+    return value & ((1 << 63) - 1)
+
+
+def _dtype_code(dtype) -> int:
+    return _stable_hash_int(str(dtype)) & ((1 << 31) - 1)
+
+
+def _shape_hash(shape) -> int:
+    return _stable_hash_int(",".join(str(dim) for dim in shape))
+
+
+def _broadcast_tensor_chunked(tensor, src_rank, group, label: str):
+    if tensor.numel() == 0:
+        return
+
+    chunk_mb = int(os.environ.get("ELASTIC_PARAM_SYNC_CHUNK_MB", "256"))
+    chunk_bytes = max(1, chunk_mb) * 1024 * 1024
+    max_elems = max(1, chunk_bytes // max(1, tensor.element_size()))
+
+    if tensor.numel() <= max_elems:
+        dist.broadcast(tensor, src=src_rank, group=group)
+        return
+
+    rank = dist.get_rank()
+    if rank == src_rank:
+        logger.info(
+            "[elastic] Rank %d: chunked broadcast %s "
+            "(numel=%d, dtype=%s, chunk_mb=%d)",
+            rank,
+            label,
+            tensor.numel(),
+            tensor.dtype,
+            chunk_mb,
+        )
+
+    original_tensor = tensor
+    if tensor.is_contiguous():
+        flat = tensor.view(-1)
+        needs_copy_back = False
+    else:
+        flat = tensor.contiguous().view(-1)
+        needs_copy_back = rank != src_rank
+
+    for start in range(0, flat.numel(), max_elems):
+        dist.broadcast(flat[start : start + max_elems], src=src_rank, group=group)
+
+    if needs_copy_back:
+        original_tensor.copy_(flat.view_as(original_tensor))
+
+
+def _validate_param_broadcast_manifest(name, param, index, src_rank, group):
+    device = param.device if param.is_cuda else torch.device("cuda", torch.cuda.current_device())
+    local_meta = torch.tensor(
+        [
+            index,
+            param.numel(),
+            len(param.shape),
+            _shape_hash(param.shape),
+            _dtype_code(param.dtype),
+            _stable_hash_int(name),
+        ],
+        dtype=torch.long,
+        device=device,
+    )
+    src_meta = local_meta.clone()
+    dist.broadcast(src_meta, src=src_rank, group=group)
+    mismatch = torch.tensor(
+        [0 if torch.equal(local_meta, src_meta) else 1],
+        dtype=torch.int32,
+        device=device,
+    )
+    dist.all_reduce(mismatch, op=dist.ReduceOp.MAX, group=group)
+    if mismatch.item() != 0:
+        logger.error(
+            "[elastic] Rank %d: dense param manifest mismatch at index=%d "
+            "(local name=%s shape=%s dtype=%s meta=%s src_meta=%s)",
+            dist.get_rank(),
+            index,
+            name,
+            tuple(param.shape),
+            param.dtype,
+            local_meta.detach().cpu().tolist(),
+            src_meta.detach().cpu().tolist(),
+        )
+        raise RuntimeError(
+            "[elastic] dense param sync manifest mismatch; "
+            "replacement and source ranks do not have identical dense parameter order"
+        )
 
 
 def _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_rank, dp_group):
@@ -1199,7 +1295,22 @@ def _sync_params_to_new_rank(
                 expert_count += 1
                 continue
             dense_count += 1
-            dist.broadcast(param.data, src=sync_src_rank, group=sync_group)
+            _validate_param_broadcast_manifest(
+                name, param.data, dense_count, sync_src_rank, sync_group
+            )
+            if dense_count <= 3 or param.data.numel() * param.data.element_size() >= 128 * 1024 * 1024:
+                logger.info(
+                    "[elastic] Rank %d: broadcasting dense param %d name=%s "
+                    "shape=%s dtype=%s",
+                    rank,
+                    dense_count,
+                    name,
+                    tuple(param.data.shape),
+                    param.data.dtype,
+                )
+            _broadcast_tensor_chunked(
+                param.data, sync_src_rank, sync_group, label=f"dense-param:{name}"
+            )
 
     logger.warning(
         "[elastic] Rank %d: dense model param sync complete "
