@@ -762,7 +762,10 @@ def pretrain(
 
     # Elastic rebuild mode: replacement node loads model weights from the
     # checkpoint so EP-local experts come from their own shard, then receives
-    # only dense/non-expert params from a live DP peer after model setup.
+    # dense/non-expert params and optimizer state from a live DP peer after
+    # model setup. The regular optimizer checkpoint loader can issue
+    # world-size collectives, so it must not run before the replacement is
+    # ready and survivors have entered the rebuild protocol.
     _elastic_saved_load = None
     _elastic_saved_no_load_optim = None
     _elastic_saved_no_load_rng = None
@@ -770,14 +773,15 @@ def pretrain(
         _elastic_saved_load = args.load
         _elastic_saved_no_load_optim = args.no_load_optim
         _elastic_saved_no_load_rng = args.no_load_rng
-        args.no_load_optim = False
+        args.no_load_optim = True
         args.no_load_rng = True
         args.enable_gloo_process_groups = False
         args.moe_bsr_weights_first_recovery = False
         args.moe_bsr_async_recovery = False
-        logger.warning("[elastic] REBUILD MODE: loading checkpoint model and "
-                       "optimizer state for experts; dense/non-expert params "
-                       "and optimizer state will be refreshed from DP peer")
+        logger.warning("[elastic] REBUILD MODE: loading checkpoint model "
+                       "weights and optimizer metadata only; expert optimizer "
+                       "tensors will be restored locally and dense/non-expert "
+                       "state will be refreshed from DP peer")
 
     app_metrics = {}
     app_metrics['app_start_time'] = round(_TRAIN_START_TIME * 1000.0)
@@ -834,7 +838,7 @@ def pretrain(
     if _elastic_rebuild:
         elastic_report_recovery_phase("model_optimizer_ready")
 
-    timers('model-and-optimizer-setup').stop()
+    timers('model-and-optimizer-setup').stop(barrier=not _elastic_rebuild)
     print_datetime('after model, optimizer, and learning rate ' 'scheduler are built')
     config = get_model_config(model[0])
 

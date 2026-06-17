@@ -741,8 +741,15 @@ def elastic_replacement_sync_params(model, optimizer):
     a surviving DP peer.
     """
     replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", os.environ.get("RANK", "0")))
+    model_param_to_name = _build_model_param_name_map(model)
+    _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
     elastic_report_recovery_phase("param_sync_start")
-    _sync_params_to_new_rank(model, optimizer, replacement_rank=replacement_rank)
+    _sync_params_to_new_rank(
+        model,
+        optimizer,
+        replacement_rank=replacement_rank,
+        model_param_to_name=model_param_to_name,
+    )
     elastic_report_recovery_phase("param_sync_done")
     _elastic_barrier("rebuild-final")
     elastic_report_recovery_phase("train_ready")
@@ -821,6 +828,237 @@ def _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name):
                         param_to_name[param] = name
 
     return inner_optimizer, param_to_name
+
+
+def _get_local_distributed_optimizer_checkpoint_name():
+    from megatron.training import get_args
+    from megatron.training.checkpointing import (
+        get_checkpoint_name,
+        get_checkpoint_tracker_filename,
+        get_distributed_optimizer_checkpoint_name,
+        isfile,
+        read_metadata,
+    )
+
+    args = get_args()
+    if not getattr(args, "use_distributed_optimizer", False):
+        return None
+
+    load_dir = getattr(args, "load", None)
+    if load_dir is None:
+        return None
+
+    tracker_filename = get_checkpoint_tracker_filename(load_dir)
+    if not isfile(tracker_filename):
+        logger.warning(
+            "[elastic] Replacement node: no checkpoint tracker at %s; "
+            "expert optimizer state will not be loaded",
+            tracker_filename,
+        )
+        return None
+
+    iteration, release = read_metadata(tracker_filename)
+    if getattr(args, "ckpt_step", None):
+        iteration = args.ckpt_step
+
+    model_checkpoint_name = get_checkpoint_name(load_dir, iteration, release)
+    optim_checkpoint_name = get_distributed_optimizer_checkpoint_name(model_checkpoint_name)
+    if not isfile(optim_checkpoint_name):
+        logger.warning(
+            "[elastic] Replacement node: distributed optimizer checkpoint %s "
+            "does not exist; expert optimizer state will not be loaded",
+            optim_checkpoint_name,
+        )
+        return None
+
+    return optim_checkpoint_name
+
+
+def _ensure_distributed_optimizer_tensor_state(megatron_optimizer):
+    inner_optimizer = getattr(megatron_optimizer, "optimizer", None)
+    if inner_optimizer is None:
+        return False
+
+    has_tensor_state = any(
+        any(isinstance(val, torch.Tensor) for val in state.values())
+        for state in getattr(inner_optimizer, "state", {}).values()
+    )
+    if has_tensor_state:
+        return True
+
+    init_fn = getattr(megatron_optimizer, "_init_optimizer_states_with_dummy_values", None)
+    if init_fn is None:
+        return False
+
+    init_fn()
+    return any(
+        any(isinstance(val, torch.Tensor) for val in state.values())
+        for state in getattr(inner_optimizer, "state", {}).values()
+    )
+
+
+def _state_dict_for_megatron_optimizer(all_states, state_index):
+    if isinstance(all_states, list):
+        if state_index >= len(all_states):
+            return None, state_index + 1
+        return all_states[state_index], state_index + 1
+    return all_states, state_index + 1
+
+
+@torch.no_grad()
+def _copy_expert_state_from_dp_zero_world_tensors(
+    megatron_optimizer, state_dict, model_param_to_name
+):
+    if not state_dict:
+        return 0, 0, 0
+    if not hasattr(megatron_optimizer, "gbuf_ranges"):
+        return 0, 0, 0
+    if not hasattr(megatron_optimizer, "_set_main_param_and_optimizer_states"):
+        return 0, 0, 0
+
+    data_parallel_group = getattr(megatron_optimizer, "data_parallel_group", None)
+    if data_parallel_group is None:
+        return 0, 0, 0
+
+    data_parallel_world_size = data_parallel_group.size()
+    data_parallel_rank = data_parallel_group.rank()
+    loaded_params = 0
+    loaded_tensors = 0
+    skipped_params = 0
+
+    split_if_needed = getattr(megatron_optimizer, "split_state_dict_if_needed", None)
+    if split_if_needed is not None:
+        split_if_needed(state_dict)
+
+    for gbuf_idx, gbuf_range_maps in enumerate(megatron_optimizer.gbuf_ranges):
+        if gbuf_idx not in state_dict:
+            continue
+        for dtype, gbuf_range_map_for_all_buckets in gbuf_range_maps.items():
+            if dtype not in state_dict[gbuf_idx]:
+                continue
+            dtype_state = state_dict[gbuf_idx][dtype]
+            offset_in_world_tensors = 0
+
+            for bucket_idx, gbuf_range_map in enumerate(gbuf_range_map_for_all_buckets):
+                bucket = megatron_optimizer.buffers[gbuf_idx].buckets[bucket_idx]
+                gbuf_world_numel = bucket.grad_data.numel()
+                if gbuf_world_numel % data_parallel_world_size != 0:
+                    raise RuntimeError(
+                        "[elastic] Cannot load expert optimizer state: bucket size "
+                        f"{gbuf_world_numel} is not divisible by DP size {data_parallel_world_size}"
+                    )
+
+                gbuf_local_numel = gbuf_world_numel // data_parallel_world_size
+                gbuf_world_numel_unpadded = bucket.numel_unpadded
+                local_start = data_parallel_rank * gbuf_local_numel
+                local_end = local_start + gbuf_local_numel
+                local_shards = {}
+
+                for key in ("param", "exp_avg", "exp_avg_sq"):
+                    world_tensors = dtype_state.get(key)
+                    if world_tensors is None:
+                        continue
+                    start = offset_in_world_tensors
+                    end = start + gbuf_world_numel_unpadded
+                    if end > world_tensors.numel():
+                        raise RuntimeError(
+                            "[elastic] Cannot load expert optimizer state: "
+                            f"checkpoint tensor {key} for gbuf {gbuf_idx} bucket "
+                            f"{bucket_idx} is too short ({world_tensors.numel()} < {end})"
+                        )
+                    world_tensor = world_tensors[start:end]
+                    world_tensor = torch.nn.functional.pad(
+                        world_tensor, (0, gbuf_world_numel - gbuf_world_numel_unpadded)
+                    )
+                    local_shards[key] = world_tensor[local_start:local_end]
+
+                offset_in_world_tensors += gbuf_world_numel_unpadded
+                if set(local_shards) != {"param", "exp_avg", "exp_avg_sq"}:
+                    skipped_params += len(gbuf_range_map["param_map"])
+                    continue
+
+                for model_param, param_range_map in gbuf_range_map["param_map"].items():
+                    name = model_param_to_name.get(model_param)
+                    if name is None or not _is_expert_param_name(name):
+                        continue
+
+                    gbuf_local_start = param_range_map["gbuf_local"].start
+                    gbuf_local_end = param_range_map["gbuf_local"].end
+                    tensors = {
+                        key: shard[gbuf_local_start:gbuf_local_end]
+                        for key, shard in local_shards.items()
+                    }
+                    megatron_optimizer._set_main_param_and_optimizer_states(model_param, tensors)
+                    loaded_params += 1
+                    loaded_tensors += len(tensors)
+
+    return loaded_params, loaded_tensors, skipped_params
+
+
+def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name):
+    if optimizer is None:
+        return
+
+    optim_checkpoint_name = _get_local_distributed_optimizer_checkpoint_name()
+    if optim_checkpoint_name is None:
+        return
+
+    try:
+        all_states = torch.load(optim_checkpoint_name, map_location="cpu")
+    except Exception:
+        logger.exception(
+            "[elastic] Replacement node: failed to load distributed optimizer "
+            "checkpoint %s",
+            optim_checkpoint_name,
+        )
+        return
+
+    total_loaded_params = 0
+    total_loaded_tensors = 0
+    total_skipped_params = 0
+    unsupported = 0
+    state_index = 0
+
+    for megatron_optimizer in _iter_megatron_optimizers(optimizer):
+        if not hasattr(megatron_optimizer, "load_parameter_state_from_dp_zero"):
+            unsupported += 1
+            continue
+
+        state_dict, state_index = _state_dict_for_megatron_optimizer(all_states, state_index)
+        if state_dict is None:
+            continue
+
+        if not _ensure_distributed_optimizer_tensor_state(megatron_optimizer):
+            unsupported += 1
+            continue
+
+        try:
+            loaded_params, loaded_tensors, skipped_params = (
+                _copy_expert_state_from_dp_zero_world_tensors(
+                    megatron_optimizer, state_dict, model_param_to_name
+                )
+            )
+        except Exception:
+            logger.exception(
+                "[elastic] Replacement node: local expert optimizer load "
+                "failed for optimizer %s; continuing with model-weight "
+                "checkpoint state and peer-synced non-expert optimizer state",
+                type(megatron_optimizer).__name__,
+            )
+            continue
+        total_loaded_params += loaded_params
+        total_loaded_tensors += loaded_tensors
+        total_skipped_params += skipped_params
+
+    logger.warning(
+        "[elastic] Replacement node: local expert optimizer load complete "
+        "(file=%s, expert_params=%d, tensors=%d, skipped=%d, unsupported=%d)",
+        optim_checkpoint_name,
+        total_loaded_params,
+        total_loaded_tensors,
+        total_skipped_params,
+        unsupported,
+    )
 
 
 def _broadcast_optimizer_state_tensor(val, src_rank, group, device):
@@ -913,7 +1151,9 @@ def _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_ra
     )
 
 
-def _sync_params_to_new_rank(model, optimizer, replacement_rank: int = -1):
+def _sync_params_to_new_rank(
+    model, optimizer, replacement_rank: int = -1, model_param_to_name=None
+):
     """Broadcast dense/non-expert model and optimizer state from a DP peer.
 
     After group rebuild, the replacement rank restores EP-local expert weights
@@ -935,7 +1175,8 @@ def _sync_params_to_new_rank(model, optimizer, replacement_rank: int = -1):
         f"(dp_rank={dp_rank}, src={sync_src_rank}, replacement={replacement_rank})"
     )
 
-    model_param_to_name = _build_model_param_name_map(model)
+    if model_param_to_name is None:
+        model_param_to_name = _build_model_param_name_map(model)
     dense_count = 0
     expert_count = 0
     for model_chunk in model:

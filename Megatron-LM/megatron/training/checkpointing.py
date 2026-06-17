@@ -62,6 +62,11 @@ _CHECKPOINT_VERSION = None
 logger = getLogger(__name__)
 _NON_PERSISTENT_CKPT_SUBDIR = 'non_persistent'
 
+
+def _is_elastic_rebuild_mode():
+    return os.environ.get("ELASTIC_REBUILD_MODE") == "1"
+
+
 def set_checkpoint_version(value):
     global _CHECKPOINT_VERSION
     if _CHECKPOINT_VERSION is not None:
@@ -282,7 +287,7 @@ def read_metadata(tracker_filename):
         tracker_filename)
 
     # Get the max iteration retrieved across the ranks.
-    if torch.distributed.is_initialized():
+    if torch.distributed.is_initialized() and not _is_elastic_rebuild_mode():
         iters_cuda = torch.tensor([iteration], dtype=torch.long, device='cuda')
         torch.distributed.all_reduce(iters_cuda, op=torch.distributed.ReduceOp.MAX)
         max_iter = iters_cuda[0].item()
@@ -1660,6 +1665,20 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
                          'exiting ...'.format(checkpoint_name))
             raise e
     else:
+        if (
+            _is_elastic_rebuild_mode()
+            and not release
+            and not args.finetune
+            and optimizer is not None
+            and not optimizer.is_stub_optimizer
+            and 'optimizer' in state_dict
+        ):
+            optimizer.load_state_dict(state_dict['optimizer'])
+            if opt_param_scheduler is not None:
+                if 'lr_scheduler' in state_dict:
+                    opt_param_scheduler.load_state_dict(state_dict['lr_scheduler'])
+                elif 'opt_param_scheduler' in state_dict:
+                    opt_param_scheduler.load_state_dict(state_dict['opt_param_scheduler'])
         if (args.fp16 or args.bf16) and optimizer is not None:
             if args.load_main_params_from_ckpt:
                 optimizer.reload_model_params(state_dict=state_dict)
