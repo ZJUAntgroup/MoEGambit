@@ -689,21 +689,22 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
     if killed_global_rank >= 0:
         logger.warning(
-            "[elastic] Rank %d: waiting for replacement rank %d mpu_ready",
+            "[elastic] Rank %d: waiting for replacement rank %d model_optimizer_ready",
             rank,
             killed_global_rank,
         )
         if not elastic_wait_for_recovery_phase(
-            "replacement", killed_global_rank, "mpu_ready", phase_timeout
+            "replacement", killed_global_rank, "model_optimizer_ready", phase_timeout
         ):
             raise RuntimeError(
                 f"[elastic] Replacement rank {killed_global_rank} did not reach "
-                f"mpu_ready within {phase_timeout}s"
+                f"model_optimizer_ready within {phase_timeout}s"
             )
 
     # Step 4: Synchronize parameters to the new rank (DP peer broadcast).
     # The replacement rank has random/zero weights, so choose a surviving
     # rank in each DP group as the source.
+    elastic_report_recovery_phase("param_sync_start")
     _sync_params_to_new_rank(model, optimizer, replacement_rank=killed_global_rank)
     elastic_report_recovery_phase("param_sync_done")
 
