@@ -83,6 +83,8 @@ class ElasticWatcher:
         self.recovery_phases = {}
         self.rebuild_triggered = False
         self.replacement_ready_event = threading.Event()
+        self.standby_proc = None
+        self.standby_assignment_file = self.fault_dir / "spare_assignment.json"
         self.lock = threading.Lock()
 
         # Server socket
@@ -111,6 +113,8 @@ class ElasticWatcher:
         checker = threading.Thread(target=self._heartbeat_checker, daemon=True)
         checker.start()
 
+        self._start_standby_worker()
+
         # Accept loop
         while self.running:
             try:
@@ -128,6 +132,11 @@ class ElasticWatcher:
     def _signal_handler(self, signum, frame):
         log.info(f"Received signal {signum}, shutting down")
         self.running = False
+        if self.standby_proc is not None and self.standby_proc.poll() is None:
+            try:
+                self.standby_proc.terminate()
+            except OSError:
+                pass
 
     def _handle_connection(self, conn, addr):
         """Handle a single training node connection."""
@@ -424,14 +433,8 @@ class ElasticWatcher:
             self.rebuild_ready_nodes = set()
             self.rebuild_ready_steps = {}
 
-    def _launch_spare_worker(self, failed_node, killed_local_rank, resume_iteration=-1):
-        """Launch 1 replacement process on this spare node.
-
-        The replacement process takes over the killed rank's global position.
-        """
+    def _build_spare_env(self, failed_node, killed_local_rank, resume_iteration=-1):
         killed_global_rank = failed_node * self.nproc_per_node + killed_local_rank
-        log.info(f"Launching spare: replacing global_rank={killed_global_rank} "
-                 f"(node {failed_node}, local_rank {killed_local_rank})")
 
         env = os.environ.copy()
         env["NODE_RANK"] = str(failed_node)
@@ -451,15 +454,115 @@ class ElasticWatcher:
         env["PYTHONUNBUFFERED"] = "1"
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
+        return env
 
-        # Launch a single training process (not elastic_launcher with 8 workers)
+    def _script_cmd(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        cmd = [
-            "bash", os.path.join(script_dir, "run_spare_single_rank.sh"),
-        ]
+        return ["bash", os.path.join(script_dir, "run_spare_single_rank.sh")]
+
+    def _log_spare_output(self, proc, label):
+        for line in iter(proc.stdout.readline, b""):
+            log.info(f"[{label}] {line.decode().rstrip()}")
+        proc.wait()
+        log.info(f"{label} exited with code {proc.returncode}")
+        if proc.returncode != 0:
+            self._log_recovery_phase_summary(f"{label}-exit")
+
+    def _start_standby_worker(self):
+        if os.environ.get("ELASTIC_PRESTART_SPARE", "1") != "1":
+            log.info("Warm standby disabled (ELASTIC_PRESTART_SPARE != 1)")
+            return
+
+        if self.standby_proc is not None and self.standby_proc.poll() is None:
+            return
+
+        try:
+            self.standby_assignment_file.unlink()
+        except OSError:
+            pass
+
+        env = os.environ.copy()
+        env["ELASTIC_STANDBY_MODE"] = "1"
+        env["ELASTIC_SPARE_ASSIGNMENT_FILE"] = str(self.standby_assignment_file)
+        env["ELASTIC_WATCHER_ADDR"] = os.environ.get(
+            "ELASTIC_REPLACEMENT_WATCHER_ADDR", "127.0.0.1"
+        )
+        env["ELASTIC_WATCHER_PORT"] = str(self.port)
+        env["PYTHONUNBUFFERED"] = "1"
 
         proc = subprocess.Popen(
-            cmd,
+            self._script_cmd(),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        self.standby_proc = proc
+        log.info(
+            "Warm standby worker pid=%s started; waiting on %s",
+            proc.pid,
+            self.standby_assignment_file,
+        )
+        t = threading.Thread(
+            target=self._log_spare_output,
+            args=(proc, "spare-standby"),
+            daemon=True,
+        )
+        t.start()
+
+    def _activate_standby_worker(self, env):
+        if self.standby_proc is None or self.standby_proc.poll() is not None:
+            return None
+
+        assignment = {
+            key: value
+            for key, value in env.items()
+            if key
+            in {
+                "NODE_RANK",
+                "LOCAL_RANK",
+                "RANK",
+                "ELASTIC_REPLACEMENT_RANK",
+                "ELASTIC_RESUME_ITERATION",
+                "MASTER_ADDR",
+                "MASTER_PORT",
+                "ELASTIC_WATCHER_ADDR",
+                "ELASTIC_WATCHER_PORT",
+                "ELASTIC_REBUILD_MODE",
+                "NNODES",
+                "WORLD_SIZE",
+                "PYTHONUNBUFFERED",
+                "CUDA_VISIBLE_DEVICES",
+            }
+        }
+        self.fault_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.standby_assignment_file.with_suffix(".json.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(assignment, f)
+        os.replace(tmp_path, self.standby_assignment_file)
+        log.info(
+            "Activated warm standby pid=%s for replacement rank=%s",
+            self.standby_proc.pid,
+            env["RANK"],
+        )
+        return self.standby_proc
+
+    def _launch_spare_worker(self, failed_node, killed_local_rank, resume_iteration=-1):
+        """Launch or activate 1 replacement process on this spare node.
+
+        The replacement process takes over the killed rank's global position.
+        """
+        killed_global_rank = failed_node * self.nproc_per_node + killed_local_rank
+        log.info(f"Launching spare: replacing global_rank={killed_global_rank} "
+                 f"(node {failed_node}, local_rank {killed_local_rank})")
+
+        env = self._build_spare_env(failed_node, killed_local_rank, resume_iteration)
+        proc = self._activate_standby_worker(env)
+        if proc is not None:
+            return proc
+
+        # Launch a single training process (not elastic_launcher with 8 workers)
+        proc = subprocess.Popen(
+            self._script_cmd(),
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -472,15 +575,7 @@ class ElasticWatcher:
         )
 
         # Log output in background
-        def _log_output(p):
-            for line in iter(p.stdout.readline, b""):
-                log.info(f"[spare-worker] {line.decode().rstrip()}")
-            p.wait()
-            log.info(f"Spare worker exited with code {p.returncode}")
-            if p.returncode != 0:
-                self._log_recovery_phase_summary("spare-worker-exit")
-
-        t = threading.Thread(target=_log_output, args=(proc,), daemon=True)
+        t = threading.Thread(target=self._log_spare_output, args=(proc, "spare-worker"), daemon=True)
         t.start()
 
         return proc

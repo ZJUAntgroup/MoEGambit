@@ -14,6 +14,39 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
+
+if [ "${ELASTIC_STANDBY_MODE:-0}" = "1" ]; then
+  ASSIGNMENT_FILE="${ELASTIC_SPARE_ASSIGNMENT_FILE:-/tmp/elastic_faults/spare_assignment.json}"
+  echo "[spare-rank] Warm standby pid=$$ waiting for assignment: ${ASSIGNMENT_FILE}"
+  if [ "${ELASTIC_STANDBY_PRELOAD:-1}" = "1" ]; then
+    python3 - <<'PY'
+import importlib
+
+for module in ("torch", "megatron.training", "megatron.core"):
+    importlib.import_module(module)
+print("[spare-rank] Warm standby preload complete: torch/megatron imported", flush=True)
+PY
+  fi
+  while [ ! -s "${ASSIGNMENT_FILE}" ]; do
+    sleep 1
+  done
+  eval "$(
+    python3 - "${ASSIGNMENT_FILE}" <<'PY'
+import json
+import shlex
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+for key, value in data.items():
+    print(f"export {key}={shlex.quote(str(value))}")
+PY
+  )"
+  unset ELASTIC_STANDBY_MODE
+  echo "[spare-rank] Warm standby activated: RANK=${RANK}, CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+fi
 
 # Inherit most settings from environment (set by watcher)
 export MASTER_ADDR="${MASTER_ADDR}"
@@ -33,7 +66,6 @@ export TORCH_NCCL_ENABLE_MONITORING=0
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=600
 
 # Other environment
-export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
