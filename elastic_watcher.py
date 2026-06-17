@@ -50,6 +50,18 @@ logging.basicConfig(
 )
 log = logging.getLogger("elastic_watcher")
 
+_PHASE_ORDER = {
+    "init_pg_start": 10,
+    "pg_ready": 20,
+    "mpu_init_start": 30,
+    "mpu_ready": 40,
+    "cold_start_deps_ready": 50,
+    "model_optimizer_ready": 60,
+    "param_sync_start": 70,
+    "param_sync_done": 80,
+    "train_ready": 90,
+}
+
 
 class ElasticWatcher:
     """TCP-based watcher that monitors training nodes and coordinates recovery."""
@@ -86,6 +98,7 @@ class ElasticWatcher:
         self.standby_proc = None
         self.standby_assignment_file = self.fault_dir / "spare_assignment.json"
         self.lock = threading.Lock()
+        self.phase_cv = threading.Condition(self.lock)
 
         # Server socket
         self.server_sock = None
@@ -226,15 +239,59 @@ class ElasticWatcher:
                 }
                 if role == "replacement" and phase in ("init_pg_start", "pg_ready"):
                     self.replacement_ready_event.set()
+                self.phase_cv.notify_all()
             log.info(
                 "Recovery phase: role=%s rank=%s node=%s step=%s phase=%s",
                 role, rank, node_rank, step, phase,
             )
             return node_rank
 
+        elif msg_type == "wait_phase":
+            role = msg.get("role", "replacement")
+            rank = msg.get("rank", "?")
+            phase = msg.get("phase", "?")
+            timeout = float(msg.get("timeout", 300.0))
+            ok = self._wait_for_phase(role, rank, phase, timeout)
+            response = json.dumps({
+                "type": "wait_phase_result",
+                "role": role,
+                "rank": rank,
+                "phase": phase,
+                "ok": ok,
+            }) + "\n"
+            try:
+                conn.sendall(response.encode())
+            except OSError:
+                pass
+            return node_rank
+
         else:
             log.warning(f"Unknown message type: {msg_type}")
             return node_rank
+
+    def _phase_reached_locked(self, role, rank, target_phase):
+        state = self.recovery_phases.get(f"{role}:{rank}")
+        if state is None:
+            return False
+        have = _PHASE_ORDER.get(state.get("phase"), -1)
+        want = _PHASE_ORDER.get(target_phase, 10**9)
+        return have >= want
+
+    def _wait_for_phase(self, role, rank, phase, timeout):
+        deadline = time.time() + timeout
+        with self.phase_cv:
+            while not self._phase_reached_locked(role, rank, phase):
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    log.warning(
+                        "wait_phase timed out: role=%s rank=%s phase=%s",
+                        role,
+                        rank,
+                        phase,
+                    )
+                    return False
+                self.phase_cv.wait(timeout=min(remaining, 1.0))
+        return True
 
     def _maybe_inject_fault(self, reporting_node_rank, step):
         """Check if we should inject a fault based on the reported step.

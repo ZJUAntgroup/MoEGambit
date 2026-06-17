@@ -354,6 +354,45 @@ def elastic_report_recovery_phase(phase: str, **extra):
         _send_one_shot_to_watcher(msg)
 
 
+def elastic_wait_for_recovery_phase(role: str, rank: int, phase: str, timeout: float = 300.0) -> bool:
+    watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
+    watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
+    if not watcher_addr or not watcher_port:
+        return False
+
+    msg = {
+        "type": "wait_phase",
+        "node_rank": int(os.environ.get("NODE_RANK", "-1")),
+        "role": role,
+        "rank": rank,
+        "phase": phase,
+        "timeout": timeout,
+    }
+    try:
+        with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
+            sock.settimeout(timeout + 5.0)
+            sock.sendall((json.dumps(msg) + "\n").encode())
+            data = b""
+            while b"\n" not in data:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            if not data:
+                return False
+            response = json.loads(data.split(b"\n", 1)[0].decode())
+            return bool(response.get("ok"))
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        logger.warning(
+            "[elastic] Failed waiting for recovery phase role=%s rank=%s phase=%s: %s",
+            role,
+            rank,
+            phase,
+            e,
+        )
+        return False
+
+
 def _elastic_barrier(label: str):
     """Run a default-group barrier with explicit CUDA device and useful logs."""
     rank = dist.get_rank() if dist.is_initialized() else -1
@@ -647,6 +686,20 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")
     _initialize_model_parallel_for_rebuild(mpu, args)
     elastic_report_recovery_phase("mpu_ready")
+    phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
+    if killed_global_rank >= 0:
+        logger.warning(
+            "[elastic] Rank %d: waiting for replacement rank %d mpu_ready",
+            rank,
+            killed_global_rank,
+        )
+        if not elastic_wait_for_recovery_phase(
+            "replacement", killed_global_rank, "mpu_ready", phase_timeout
+        ):
+            raise RuntimeError(
+                f"[elastic] Replacement rank {killed_global_rank} did not reach "
+                f"mpu_ready within {phase_timeout}s"
+            )
 
     # Step 4: Synchronize parameters to the new rank (DP peer broadcast).
     # The replacement rank has random/zero weights, so choose a surviving
