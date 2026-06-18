@@ -93,6 +93,7 @@ class ElasticWatcher:
         self.rebuild_ready_nodes = set()
         self.rebuild_ready_steps = {}
         self.recovery_phases = {}
+        self.peer_sync_endpoints = {}
         self.rebuild_triggered = False
         self.replacement_ready_event = threading.Event()
         self.standby_proc = None
@@ -165,7 +166,7 @@ class ElasticWatcher:
                     while b"\n" in buf:
                         line, buf = buf.split(b"\n", 1)
                         msg = json.loads(line.decode())
-                        node_rank = self._process_message(msg, conn)
+                        node_rank = self._process_message(msg, conn, addr)
                 except socket.timeout:
                     continue
                 except (json.JSONDecodeError, UnicodeDecodeError) as e:
@@ -181,7 +182,7 @@ class ElasticWatcher:
                         log.warning(f"Node {node_rank} disconnected")
             conn.close()
 
-    def _process_message(self, msg, conn):
+    def _process_message(self, msg, conn, addr=None):
         """Process a message from a training node. Returns node_rank."""
         msg_type = msg.get("type")
         node_rank = msg.get("node_rank")
@@ -265,9 +266,64 @@ class ElasticWatcher:
                 pass
             return node_rank
 
+        elif msg_type == "peer_sync_endpoint":
+            peer_id = msg.get("peer_id")
+            host = msg.get("host") or (addr[0] if addr else None)
+            port = msg.get("port")
+            if not peer_id or not host or port is None:
+                log.warning("Bad peer_sync_endpoint message: %s", msg)
+                return node_rank
+            with self.phase_cv:
+                self.peer_sync_endpoints[peer_id] = {
+                    "host": host,
+                    "port": int(port),
+                    "timestamp": time.time(),
+                    "src_rank": msg.get("src_rank"),
+                    "dst_rank": msg.get("dst_rank"),
+                }
+                self.phase_cv.notify_all()
+            log.info(
+                "Peer sync endpoint: id=%s src=%s dst=%s endpoint=%s:%s",
+                peer_id,
+                msg.get("src_rank"),
+                msg.get("dst_rank"),
+                host,
+                port,
+            )
+            return node_rank
+
+        elif msg_type == "wait_peer_sync_endpoint":
+            peer_id = msg.get("peer_id")
+            timeout = float(msg.get("timeout", 300.0))
+            endpoint = self._wait_for_peer_sync_endpoint(peer_id, timeout)
+            response = json.dumps({
+                "type": "peer_sync_endpoint_result",
+                "peer_id": peer_id,
+                "ok": endpoint is not None,
+                "endpoint": endpoint,
+            }) + "\n"
+            try:
+                conn.sendall(response.encode())
+            except OSError:
+                pass
+            return node_rank
+
         else:
             log.warning(f"Unknown message type: {msg_type}")
             return node_rank
+
+    def _wait_for_peer_sync_endpoint(self, peer_id, timeout):
+        if not peer_id:
+            return None
+        deadline = time.time() + timeout
+        with self.phase_cv:
+            while peer_id not in self.peer_sync_endpoints:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    log.warning("wait_peer_sync_endpoint timed out: id=%s", peer_id)
+                    return None
+                self.phase_cv.wait(timeout=min(remaining, 1.0))
+            return dict(self.peer_sync_endpoints[peer_id])
 
     def _phase_reached_locked(self, role, rank, target_phase):
         state = self.recovery_phases.get(f"{role}:{rank}")
@@ -374,6 +430,7 @@ class ElasticWatcher:
             self.rebuild_ready_nodes = set()
             self.rebuild_ready_steps = {}
             self.recovery_phases = {}
+            self.peer_sync_endpoints = {}
             self.rebuild_triggered = False
             connections = list(self.node_connections.items())
 

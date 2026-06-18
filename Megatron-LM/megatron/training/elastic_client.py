@@ -32,8 +32,10 @@ Usage in training code:
 import json
 import logging
 import os
+import io
 import signal as signal_module
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -391,6 +393,39 @@ def elastic_wait_for_recovery_phase(role: str, rank: int, phase: str, timeout: f
             e,
         )
         return False
+
+
+def _elastic_wait_for_peer_sync_endpoint(peer_id: str, timeout: float = 300.0) -> Optional[dict]:
+    watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
+    watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
+    if not watcher_addr or not watcher_port:
+        return None
+
+    msg = {
+        "type": "wait_peer_sync_endpoint",
+        "node_rank": int(os.environ.get("NODE_RANK", "-1")),
+        "peer_id": peer_id,
+        "timeout": timeout,
+    }
+    try:
+        with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
+            sock.settimeout(timeout + 5.0)
+            sock.sendall((json.dumps(msg) + "\n").encode())
+            data = b""
+            while b"\n" not in data:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            if not data:
+                return None
+            response = json.loads(data.split(b"\n", 1)[0].decode())
+            if not response.get("ok"):
+                return None
+            return response.get("endpoint")
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        logger.warning("[elastic] Failed waiting for peer sync endpoint %s: %s", peer_id, e)
+        return None
 
 
 def _wait_for_replacement_phase_before_global_barrier(
@@ -1085,9 +1120,221 @@ def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
     )
 
 
-def _sync_optimizer_state_tensor_peer(val, src_rank, dst_rank, device):
+class _PeerSyncStream:
+    def __init__(self, src_rank: int, dst_rank: int):
+        self.src_rank = src_rank
+        self.dst_rank = dst_rank
+        self.rank = dist.get_rank()
+        self.sock = None
+        self.server_sock = None
+        self.timeout = float(os.environ.get("ELASTIC_PEER_SYNC_TIMEOUT", "900"))
+        self.chunk_mb = int(os.environ.get("ELASTIC_PARAM_SYNC_CHUNK_MB", "256"))
+
+    def __enter__(self):
+        if self.rank == self.src_rank:
+            self._open_source()
+        elif self.rank == self.dst_rank:
+            self._open_destination()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
+    def close(self):
+        for sock in (self.sock, self.server_sock):
+            if sock is None:
+                continue
+            try:
+                sock.close()
+            except OSError:
+                pass
+        self.sock = None
+        self.server_sock = None
+
+    def _peer_id(self) -> str:
+        return ":".join(
+            [
+                os.environ.get("MASTER_PORT", "0"),
+                os.environ.get("ELASTIC_RESUME_ITERATION", "-1"),
+                str(self.src_rank),
+                str(self.dst_rank),
+            ]
+        )
+
+    def _open_source(self):
+        self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_sock.bind(("0.0.0.0", 0))
+        self.server_sock.listen(1)
+        self.server_sock.settimeout(self.timeout)
+        _, port = self.server_sock.getsockname()
+        peer_id = self._peer_id()
+        if not _send_one_shot_to_watcher(
+            {
+                "type": "peer_sync_endpoint",
+                "node_rank": int(os.environ.get("NODE_RANK", "-1")),
+                "rank": self.rank,
+                "peer_id": peer_id,
+                "port": int(port),
+                "src_rank": self.src_rank,
+                "dst_rank": self.dst_rank,
+            }
+        ):
+            raise RuntimeError(f"[elastic] failed publishing peer sync endpoint {peer_id}")
+        logger.warning(
+            "[elastic] Rank %d: peer TCP sync listening id=%s port=%d dst=%d",
+            self.rank,
+            peer_id,
+            port,
+            self.dst_rank,
+        )
+        self.sock, addr = self.server_sock.accept()
+        self.sock.settimeout(self.timeout)
+        logger.warning("[elastic] Rank %d: peer TCP sync accepted %s", self.rank, addr)
+
+    def _open_destination(self):
+        peer_id = self._peer_id()
+        endpoint = _elastic_wait_for_peer_sync_endpoint(peer_id, self.timeout)
+        if endpoint is None:
+            raise RuntimeError(f"[elastic] timed out waiting for peer sync endpoint {peer_id}")
+        host = endpoint.get("host")
+        port = int(endpoint.get("port"))
+        last_error = None
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
+            try:
+                self.sock = socket.create_connection((host, port), timeout=10.0)
+                self.sock.settimeout(self.timeout)
+                logger.warning(
+                    "[elastic] Rank %d: peer TCP sync connected id=%s endpoint=%s:%d",
+                    self.rank,
+                    peer_id,
+                    host,
+                    port,
+                )
+                return
+            except OSError as e:
+                last_error = e
+                time.sleep(0.5)
+        raise RuntimeError(
+            f"[elastic] failed connecting to peer sync endpoint {host}:{port}: {last_error}"
+        )
+
+    def send_json(self, payload: dict):
+        self.send_blob(json.dumps(payload, sort_keys=True).encode("utf-8"))
+
+    def recv_json(self) -> dict:
+        return json.loads(self.recv_blob().decode("utf-8"))
+
+    def send_blob(self, payload: bytes):
+        if self.sock is None:
+            raise RuntimeError("[elastic] peer sync socket is not connected")
+        self.sock.sendall(struct.pack("!Q", len(payload)))
+        self.sock.sendall(payload)
+
+    def recv_blob(self) -> bytes:
+        if self.sock is None:
+            raise RuntimeError("[elastic] peer sync socket is not connected")
+        header = self._recvall(8)
+        (size,) = struct.unpack("!Q", header)
+        return self._recvall(size)
+
+    def _recvall(self, size: int) -> bytes:
+        chunks = []
+        remaining = size
+        while remaining:
+            chunk = self.sock.recv(min(remaining, 8 * 1024 * 1024))
+            if not chunk:
+                raise RuntimeError("[elastic] peer sync socket closed during transfer")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
+    def send_tensor(self, tensor, label: str):
+        if tensor.numel() == 0:
+            self.send_json({"label": label, "chunks": 0, "numel": 0})
+            return
+        flat = tensor.contiguous().view(-1)
+        max_elems = max(1, (max(1, self.chunk_mb) * 1024 * 1024) // max(1, tensor.element_size()))
+        chunks = (flat.numel() + max_elems - 1) // max_elems
+        self.send_json(
+            {
+                "label": label,
+                "chunks": chunks,
+                "numel": flat.numel(),
+                "shape": list(tensor.shape),
+                "dtype": str(tensor.dtype),
+            }
+        )
+        logger.info(
+            "[elastic] Rank %d: peer-tcp-send %s to rank %d "
+            "(numel=%d, dtype=%s, chunks=%d, chunk_mb=%d)",
+            self.rank,
+            label,
+            self.dst_rank,
+            tensor.numel(),
+            tensor.dtype,
+            chunks,
+            self.chunk_mb,
+        )
+        for start in range(0, flat.numel(), max_elems):
+            cpu_chunk = flat[start : start + max_elems].detach().to("cpu", non_blocking=False).contiguous()
+            buffer = io.BytesIO()
+            torch.save(cpu_chunk, buffer)
+            self.send_blob(buffer.getvalue())
+
+    def recv_tensor_into(self, tensor, label: str):
+        meta = self.recv_json()
+        if meta.get("label") != label:
+            raise RuntimeError(
+                f"[elastic] peer tensor label mismatch: expected={label} got={meta.get('label')}"
+            )
+        if int(meta.get("numel", -1)) != tensor.numel() or meta.get("dtype") != str(tensor.dtype):
+            raise RuntimeError(
+                f"[elastic] peer tensor metadata mismatch for {label}: "
+                f"local numel={tensor.numel()} dtype={tensor.dtype}, remote={meta}"
+            )
+        if tensor.numel() == 0:
+            return
+        if tensor.is_contiguous():
+            flat = tensor.view(-1)
+            needs_copy_back = False
+        else:
+            flat = tensor.contiguous().view(-1)
+            needs_copy_back = True
+        offset = 0
+        for _ in range(int(meta.get("chunks", 0))):
+            payload = self.recv_blob()
+            chunk = torch.load(io.BytesIO(payload), map_location="cpu")
+            if chunk.dtype != tensor.dtype:
+                raise RuntimeError(
+                    f"[elastic] peer tensor chunk dtype mismatch for {label}: "
+                    f"local={tensor.dtype} remote={chunk.dtype}"
+                )
+            end = offset + chunk.numel()
+            if end > flat.numel():
+                raise RuntimeError(f"[elastic] peer tensor chunk overflow for {label}")
+            flat[offset:end].copy_(chunk.to(device=flat.device, non_blocking=False))
+            offset = end
+        if offset != flat.numel():
+            raise RuntimeError(
+                f"[elastic] peer tensor underflow for {label}: got={offset} expected={flat.numel()}"
+            )
+        if needs_copy_back:
+            tensor.copy_(flat.view_as(tensor))
+
+
+def _sync_optimizer_state_tensor_peer(val, src_rank, dst_rank, device, peer_stream):
+    if peer_stream is not None:
+        _sync_tensor_peer_chunked(
+            val, src_rank, dst_rank, label="optimizer-state", peer_stream=peer_stream
+        )
+        return
+
     if val.is_cuda:
-        _sync_tensor_peer_chunked(val, src_rank, dst_rank, label="optimizer-state")
+        _sync_tensor_peer_chunked(
+            val, src_rank, dst_rank, label="optimizer-state", peer_stream=peer_stream
+        )
         return
 
     if isinstance(device, torch.device) and device.type == "cuda":
@@ -1096,7 +1343,9 @@ def _sync_optimizer_state_tensor_peer(val, src_rank, dst_rank, device):
         broadcast_device = torch.device("cuda", torch.cuda.current_device())
 
     tmp = val.to(device=broadcast_device, non_blocking=True)
-    _sync_tensor_peer_chunked(tmp, src_rank, dst_rank, label="optimizer-state")
+    _sync_tensor_peer_chunked(
+        tmp, src_rank, dst_rank, label="optimizer-state", peer_stream=peer_stream
+    )
     if dist.get_rank() == dst_rank:
         val.copy_(tmp.to(device=val.device))
 
@@ -1118,76 +1367,45 @@ def _shape_hash(shape) -> int:
     return _stable_hash_int(",".join(str(dim) for dim in shape))
 
 
-def _sync_tensor_peer_chunked(tensor, src_rank, dst_rank, label: str):
+def _sync_tensor_peer_chunked(tensor, src_rank, dst_rank, label: str, peer_stream=None):
     rank = dist.get_rank()
     if rank not in (src_rank, dst_rank):
         return
     if tensor.numel() == 0:
         return
-
-    chunk_mb = int(os.environ.get("ELASTIC_PARAM_SYNC_CHUNK_MB", "256"))
-    chunk_bytes = max(1, chunk_mb) * 1024 * 1024
-    max_elems = max(1, chunk_bytes // max(1, tensor.element_size()))
-
-    original_tensor = tensor
-    if tensor.is_contiguous():
-        flat = tensor.view(-1)
-        needs_copy_back = False
-    else:
-        flat = tensor.contiguous().view(-1)
-        needs_copy_back = rank != src_rank
-
+    if peer_stream is None:
+        raise RuntimeError("[elastic] peer tensor sync requires a TCP peer stream")
     if rank == src_rank:
-        logger.info(
-            "[elastic] Rank %d: peer-send %s to rank %d "
-            "(numel=%d, dtype=%s, chunk_mb=%d)",
-            rank,
-            label,
-            dst_rank,
-            tensor.numel(),
-            tensor.dtype,
-            chunk_mb,
-        )
-
-    for start in range(0, flat.numel(), max_elems):
-        chunk = flat[start : start + max_elems]
-        if rank == src_rank:
-            dist.send(chunk, dst=dst_rank)
-        else:
-            dist.recv(chunk, src=src_rank)
-
-    if needs_copy_back:
-        original_tensor.copy_(flat.view_as(original_tensor))
+        peer_stream.send_tensor(tensor, label)
+    else:
+        peer_stream.recv_tensor_into(tensor, label)
 
 
-def _validate_param_peer_manifest(name, param, index, src_rank, dst_rank):
+def _validate_param_peer_manifest(name, param, index, src_rank, dst_rank, peer_stream=None):
     rank = dist.get_rank()
     if rank not in (src_rank, dst_rank):
         return
 
-    device = param.device if param.is_cuda else torch.device("cuda", torch.cuda.current_device())
-    local_meta = torch.tensor(
-        [
-            index,
-            param.numel(),
-            len(param.shape),
-            _shape_hash(param.shape),
-            _dtype_code(param.dtype),
-            _stable_hash_int(name),
-        ],
-        dtype=torch.long,
-        device=device,
-    )
-    status = torch.zeros(1, dtype=torch.int32, device=device)
+    local_meta_obj = {
+        "index": index,
+        "numel": param.numel(),
+        "shape": list(param.shape),
+        "shape_hash": _shape_hash(param.shape),
+        "dtype": str(param.dtype),
+        "dtype_code": _dtype_code(param.dtype),
+        "name_hash": _stable_hash_int(name),
+    }
+    if peer_stream is None:
+        raise RuntimeError("[elastic] peer manifest sync requires a TCP peer stream")
     if rank == src_rank:
-        dist.send(local_meta, dst=dst_rank)
-        dist.recv(status, src=dst_rank)
+        peer_stream.send_json(local_meta_obj)
+        status_obj = peer_stream.recv_json()
+        status = int(status_obj.get("status", 1))
     else:
-        src_meta = torch.empty_like(local_meta)
-        dist.recv(src_meta, src=src_rank)
-        status.fill_(0 if torch.equal(local_meta, src_meta) else 1)
-        dist.send(status, dst=src_rank)
-        if status.item() != 0:
+        src_meta_obj = peer_stream.recv_json()
+        status = 0 if local_meta_obj == src_meta_obj else 1
+        peer_stream.send_json({"status": status})
+        if status != 0:
             logger.error(
                 "[elastic] Rank %d: dense param manifest mismatch at index=%d "
                 "(local name=%s shape=%s dtype=%s meta=%s src_meta=%s)",
@@ -1196,11 +1414,11 @@ def _validate_param_peer_manifest(name, param, index, src_rank, dst_rank):
                 name,
                 tuple(param.shape),
                 param.dtype,
-                local_meta.detach().cpu().tolist(),
-                src_meta.detach().cpu().tolist(),
+                local_meta_obj,
+                src_meta_obj,
             )
 
-    if status.item() != 0:
+    if status != 0:
         logger.error(
             "[elastic] Rank %d: dense param manifest mismatch at index=%d "
             "(local name=%s shape=%s dtype=%s)",
@@ -1217,7 +1435,7 @@ def _validate_param_peer_manifest(name, param, index, src_rank, dst_rank):
 
 
 def _sync_non_expert_optimizer_state_peer(
-    optimizer, model_param_to_name, sync_src_rank, replacement_rank
+    optimizer, model_param_to_name, sync_src_rank, replacement_rank, peer_stream
 ):
     rank = dist.get_rank()
     main_param_count = 0
@@ -1227,6 +1445,8 @@ def _sync_non_expert_optimizer_state_peer(
 
     if rank not in (sync_src_rank, replacement_rank):
         return
+    if peer_stream is None:
+        raise RuntimeError("[elastic] non-expert optimizer sync requires a TCP peer stream")
 
     for megatron_optimizer in _iter_megatron_optimizers(optimizer):
         inner_optimizer, optim_param_to_name = _build_optimizer_param_name_map(
@@ -1251,7 +1471,7 @@ def _sync_non_expert_optimizer_state_peer(
                     continue
 
                 _sync_optimizer_state_tensor_peer(
-                    param.data, sync_src_rank, replacement_rank, param.device
+                    param.data, sync_src_rank, replacement_rank, param.device, peer_stream
                 )
                 main_param_count += 1
 
@@ -1261,32 +1481,25 @@ def _sync_non_expert_optimizer_state_peer(
                         isinstance(val, torch.Tensor) for val in state.values()
                     )
                 )
-                reduce_device = (
-                    param.device
-                    if isinstance(param.device, torch.device) and param.device.type == "cuda"
-                    else torch.device("cuda", torch.cuda.current_device())
-                )
-                has_tensor_state_tensor = torch.tensor(
-                    [has_tensor_state], dtype=torch.int32, device=reduce_device
-                )
                 if rank == sync_src_rank:
-                    dist.send(has_tensor_state_tensor, dst=replacement_rank)
-                    dist.recv(has_tensor_state_tensor, src=replacement_rank)
+                    peer_stream.send_json({"has_tensor_state": has_tensor_state})
+                    status_obj = peer_stream.recv_json()
+                    has_tensor_state = int(status_obj.get("has_tensor_state", 0))
                 else:
-                    src_has_tensor_state = torch.empty_like(has_tensor_state_tensor)
-                    dist.recv(src_has_tensor_state, src=sync_src_rank)
-                    has_tensor_state_tensor.fill_(
-                        min(has_tensor_state_tensor.item(), src_has_tensor_state.item())
+                    src_state_obj = peer_stream.recv_json()
+                    has_tensor_state = min(
+                        has_tensor_state,
+                        int(src_state_obj.get("has_tensor_state", 0)),
                     )
-                    dist.send(has_tensor_state_tensor, dst=sync_src_rank)
-                if has_tensor_state_tensor.item() == 0:
+                    peer_stream.send_json({"has_tensor_state": has_tensor_state})
+                if has_tensor_state == 0:
                     skipped_state_count += 1
                     continue
 
                 for _, val in state.items():
                     if isinstance(val, torch.Tensor):
                         _sync_optimizer_state_tensor_peer(
-                            val, sync_src_rank, replacement_rank, param.device
+                            val, sync_src_rank, replacement_rank, param.device, peer_stream
                         )
                         state_tensor_count += 1
 
@@ -1304,14 +1517,13 @@ def _sync_non_expert_optimizer_state_peer(
 def _sync_params_to_new_rank(
     model, optimizer, replacement_rank: int = -1, model_param_to_name=None
 ):
-    """Broadcast dense/non-expert model and optimizer state from a DP peer.
+    """Restore dense/non-expert model and optimizer state from a DP peer.
 
     After group rebuild, the replacement rank restores EP-local expert weights
     and expert optimizer state from its checkpoint shard. Dense/non-expert
-    parameters are DP-replicated, so we broadcast model weights, main params,
-    and tensor optimizer state from a surviving rank within each DP group.
-    The source must be a *global* rank that belongs to the provided process
-    group.
+    parameters are DP-replicated, so we transfer model weights, main params,
+    and tensor optimizer state from a surviving rank within each DP group over
+    a dedicated TCP peer stream instead of the rebuilding NCCL process group.
     """
     from megatron.core import parallel_state as mpu
 
@@ -1353,39 +1565,51 @@ def _sync_params_to_new_rank(
 
     if model_param_to_name is None:
         model_param_to_name = _build_model_param_name_map(model)
-    dense_count = 0
-    expert_count = 0
-    for model_chunk in model:
-        for name, param in model_chunk.named_parameters():
-            if _is_expert_param_name(name):
-                expert_count += 1
-                continue
-            dense_count += 1
-            _validate_param_peer_manifest(name, param.data, dense_count, sync_src_rank, replacement_rank)
-            if dense_count <= 3 or param.data.numel() * param.data.element_size() >= 128 * 1024 * 1024:
-                logger.info(
-                    "[elastic] Rank %d: syncing dense param %d name=%s "
-                    "shape=%s dtype=%s",
-                    rank,
-                    dense_count,
+    with _PeerSyncStream(sync_src_rank, replacement_rank) as peer_stream:
+        dense_count = 0
+        expert_count = 0
+        for model_chunk in model:
+            for name, param in model_chunk.named_parameters():
+                if _is_expert_param_name(name):
+                    expert_count += 1
+                    continue
+                dense_count += 1
+                _validate_param_peer_manifest(
                     name,
-                    tuple(param.data.shape),
-                    param.data.dtype,
+                    param.data,
+                    dense_count,
+                    sync_src_rank,
+                    replacement_rank,
+                    peer_stream=peer_stream,
                 )
-            _sync_tensor_peer_chunked(
-                param.data, sync_src_rank, replacement_rank, label=f"dense-param:{name}"
-            )
+                if dense_count <= 3 or param.data.numel() * param.data.element_size() >= 128 * 1024 * 1024:
+                    logger.info(
+                        "[elastic] Rank %d: syncing dense param %d name=%s "
+                        "shape=%s dtype=%s",
+                        rank,
+                        dense_count,
+                        name,
+                        tuple(param.data.shape),
+                        param.data.dtype,
+                    )
+                _sync_tensor_peer_chunked(
+                    param.data,
+                    sync_src_rank,
+                    replacement_rank,
+                    label=f"dense-param:{name}",
+                    peer_stream=peer_stream,
+                )
 
-    logger.warning(
-        "[elastic] Rank %d: dense model param sync complete "
-        "(broadcast=%d, expert_from_ckpt=%d)",
-        rank,
-        dense_count,
-        expert_count,
-    )
-    _sync_non_expert_optimizer_state_peer(
-        optimizer, model_param_to_name, sync_src_rank, replacement_rank
-    )
+        logger.warning(
+            "[elastic] Rank %d: dense model param sync complete "
+            "(synced=%d, expert_from_ckpt=%d)",
+            rank,
+            dense_count,
+            expert_count,
+        )
+        _sync_non_expert_optimizer_state_peer(
+            optimizer, model_param_to_name, sync_src_rank, replacement_rank, peer_stream
+        )
 
     logger.info(f"[elastic] Rank {rank}: param sync complete")
 
