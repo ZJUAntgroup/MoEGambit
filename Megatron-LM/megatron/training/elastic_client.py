@@ -393,6 +393,25 @@ def elastic_wait_for_recovery_phase(role: str, rank: int, phase: str, timeout: f
         return False
 
 
+def _wait_for_replacement_phase_before_global_barrier(
+    replacement_rank: int, phase: str, timeout: float
+):
+    if is_rebuild_mode() or replacement_rank < 0:
+        return
+
+    logger.warning(
+        "[elastic] Rank %d: waiting for replacement rank %d %s before global barrier",
+        dist.get_rank() if dist.is_initialized() else -1,
+        replacement_rank,
+        phase,
+    )
+    if not elastic_wait_for_recovery_phase("replacement", replacement_rank, phase, timeout):
+        raise RuntimeError(
+            f"[elastic] Replacement rank {replacement_rank} did not reach "
+            f"{phase} within {timeout}s before global barrier"
+        )
+
+
 def _elastic_barrier(label: str):
     """Run a default-group barrier with explicit CUDA device and useful logs."""
     rank = dist.get_rank() if dist.is_initialized() else -1
@@ -708,7 +727,12 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     _sync_params_to_new_rank(model, optimizer, replacement_rank=killed_global_rank)
     elastic_report_recovery_phase("param_sync_done")
 
-    # Step 5: Barrier to ensure all ranks are ready
+    # Step 5: Barrier to ensure all ranks are ready.  Ranks outside the
+    # replacement DP group can finish immediately; keep them out of the NCCL
+    # default-group barrier until the replacement has completed peer sync.
+    _wait_for_replacement_phase_before_global_barrier(
+        killed_global_rank, "param_sync_done", phase_timeout
+    )
     _elastic_barrier("rebuild-final")
     elastic_report_recovery_phase("train_ready")
     logger.warning(f"[elastic] Rank {rank}: rebuild complete, resuming training")
