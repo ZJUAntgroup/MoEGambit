@@ -116,7 +116,7 @@ class ElasticWatcher:
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_sock.bind(("0.0.0.0", self.port))
-        self.server_sock.listen(self.training_nnodes + 4)
+        self.server_sock.listen(self.training_nnodes * self.nproc_per_node + 16)
         self.server_sock.settimeout(1.0)
 
         # Signal handling
@@ -240,6 +240,17 @@ class ElasticWatcher:
                 }
                 if role == "replacement" and phase in ("init_pg_start", "pg_ready"):
                     self.replacement_ready_event.set()
+                if (
+                    phase == "train_ready"
+                    and self._phase_count_locked("train_ready")
+                    >= self.training_nnodes * self.nproc_per_node
+                ):
+                    self.recovery_in_progress = False
+                    self.failed_node = None
+                    self.rebuild_ready_count = 0
+                    self.rebuild_ready_nodes = set()
+                    self.rebuild_ready_steps = {}
+                    log.info("All training ranks reached train_ready; recovery complete")
                 self.phase_cv.notify_all()
             log.info(
                 "Recovery phase: role=%s rank=%s node=%s step=%s phase=%s",
@@ -586,8 +597,6 @@ class ElasticWatcher:
 
         log.info("Rebuild signal sent to all nodes. Waiting for training to resume...")
         with self.lock:
-            self.recovery_in_progress = False
-            self.failed_node = None
             self.rebuild_ready_count = 0
             self.rebuild_ready_nodes = set()
             self.rebuild_ready_steps = {}

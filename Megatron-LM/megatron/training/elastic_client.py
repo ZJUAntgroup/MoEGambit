@@ -370,29 +370,52 @@ def elastic_wait_for_recovery_phase(role: str, rank: int, phase: str, timeout: f
         "phase": phase,
         "timeout": timeout,
     }
-    try:
-        with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
-            sock.settimeout(timeout + 5.0)
-            sock.sendall((json.dumps(msg) + "\n").encode())
-            data = b""
-            while b"\n" not in data:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                data += chunk
-            if not data:
-                return False
-            response = json.loads(data.split(b"\n", 1)[0].decode())
-            return bool(response.get("ok"))
-    except (OSError, ValueError, json.JSONDecodeError) as e:
-        logger.warning(
-            "[elastic] Failed waiting for recovery phase role=%s rank=%s phase=%s: %s",
-            role,
-            rank,
-            phase,
-            e,
-        )
-        return False
+    deadline = time.time() + timeout
+    last_error = None
+    attempt = 0
+    while time.time() < deadline:
+        attempt += 1
+        remaining = max(1.0, deadline - time.time())
+        msg["timeout"] = remaining
+        try:
+            with socket.create_connection(
+                (watcher_addr, int(watcher_port)),
+                timeout=min(10.0, remaining),
+            ) as sock:
+                sock.settimeout(remaining + 5.0)
+                sock.sendall((json.dumps(msg) + "\n").encode())
+                data = b""
+                while b"\n" not in data:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                if not data:
+                    last_error = RuntimeError("empty watcher response")
+                    time.sleep(min(1.0, max(0.0, deadline - time.time())))
+                    continue
+                response = json.loads(data.split(b"\n", 1)[0].decode())
+                return bool(response.get("ok"))
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            last_error = e
+            if time.time() < deadline:
+                logger.warning(
+                    "[elastic] wait_phase retry %d failed role=%s rank=%s phase=%s: %s",
+                    attempt,
+                    role,
+                    rank,
+                    phase,
+                    e,
+                )
+                time.sleep(min(1.0, max(0.0, deadline - time.time())))
+    logger.warning(
+        "[elastic] Failed waiting for recovery phase role=%s rank=%s phase=%s: %s",
+        role,
+        rank,
+        phase,
+        last_error,
+    )
+    return False
 
 
 def elastic_wait_for_recovery_phase_count(
@@ -410,36 +433,58 @@ def elastic_wait_for_recovery_phase_count(
         "min_count": min_count,
         "timeout": timeout,
     }
-    try:
-        with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
-            sock.settimeout(timeout + 5.0)
-            sock.sendall((json.dumps(msg) + "\n").encode())
-            data = b""
-            while b"\n" not in data:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                data += chunk
-            if not data:
-                return False
-            response = json.loads(data.split(b"\n", 1)[0].decode())
-            ok = bool(response.get("ok"))
-            if not ok:
+    deadline = time.time() + timeout
+    last_error = None
+    attempt = 0
+    while time.time() < deadline:
+        attempt += 1
+        remaining = max(1.0, deadline - time.time())
+        msg["timeout"] = remaining
+        try:
+            with socket.create_connection(
+                (watcher_addr, int(watcher_port)),
+                timeout=min(10.0, remaining),
+            ) as sock:
+                sock.settimeout(remaining + 5.0)
+                sock.sendall((json.dumps(msg) + "\n").encode())
+                data = b""
+                while b"\n" not in data:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                if not data:
+                    last_error = RuntimeError("empty watcher response")
+                    time.sleep(min(1.0, max(0.0, deadline - time.time())))
+                    continue
+                response = json.loads(data.split(b"\n", 1)[0].decode())
+                ok = bool(response.get("ok"))
+                if not ok:
+                    logger.warning(
+                        "[elastic] phase-count wait failed: phase=%s count=%s min_count=%s",
+                        phase,
+                        response.get("count"),
+                        response.get("min_count"),
+                    )
+                return ok
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            last_error = e
+            if time.time() < deadline:
                 logger.warning(
-                    "[elastic] phase-count wait failed: phase=%s count=%s min_count=%s",
+                    "[elastic] wait_phase_count retry %d failed phase=%s min_count=%s: %s",
+                    attempt,
                     phase,
-                    response.get("count"),
-                    response.get("min_count"),
+                    min_count,
+                    e,
                 )
-            return ok
-    except (OSError, ValueError, json.JSONDecodeError) as e:
-        logger.warning(
-            "[elastic] Failed waiting for recovery phase count phase=%s min_count=%s: %s",
-            phase,
-            min_count,
-            e,
-        )
-        return False
+                time.sleep(min(1.0, max(0.0, deadline - time.time())))
+    logger.warning(
+        "[elastic] Failed waiting for recovery phase count phase=%s min_count=%s: %s",
+        phase,
+        min_count,
+        last_error,
+    )
+    return False
 
 
 def _elastic_wait_for_peer_sync_endpoint(peer_id: str, timeout: float = 300.0) -> Optional[dict]:
