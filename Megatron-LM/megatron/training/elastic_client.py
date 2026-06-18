@@ -395,6 +395,53 @@ def elastic_wait_for_recovery_phase(role: str, rank: int, phase: str, timeout: f
         return False
 
 
+def elastic_wait_for_recovery_phase_count(
+    phase: str, min_count: int, timeout: float = 300.0
+) -> bool:
+    watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
+    watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
+    if not watcher_addr or not watcher_port:
+        return False
+
+    msg = {
+        "type": "wait_phase_count",
+        "node_rank": int(os.environ.get("NODE_RANK", "-1")),
+        "phase": phase,
+        "min_count": min_count,
+        "timeout": timeout,
+    }
+    try:
+        with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
+            sock.settimeout(timeout + 5.0)
+            sock.sendall((json.dumps(msg) + "\n").encode())
+            data = b""
+            while b"\n" not in data:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            if not data:
+                return False
+            response = json.loads(data.split(b"\n", 1)[0].decode())
+            ok = bool(response.get("ok"))
+            if not ok:
+                logger.warning(
+                    "[elastic] phase-count wait failed: phase=%s count=%s min_count=%s",
+                    phase,
+                    response.get("count"),
+                    response.get("min_count"),
+                )
+            return ok
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        logger.warning(
+            "[elastic] Failed waiting for recovery phase count phase=%s min_count=%s: %s",
+            phase,
+            min_count,
+            e,
+        )
+        return False
+
+
 def _elastic_wait_for_peer_sync_endpoint(peer_id: str, timeout: float = 300.0) -> Optional[dict]:
     watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
     watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
@@ -459,6 +506,45 @@ def _elastic_barrier(label: str):
     else:
         dist.barrier(device_ids=device_ids)
     logger.warning("[elastic] Rank %d: exited %s barrier", rank, label)
+
+
+def _elastic_rebuild_final_barrier():
+    """Avoid a default NCCL barrier on the hot path after replacement sync.
+
+    The replacement and source ranks have already completed the required data
+    transfer, and survivor ranks gate on the replacement reaching
+    ``param_sync_done`` through the watcher.  Running a fresh full-world NCCL
+    barrier immediately after communicator rebuild has repeatedly been the next
+    hang point, so keep it opt-in for debugging only.
+    """
+    rank = dist.get_rank() if dist.is_initialized() else -1
+    if os.environ.get("ELASTIC_REBUILD_FINAL_NCCL_BARRIER", "0") == "1":
+        _elastic_barrier("rebuild-final")
+        return
+    logger.warning(
+        "[elastic] Rank %d: skipping rebuild-final NCCL barrier "
+        "(phase-gated by watcher param_sync_done)",
+        rank,
+    )
+
+
+def _elastic_report_and_wait_train_ready(timeout: float):
+    """Use watcher/TCP as the post-rebuild full-rank readiness barrier."""
+    rank = dist.get_rank() if dist.is_initialized() else -1
+    world_size = dist.get_world_size() if dist.is_initialized() else int(
+        os.environ.get("WORLD_SIZE", "1")
+    )
+    elastic_report_recovery_phase("train_ready")
+    logger.warning(
+        "[elastic] Rank %d: waiting for %d ranks to reach train_ready via watcher",
+        rank,
+        world_size,
+    )
+    if not elastic_wait_for_recovery_phase_count("train_ready", world_size, timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks reached train_ready within {timeout}s"
+        )
+    logger.warning("[elastic] Rank %d: all ranks reached train_ready", rank)
 
 
 def _elastic_rebuild_timeout(args):
@@ -768,8 +854,8 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     _wait_for_replacement_phase_before_global_barrier(
         killed_global_rank, "param_sync_done", phase_timeout
     )
-    _elastic_barrier("rebuild-final")
-    elastic_report_recovery_phase("train_ready")
+    _elastic_rebuild_final_barrier()
+    _elastic_report_and_wait_train_ready(phase_timeout)
     logger.warning(f"[elastic] Rank {rank}: rebuild complete, resuming training")
 
     # Reset pause state
@@ -810,8 +896,8 @@ def elastic_replacement_sync_params(model, optimizer):
         model_param_to_name=model_param_to_name,
     )
     elastic_report_recovery_phase("param_sync_done")
-    _elastic_barrier("rebuild-final")
-    elastic_report_recovery_phase("train_ready")
+    _elastic_rebuild_final_barrier()
+    _elastic_report_and_wait_train_ready(float(os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "300")))
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")
 
 

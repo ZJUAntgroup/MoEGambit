@@ -266,6 +266,24 @@ class ElasticWatcher:
                 pass
             return node_rank
 
+        elif msg_type == "wait_phase_count":
+            phase = msg.get("phase", "?")
+            min_count = int(msg.get("min_count", self.training_nnodes * self.nproc_per_node))
+            timeout = float(msg.get("timeout", 300.0))
+            count = self._wait_for_phase_count(phase, min_count, timeout)
+            response = json.dumps({
+                "type": "wait_phase_count_result",
+                "phase": phase,
+                "min_count": min_count,
+                "count": count,
+                "ok": count >= min_count,
+            }) + "\n"
+            try:
+                conn.sendall(response.encode())
+            except OSError:
+                pass
+            return node_rank
+
         elif msg_type == "peer_sync_endpoint":
             peer_id = msg.get("peer_id")
             host = msg.get("host") or (addr[0] if addr else None)
@@ -348,6 +366,33 @@ class ElasticWatcher:
                     return False
                 self.phase_cv.wait(timeout=min(remaining, 1.0))
         return True
+
+    def _phase_count_locked(self, target_phase):
+        count = 0
+        for state in self.recovery_phases.values():
+            have = _PHASE_ORDER.get(state.get("phase"), -1)
+            want = _PHASE_ORDER.get(target_phase, 10**9)
+            if have >= want:
+                count += 1
+        return count
+
+    def _wait_for_phase_count(self, phase, min_count, timeout):
+        deadline = time.time() + timeout
+        with self.phase_cv:
+            count = self._phase_count_locked(phase)
+            while count < min_count:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    log.warning(
+                        "wait_phase_count timed out: phase=%s count=%s min_count=%s",
+                        phase,
+                        count,
+                        min_count,
+                    )
+                    return count
+                self.phase_cv.wait(timeout=min(remaining, 1.0))
+                count = self._phase_count_locked(phase)
+            return count
 
     def _maybe_inject_fault(self, reporting_node_rank, step):
         """Check if we should inject a fault based on the reported step.
