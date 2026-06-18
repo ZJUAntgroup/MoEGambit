@@ -1085,9 +1085,9 @@ def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
     )
 
 
-def _broadcast_optimizer_state_tensor(val, src_rank, group, device):
+def _sync_optimizer_state_tensor_peer(val, src_rank, dst_rank, device):
     if val.is_cuda:
-        _broadcast_tensor_chunked(val, src_rank, group, label="optimizer-state")
+        _sync_tensor_peer_chunked(val, src_rank, dst_rank, label="optimizer-state")
         return
 
     if isinstance(device, torch.device) and device.type == "cuda":
@@ -1096,8 +1096,9 @@ def _broadcast_optimizer_state_tensor(val, src_rank, group, device):
         broadcast_device = torch.device("cuda", torch.cuda.current_device())
 
     tmp = val.to(device=broadcast_device, non_blocking=True)
-    _broadcast_tensor_chunked(tmp, src_rank, group, label="optimizer-state")
-    val.copy_(tmp.to(device=val.device))
+    _sync_tensor_peer_chunked(tmp, src_rank, dst_rank, label="optimizer-state")
+    if dist.get_rank() == dst_rank:
+        val.copy_(tmp.to(device=val.device))
 
 
 def _stable_hash_int(text: str) -> int:
@@ -1117,29 +1118,16 @@ def _shape_hash(shape) -> int:
     return _stable_hash_int(",".join(str(dim) for dim in shape))
 
 
-def _broadcast_tensor_chunked(tensor, src_rank, group, label: str):
+def _sync_tensor_peer_chunked(tensor, src_rank, dst_rank, label: str):
+    rank = dist.get_rank()
+    if rank not in (src_rank, dst_rank):
+        return
     if tensor.numel() == 0:
         return
 
     chunk_mb = int(os.environ.get("ELASTIC_PARAM_SYNC_CHUNK_MB", "256"))
     chunk_bytes = max(1, chunk_mb) * 1024 * 1024
     max_elems = max(1, chunk_bytes // max(1, tensor.element_size()))
-
-    if tensor.numel() <= max_elems:
-        dist.broadcast(tensor, src=src_rank, group=group)
-        return
-
-    rank = dist.get_rank()
-    if rank == src_rank:
-        logger.info(
-            "[elastic] Rank %d: chunked broadcast %s "
-            "(numel=%d, dtype=%s, chunk_mb=%d)",
-            rank,
-            label,
-            tensor.numel(),
-            tensor.dtype,
-            chunk_mb,
-        )
 
     original_tensor = tensor
     if tensor.is_contiguous():
@@ -1149,14 +1137,34 @@ def _broadcast_tensor_chunked(tensor, src_rank, group, label: str):
         flat = tensor.contiguous().view(-1)
         needs_copy_back = rank != src_rank
 
+    if rank == src_rank:
+        logger.info(
+            "[elastic] Rank %d: peer-send %s to rank %d "
+            "(numel=%d, dtype=%s, chunk_mb=%d)",
+            rank,
+            label,
+            dst_rank,
+            tensor.numel(),
+            tensor.dtype,
+            chunk_mb,
+        )
+
     for start in range(0, flat.numel(), max_elems):
-        dist.broadcast(flat[start : start + max_elems], src=src_rank, group=group)
+        chunk = flat[start : start + max_elems]
+        if rank == src_rank:
+            dist.send(chunk, dst=dst_rank)
+        else:
+            dist.recv(chunk, src=src_rank)
 
     if needs_copy_back:
         original_tensor.copy_(flat.view_as(original_tensor))
 
 
-def _validate_param_broadcast_manifest(name, param, index, src_rank, group):
+def _validate_param_peer_manifest(name, param, index, src_rank, dst_rank):
+    rank = dist.get_rank()
+    if rank not in (src_rank, dst_rank):
+        return
+
     device = param.device if param.is_cuda else torch.device("cuda", torch.cuda.current_device())
     local_meta = torch.tensor(
         [
@@ -1170,25 +1178,37 @@ def _validate_param_broadcast_manifest(name, param, index, src_rank, group):
         dtype=torch.long,
         device=device,
     )
-    src_meta = local_meta.clone()
-    dist.broadcast(src_meta, src=src_rank, group=group)
-    mismatch = torch.tensor(
-        [0 if torch.equal(local_meta, src_meta) else 1],
-        dtype=torch.int32,
-        device=device,
-    )
-    dist.all_reduce(mismatch, op=dist.ReduceOp.MAX, group=group)
-    if mismatch.item() != 0:
+    status = torch.zeros(1, dtype=torch.int32, device=device)
+    if rank == src_rank:
+        dist.send(local_meta, dst=dst_rank)
+        dist.recv(status, src=dst_rank)
+    else:
+        src_meta = torch.empty_like(local_meta)
+        dist.recv(src_meta, src=src_rank)
+        status.fill_(0 if torch.equal(local_meta, src_meta) else 1)
+        dist.send(status, dst=src_rank)
+        if status.item() != 0:
+            logger.error(
+                "[elastic] Rank %d: dense param manifest mismatch at index=%d "
+                "(local name=%s shape=%s dtype=%s meta=%s src_meta=%s)",
+                rank,
+                index,
+                name,
+                tuple(param.shape),
+                param.dtype,
+                local_meta.detach().cpu().tolist(),
+                src_meta.detach().cpu().tolist(),
+            )
+
+    if status.item() != 0:
         logger.error(
             "[elastic] Rank %d: dense param manifest mismatch at index=%d "
-            "(local name=%s shape=%s dtype=%s meta=%s src_meta=%s)",
-            dist.get_rank(),
+            "(local name=%s shape=%s dtype=%s)",
+            rank,
             index,
             name,
             tuple(param.shape),
             param.dtype,
-            local_meta.detach().cpu().tolist(),
-            src_meta.detach().cpu().tolist(),
         )
         raise RuntimeError(
             "[elastic] dense param sync manifest mismatch; "
@@ -1196,12 +1216,17 @@ def _validate_param_broadcast_manifest(name, param, index, src_rank, group):
         )
 
 
-def _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_rank, dp_group):
+def _sync_non_expert_optimizer_state_peer(
+    optimizer, model_param_to_name, sync_src_rank, replacement_rank
+):
     rank = dist.get_rank()
     main_param_count = 0
     state_tensor_count = 0
     skipped_state_count = 0
     unmapped_count = 0
+
+    if rank not in (sync_src_rank, replacement_rank):
+        return
 
     for megatron_optimizer in _iter_megatron_optimizers(optimizer):
         inner_optimizer, optim_param_to_name = _build_optimizer_param_name_map(
@@ -1225,8 +1250,8 @@ def _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_ra
                 if _is_expert_param_name(name):
                     continue
 
-                _broadcast_optimizer_state_tensor(
-                    param.data, sync_src_rank, dp_group, param.device
+                _sync_optimizer_state_tensor_peer(
+                    param.data, sync_src_rank, replacement_rank, param.device
                 )
                 main_param_count += 1
 
@@ -1244,19 +1269,24 @@ def _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_ra
                 has_tensor_state_tensor = torch.tensor(
                     [has_tensor_state], dtype=torch.int32, device=reduce_device
                 )
-                dist.all_reduce(
-                    has_tensor_state_tensor,
-                    op=dist.ReduceOp.MIN,
-                    group=dp_group,
-                )
+                if rank == sync_src_rank:
+                    dist.send(has_tensor_state_tensor, dst=replacement_rank)
+                    dist.recv(has_tensor_state_tensor, src=replacement_rank)
+                else:
+                    src_has_tensor_state = torch.empty_like(has_tensor_state_tensor)
+                    dist.recv(src_has_tensor_state, src=sync_src_rank)
+                    has_tensor_state_tensor.fill_(
+                        min(has_tensor_state_tensor.item(), src_has_tensor_state.item())
+                    )
+                    dist.send(has_tensor_state_tensor, dst=sync_src_rank)
                 if has_tensor_state_tensor.item() == 0:
                     skipped_state_count += 1
                     continue
 
                 for _, val in state.items():
                     if isinstance(val, torch.Tensor):
-                        _broadcast_optimizer_state_tensor(
-                            val, sync_src_rank, dp_group, param.device
+                        _sync_optimizer_state_tensor_peer(
+                            val, sync_src_rank, replacement_rank, param.device
                         )
                         state_tensor_count += 1
 
@@ -1303,8 +1333,20 @@ def _sync_params_to_new_rank(
     sync_src_rank = _select_dp_sync_src_rank(sync_group, replacement_rank)
 
     rank = dist.get_rank()
+    if rank not in (sync_src_rank, replacement_rank):
+        logger.info(
+            "[elastic] Rank %d: skipping peer param sync for pp_rank=%d, dp_rank=%d; "
+            "src=%d replacement=%d",
+            rank,
+            pp_rank,
+            dp_rank,
+            sync_src_rank,
+            replacement_rank,
+        )
+        return
+
     logger.info(
-        f"[elastic] Rank {rank}: syncing dense params "
+        f"[elastic] Rank {rank}: syncing dense params with peer transfer "
         f"(pp_rank={pp_rank}, dp_rank={dp_rank}, group={sync_group_ranks}, "
         f"src={sync_src_rank}, replacement={replacement_rank})"
     )
@@ -1319,12 +1361,10 @@ def _sync_params_to_new_rank(
                 expert_count += 1
                 continue
             dense_count += 1
-            _validate_param_broadcast_manifest(
-                name, param.data, dense_count, sync_src_rank, sync_group
-            )
+            _validate_param_peer_manifest(name, param.data, dense_count, sync_src_rank, replacement_rank)
             if dense_count <= 3 or param.data.numel() * param.data.element_size() >= 128 * 1024 * 1024:
                 logger.info(
-                    "[elastic] Rank %d: broadcasting dense param %d name=%s "
+                    "[elastic] Rank %d: syncing dense param %d name=%s "
                     "shape=%s dtype=%s",
                     rank,
                     dense_count,
@@ -1332,8 +1372,8 @@ def _sync_params_to_new_rank(
                     tuple(param.data.shape),
                     param.data.dtype,
                 )
-            _broadcast_tensor_chunked(
-                param.data, sync_src_rank, sync_group, label=f"dense-param:{name}"
+            _sync_tensor_peer_chunked(
+                param.data, sync_src_rank, replacement_rank, label=f"dense-param:{name}"
             )
 
     logger.warning(
@@ -1343,7 +1383,9 @@ def _sync_params_to_new_rank(
         dense_count,
         expert_count,
     )
-    _sync_non_expert_optimizer_state(optimizer, model_param_to_name, sync_src_rank, sync_group)
+    _sync_non_expert_optimizer_state_peer(
+        optimizer, model_param_to_name, sync_src_rank, replacement_rank
+    )
 
     logger.info(f"[elastic] Rank {rank}: param sync complete")
 
