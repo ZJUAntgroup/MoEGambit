@@ -207,12 +207,22 @@ def _write_pause_signal(msg=None):
     pause_file = os.path.join(fault_dir, "pause_signal")
     try:
         os.makedirs(fault_dir, exist_ok=True)
-        content = json.dumps(msg) if msg else "1"
+        content = json.dumps(msg if msg is not None else {})
         with open(pause_file, "w") as f:
             f.write(content)
         logger.info("[elastic] Wrote pause signal file: %s", pause_file)
     except OSError as e:
         logger.warning("[elastic] Failed to write pause file: %s", e)
+
+
+def _read_pause_signal_info(pause_file: str) -> dict:
+    """Read pause metadata while tolerating legacy flag-only files."""
+    try:
+        with open(pause_file, "r") as f:
+            pause_info = json.loads(f.read() or "{}")
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+    return pause_info if isinstance(pause_info, dict) else {}
 
 
 def _kill_single_worker(target_local_rank: int):
@@ -803,15 +813,9 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     if local_rank == 0:
         # Read pause signal to get target info
-        killed_local_rank = -1
-        failed_node_from_pause = -1
-        try:
-            with open(pause_file, "r") as f:
-                pause_info = json.loads(f.read())
-                failed_node_from_pause = pause_info.get("failed_node", -1)
-                killed_local_rank = pause_info.get("killed_local_rank", -1)
-        except (OSError, json.JSONDecodeError, ValueError):
-            pass
+        pause_info = _read_pause_signal_info(pause_file)
+        killed_local_rank = pause_info.get("killed_local_rank", -1)
+        failed_node_from_pause = pause_info.get("failed_node", -1)
 
         if failed_node_from_pause == node_rank and killed_local_rank >= 0:
             logger.warning(f"[elastic] This is the target node! "
