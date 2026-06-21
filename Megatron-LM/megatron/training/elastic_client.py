@@ -584,6 +584,103 @@ def _elastic_rebuild_final_barrier():
     )
 
 
+def _elastic_iter_groups(groups):
+    if isinstance(groups, (list, tuple)):
+        for group in groups:
+            yield group
+    else:
+        yield groups
+
+
+def _elastic_warmup_rebuild_communicators():
+    """Eagerly initialize Megatron NCCL sub-communicators before training resumes."""
+    if not dist.is_initialized() or not torch.cuda.is_available():
+        return
+
+    from megatron.core import parallel_state as mpu
+
+    rank = dist.get_rank()
+    candidates = []
+
+    def add_group(name, getter):
+        try:
+            groups = getter()
+        except Exception:
+            return
+        for group in _elastic_iter_groups(groups):
+            if group is None:
+                continue
+            try:
+                ranks = tuple(dist.get_process_group_ranks(group))
+            except Exception:
+                continue
+            if rank not in ranks or len(ranks) <= 1:
+                continue
+            candidates.append((ranks, name, group))
+
+    add_group("model", lambda: mpu.get_model_parallel_group(check_initialized=False))
+    add_group("tensor", lambda: mpu.get_tensor_model_parallel_group(check_initialized=False))
+    add_group("pipeline", lambda: mpu.get_pipeline_model_parallel_group(check_initialized=False))
+    add_group("data", lambda: mpu.get_data_parallel_group())
+    add_group("data_cp", lambda: mpu.get_data_parallel_group(with_context_parallel=True))
+    add_group(
+        "tensor_data",
+        lambda: mpu.get_tensor_and_data_parallel_group(check_initialized=False),
+    )
+    add_group(
+        "tensor_data_cp",
+        lambda: mpu.get_tensor_and_data_parallel_group(
+            check_initialized=False, with_context_parallel=True
+        ),
+    )
+    add_group(
+        "tensor_context",
+        lambda: mpu.get_tensor_and_context_parallel_group(check_initialized=False),
+    )
+    add_group("embedding", lambda: mpu.get_embedding_group(check_initialized=False))
+    add_group("position_embedding", lambda: mpu.get_position_embedding_group(check_initialized=False))
+    add_group("expert", lambda: mpu.get_expert_model_parallel_group(check_initialized=False))
+    add_group("expert_tensor", lambda: mpu.get_expert_tensor_parallel_group(check_initialized=False))
+    add_group(
+        "expert_tensor_model",
+        lambda: mpu.get_expert_tensor_and_model_parallel_group(check_initialized=False),
+    )
+    add_group(
+        "expert_tensor_model_pipeline",
+        lambda: mpu.get_expert_tensor_model_pipeline_parallel_group(check_initialized=False),
+    )
+    add_group("expert_data", lambda: mpu.get_expert_data_parallel_group(check_initialized=False))
+
+    seen = set()
+    ordered = []
+    for ranks, name, group in sorted(candidates, key=lambda item: (item[0], item[1])):
+        key = id(group)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append((ranks, name, group))
+
+    device = torch.cuda.current_device()
+    warmup = torch.ones(1, device=device)
+    logger.warning(
+        "[elastic] Rank %d: warming %d rebuild communicators before train_ready",
+        rank,
+        len(ordered),
+    )
+    elastic_report_recovery_phase("comm_warmup_start")
+    for ranks, name, group in ordered:
+        logger.info(
+            "[elastic] Rank %d: warming communicator %s ranks=%s",
+            rank,
+            name,
+            list(ranks),
+        )
+        dist.all_reduce(warmup, group=group)
+    torch.cuda.synchronize()
+    elastic_report_recovery_phase("comm_warmup_done")
+    logger.warning("[elastic] Rank %d: rebuild communicator warmup complete", rank)
+
+
 def _elastic_report_and_wait_train_ready(timeout: float):
     """Use watcher/TCP as the post-rebuild full-rank readiness barrier."""
     rank = dist.get_rank() if dist.is_initialized() else -1
@@ -910,6 +1007,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     _wait_for_replacement_phase_before_global_barrier(
         killed_global_rank, "param_sync_done", phase_timeout
     )
+    _elastic_warmup_rebuild_communicators()
     _elastic_rebuild_final_barrier()
     _elastic_report_and_wait_train_ready(phase_timeout)
     logger.warning(f"[elastic] Rank {rank}: rebuild complete, resuming training")
@@ -952,6 +1050,7 @@ def elastic_replacement_sync_params(model, optimizer):
         model_param_to_name=model_param_to_name,
     )
     elastic_report_recovery_phase("param_sync_done")
+    _elastic_warmup_rebuild_communicators()
     _elastic_rebuild_final_barrier()
     _elastic_report_and_wait_train_ready(float(os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "300")))
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")

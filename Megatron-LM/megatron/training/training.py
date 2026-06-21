@@ -280,9 +280,8 @@ def _elastic_apply_resume_state(args):
     args.num_floating_point_operations_so_far = getattr(
         args, 'num_floating_point_operations_so_far', 0
     )
-    if getattr(args, 'consumed_train_samples', 0) == 0:
-        args.consumed_train_samples = resume_iteration * args.global_batch_size
-    if getattr(args, 'consumed_valid_samples', 0) == 0 and args.eval_interval:
+    args.consumed_train_samples = resume_iteration * args.global_batch_size
+    if args.eval_interval:
         eval_iters = sum(args.eval_iters) if isinstance(args.eval_iters, list) else args.eval_iters
         args.consumed_valid_samples = (
             (resume_iteration // args.eval_interval) * eval_iters * args.global_batch_size
