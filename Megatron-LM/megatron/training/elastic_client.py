@@ -592,14 +592,33 @@ def _elastic_iter_groups(groups):
         yield groups
 
 
-def _elastic_warmup_rebuild_communicators():
-    """Eagerly initialize Megatron NCCL sub-communicators before training resumes."""
+def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: Optional[float] = None):
+    """Eagerly initialize replacement-facing NCCL communicators before resume.
+
+    Survivor-only communicators were already used before the rebuild.  Warming
+    them again can interleave unrelated overlapping NCCL groups in different
+    rank-local orders.  Restrict warmup to groups containing the replacement
+    rank, and order those groups with a global rank-list key so every overlap
+    observes the same collective order.
+    """
     if not dist.is_initialized() or not torch.cuda.is_available():
         return
 
     from megatron.core import parallel_state as mpu
 
     rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    if replacement_rank < 0:
+        replacement_rank = int(
+            os.environ.get("ELASTIC_REPLACEMENT_RANK", os.environ.get("RANK", "-1"))
+        )
+    if timeout is None:
+        timeout = float(
+            os.environ.get(
+                "ELASTIC_REBUILD_PHASE_TIMEOUT",
+                os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"),
+            )
+        )
     candidates = []
 
     def add_group(name, getter):
@@ -615,6 +634,8 @@ def _elastic_warmup_rebuild_communicators():
             except Exception:
                 continue
             if rank not in ranks or len(ranks) <= 1:
+                continue
+            if replacement_rank >= 0 and replacement_rank not in ranks:
                 continue
             candidates.append((ranks, name, group))
 
@@ -653,7 +674,7 @@ def _elastic_warmup_rebuild_communicators():
 
     seen = set()
     ordered = []
-    for ranks, name, group in sorted(candidates, key=lambda item: (item[0], item[1])):
+    for ranks, name, group in sorted(candidates, key=lambda item: (-len(item[0]), item[0], item[1])):
         key = id(group)
         if key in seen:
             continue
@@ -663,11 +684,17 @@ def _elastic_warmup_rebuild_communicators():
     device = torch.cuda.current_device()
     warmup = torch.ones(1, device=device)
     logger.warning(
-        "[elastic] Rank %d: warming %d rebuild communicators before train_ready",
+        "[elastic] Rank %d: warming %d replacement-facing rebuild communicators "
+        "before train_ready (replacement=%d)",
         rank,
         len(ordered),
+        replacement_rank,
     )
     elastic_report_recovery_phase("comm_warmup_start")
+    if not elastic_wait_for_recovery_phase_count("comm_warmup_start", world_size, timeout):
+        raise RuntimeError(
+            "[elastic] not all ranks reached comm_warmup_start before communicator warmup"
+        )
     for ranks, name, group in ordered:
         logger.info(
             "[elastic] Rank %d: warming communicator %s ranks=%s",
@@ -676,6 +703,7 @@ def _elastic_warmup_rebuild_communicators():
             list(ranks),
         )
         dist.all_reduce(warmup, group=group)
+        logger.info("[elastic] Rank %d: warmed communicator %s", rank, name)
     torch.cuda.synchronize()
     elastic_report_recovery_phase("comm_warmup_done")
     logger.warning("[elastic] Rank %d: rebuild communicator warmup complete", rank)
@@ -1007,7 +1035,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     _wait_for_replacement_phase_before_global_barrier(
         killed_global_rank, "param_sync_done", phase_timeout
     )
-    _elastic_warmup_rebuild_communicators()
+    _elastic_warmup_rebuild_communicators(killed_global_rank, phase_timeout)
     _elastic_rebuild_final_barrier()
     _elastic_report_and_wait_train_ready(phase_timeout)
     logger.warning(f"[elastic] Rank {rank}: rebuild complete, resuming training")
@@ -1050,7 +1078,10 @@ def elastic_replacement_sync_params(model, optimizer):
         model_param_to_name=model_param_to_name,
     )
     elastic_report_recovery_phase("param_sync_done")
-    _elastic_warmup_rebuild_communicators()
+    _elastic_warmup_rebuild_communicators(
+        replacement_rank,
+        float(os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "300")),
+    )
     _elastic_rebuild_final_barrier()
     _elastic_report_and_wait_train_ready(float(os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "300")))
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")
