@@ -619,6 +619,8 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
                 os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"),
             )
         )
+    warm_full_groups = os.environ.get("ELASTIC_REBUILD_WARMUP_FULL_GROUPS", "0") == "1"
+    skipped_groups = []
     candidates = []
 
     def add_group(name, getter):
@@ -636,6 +638,9 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
             if rank not in ranks or len(ranks) <= 1:
                 continue
             if replacement_rank >= 0 and replacement_rank not in ranks:
+                continue
+            if not warm_full_groups and (len(ranks) >= world_size or name == "expert_tensor_model_pipeline"):
+                skipped_groups.append((ranks, name))
                 continue
             candidates.append((ranks, name, group))
 
@@ -690,6 +695,13 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
         len(ordered),
         replacement_rank,
     )
+    if skipped_groups:
+        logger.info(
+            "[elastic] Rank %d: skipped %d full/metadata warmup groups: %s",
+            rank,
+            len(skipped_groups),
+            [(name, list(ranks)) for ranks, name in skipped_groups],
+        )
     elastic_report_recovery_phase("comm_warmup_start")
     if not elastic_wait_for_recovery_phase_count("comm_warmup_start", world_size, timeout):
         raise RuntimeError(
