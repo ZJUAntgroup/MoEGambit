@@ -2,6 +2,7 @@
 
 import logging
 import math
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Iterable, List, Optional, Type, Union
 
@@ -23,6 +24,10 @@ TopLevelDataset = Union[BlendedDataset, MidLevelDataset]
 DistributedDataset = Union[
     TopLevelDataset, MidLevelDataset, LowLevelDataset, torch.utils.data.Dataset
 ]
+
+
+def _elastic_rebuild_mode() -> bool:
+    return os.environ.get("ELASTIC_REBUILD_MODE") == "1"
 
 
 class BlendedMegatronDatasetBuilder(object):
@@ -363,6 +368,16 @@ class BlendedMegatronDatasetBuilder(object):
         num_dataset_builder_threads = self.config.num_dataset_builder_threads
 
         if torch.distributed.is_initialized():
+            if _elastic_rebuild_mode():
+                _threading_helper(
+                    megatron_datasets,
+                    num_dataset_builder_threads,
+                    prefixes,
+                    split,
+                    sizes_per_dataset,
+                )
+                return megatron_datasets
+
             rank = torch.distributed.get_rank()
             # First, build on rank 0
             if rank == 0:
@@ -421,7 +436,7 @@ class BlendedMegatronDatasetBuilder(object):
         # short-cut if we are not building on this rank
         if torch.distributed.is_initialized() and not self.is_built_on_rank():
             for i in range(len(Split)):
-                if split[i] is not None and synchronize_ranks:
+                if split[i] is not None and synchronize_ranks and not _elastic_rebuild_mode():
                     torch.distributed.barrier()
             return [None] * len(Split)
 
@@ -495,6 +510,11 @@ class BlendedMegatronDatasetBuilder(object):
             rank = torch.distributed.get_rank()
 
             dataset = None
+
+            if _elastic_rebuild_mode():
+                if is_built_on_rank():
+                    dataset = cls(*args)
+                return dataset
 
             # First, build on rank 0
             if rank == 0 and is_built_on_rank():

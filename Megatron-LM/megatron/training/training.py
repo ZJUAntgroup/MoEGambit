@@ -3234,6 +3234,7 @@ def build_train_valid_test_data_loaders(build_train_valid_test_datasets_provider
     """Build pretraining data loaders."""
 
     args = get_args()
+    _elastic_rebuild = is_rebuild_mode()
 
     (train_dataloader, valid_dataloaders, test_dataloader) = (None, None, None)
 
@@ -3290,11 +3291,26 @@ def build_train_valid_test_data_loaders(build_train_valid_test_datasets_provider
     else:
         flags = torch.tensor([0, 0, 0], dtype=torch.long, device='cuda')
 
-    torch.distributed.broadcast(flags, 0)
-
-    args.do_train = getattr(args, "do_train", False) or flags[0].item()
-    args.do_valid = getattr(args, "do_valid", False) or flags[1].item()
-    args.do_test = getattr(args, "do_test", False) or flags[2].item()
+    if _elastic_rebuild:
+        eval_iters = args.eval_iters
+        if isinstance(eval_iters, list):
+            has_eval_iters = any(eval_iter > 0 for eval_iter in eval_iters)
+        else:
+            has_eval_iters = eval_iters > 0
+        args.do_train = getattr(args, "do_train", False) or (
+            not args.skip_train and args.train_iters > 0
+        )
+        args.do_valid = getattr(args, "do_valid", False) or (
+            args.full_validation or has_eval_iters
+        )
+        args.do_test = getattr(args, "do_test", False) or (
+            args.full_validation or has_eval_iters
+        )
+    else:
+        torch.distributed.broadcast(flags, 0)
+        args.do_train = getattr(args, "do_train", False) or flags[0].item()
+        args.do_valid = getattr(args, "do_valid", False) or flags[1].item()
+        args.do_test = getattr(args, "do_test", False) or flags[2].item()
     if getattr(args, 'perform_rl_step', False):
         args.to_test = False
 
