@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 _CLIENT: Optional["ElasticClient"] = None
 _PAUSE_REQUESTED = False
 _REBUILD_INFO: Optional[dict] = None
+_REBUILD_STORE = None
 _LOCK = threading.Lock()
 
 
@@ -854,6 +855,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     rebuild_timeout = _elastic_rebuild_timeout(args)
     logger.warning("[elastic] Rank %d: rebuild timeout is %s", rank, rebuild_timeout)
 
+    global _REBUILD_STORE
     store = dist.TCPStore(
         host_name=new_master_addr,
         port=int(new_master_port),
@@ -861,6 +863,11 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         is_master=is_master,
         timeout=rebuild_timeout,
     )
+    # Keep the rebuild TCPStore alive after this function returns.  NCCL
+    # sub-communicators are lazily initialized by the first training P2P op, so
+    # dropping rank 0's store object here can close the server before those
+    # communicators fetch their ncclUniqueId.
+    _REBUILD_STORE = store
 
     dist.init_process_group(
         backend="nccl",
