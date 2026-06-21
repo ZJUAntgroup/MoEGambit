@@ -1118,7 +1118,16 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
             filename (str): path to save parameter state to.
         """
 
-        state_dict = self.get_parameter_state_dp_zero()
+        use_gloo_comm = self.data_parallel_group_gloo is not None
+        if not use_gloo_comm:
+            logger.warning(
+                "Distributed optimizer Gloo data-parallel group is unavailable; "
+                "falling back to NCCL for parameter-state checkpoint save."
+            )
+        state_dict = self.get_parameter_state_dp_zero(
+            use_gloo_comm=use_gloo_comm,
+            return_on_all_ranks=not use_gloo_comm,
+        )
         if self.data_parallel_group.rank() == 0:
             torch.save(state_dict, filename)
 
@@ -1426,6 +1435,13 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
             use_gloo_comm = True
             return_on_all_ranks = False
         else:
+            use_gloo_comm = False
+            return_on_all_ranks = True
+        if use_gloo_comm and self.data_parallel_group_gloo is None:
+            logger.warning(
+                "Distributed optimizer Gloo data-parallel group is unavailable; "
+                "falling back to NCCL all-gather for sharded optimizer state dict."
+            )
             use_gloo_comm = False
             return_on_all_ranks = True
         dp_zero_state_dict = self.get_parameter_state_dp_zero(

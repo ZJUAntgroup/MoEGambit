@@ -1346,7 +1346,16 @@ class ChainedOptimizer(MegatronOptimizer):
         states = []
         for optimizer in self.chained_optimizers:
             if hasattr(optimizer, 'get_parameter_state_dp_zero'):
-                state_dict = optimizer.get_parameter_state_dp_zero()
+                use_gloo_comm = getattr(optimizer, 'data_parallel_group_gloo', None) is not None
+                if not use_gloo_comm:
+                    logger.warning(
+                        "Distributed optimizer Gloo data-parallel group is unavailable; "
+                        "falling back to NCCL for chained parameter-state checkpoint save."
+                    )
+                state_dict = optimizer.get_parameter_state_dp_zero(
+                    use_gloo_comm=use_gloo_comm,
+                    return_on_all_ranks=not use_gloo_comm,
+                )
 
                 # Save checkpoint economically, only when DP rank = 0, state dict
                 # needs to be saved.

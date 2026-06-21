@@ -94,6 +94,7 @@ from megatron.training.elastic_client import (
     elastic_client_update_step,
     elastic_check_pause,
     elastic_do_rebuild,
+    elastic_align_resume_state,
     elastic_on_nccl_error,
     elastic_replacement_sync_params,
     elastic_report_recovery_phase,
@@ -267,7 +268,7 @@ def print_datetime(string):
     print_rank_0(f'[{string}] datetime: {time_str} ')
 
 
-def _elastic_apply_resume_state(args):
+def _elastic_apply_resume_state(args, opt_param_scheduler=None):
     """Seed replacement workers with the safe-point iteration selected by the watcher."""
     if not is_rebuild_mode():
         return
@@ -276,16 +277,12 @@ def _elastic_apply_resume_state(args):
     if resume_iteration < 0:
         return
 
-    args.iteration = resume_iteration
+    resume_iteration = elastic_align_resume_state(args, opt_param_scheduler, resume_iteration)
+    if resume_iteration is None or resume_iteration < 0:
+        return
     args.num_floating_point_operations_so_far = getattr(
         args, 'num_floating_point_operations_so_far', 0
     )
-    args.consumed_train_samples = resume_iteration * args.global_batch_size
-    if args.eval_interval:
-        eval_iters = sum(args.eval_iters) if isinstance(args.eval_iters, list) else args.eval_iters
-        args.consumed_valid_samples = (
-            (resume_iteration // args.eval_interval) * eval_iters * args.global_batch_size
-        )
     logger.warning(
         "[elastic] REBUILD MODE: resuming replacement at iteration %d "
         "(consumed_train_samples=%d)",
@@ -847,7 +844,7 @@ def pretrain(
         args.no_load_optim = _elastic_saved_no_load_optim
         args.no_load_rng = _elastic_saved_no_load_rng
         elastic_replacement_sync_params(model, optimizer)
-        _elastic_apply_resume_state(args)
+        _elastic_apply_resume_state(args, opt_param_scheduler)
         elastic_report_recovery_phase("resume_state_applied")
         logger.warning("[elastic] REBUILD MODE: param sync complete, joining training loop")
 
@@ -1434,6 +1431,11 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
 
     rerun_state_machine = get_rerun_state_machine()
     while rerun_state_machine.should_run_forward_backward(data_iterator):
+        elastic_client_update_step(
+            args.curr_iteration,
+            phase="forward_backward",
+            step_tag=args.curr_iteration,
+        )
         # Set grad to zero.
         for model_chunk in model:
             model_chunk.zero_grad_buffer()
@@ -1489,9 +1491,22 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
         bsr_mark_optimizer_skipped(reason="iteration_invalidated")
         return {}, 1, should_checkpoint, should_exit, exit_code, None, None
 
+    elastic_client_update_step(args.curr_iteration, phase="optimizer_step", step_tag=-1)
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()
+    if update_successful:
+        elastic_client_update_step(
+            args.curr_iteration,
+            phase="optimizer_local_done",
+            step_tag=args.curr_iteration + 1,
+        )
+    else:
+        elastic_client_update_step(
+            args.curr_iteration,
+            phase="optimizer_skipped",
+            step_tag=args.curr_iteration,
+        )
 
     # BSR-MoE: mark optimizer as committed after successful step.
     bsr_mark_optimizer_committed()
@@ -1515,8 +1530,18 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
         increment = get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
         opt_param_scheduler.step(increment=increment)
         skipped_iter = 0
+        elastic_client_update_step(
+            args.curr_iteration,
+            phase="step_complete",
+            step_tag=args.curr_iteration + 1,
+        )
     else:
         skipped_iter = 1
+        elastic_client_update_step(
+            args.curr_iteration,
+            phase="optimizer_skipped",
+            step_tag=args.curr_iteration,
+        )
 
     # Empty unused memory.
     if args.empty_unused_memory_level >= 2:
@@ -2504,7 +2529,10 @@ def train(
                 "[elastic] Iteration %d: pause requested, entering rebuild...",
                 iteration,
             )
-            elastic_do_rebuild(model, optimizer, opt_param_scheduler)
+            elastic_resume_iteration = elastic_do_rebuild(model, optimizer, opt_param_scheduler)
+            if elastic_resume_iteration is not None and elastic_resume_iteration >= 0:
+                iteration = elastic_resume_iteration
+                args.curr_iteration = iteration
             logger.warning("[elastic] Rebuild complete, resuming at iteration %d", iteration)
 
         # BSR-MoE: safe-point hook (before forward pass).
@@ -2603,7 +2631,12 @@ def train(
                         "[elastic] NCCL error caught + pause signal present. "
                         "Skipping BSR logic, entering rebuild immediately."
                     )
-                    elastic_do_rebuild(model, optimizer, opt_param_scheduler)
+                    elastic_resume_iteration = elastic_do_rebuild(
+                        model, optimizer, opt_param_scheduler
+                    )
+                    if elastic_resume_iteration is not None and elastic_resume_iteration >= 0:
+                        iteration = elastic_resume_iteration
+                        args.curr_iteration = iteration
                     logger.warning("[elastic] Rebuild complete after NCCL error recovery.")
                     # Reset iteration state and continue training
                     _bsr_hard_failure_caught = False

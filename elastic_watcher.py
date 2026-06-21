@@ -24,8 +24,8 @@ Fault injection flow (safe, no NCCL timeout):
   8. All ranks re-init_process_group → sync params → resume
 
 Protocol (TCP, JSON lines):
-  - Training → Watcher: {"type": "heartbeat", "node_rank": N, "step": S}
-  - Training → Watcher: {"type": "ready_to_rebuild", "node_rank": N}
+  - Training → Watcher: {"type": "heartbeat", "node_rank": N, "step": S, "step_tag": T, "train_phase": P}
+  - Training → Watcher: {"type": "ready_to_rebuild", "node_rank": N, "step": S, "step_tag": T, "train_phase": P}
   - Training → Watcher: {"type": "nccl_error", "node_rank": N, "error": "..."}
   - Watcher → Training: {"type": "pause", "failed_node": N}
   - Watcher → Training: {"type": "rebuild", "failed_node": N, "new_master_addr": ..., "new_master_port": ..., "killed_rank": R}
@@ -92,12 +92,16 @@ class ElasticWatcher:
         self.node_connections = {}  # node_rank -> socket
         self.last_heartbeat = {}   # node_rank -> timestamp
         self.node_steps = {}       # node_rank -> last reported step
+        self.node_step_tags = {}   # node_rank -> FlashRecovery step tag
+        self.node_train_phases = {}  # node_rank -> forward_backward / optimizer_step / step_complete
         self.failed_node = None
         self.killed_local_rank = 0
         self.recovery_in_progress = False
         self.rebuild_ready_count = 0
         self.rebuild_ready_nodes = set()
         self.rebuild_ready_steps = {}
+        self.rebuild_ready_step_tags = {}
+        self.rebuild_ready_phases = {}
         self.recovery_phases = {}
         self.peer_sync_endpoints = {}
         self.rebuild_triggered = False
@@ -198,7 +202,11 @@ class ElasticWatcher:
                 self.node_connections[node_rank] = conn
                 self.last_heartbeat[node_rank] = time.time()
                 step = msg.get("step", -1)
+                step_tag = msg.get("step_tag", step)
+                train_phase = msg.get("train_phase", "unknown")
                 self.node_steps[node_rank] = step
+                self.node_step_tags[node_rank] = step_tag
+                self.node_train_phases[node_rank] = train_phase
 
             # Check for step-based fault injection
             self._maybe_inject_fault(node_rank, msg.get("step", -1))
@@ -211,11 +219,22 @@ class ElasticWatcher:
                     self.rebuild_ready_nodes.add(node_rank)
                     self.rebuild_ready_count = len(self.rebuild_ready_nodes)
                     self.rebuild_ready_steps[node_rank] = msg.get("step", -1)
+                    self.rebuild_ready_step_tags[node_rank] = msg.get(
+                        "step_tag", msg.get("step", -1)
+                    )
+                    self.rebuild_ready_phases[node_rank] = msg.get("train_phase", "unknown")
                 else:
                     log.info(f"Duplicate ready_to_rebuild from node {node_rank}; ignoring")
                 total = self.training_nnodes  # All nodes pause (including target)
-                log.info(f"Node {node_rank} ready to rebuild "
-                         f"({self.rebuild_ready_count}/{total})")
+                log.info(
+                    "Node %s ready to rebuild (%s/%s, step=%s, step_tag=%s, phase=%s)",
+                    node_rank,
+                    self.rebuild_ready_count,
+                    total,
+                    self.rebuild_ready_steps.get(node_rank, -1),
+                    self.rebuild_ready_step_tags.get(node_rank, -1),
+                    self.rebuild_ready_phases.get(node_rank, "unknown"),
+                )
                 if self.rebuild_ready_count >= total and not self.rebuild_triggered:
                     self.rebuild_triggered = True
                     should_trigger = True
@@ -224,7 +243,14 @@ class ElasticWatcher:
             return node_rank
 
         elif msg_type == "nccl_error":
-            log.warning(f"Node {node_rank} reported NCCL error: {msg.get('error', '?')}")
+            log.warning(
+                "Node %s reported NCCL error at step=%s step_tag=%s phase=%s: %s",
+                node_rank,
+                msg.get("step", -1),
+                msg.get("step_tag", msg.get("step", -1)),
+                msg.get("train_phase", "unknown"),
+                msg.get("error", "?"),
+            )
             if not self.recovery_in_progress:
                 log.info("NCCL error report received but no recovery in progress yet — "
                          "waiting for heartbeat timeout to confirm")
@@ -267,6 +293,8 @@ class ElasticWatcher:
                     self.rebuild_ready_count = 0
                     self.rebuild_ready_nodes = set()
                     self.rebuild_ready_steps = {}
+                    self.rebuild_ready_step_tags = {}
+                    self.rebuild_ready_phases = {}
                     log.info("All training ranks reached train_ready; recovery complete")
                 self.phase_cv.notify_all()
             log.info(
@@ -487,6 +515,54 @@ class ElasticWatcher:
                 item.get("phase"),
             )
 
+    @staticmethod
+    def _coerce_step(value, default=-1):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _select_resume_iteration(self, ready_steps, ready_step_tags, ready_phases):
+        """Pick a FlashRecovery-style resume iteration from paused node tags."""
+        coerced_steps = {
+            node: self._coerce_step(step)
+            for node, step in ready_steps.items()
+        }
+        coerced_tags = {
+            node: self._coerce_step(ready_step_tags.get(node, coerced_steps.get(node, -1)))
+            for node in ready_steps
+        }
+
+        optimizer_pending_nodes = sorted(
+            node for node, tag in coerced_tags.items()
+            if tag == -1 or ready_phases.get(node) == "optimizer_step"
+        )
+        if optimizer_pending_nodes:
+            valid_steps = [step for step in coerced_steps.values() if step >= 0]
+            resume_iteration = min(valid_steps) if valid_steps else -1
+            log.warning(
+                "Optimizer step was in flight on ready nodes %s; selecting "
+                "conservative resume_iteration=%s from ready steps %s",
+                optimizer_pending_nodes,
+                resume_iteration,
+                coerced_steps,
+            )
+            return resume_iteration
+
+        valid_tags = [tag for tag in coerced_tags.values() if tag >= 0]
+        if valid_tags:
+            if len(set(valid_tags)) > 1:
+                log.warning(
+                    "Ready nodes reported mixed step tags %s; selecting "
+                    "minimum resume_iteration=%s",
+                    coerced_tags,
+                    min(valid_tags),
+                )
+            return min(valid_tags)
+
+        valid_steps = [step for step in coerced_steps.values() if step >= 0]
+        return min(valid_steps) if valid_steps else -1
+
     def _handle_fault(self, failed_node_rank):
         """Handle a detected node failure (or planned fault injection).
 
@@ -502,6 +578,8 @@ class ElasticWatcher:
             self.rebuild_ready_count = 0
             self.rebuild_ready_nodes = set()
             self.rebuild_ready_steps = {}
+            self.rebuild_ready_step_tags = {}
+            self.rebuild_ready_phases = {}
             self.recovery_phases = {}
             self.peer_sync_endpoints = {}
             self.rebuild_triggered = False
@@ -545,6 +623,8 @@ class ElasticWatcher:
             failed_node = self.failed_node
             killed_local_rank = self.killed_local_rank
             ready_steps = dict(self.rebuild_ready_steps)
+            ready_step_tags = dict(self.rebuild_ready_step_tags)
+            ready_phases = dict(self.rebuild_ready_phases)
 
         if failed_node is None:
             log.warning("Rebuild trigger requested but failed_node is not set")
@@ -553,10 +633,17 @@ class ElasticWatcher:
         log.info(f"All {self.training_nnodes} nodes ready. "
                  f"Target rank already killed (node {failed_node} "
                  f"local_rank {killed_local_rank}). Launching spare...")
-        valid_steps = [step for step in ready_steps.values() if step >= 0]
-        resume_iteration = min(valid_steps) if valid_steps else -1
-        log.info(f"Elastic resume iteration selected: {resume_iteration} "
-                 f"from ready steps {ready_steps}")
+        resume_iteration = self._select_resume_iteration(
+            ready_steps, ready_step_tags, ready_phases
+        )
+        log.info(
+            "Elastic resume iteration selected: %s from ready steps=%s "
+            "step_tags=%s phases=%s",
+            resume_iteration,
+            ready_steps,
+            ready_step_tags,
+            ready_phases,
+        )
 
         # Step 1: Launch 1 spare process on this node
         self.replacement_ready_event.clear()
@@ -599,6 +686,9 @@ class ElasticWatcher:
             "killed_local_rank": killed_local_rank,
             "killed_global_rank": killed_global_rank,
             "resume_iteration": resume_iteration,
+            "resume_ready_steps": ready_steps,
+            "resume_step_tags": ready_step_tags,
+            "resume_phases": ready_phases,
             "new_master_addr": self.master_addr,
             "new_master_port": str(int(self.master_port) + 1),
         }) + "\n"
@@ -617,6 +707,8 @@ class ElasticWatcher:
             self.rebuild_ready_count = 0
             self.rebuild_ready_nodes = set()
             self.rebuild_ready_steps = {}
+            self.rebuild_ready_step_tags = {}
+            self.rebuild_ready_phases = {}
 
     def _build_spare_env(self, failed_node, killed_local_rank, resume_iteration=-1):
         killed_global_rank = failed_node * self.nproc_per_node + killed_local_rank

@@ -66,6 +66,8 @@ class ElasticClient:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.step = 0
+        self.step_tag = 0
+        self.train_phase = "forward_backward"
 
     def start(self):
         """Connect to watcher and start heartbeat thread."""
@@ -81,8 +83,11 @@ class ElasticClient:
             except OSError:
                 pass
 
-    def update_step(self, step: int):
+    def update_step(self, step: int, phase: Optional[str] = None, step_tag: Optional[int] = None):
         self.step = step
+        self.step_tag = step if step_tag is None else step_tag
+        if phase is not None:
+            self.train_phase = phase
 
     def _connect(self):
         """Establish TCP connection to watcher."""
@@ -149,6 +154,8 @@ class ElasticClient:
                 "type": "heartbeat",
                 "node_rank": self.node_rank,
                 "step": self.step,
+                "step_tag": self.step_tag,
+                "train_phase": self.train_phase,
             })
 
             # Check for incoming messages
@@ -199,6 +206,8 @@ class ElasticClient:
             "type": "ready_to_rebuild",
             "node_rank": self.node_rank,
             "step": self.step,
+            "step_tag": self.step_tag,
+            "train_phase": self.train_phase,
         })
 
 
@@ -314,10 +323,18 @@ def elastic_client_start():
     logger.info(f"[elastic] Client started on node {node_rank}")
 
 
-def elastic_client_update_step(step: int):
-    """Update the current training step (for heartbeat reporting)."""
+def elastic_client_update_step(
+    step: int, phase: str = "forward_backward", step_tag: Optional[int] = None
+):
+    """Update heartbeat step metadata.
+
+    FlashRecovery-style recovery needs to distinguish failures during
+    forward/backward from failures during optimizer step.  ``step_tag`` follows
+    that convention: i during forward/backward, -1 while optimizer step is in
+    flight, and i+1 after a committed optimizer step.
+    """
     if _CLIENT is not None:
-        _CLIENT.update_step(step)
+        _CLIENT.update_step(step, phase=phase, step_tag=step_tag)
 
 
 def _send_one_shot_to_watcher(msg: dict) -> bool:
@@ -815,6 +832,522 @@ def _initialize_model_parallel_for_rebuild(mpu, args):
     )
 
 
+def _elastic_safe_get_group(name, getter):
+    try:
+        return getter()
+    except Exception as exc:
+        logger.debug("[elastic] current process group %s unavailable: %s", name, exc)
+        return None
+
+
+def _elastic_current_pg_dict():
+    from megatron.core import parallel_state as mpu
+
+    return {
+        "tp": _elastic_safe_get_group(
+            "tp", lambda: mpu.get_tensor_model_parallel_group(check_initialized=False)
+        ),
+        "pp": _elastic_safe_get_group(
+            "pp", lambda: mpu.get_pipeline_model_parallel_group(check_initialized=False)
+        ),
+        "mp": _elastic_safe_get_group(
+            "mp", lambda: mpu.get_model_parallel_group(check_initialized=False)
+        ),
+        "embd": _elastic_safe_get_group(
+            "embd", lambda: mpu.get_embedding_group(check_initialized=False)
+        ),
+        "pos_embd": _elastic_safe_get_group(
+            "pos_embd", lambda: mpu.get_position_embedding_group(check_initialized=False)
+        ),
+        "cp": _elastic_safe_get_group(
+            "cp", lambda: mpu.get_context_parallel_group(check_initialized=False)
+        ),
+        "tp_cp": _elastic_safe_get_group(
+            "tp_cp", lambda: mpu.get_tensor_and_context_parallel_group(check_initialized=False)
+        ),
+        "hcp": _elastic_safe_get_group(
+            "hcp", lambda: mpu.get_hierarchical_context_parallel_groups(check_initialized=False)
+        ),
+        "ep": _elastic_safe_get_group(
+            "ep", lambda: mpu.get_expert_model_parallel_group(check_initialized=False)
+        ),
+        "expt_tp": _elastic_safe_get_group(
+            "expt_tp", lambda: mpu.get_expert_tensor_parallel_group(check_initialized=False)
+        ),
+        "tp_ep": _elastic_safe_get_group(
+            "tp_ep", lambda: mpu.get_expert_tensor_and_model_parallel_group(
+                check_initialized=False
+            )
+        ),
+        "tp_ep_pp": _elastic_safe_get_group(
+            "tp_ep_pp", lambda: mpu.get_expert_tensor_model_pipeline_parallel_group(
+                check_initialized=False
+            )
+        ),
+        "tp_dp_cp": _elastic_safe_get_group(
+            "tp_dp_cp", lambda: mpu.get_tensor_and_data_parallel_group(
+                check_initialized=False, with_context_parallel=True
+            )
+        ),
+        "dp": _elastic_safe_get_group(
+            "dp", lambda: mpu.get_data_parallel_group(with_context_parallel=False)
+        ),
+        "dp_cp": _elastic_safe_get_group(
+            "dp_cp", lambda: mpu.get_data_parallel_group(with_context_parallel=True)
+        ),
+        "intra_dp_cp": _elastic_safe_get_group(
+            "intra_dp_cp", lambda: mpu.get_data_parallel_group(
+                with_context_parallel=True, partial_data_parallel=True
+            )
+        ),
+        "expt_dp": _elastic_safe_get_group(
+            "expt_dp", lambda: mpu.get_expert_data_parallel_group(check_initialized=False)
+        ),
+        "intra_expt_dp": _elastic_safe_get_group(
+            "intra_expt_dp", lambda: mpu.get_expert_data_parallel_group(
+                check_initialized=False, partial_expert_data_parallel=True
+            )
+        ),
+        "inter_dist_opt": _elastic_safe_get_group(
+            "inter_dist_opt",
+            lambda: mpu.get_inter_distributed_optimizer_instance_group(check_initialized=False),
+        ),
+        "intra_dist_opt": _elastic_safe_get_group(
+            "intra_dist_opt",
+            lambda: mpu.get_intra_distributed_optimizer_instance_group(check_initialized=False),
+        ),
+        "intra_dp_cp_gloo": _elastic_safe_get_group(
+            "intra_dp_cp_gloo", lambda: mpu.get_data_parallel_group_gloo(
+                with_context_parallel=True, partial_data_parallel=True
+            )
+        ),
+        "intra_expt_dp_gloo": _elastic_safe_get_group(
+            "intra_expt_dp_gloo", lambda: mpu.get_expert_data_parallel_group_gloo(
+                partial_expert_data_parallel=True
+            )
+        ),
+    }
+
+
+def _elastic_set_attr(obj, attr_name, new_value):
+    if new_value is None or not hasattr(obj, attr_name):
+        return 0
+    if getattr(obj, attr_name, None) is new_value:
+        return 0
+    setattr(obj, attr_name, new_value)
+    return 1
+
+
+def _elastic_rebind_pg_collection(module, pg_dict):
+    pg_collection = getattr(module, "pg_collection", None)
+    if pg_collection is None:
+        return 0
+
+    count = 0
+    for field_name, group in pg_dict.items():
+        if field_name.endswith("_gloo") or group is None:
+            continue
+        if hasattr(pg_collection, field_name):
+            count += _elastic_set_attr(pg_collection, field_name, group)
+    return count
+
+
+def _elastic_refresh_group_derived_attrs(module):
+    count = 0
+    for group_attr, prefix in (
+        ("tp_group", "tp"),
+        ("cp_group", "cp"),
+        ("ep_group", "ep"),
+        ("dp_group", "dp"),
+    ):
+        group = getattr(module, group_attr, None)
+        if group is None:
+            continue
+        try:
+            if hasattr(module, f"{prefix}_size"):
+                new_size = group.size()
+                if getattr(module, f"{prefix}_size", None) != new_size:
+                    setattr(module, f"{prefix}_size", new_size)
+                    count += 1
+            if hasattr(module, f"{prefix}_rank"):
+                new_rank = group.rank()
+                if getattr(module, f"{prefix}_rank", None) != new_rank:
+                    setattr(module, f"{prefix}_rank", new_rank)
+                    count += 1
+        except Exception:
+            pass
+    return count
+
+
+def _elastic_try_call_group_setter(module, setter_name, group, *extra_args):
+    if group is None:
+        return 0
+    setter = getattr(module, setter_name, None)
+    if not callable(setter):
+        return 0
+    try:
+        setter(group, *extra_args)
+        return 1
+    except TypeError:
+        if extra_args:
+            return 0
+        try:
+            ranks = dist.get_process_group_ranks(group)
+            setter(group, ranks)
+            return 1
+        except Exception as exc:
+            logger.debug(
+                "[elastic] failed calling %s on %s: %s",
+                setter_name,
+                type(module).__name__,
+                exc,
+            )
+            return 0
+    except Exception as exc:
+        logger.debug(
+            "[elastic] failed calling %s on %s: %s",
+            setter_name,
+            type(module).__name__,
+            exc,
+        )
+        return 0
+
+
+def _elastic_rebind_extension_group_setters(module, pg_dict, handled_specific=False):
+    count = 0
+    tp_key = "expt_tp" if getattr(module, "is_expert", False) else "tp"
+    if not handled_specific:
+        count += _elastic_try_call_group_setter(
+            module, "set_tensor_parallel_group", pg_dict.get(tp_key)
+        )
+    count += _elastic_try_call_group_setter(
+        module, "set_context_parallel_group", pg_dict.get("cp")
+    )
+    return count
+
+
+def _elastic_rebind_extension_stashed_groups(module, pg_dict):
+    if not hasattr(module, "stashed_tp_group"):
+        return 0
+    if getattr(module, "stashed_tp_group", None) is None:
+        return 0
+    tp_key = "expt_tp" if getattr(module, "stashed_is_expert", False) else "tp"
+    return _elastic_set_attr(module, "stashed_tp_group", pg_dict.get(tp_key))
+
+
+def _elastic_rebind_direct_module_groups(module, pg_dict, handled_specific=False):
+    """Refresh direct group attrs that Megatron modules cache outside pg_collection."""
+    count = 0
+
+    direct_map = {
+        "cp_group": "cp",
+        "pp_group": "pp",
+        "embd_group": "embd",
+        "attn_tp_group": "tp",
+    }
+    for attr_name, pg_key in direct_map.items():
+        count += _elastic_set_attr(module, attr_name, pg_dict.get(pg_key))
+
+    if not handled_specific and hasattr(module, "tp_group"):
+        tp_key = "expt_tp" if getattr(module, "is_expert", False) else "tp"
+        count += _elastic_set_attr(module, "tp_group", pg_dict.get(tp_key))
+
+    count += _elastic_rebind_extension_group_setters(module, pg_dict, handled_specific)
+    count += _elastic_rebind_extension_stashed_groups(module, pg_dict)
+    count += _elastic_refresh_group_derived_attrs(module)
+    return count
+
+
+def _elastic_group_size(group):
+    try:
+        return group.size()
+    except Exception:
+        return 1
+
+
+def _elastic_group_rank(group):
+    try:
+        return group.rank()
+    except Exception:
+        return 0
+
+
+def _elastic_rebind_param_buffers(buffers, data_parallel_group, tp_group, dp_cp_group):
+    count = 0
+    for buffer in buffers or []:
+        count += _elastic_set_attr(buffer, "data_parallel_group", data_parallel_group)
+        if data_parallel_group is not None and hasattr(buffer, "data_parallel_world_size"):
+            new_world_size = _elastic_group_size(data_parallel_group)
+            if getattr(buffer, "data_parallel_world_size", None) != new_world_size:
+                buffer.data_parallel_world_size = new_world_size
+                count += 1
+        count += _elastic_set_attr(buffer, "tp_group", tp_group)
+        count += _elastic_set_attr(buffer, "dp_cp_group", dp_cp_group)
+    return count
+
+
+def _elastic_rebind_bucket_groups(bucket_groups, collective_group, inter_group=None):
+    count = 0
+    for bucket_group in bucket_groups or []:
+        if collective_group is not None and getattr(
+            bucket_group.ddp_config, "use_distributed_optimizer", False
+        ):
+            count += _elastic_set_attr(
+                bucket_group, "intra_distributed_optimizer_instance_group", collective_group
+            )
+            new_size = _elastic_group_size(collective_group)
+            if (
+                getattr(bucket_group, "intra_distributed_optimizer_instance_size", None)
+                != new_size
+            ):
+                bucket_group.intra_distributed_optimizer_instance_size = new_size
+                count += 1
+            new_rank = _elastic_group_rank(collective_group)
+            if (
+                getattr(bucket_group, "intra_distributed_optimizer_instance_rank", None)
+                != new_rank
+            ):
+                bucket_group.intra_distributed_optimizer_instance_rank = new_rank
+                count += 1
+            count += _elastic_set_attr(
+                bucket_group, "inter_distributed_optimizer_instance_group", inter_group
+            )
+        elif collective_group is not None:
+            count += _elastic_set_attr(bucket_group, "data_parallel_group", collective_group)
+        if hasattr(bucket_group, "param_gather_handle"):
+            bucket_group.param_gather_handle = None
+        if hasattr(bucket_group, "param_gather_dispatched"):
+            bucket_group.param_gather_dispatched = False
+        if hasattr(bucket_group, "grad_reduce_handle"):
+            bucket_group.grad_reduce_handle = None
+        if hasattr(bucket_group, "cached_param_buffer_shard_list"):
+            bucket_group.cached_param_buffer_shard_list = [None] * len(bucket_group.buckets)
+        if hasattr(bucket_group, "cached_grad_buffer_shard_list"):
+            bucket_group.cached_grad_buffer_shard_list = [None] * len(bucket_group.buckets)
+    return count
+
+
+def _elastic_is_ddp_wrapper(module):
+    return (
+        type(module).__name__ == "DistributedDataParallel"
+        or (
+            hasattr(module, "ddp_config")
+            and hasattr(module, "bucket_groups")
+            and hasattr(module, "expert_parallel_bucket_groups")
+        )
+    )
+
+
+def _elastic_rebind_ddp_wrapper(module, pg_dict):
+    count = 0
+    attr_map = {
+        "dp_group": "dp",
+        "dp_cp_group": "dp_cp",
+        "intra_dp_cp_group": "intra_dp_cp",
+        "expt_dp_group": "expt_dp",
+        "intra_expt_dp_group": "intra_expt_dp",
+        "tp_group": "tp",
+        "pp_group": "pp",
+        "ep_group": "ep",
+        "inter_dist_opt_group": "inter_dist_opt",
+    }
+    for attr_name, pg_key in attr_map.items():
+        count += _elastic_set_attr(module, attr_name, pg_dict.get(pg_key))
+
+    count += _elastic_rebind_param_buffers(
+        getattr(module, "buffers", None),
+        pg_dict.get("intra_dp_cp"),
+        pg_dict.get("tp"),
+        pg_dict.get("dp_cp"),
+    )
+    count += _elastic_rebind_param_buffers(
+        getattr(module, "expert_parallel_buffers", None),
+        pg_dict.get("intra_expt_dp"),
+        pg_dict.get("tp"),
+        pg_dict.get("dp_cp"),
+    )
+    count += _elastic_rebind_bucket_groups(
+        getattr(module, "bucket_groups", None),
+        pg_dict.get("intra_dp_cp"),
+        pg_dict.get("inter_dist_opt"),
+    )
+    count += _elastic_rebind_bucket_groups(
+        getattr(module, "expert_parallel_bucket_groups", None),
+        pg_dict.get("intra_expt_dp"),
+        pg_dict.get("inter_dist_opt"),
+    )
+    return count
+
+
+def _elastic_iter_model_chunks(model):
+    if model is None:
+        return []
+    return list(model) if isinstance(model, (list, tuple)) else [model]
+
+
+def _elastic_model_buffer_kind_by_id(model):
+    buffer_kind = {}
+    for model_chunk in _elastic_iter_model_chunks(model):
+        for buffer in getattr(model_chunk, "buffers", []) or []:
+            buffer_kind[id(buffer)] = "dense"
+        for buffer in getattr(model_chunk, "expert_parallel_buffers", []) or []:
+            buffer_kind[id(buffer)] = "expert"
+    return buffer_kind
+
+
+def _elastic_classify_optimizer_buffers(megatron_optimizer, buffer_kind):
+    kinds = set()
+    for buffer in getattr(megatron_optimizer, "buffers", []) or []:
+        kind = buffer_kind.get(id(buffer))
+        if kind is not None:
+            kinds.add(kind)
+    if kinds == {"expert"}:
+        return "expert"
+    if kinds == {"dense"}:
+        return "dense"
+    return None
+
+
+def _elastic_rebind_optimizer_process_groups(optimizer, model, pg_dict):
+    if optimizer is None:
+        return 0
+
+    count = 0
+    buffer_kind = _elastic_model_buffer_kind_by_id(model)
+    for megatron_optimizer in _iter_megatron_optimizers(optimizer):
+        kind = _elastic_classify_optimizer_buffers(megatron_optimizer, buffer_kind)
+        if kind == "expert":
+            data_group = pg_dict.get("intra_expt_dp")
+            data_group_gloo = pg_dict.get("intra_expt_dp_gloo")
+        elif kind == "dense":
+            data_group = pg_dict.get("intra_dp_cp")
+            data_group_gloo = pg_dict.get("intra_dp_cp_gloo")
+        else:
+            data_group = None
+            data_group_gloo = None
+
+        count += _elastic_rebind_param_buffers(
+            getattr(megatron_optimizer, "buffers", None),
+            data_group,
+            pg_dict.get("tp"),
+            pg_dict.get("dp_cp"),
+        )
+        per_model_bucket_groups = (
+            getattr(megatron_optimizer, "per_model_bucket_groups", {}) or {}
+        )
+        for bucket_groups in per_model_bucket_groups.values():
+            count += _elastic_rebind_bucket_groups(
+                bucket_groups, data_group, pg_dict.get("inter_dist_opt")
+            )
+
+        if data_group is not None:
+            count += _elastic_set_attr(megatron_optimizer, "data_parallel_group", data_group)
+            if hasattr(megatron_optimizer, "data_parallel_group_gloo"):
+                if (
+                    getattr(megatron_optimizer, "data_parallel_group_gloo", None)
+                    is not data_group_gloo
+                ):
+                    megatron_optimizer.data_parallel_group_gloo = data_group_gloo
+                    count += 1
+
+        ddp_config = getattr(megatron_optimizer, "ddp_config", None)
+        if getattr(ddp_config, "use_distributed_optimizer", False):
+            grad_stats_group = pg_dict.get("intra_dist_opt")
+        elif kind == "expert":
+            grad_stats_group = pg_dict.get("tp_ep_pp")
+        else:
+            grad_stats_group = pg_dict.get("mp")
+        count += _elastic_set_attr(
+            megatron_optimizer, "grad_stats_parallel_group", grad_stats_group
+        )
+
+    return count
+
+
+def _elastic_rebind_model_process_groups(model, optimizer=None):
+    """Refresh cached Megatron process-group handles after hot-spare rebuild.
+
+    Reinitializing parallel_state is not enough: pre-existing module instances,
+    DDP wrappers, grad buffers, and distributed optimizers store ProcessGroup
+    objects created before the failed rank was replaced.
+    """
+    if not dist.is_available() or not dist.is_initialized():
+        return
+
+    from megatron.core.transformer.moe.group_rebuild import (
+        MOE_DISPATCHER_REBIND_MAP,
+        MOE_EXPERTS_REBIND_MAP,
+        MOE_LAYER_REBIND_MAP,
+        MOE_ROUTER_REBIND_MAP,
+        rebind_dispatcher_derived_values,
+        rebind_moe_module_groups,
+    )
+
+    pg_dict = _elastic_current_pg_dict()
+    rank = dist.get_rank()
+    total_count = 0
+    module_count = 0
+    ddp_count = 0
+    optimizer_count = 0
+
+    for chunk_idx, model_chunk in enumerate(_elastic_iter_model_chunks(model)):
+        if not hasattr(model_chunk, "named_modules"):
+            continue
+        for name, module in model_chunk.named_modules():
+            module_count += 1
+            module_name = f"model[{chunk_idx}].{name}" if name else f"model[{chunk_idx}]"
+            module_type = type(module).__name__
+            handled_specific = False
+
+            if _elastic_is_ddp_wrapper(module):
+                changed = _elastic_rebind_ddp_wrapper(module, pg_dict)
+                if changed:
+                    ddp_count += 1
+                total_count += changed
+                handled_specific = True
+
+            if "Dispatcher" in module_type or "dispatcher" in name:
+                changed = rebind_moe_module_groups(
+                    module, pg_dict, MOE_DISPATCHER_REBIND_MAP, module_name=module_name
+                )
+                if changed:
+                    rebind_dispatcher_derived_values(module)
+                total_count += changed
+                handled_specific = True
+            elif "Router" in module_type or "router" in name:
+                total_count += rebind_moe_module_groups(
+                    module, pg_dict, MOE_ROUTER_REBIND_MAP, module_name=module_name
+                )
+                handled_specific = True
+            elif "MoELayer" in module_type or "moe_layer" in name:
+                total_count += rebind_moe_module_groups(
+                    module, pg_dict, MOE_LAYER_REBIND_MAP, module_name=module_name
+                )
+                handled_specific = True
+            elif "Expert" in module_type or "expert" in name:
+                total_count += rebind_moe_module_groups(
+                    module, pg_dict, MOE_EXPERTS_REBIND_MAP, module_name=module_name
+                )
+                handled_specific = True
+
+            total_count += _elastic_rebind_pg_collection(module, pg_dict)
+            total_count += _elastic_rebind_direct_module_groups(
+                module, pg_dict, handled_specific=handled_specific
+            )
+
+    optimizer_count = _elastic_rebind_optimizer_process_groups(optimizer, model, pg_dict)
+    total_count += optimizer_count
+    logger.warning(
+        "[elastic] Rank %d: rebound cached process groups after rebuild "
+        "(attrs=%d, modules=%d, ddp_wrappers=%d, optimizer_attrs=%d)",
+        rank,
+        total_count,
+        module_count,
+        ddp_count,
+        optimizer_count,
+    )
+
+
 def elastic_check_pause() -> bool:
     """Check if a pause has been requested by the watcher.
 
@@ -872,6 +1405,9 @@ def elastic_on_nccl_error(exception: Exception):
         _CLIENT._send({
             "type": "nccl_error",
             "node_rank": _CLIENT.node_rank,
+            "step": _CLIENT.step,
+            "step_tag": _CLIENT.step_tag,
+            "train_phase": _CLIENT.train_phase,
             "error": str(exception)[:200],
         })
 
@@ -923,6 +1459,48 @@ def elastic_wait_for_rebuild_signal() -> dict:
             time.sleep(0.5)
 
     return info
+
+
+def elastic_align_resume_state(args, opt_param_scheduler, resume_iteration):
+    if resume_iteration is None:
+        return None
+    try:
+        resume_iteration = int(resume_iteration)
+    except (TypeError, ValueError):
+        logger.warning("[elastic] Invalid resume_iteration from watcher: %s", resume_iteration)
+        return None
+    if resume_iteration < 0:
+        return resume_iteration
+
+    args.iteration = resume_iteration
+    args.curr_iteration = resume_iteration
+    consumed_train_samples = resume_iteration * args.global_batch_size
+    args.consumed_train_samples = consumed_train_samples
+    if getattr(args, "eval_interval", None):
+        eval_iters = args.eval_iters
+        if isinstance(eval_iters, list):
+            eval_iters = sum(eval_iters)
+        args.consumed_valid_samples = (
+            (resume_iteration // args.eval_interval) * eval_iters * args.global_batch_size
+        )
+
+    if opt_param_scheduler is not None:
+        try:
+            current_steps = getattr(opt_param_scheduler, "num_steps", None)
+            if current_steps != consumed_train_samples:
+                opt_param_scheduler.num_steps = 0
+                opt_param_scheduler.step(increment=consumed_train_samples)
+                logger.warning(
+                    "[elastic] Aligned optimizer scheduler to resume_iteration=%d "
+                    "(num_steps=%d, previous=%s)",
+                    resume_iteration,
+                    consumed_train_samples,
+                    current_steps,
+                )
+        except Exception as exc:
+            logger.warning("[elastic] Failed to align optimizer scheduler: %s", exc)
+
+    return resume_iteration
 
 
 def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
@@ -1002,6 +1580,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     new_master_addr = rebuild_info.get("new_master_addr", os.environ.get("MASTER_ADDR"))
     new_master_port = rebuild_info.get("new_master_port", os.environ.get("MASTER_PORT"))
     resume_iteration = rebuild_info.get("resume_iteration")
+    resume_iteration = elastic_align_resume_state(args, opt_param_scheduler, resume_iteration)
     if resume_iteration is not None:
         os.environ["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
 
@@ -1048,6 +1627,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     # Step 3: Re-initialize model parallel groups
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")
     _initialize_model_parallel_for_rebuild(mpu, args)
+    _elastic_rebind_model_process_groups(model, optimizer)
     elastic_report_recovery_phase("mpu_ready")
     phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
     if killed_global_rank >= 0:
@@ -1099,6 +1679,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     # Restart heartbeat client with new connection
     elastic_client_start()
+    return resume_iteration
 
 
 def elastic_replacement_sync_params(model, optimizer):
@@ -1155,8 +1736,15 @@ def _iter_megatron_optimizers(optimizer):
 
 
 def _is_expert_param_name(name: str) -> bool:
-    """Return True for EP-local expert weights that must not be DP-broadcast."""
+    """Best-effort name fallback for EP-local expert weights."""
     return ".mlp.experts." in name or ".local_experts." in name
+
+
+def _is_expert_model_param(name: str, param) -> bool:
+    """Return True for EP-local expert params that must not be DP-broadcast."""
+    if hasattr(param, "allreduce"):
+        return not getattr(param, "allreduce", True)
+    return _is_expert_param_name(name)
 
 
 def _build_model_param_name_map(model):
@@ -1169,6 +1757,7 @@ def _build_model_param_name_map(model):
 
 def _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name):
     param_to_name = {}
+    param_to_is_expert = {}
 
     float16_groups = getattr(megatron_optimizer, "float16_groups", None)
     main_groups = getattr(megatron_optimizer, "fp32_from_float16_groups", None)
@@ -1178,6 +1767,7 @@ def _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name):
                 name = model_param_to_name.get(model_param)
                 if name is not None:
                     param_to_name[main_param] = name
+                    param_to_is_expert[main_param] = _is_expert_model_param(name, model_param)
 
     fp32_groups = getattr(megatron_optimizer, "fp32_from_fp32_groups", None)
     if fp32_groups is not None:
@@ -1186,6 +1776,7 @@ def _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name):
                 name = model_param_to_name.get(param)
                 if name is not None:
                     param_to_name[param] = name
+                    param_to_is_expert[param] = _is_expert_model_param(name, param)
 
     try:
         inner_optimizer = megatron_optimizer.optimizer
@@ -1199,8 +1790,9 @@ def _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name):
                     name = model_param_to_name.get(param)
                     if name is not None:
                         param_to_name[param] = name
+                        param_to_is_expert[param] = _is_expert_model_param(name, param)
 
-    return inner_optimizer, param_to_name
+    return inner_optimizer, param_to_name, param_to_is_expert
 
 
 def _get_local_distributed_optimizer_checkpoint_name():
@@ -1352,7 +1944,7 @@ def _copy_expert_state_from_dp_zero_world_tensors(
 
                 for model_param, param_range_map in gbuf_range_map["param_map"].items():
                     name = model_param_to_name.get(model_param)
-                    if name is None or not _is_expert_param_name(name):
+                    if name is None or not _is_expert_model_param(name, model_param):
                         continue
 
                     gbuf_local_start = param_range_map["gbuf_local"].start
@@ -1763,8 +2355,8 @@ def _sync_non_expert_optimizer_state_peer(
         raise RuntimeError("[elastic] non-expert optimizer sync requires a TCP peer stream")
 
     for megatron_optimizer in _iter_megatron_optimizers(optimizer):
-        inner_optimizer, optim_param_to_name = _build_optimizer_param_name_map(
-            megatron_optimizer, model_param_to_name
+        inner_optimizer, optim_param_to_name, optim_param_to_is_expert = (
+            _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name)
         )
         if inner_optimizer is None:
             logger.warning(
@@ -1781,7 +2373,7 @@ def _sync_non_expert_optimizer_state_peer(
                 if name is None:
                     unmapped_count += 1
                     continue
-                if _is_expert_param_name(name):
+                if optim_param_to_is_expert.get(param, _is_expert_param_name(name)):
                     continue
 
                 _sync_optimizer_state_tensor_peer(
@@ -1884,7 +2476,7 @@ def _sync_params_to_new_rank(
         expert_count = 0
         for model_chunk in model:
             for name, param in model_chunk.named_parameters():
-                if _is_expert_param_name(name):
+                if _is_expert_model_param(name, param):
                     expert_count += 1
                     continue
                 dense_count += 1
