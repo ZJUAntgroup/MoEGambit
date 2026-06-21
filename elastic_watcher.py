@@ -56,10 +56,16 @@ _PHASE_ORDER = {
     "mpu_init_start": 30,
     "mpu_ready": 40,
     "cold_start_deps_ready": 50,
+    "checkpoint_loaded": 55,
     "model_optimizer_ready": 60,
     "param_sync_start": 70,
     "param_sync_done": 80,
+    "comm_warmup_start": 85,
+    "comm_warmup_done": 88,
     "train_ready": 90,
+    "resume_state_applied": 92,
+    "data_ready": 94,
+    "train_loop_entered": 100,
 }
 
 
@@ -231,13 +237,24 @@ class ElasticWatcher:
             step = msg.get("step", -1)
             key = f"{role}:{rank}"
             with self.lock:
-                self.recovery_phases[key] = {
-                    "phase": phase,
-                    "step": step,
-                    "timestamp": time.time(),
-                    "node_rank": node_rank,
-                    "role": role,
-                }
+                previous = self.recovery_phases.get(key)
+                prev_phase = previous.get("phase") if previous else None
+                prev_order = _PHASE_ORDER.get(prev_phase, -1)
+                new_order = _PHASE_ORDER.get(phase, -1)
+                if previous is not None and new_order < prev_order:
+                    log.info(
+                        "Ignoring stale recovery phase: role=%s rank=%s "
+                        "node=%s step=%s phase=%s current=%s",
+                        role, rank, node_rank, step, phase, prev_phase,
+                    )
+                else:
+                    self.recovery_phases[key] = {
+                        "phase": phase,
+                        "step": step,
+                        "timestamp": time.time(),
+                        "node_rank": node_rank,
+                        "role": role,
+                    }
                 if role == "replacement" and phase in ("init_pg_start", "pg_ready"):
                     self.replacement_ready_event.set()
                 if (
