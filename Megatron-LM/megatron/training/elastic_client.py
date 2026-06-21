@@ -627,16 +627,11 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
             name.strip() for name in selected_group_names_env.split(",") if name.strip()
         }
     else:
-        selected_group_names = {
-            "tensor",
-            "pipeline",
-            "tensor_context",
-            "embedding",
-            "position_embedding",
-            "expert",
-            "expert_tensor",
-            "expert_tensor_model",
-        }
+        # Active NCCL warmup is intentionally opt-in.  The rebuild TCPStore is
+        # kept alive for lazy communicator creation, and probing replacement-
+        # facing NCCL groups here can become the new hang point when the failed
+        # rank's formerly local expert/data group now contains a remote spare.
+        selected_group_names = set()
     group_timeout = float(
         os.environ.get(
             "ELASTIC_REBUILD_WARMUP_GROUP_TIMEOUT",
