@@ -640,15 +640,25 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
     warm_data_groups = os.environ.get("ELASTIC_REBUILD_WARMUP_DATA_GROUPS", "0") == "1"
     selected_group_names_env = os.environ.get("ELASTIC_REBUILD_WARMUP_GROUPS")
     if selected_group_names_env:
-        selected_group_names = {
-            name.strip() for name in selected_group_names_env.split(",") if name.strip()
-        }
+        if selected_group_names_env.strip().lower() in ("0", "none", "off", "false"):
+            selected_group_names = set()
+        else:
+            selected_group_names = {
+                name.strip() for name in selected_group_names_env.split(",") if name.strip()
+            }
     else:
-        # Active NCCL warmup is intentionally opt-in.  The rebuild TCPStore is
-        # kept alive for lazy communicator creation, and probing replacement-
-        # facing NCCL groups here can become the new hang point when the failed
-        # rank's formerly local expert/data group now contains a remote spare.
-        selected_group_names = set()
+        # Warm the narrow set of replacement-facing groups that the first real
+        # train step can immediately use.  Leaving pipeline P2P lazy is unsafe:
+        # once ranks report train_ready, the next forward can try to fetch an
+        # NCCL unique id through a store whose owner/source rank has already
+        # moved on or exited.  Data/expert/full metadata groups remain opt-in
+        # because they were the earlier source of recovery-stage stalls.
+        selected_group_names = {
+            "model",
+            "pipeline",
+            "embedding",
+            "position_embedding",
+        }
     group_timeout = float(
         os.environ.get(
             "ELASTIC_REBUILD_WARMUP_GROUP_TIMEOUT",
