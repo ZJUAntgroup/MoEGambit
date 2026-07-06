@@ -40,6 +40,7 @@ import subprocess
 import threading
 import time
 from datetime import timedelta
+from inspect import signature
 from typing import Optional
 
 import torch
@@ -345,6 +346,7 @@ def elastic_mark_post_rebuild_pending(iteration: Optional[int] = None):
     replacement-only setup cannot race survivor ranks into MoE/P2P collectives.
     """
     os.environ["ELASTIC_POST_REBUILD_PENDING"] = "1"
+    os.environ.pop("ELASTIC_POST_REBUILD_COMM_WARMUP_DONE", None)
     if iteration is not None and iteration >= 0:
         os.environ["ELASTIC_RESUME_ITERATION"] = str(iteration)
 
@@ -383,6 +385,172 @@ def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
     return True
 
 
+def _elastic_replacement_rank_from_env() -> int:
+    try:
+        return int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
+    except ValueError:
+        return -1
+
+
+def _elastic_group_ranks(group):
+    try:
+        return tuple(dist.get_process_group_ranks(group))
+    except Exception:
+        return None
+
+
+def _elastic_replacement_warmup_groups(replacement_rank: int):
+    """Return rebuilt first-step communicators that include the replacement rank."""
+    if replacement_rank < 0:
+        return []
+
+    from megatron.core import parallel_state as mpu
+
+    candidates = (
+        ("tp_ep", "collective", lambda: mpu.get_expert_tensor_and_model_parallel_group(
+            check_initialized=False
+        )),
+        ("ep", "collective", lambda: mpu.get_expert_model_parallel_group(check_initialized=False)),
+        ("pipeline", "p2p", lambda: mpu.get_pipeline_model_parallel_group(
+            check_initialized=False
+        )),
+        ("dp", "collective", lambda: mpu.get_data_parallel_group(with_context_parallel=False)),
+        ("dp_cp", "collective", lambda: mpu.get_data_parallel_group(with_context_parallel=True)),
+        (
+            "tensor_data",
+            "collective",
+            lambda: mpu.get_tensor_and_data_parallel_group(check_initialized=False),
+        ),
+        (
+            "tensor_data_cp",
+            "collective",
+            lambda: mpu.get_tensor_and_data_parallel_group(
+                check_initialized=False, with_context_parallel=True
+            ),
+        ),
+        ("embedding", "collective", lambda: mpu.get_embedding_group(check_initialized=False)),
+        (
+            "position_embedding",
+            "collective",
+            lambda: mpu.get_position_embedding_group(check_initialized=False),
+        ),
+    )
+    selected_env = os.environ.get("ELASTIC_POST_REBUILD_WARMUP_GROUPS")
+    selected = None
+    if selected_env:
+        selected = {name.strip() for name in selected_env.split(",") if name.strip()}
+    rank = dist.get_rank()
+    groups = []
+    seen = set()
+    for name, kind, getter in candidates:
+        if selected is not None and name not in selected:
+            continue
+        try:
+            group = getter()
+        except Exception as exc:
+            logger.debug("[elastic] post-rebuild communicator warmup: %s unavailable: %s", name, exc)
+            continue
+        if group is None:
+            continue
+        ranks = _elastic_group_ranks(group)
+        if ranks is None or len(ranks) <= 1:
+            continue
+        if rank not in ranks or replacement_rank not in ranks:
+            continue
+        key = id(group)
+        if key in seen:
+            continue
+        seen.add(key)
+        groups.append((name, kind, ranks, group))
+    return groups
+
+
+def elastic_warmup_post_rebuild_communicators(iteration: int) -> bool:
+    """Warm replacement-facing communicators before the first real forward.
+
+    The first post-rebuild MoE forward lazily creates the TPxEP/EP NCCL
+    communicators that now include a physically remote spare rank; later in the
+    same iteration, pipeline P2P and DP grad sync touch other replacement-facing
+    groups.  Do this at the control-plane-aligned safe point so the real forward
+    does not become the first place that discovers a bad replacement-facing
+    NCCL ring.
+    """
+    if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+        return False
+    if os.environ.get("ELASTIC_POST_REBUILD_COMM_WARMUP_DONE") == "1":
+        return False
+    if os.environ.get("ELASTIC_POST_REBUILD_COMM_WARMUP", "1") == "0":
+        return False
+    if not dist.is_available() or not dist.is_initialized() or not torch.cuda.is_available():
+        return False
+
+    replacement_rank = _elastic_replacement_rank_from_env()
+    world_size = dist.get_world_size()
+    timeout = float(
+        os.environ.get(
+            "ELASTIC_REBUILD_PHASE_TIMEOUT",
+            os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"),
+        )
+    )
+    group_timeout = float(
+        os.environ.get(
+            "ELASTIC_POST_REBUILD_COMM_WARMUP_TIMEOUT",
+            os.environ.get("ELASTIC_REBUILD_WARMUP_GROUP_TIMEOUT", str(min(timeout, 60.0))),
+        )
+    )
+    start_phase = "post_rebuild_comm_warmup_start"
+    done_phase = "post_rebuild_comm_warmup_done"
+
+    elastic_report_recovery_phase(start_phase, step=iteration, replacement_rank=replacement_rank)
+    if not elastic_wait_for_recovery_phase_count(start_phase, world_size, timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks reached {start_phase} "
+            f"within {timeout}s"
+        )
+
+    groups = _elastic_replacement_warmup_groups(replacement_rank)
+    rank = dist.get_rank()
+    if groups:
+        warmup = torch.ones(1, device=torch.cuda.current_device())
+        for name, kind, ranks, group in groups:
+            logger.warning(
+                "[elastic] Rank %d: warming post-rebuild communicator %s ranks=%s",
+                rank,
+                name,
+                list(ranks),
+            )
+            if kind == "p2p":
+                _elastic_warmup_pipeline_p2p(group, ranks, group_timeout)
+            else:
+                work = dist.all_reduce(warmup, group=group, async_op=True)
+                _elastic_wait_distributed_works(
+                    [work],
+                    group_timeout,
+                    f"post-rebuild-comm-warmup rank={rank} group={name} ranks={list(ranks)}",
+                )
+            logger.warning(
+                "[elastic] Rank %d: warmed post-rebuild communicator %s",
+                rank,
+                name,
+            )
+        torch.cuda.synchronize()
+    else:
+        logger.info(
+            "[elastic] Rank %d: no replacement-facing communicator to warm "
+            "(replacement=%d)",
+            rank,
+            replacement_rank,
+        )
+
+    elastic_report_recovery_phase(done_phase, step=iteration, replacement_rank=replacement_rank)
+    if not elastic_wait_for_recovery_phase_count(done_phase, world_size, timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks reached {done_phase} within {timeout}s"
+        )
+    os.environ["ELASTIC_POST_REBUILD_COMM_WARMUP_DONE"] = "1"
+    return bool(groups)
+
+
 def elastic_trace_post_rebuild_phase(phase: str, iteration: Optional[int] = None):
     """Report a diagnostic phase for the first post-rebuild train step."""
     if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
@@ -395,6 +563,7 @@ def elastic_trace_post_rebuild_phase(phase: str, iteration: Optional[int] = None
 
 def elastic_clear_post_rebuild_trace():
     os.environ.pop("ELASTIC_POST_REBUILD_TRACE_ACTIVE", None)
+    os.environ.pop("ELASTIC_POST_REBUILD_COMM_WARMUP_DONE", None)
 
 
 def _send_one_shot_to_watcher(msg: dict) -> bool:
@@ -1805,6 +1974,8 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     resume_iteration = elastic_align_resume_state(args, opt_param_scheduler, resume_iteration)
     if resume_iteration is not None:
         os.environ["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
+    if killed_global_rank >= 0:
+        os.environ["ELASTIC_REPLACEMENT_RANK"] = str(killed_global_rank)
 
     logger.warning(f"[elastic] Rank {rank}: rebuild signal received. "
                    f"Failed node={failed_node}, killed_rank={killed_global_rank}, "
@@ -1817,6 +1988,11 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
                 f"(master={new_master_addr}:{new_master_port})")
     os.environ["MASTER_ADDR"] = new_master_addr
     os.environ["MASTER_PORT"] = new_master_port
+    device_id = None
+    if torch.cuda.is_available():
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        torch.cuda.set_device(local_rank)
+        device_id = torch.device(f"cuda:{local_rank}")
 
     # Create a new TCPStore for rendezvous
     is_master = (rank == 0)
@@ -1837,13 +2013,26 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     # communicators fetch their ncclUniqueId.
     _REBUILD_STORE = store
 
-    dist.init_process_group(
-        backend="nccl",
-        store=store,
-        world_size=world_size,
-        rank=rank,
-        timeout=rebuild_timeout,
-    )
+    init_process_group_kwargs = {
+        "backend": "nccl",
+        "store": store,
+        "world_size": world_size,
+        "rank": rank,
+        "timeout": rebuild_timeout,
+    }
+    if device_id is not None:
+        try:
+            if "device_id" in signature(dist.init_process_group).parameters:
+                init_process_group_kwargs["device_id"] = device_id
+        except (TypeError, ValueError):
+            pass
+    dist.init_process_group(**init_process_group_kwargs)
+    try:
+        from megatron.training import inprocess_restart
+
+        inprocess_restart.maybe_force_nccl_backend_init(device_id)
+    except Exception as exc:
+        logger.debug("[elastic] force NCCL backend init skipped/failed: %s", exc)
     elastic_report_recovery_phase("pg_ready")
 
     # Step 3: Re-initialize model parallel groups

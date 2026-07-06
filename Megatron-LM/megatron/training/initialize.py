@@ -7,6 +7,7 @@ import random
 import time
 import warnings
 from datetime import timedelta
+from inspect import signature
 
 import numpy as np
 import torch
@@ -377,6 +378,12 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             'rank': args.rank,
             'timeout': timedelta(minutes=args.distributed_timeout_minutes),
         }
+        if device_id is not None and args.distributed_backend == "nccl":
+            try:
+                if "device_id" in signature(torch.distributed.init_process_group).parameters:
+                    init_process_group_kwargs["device_id"] = device_id
+            except (TypeError, ValueError):
+                pass
 
         _elastic_report_phase_safely(
             "init_pg_start",
