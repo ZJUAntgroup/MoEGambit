@@ -327,12 +327,21 @@ class ElasticWatcher:
             min_count = int(msg.get("min_count", self.training_nnodes * self.nproc_per_node))
             timeout = float(msg.get("timeout", 300.0))
             count = self._wait_for_phase_count(phase, min_count, timeout)
+            missing = []
+            pending = []
+            unreported = []
+            if count < min_count:
+                with self.phase_cv:
+                    missing, pending, unreported = self._phase_missing_locked(phase, min_count)
             response = json.dumps({
                 "type": "wait_phase_count_result",
                 "phase": phase,
                 "min_count": min_count,
                 "count": count,
                 "ok": count >= min_count,
+                "missing": missing,
+                "pending": pending,
+                "unreported": unreported,
             }) + "\n"
             try:
                 conn.sendall(response.encode())
@@ -432,6 +441,41 @@ class ElasticWatcher:
                 count += 1
         return count
 
+    def _phase_missing_locked(self, target_phase, expected_count):
+        want = _PHASE_ORDER.get(target_phase, 10**9)
+        best_by_rank = {}
+        reached = set()
+        for key, state in self.recovery_phases.items():
+            try:
+                rank = int(str(key).rsplit(":", 1)[1])
+            except (IndexError, TypeError, ValueError):
+                continue
+            have = _PHASE_ORDER.get(state.get("phase"), -1)
+            prev = best_by_rank.get(rank)
+            prev_have = _PHASE_ORDER.get(prev.get("phase"), -1) if prev else -1
+            if have >= prev_have:
+                best_by_rank[rank] = state
+            if have >= want:
+                reached.add(rank)
+        missing = [rank for rank in range(expected_count) if rank not in reached]
+        pending = []
+        unreported = []
+        for rank in missing:
+            state = best_by_rank.get(rank)
+            if state is None:
+                unreported.append(rank)
+            else:
+                pending.append(
+                    {
+                        "rank": rank,
+                        "role": state.get("role"),
+                        "node": state.get("node_rank"),
+                        "phase": state.get("phase"),
+                        "step": state.get("step"),
+                    }
+                )
+        return missing, pending, unreported
+
     def _wait_for_phase_count(self, phase, min_count, timeout):
         deadline = time.time() + timeout
         with self.phase_cv:
@@ -439,11 +483,16 @@ class ElasticWatcher:
             while count < min_count:
                 remaining = deadline - time.time()
                 if remaining <= 0:
+                    missing, pending, unreported = self._phase_missing_locked(phase, min_count)
                     log.warning(
-                        "wait_phase_count timed out: phase=%s count=%s min_count=%s",
+                        "wait_phase_count timed out: phase=%s count=%s min_count=%s "
+                        "missing=%s pending=%s unreported=%s",
                         phase,
                         count,
                         min_count,
+                        missing,
+                        pending,
+                        unreported,
                     )
                     return count
                 self.phase_cv.wait(timeout=min(remaining, 1.0))

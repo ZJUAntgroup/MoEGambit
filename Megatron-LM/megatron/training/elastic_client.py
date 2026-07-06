@@ -489,10 +489,14 @@ def elastic_wait_for_recovery_phase_count(
                 ok = bool(response.get("ok"))
                 if not ok:
                     logger.warning(
-                        "[elastic] phase-count wait failed: phase=%s count=%s min_count=%s",
+                        "[elastic] phase-count wait failed: phase=%s count=%s min_count=%s "
+                        "missing=%s pending=%s unreported=%s",
                         phase,
                         response.get("count"),
                         response.get("min_count"),
+                        response.get("missing"),
+                        response.get("pending"),
+                        response.get("unreported"),
                     )
                 return ok
         except (OSError, ValueError, json.JSONDecodeError) as e:
@@ -760,7 +764,6 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
     allow_collective_warmup = (
         os.environ.get("ELASTIC_REBUILD_ALLOW_COLLECTIVE_WARMUP", "0") == "1"
     )
-    safe_collective_warmup_names = {"expert", "expert_tensor_model"}
     selected_group_names_env = os.environ.get("ELASTIC_REBUILD_WARMUP_GROUPS")
     if selected_group_names_env:
         if selected_group_names_env.strip().lower() in ("0", "none", "off", "false"):
@@ -770,12 +773,10 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
                 name.strip() for name in selected_group_names_env.split(",") if name.strip()
             }
     else:
-        # Keep warmup narrow: the first post-rebuild forward enters the MoE
-        # token dispatcher, whose ep/tp_ep groups contain the replacement rank.
-        # Broad recovery probes previously stalled unrelated data/pipeline
-        # groups, so only these immediate MoE communication surfaces are
-        # eagerly initialized by default.
-        selected_group_names = set(safe_collective_warmup_names)
+        # Keep recovery-stage NCCL warmup opt-in.  Even narrow expert-group
+        # collectives can deadlock here because rebuilt ranks have not yet
+        # re-entered Megatron's normal forward-order communicator creation path.
+        selected_group_names = set()
     group_timeout = float(
         os.environ.get(
             "ELASTIC_REBUILD_WARMUP_GROUP_TIMEOUT",
@@ -804,11 +805,7 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
             if name not in selected_group_names:
                 skipped_groups.append((ranks, name, "not-selected"))
                 continue
-            if (
-                name != "pipeline"
-                and not allow_collective_warmup
-                and name not in safe_collective_warmup_names
-            ):
+            if name != "pipeline" and not allow_collective_warmup:
                 skipped_groups.append((ranks, name, "collective-disabled"))
                 continue
             if not warm_data_groups and "data" in name:
@@ -891,7 +888,7 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
         )
         if name == "pipeline" and os.environ.get("ELASTIC_REBUILD_PIPELINE_P2P_WARMUP", "1") != "0":
             _elastic_warmup_pipeline_p2p(group, ranks, group_timeout)
-        elif allow_collective_warmup or name in safe_collective_warmup_names:
+        elif allow_collective_warmup:
             work = dist.all_reduce(warmup, group=group, async_op=True)
             _elastic_wait_distributed_works(
                 [work],
