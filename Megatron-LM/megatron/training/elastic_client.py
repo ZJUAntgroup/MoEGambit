@@ -337,6 +337,66 @@ def elastic_client_update_step(
         _CLIENT.update_step(step, phase=phase, step_tag=step_tag)
 
 
+def elastic_mark_post_rebuild_pending(iteration: Optional[int] = None):
+    """Mark that the next training iteration must align all rebuilt ranks.
+
+    The first post-rebuild forward is where Megatron lazily creates several
+    NCCL communicators.  Keep the alignment on the watcher/TCP control plane so
+    replacement-only setup cannot race survivor ranks into MoE/P2P collectives.
+    """
+    os.environ["ELASTIC_POST_REBUILD_PENDING"] = "1"
+    if iteration is not None and iteration >= 0:
+        os.environ["ELASTIC_RESUME_ITERATION"] = str(iteration)
+
+
+def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
+    """Control-plane barrier immediately before the first post-rebuild train step."""
+    if os.environ.get("ELASTIC_POST_REBUILD_PENDING") != "1":
+        return False
+    if not dist.is_available() or not dist.is_initialized():
+        return False
+
+    os.environ["ELASTIC_RESUME_ITERATION"] = str(iteration)
+    world_size = dist.get_world_size()
+    timeout = float(
+        os.environ.get(
+            "ELASTIC_REBUILD_PHASE_TIMEOUT",
+            os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"),
+        )
+    )
+    phase = "post_rebuild_iteration_ready"
+    elastic_report_recovery_phase(phase, step=iteration)
+    if not elastic_wait_for_recovery_phase_count(phase, world_size, timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks reached {phase} "
+            f"before first post-rebuild train step within {timeout}s"
+        )
+
+    os.environ["ELASTIC_POST_REBUILD_PENDING"] = "0"
+    os.environ["ELASTIC_POST_REBUILD_TRACE_ACTIVE"] = "1"
+    logger.warning(
+        "[elastic] Rank %d: all ranks aligned before first post-rebuild train step "
+        "(iteration=%d)",
+        dist.get_rank(),
+        iteration,
+    )
+    return True
+
+
+def elastic_trace_post_rebuild_phase(phase: str, iteration: Optional[int] = None):
+    """Report a diagnostic phase for the first post-rebuild train step."""
+    if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+        return
+    extra = {}
+    if iteration is not None:
+        extra["step"] = iteration
+    elastic_report_recovery_phase(phase, **extra)
+
+
+def elastic_clear_post_rebuild_trace():
+    os.environ.pop("ELASTIC_POST_REBUILD_TRACE_ACTIVE", None)
+
+
 def _send_one_shot_to_watcher(msg: dict) -> bool:
     watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
     watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
@@ -1185,6 +1245,11 @@ def _elastic_rebind_direct_module_groups(module, pg_dict, handled_specific=False
         "pp_group": "pp",
         "embd_group": "embd",
         "attn_tp_group": "tp",
+        "ep_group": "ep",
+        "dp_cp_group": "dp_cp",
+        "tp_ep_group": "tp_ep",
+        "expt_dp_group": "expt_dp",
+        "intra_expt_dp_group": "intra_expt_dp",
     }
     for attr_name, pg_key in direct_map.items():
         count += _elastic_set_attr(module, attr_name, pg_dict.get(pg_key))
@@ -1818,6 +1883,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     _elastic_rebuild_final_barrier()
     _elastic_report_and_wait_train_ready(phase_timeout)
     logger.warning(f"[elastic] Rank {rank}: rebuild complete, resuming training")
+    elastic_mark_post_rebuild_pending(resume_iteration)
 
     # Reset pause state
     global _PAUSE_REQUESTED
@@ -1865,6 +1931,8 @@ def elastic_replacement_sync_params(model, optimizer):
     _elastic_rebuild_final_barrier()
     _elastic_report_and_wait_train_ready(float(os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "300")))
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")
+    resume_iteration = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
+    elastic_mark_post_rebuild_pending(resume_iteration)
 
 
 def _select_dp_sync_src_rank(dp_group, replacement_rank: int) -> int:

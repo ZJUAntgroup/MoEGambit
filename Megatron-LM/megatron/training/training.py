@@ -98,6 +98,9 @@ from megatron.training.elastic_client import (
     elastic_on_nccl_error,
     elastic_replacement_sync_params,
     elastic_report_recovery_phase,
+    elastic_post_rebuild_iteration_barrier,
+    elastic_trace_post_rebuild_phase,
+    elastic_clear_post_rebuild_trace,
     is_rebuild_mode,
 )
 from megatron.core.full_cuda_graph import FullCudaGraphWrapper
@@ -1436,6 +1439,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             phase="forward_backward",
             step_tag=args.curr_iteration,
         )
+        elastic_trace_post_rebuild_phase("forward_backward_start", args.curr_iteration)
         # Set grad to zero.
         for model_chunk in model:
             model_chunk.zero_grad_buffer()
@@ -1469,8 +1473,10 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             forward_only=False,
             adjust_tensor_shapes_fn=adjust_tensor_shapes_fn,
         )
+        elastic_trace_post_rebuild_phase("forward_backward_done", args.curr_iteration)
     should_checkpoint, should_exit, exit_code = rerun_state_machine.should_checkpoint_and_exit()
     if should_exit:
+        elastic_clear_post_rebuild_trace()
         return {}, True, should_checkpoint, should_exit, exit_code, None, None
 
     # Empty unused memory.
@@ -1489,12 +1495,16 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
     # prevent partial parameter updates.
     if not bsr_should_commit_optimizer():
         bsr_mark_optimizer_skipped(reason="iteration_invalidated")
+        elastic_trace_post_rebuild_phase("optimizer_skipped", args.curr_iteration)
+        elastic_clear_post_rebuild_trace()
         return {}, 1, should_checkpoint, should_exit, exit_code, None, None
 
     elastic_client_update_step(args.curr_iteration, phase="optimizer_step", step_tag=-1)
+    elastic_trace_post_rebuild_phase("optimizer_step_start", args.curr_iteration)
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()
+    elastic_trace_post_rebuild_phase("optimizer_step_done", args.curr_iteration)
     if update_successful:
         elastic_client_update_step(
             args.curr_iteration,
@@ -1535,6 +1545,8 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             phase="step_complete",
             step_tag=args.curr_iteration + 1,
         )
+        elastic_trace_post_rebuild_phase("post_rebuild_step_complete", args.curr_iteration)
+        elastic_clear_post_rebuild_trace()
     else:
         skipped_iter = 1
         elastic_client_update_step(
@@ -1542,6 +1554,8 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             phase="optimizer_skipped",
             step_tag=args.curr_iteration,
         )
+        elastic_trace_post_rebuild_phase("optimizer_skipped", args.curr_iteration)
+        elastic_clear_post_rebuild_trace()
 
     # Empty unused memory.
     if args.empty_unused_memory_level >= 2:
@@ -2537,6 +2551,7 @@ def train(
 
         # BSR-MoE: safe-point hook (before forward pass).
         bsr_before_iteration(iteration)
+        elastic_post_rebuild_iteration_barrier(iteration)
 
         # BSR-MoE: if a checkpoint restart was executed during safe-point
         # repair, the failed rank's weights have been restored from the

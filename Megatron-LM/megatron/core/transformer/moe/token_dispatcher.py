@@ -1,6 +1,7 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
@@ -32,6 +33,8 @@ from megatron.core.transformer.moe.moe_utils import (
 )
 from megatron.core.transformer.moe.shared_experts import SharedExpertMLP
 from megatron.core.transformer.transformer_config import TransformerConfig
+
+logger = logging.getLogger(__name__)
 
 """ We use the following notation throughout this file:
      H: hidden size
@@ -192,6 +195,23 @@ class MoETokenDispatcher:
         """Set shared expert to the dispatcher."""
         assert self.config.moe_shared_expert_overlap
         self.shared_experts = shared_experts
+
+    def _elastic_trace_once(self, key: str, message: str, *args):
+        if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+            return
+        attr_name = f"_elastic_trace_{key}"
+        if getattr(self, attr_name, False):
+            return
+        setattr(self, attr_name, True)
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
+        logger.warning("[elastic] Rank %d: " + message, rank, *args)
+
+    @staticmethod
+    def _elastic_group_ranks(group):
+        try:
+            return list(torch.distributed.get_process_group_ranks(group))
+        except Exception:
+            return None
 
 
 class MoEAllGatherTokenDispatcher(MoETokenDispatcher):
@@ -495,12 +515,21 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
             # num_global_tokens_per_expert represents the number of tokens sent to each
             # expert by all ranks.
             # [tp_size, ep_size, num_experts]
+            self._elastic_trace_once(
+                "tp_ep_metadata_start",
+                "MoE dispatcher entering TPxEP metadata gather ranks=%s",
+                self._elastic_group_ranks(self.tp_ep_group),
+            )
             num_global_tokens_per_expert = (
                 gather_from_sequence_parallel_region(
                     num_local_tokens_per_expert, group=self.tp_ep_group
                 )
                 .reshape(self.ep_size, self.tp_size, self.num_experts)
                 .transpose(0, 1)
+            )
+            self._elastic_trace_once(
+                "tp_ep_metadata_done",
+                "MoE dispatcher finished TPxEP metadata gather",
             )
             # [tp_size, ep_size, num_experts] -> [tp_size, ep_size, num_local_experts]
             num_global_tokens_per_local_expert = num_global_tokens_per_expert[
@@ -624,11 +653,22 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
             "before_ep_alltoall", self.tokens_per_expert
         )
 
+        self._elastic_trace_once(
+            "ep_dispatch_start",
+            "MoE dispatcher entering EP dispatch all-to-all ranks=%s input_splits=%s output_splits=%s",
+            self._elastic_group_ranks(self.ep_group),
+            self.input_splits,
+            self.output_splits,
+        )
         global_input_tokens = all_to_all(
             self.ep_group, permutated_local_input_tokens, self.output_splits, self.input_splits
         )
         global_probs = all_to_all(
             self.ep_group, permuted_probs, self.output_splits, self.input_splits
+        )
+        self._elastic_trace_once(
+            "ep_dispatch_done",
+            "MoE dispatcher finished EP dispatch all-to-all",
         )
 
         return global_input_tokens, global_probs
@@ -768,8 +808,19 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
         """
         # Perform expert parallel AlltoAll communication
         # hidden_states: [SEQL, H] -> [SEQL, H/TP]
+        self._elastic_trace_once(
+            "ep_combine_start",
+            "MoE dispatcher entering EP combine all-to-all ranks=%s input_splits=%s output_splits=%s",
+            self._elastic_group_ranks(self.ep_group),
+            self.output_splits,
+            self.input_splits,
+        )
         permutated_local_input_tokens = all_to_all(
             self.ep_group, hidden_states, self.input_splits, self.output_splits
+        )
+        self._elastic_trace_once(
+            "ep_combine_done",
+            "MoE dispatcher finished EP combine all-to-all",
         )
         return permutated_local_input_tokens
 

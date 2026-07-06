@@ -14,8 +14,8 @@ nohup: ignoring input
 + NPROC_PER_NODE=8
 + export NODE_RANK=8
 + NODE_RANK=8
-+ export MASTER_ADDR=33.212.69.107
-+ MASTER_ADDR=33.212.69.107
++ export MASTER_ADDR=33.163.40.96
++ MASTER_ADDR=33.163.40.96
 + export MASTER_PORT=20116
 + MASTER_PORT=20116
 + export ELASTIC_WATCHER_PORT=20200
@@ -25,8 +25,8 @@ nohup: ignoring input
 + IS_SPARE=1
 + export NNODES=8
 + NNODES=8
-+ export ELASTIC_WATCHER_ADDR=33.181.98.112
-+ ELASTIC_WATCHER_ADDR=33.181.98.112
++ export ELASTIC_WATCHER_ADDR=33.163.40.70
++ ELASTIC_WATCHER_ADDR=33.163.40.70
 + export ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + rm -rf /tmp/elastic_faults
@@ -110,555 +110,542 @@ nohup: ignoring input
 [test-replace] Starting elastic watcher on spare node...
 + echo '[test-replace] Fault injection: kill node 0 local_rank 1 at step 17'
 [test-replace] Fault injection: kill node 0 local_rank 1 at step 17
-+ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.212.69.107 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
-[watcher 15:26:51] INFO: Starting watcher on port 20200
-[watcher 15:26:51] INFO: Monitoring 8 training nodes
-[watcher 15:26:51] INFO: Heartbeat timeout: 30.0s
-[watcher 15:26:51] INFO: Fault injection: kill node 0 local_rank 1 at step 17
-[watcher 15:26:51] INFO: Warm standby worker pid=1490 started; waiting on /tmp/elastic_faults/spare_assignment.json
-[watcher 15:26:52] INFO: [spare-standby] [spare-rank] Warm standby pid=1490 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
-[watcher 15:28:47] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[watcher 15:28:48] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
-[watcher 15:29:54] INFO: Heartbeat checker active
-[watcher 15:33:59] WARNING: FAULT INJECTION: step 17 >= 17, pausing ALL nodes then killing node 0 local_rank 1
-[watcher 15:33:59] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)
-[watcher 15:34:16] INFO: Node 6 ready to rebuild (1/8, step=18, step_tag=18, phase=forward_backward)
-[watcher 15:34:17] INFO: Node 5 ready to rebuild (2/8, step=18, step_tag=18, phase=forward_backward)
-[watcher 15:34:17] INFO: Node 2 ready to rebuild (3/8, step=18, step_tag=18, phase=forward_backward)
-[watcher 15:34:17] INFO: Node 4 ready to rebuild (4/8, step=18, step_tag=18, phase=forward_backward)
-[watcher 15:34:17] INFO: Node 1 ready to rebuild (5/8, step=18, step_tag=18, phase=forward_backward)
-[watcher 15:34:18] INFO: Node 7 ready to rebuild (6/8, step=18, step_tag=18, phase=forward_backward)
-[watcher 15:34:18] INFO: Node 3 ready to rebuild (7/8, step=18, step_tag=18, phase=forward_backward)
-[watcher 15:34:19] INFO: Node 0 ready to rebuild (8/8, step=18, step_tag=18, phase=forward_backward)
-[watcher 15:34:19] INFO: All 8 nodes ready. Target rank already killed (node 0 local_rank 1). Launching spare...
-[watcher 15:34:19] INFO: Elastic resume iteration selected: 18 from ready steps={6: 18, 5: 18, 2: 18, 4: 18, 1: 18, 7: 18, 3: 18, 0: 18} step_tags={6: 18, 5: 18, 2: 18, 4: 18, 1: 18, 7: 18, 3: 18, 0: 18} phases={6: 'forward_backward', 5: 'forward_backward', 2: 'forward_backward', 4: 'forward_backward', 1: 'forward_backward', 7: 'forward_backward', 3: 'forward_backward', 0: 'forward_backward'}
-[watcher 15:34:19] INFO: Launching spare: replacing global_rank=1 (node 0, local_rank 1)
-[watcher 15:34:19] INFO: Activated warm standby pid=1490 for replacement rank=1
-[watcher 15:34:19] INFO: Waiting up to 300.0s for replacement to reach init_pg_start...
-[watcher 15:34:20] INFO: [spare-standby] [spare-rank] Warm standby activated: RANK=1, CUDA_VISIBLE_DEVICES=1
-[watcher 15:34:20] INFO: [spare-standby] [spare-rank] Starting replacement: RANK=1, LOCAL_RANK=0, NODE_RANK=0
-[watcher 15:34:20] INFO: [spare-standby] [spare-rank] MASTER=33.212.69.107:20117, WORLD_SIZE=64
-[watcher 15:34:20] INFO: [spare-standby] [spare-rank] CUDA_VISIBLE_DEVICES=1
-[watcher 15:34:20] INFO: [spare-standby] [spare-rank] ELASTIC_REBUILD_MODE=1
-[watcher 15:34:24] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[watcher 15:34:25] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=init_pg_start
-[watcher 15:34:25] INFO: Replacement reached init_pg_start; broadcasting rebuild signal
-[watcher 15:34:25] INFO: Rebuild signal sent to all nodes. Waiting for training to resume...
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=pg_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=mpu_ready
-[watcher 15:34:30] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=mpu_ready
-[watcher 15:34:31] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=pg_ready
-[watcher 15:34:31] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_init_start
-[watcher 15:34:31] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=pg_ready
-[watcher 15:34:31] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_ready
-[watcher 15:34:31] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=mpu_ready
-[watcher 15:34:31] INFO: [spare-standby] WARNING:megatron.training.initialize:[elastic] REBUILD MODE: skipping cold-start init barriers after model-parallel setup
-[watcher 15:34:31] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=cold_start_deps_ready
-[watcher 15:34:34] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Replacement worker: watcher heartbeat disabled to avoid duplicate node_rank ownership
-[watcher 15:34:34] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] REBUILD MODE: loading checkpoint model weights and optimizer metadata only; expert optimizer tensors will be restored locally and dense/non-expert state will be refreshed from DP peer
-[watcher 15:34:35] INFO: [spare-standby] /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-[watcher 15:34:35] INFO: [spare-standby]   state_dict = torch.load(checkpoint_name, map_location='cpu')
-[watcher 15:35:01] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=checkpoint_loaded
-[watcher 15:35:01] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense params with peer transfer (pp_rank=0, dp_rank=1, group=[0, 1, 2, 3, 4, 5, 6, 7], src=0, replacement=1)
-[watcher 15:35:01] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=model_optimizer_ready
-[watcher 15:35:01] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Peer sync endpoint: id=20117:18:0:1 src=0 dst=1 endpoint=33.212.69.107:35885
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: peer TCP sync connected id=20117:18:0:1 endpoint=33.212.69.107:35885
-[watcher 15:35:01] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 1 name=module.module.embedding.word_embeddings.weight shape=(151680, 2048) dtype=torch.bfloat16
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=param_sync_done
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=param_sync_start
-[watcher 15:35:01] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: [spare-standby] /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/elastic_client.py:2374: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-[watcher 15:35:02] INFO: [spare-standby]   chunk = torch.load(io.BytesIO(payload), map_location="cpu")
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=param_sync_start
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=param_sync_done
-[watcher 15:35:02] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 2 name=module.module.decoder.layers.0.self_attention.linear_proj.weight shape=(2048, 4096) dtype=torch.bfloat16
-[watcher 15:35:02] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 3 name=module.module.decoder.layers.0.self_attention.linear_qkv.layer_norm_weight shape=(2048,) dtype=torch.bfloat16
-[watcher 15:35:03] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: dense model param sync complete (synced=43, expert_from_ckpt=192)
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=param_sync_done
-[watcher 15:35:11] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: non-expert optimizer sync complete (main_params=43, state_tensors=86, skipped=0, unmapped=0)
-[watcher 15:35:11] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: param sync complete
-[watcher 15:35:11] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: warming 2 replacement-facing rebuild communicators before train_ready (replacement=1)
-[watcher 15:35:11] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: skipped 8 rebuild warmup groups: [('model', 'not-selected', [1, 9, 17, 25, 33, 41, 49, 57]), ('pipeline', 'not-selected', [1, 9, 17, 25, 33, 41, 49, 57]), ('data', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('data_cp', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('tensor_data', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('tensor_data_cp', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('embedding', 'not-selected', [1, 57]), ('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-[watcher 15:35:11] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=param_sync_done
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=comm_warmup_start
-[watcher 15:35:11] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=comm_warmup_start
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: warming communicator expert ranks=[0, 1, 2, 3, 4, 5, 6, 7]
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=train_ready
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=comm_warmup_done
-[watcher 15:35:12] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=train_ready
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=comm_warmup_done
-[watcher 15:35:13] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=train_ready
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:12] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:13] WARNING: wait_phase_count timed out: phase=train_ready count=56 min_count=64
-[watcher 15:40:14] WARNING: Node 6 disconnected
-[watcher 15:40:14] WARNING: Node 3 disconnected
-[watcher 15:40:14] WARNING: Node 5 disconnected
-[watcher 15:40:14] WARNING: Node 4 disconnected
-[watcher 15:40:14] WARNING: Node 2 disconnected
-[watcher 15:40:14] WARNING: Node 1 disconnected
-[watcher 15:40:24] WARNING: Node 7 disconnected
++ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.163.40.96 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
+[watcher 17:37:19] INFO: Starting watcher on port 20200
+[watcher 17:37:19] INFO: Monitoring 8 training nodes
+[watcher 17:37:19] INFO: Heartbeat timeout: 30.0s
+[watcher 17:37:19] INFO: Fault injection: kill node 0 local_rank 1 at step 17
+[watcher 17:37:19] INFO: Warm standby worker pid=1019 started; waiting on /tmp/elastic_faults/spare_assignment.json
+[watcher 17:37:19] INFO: [spare-standby] [spare-rank] Warm standby pid=1019 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
+[watcher 17:39:13] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 17:39:13] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
+[watcher 17:39:27] INFO: Heartbeat checker active
+[watcher 17:43:32] WARNING: FAULT INJECTION: step 17 >= 17, pausing ALL nodes then killing node 0 local_rank 1
+[watcher 17:43:32] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)
+[watcher 17:43:50] INFO: Node 4 ready to rebuild (1/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 17:43:50] INFO: Node 5 ready to rebuild (2/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 17:43:50] INFO: Node 1 ready to rebuild (3/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 17:43:51] INFO: Node 6 ready to rebuild (4/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 17:43:51] INFO: Node 7 ready to rebuild (5/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 17:43:51] INFO: Node 2 ready to rebuild (6/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 17:43:51] INFO: Node 0 ready to rebuild (7/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 17:43:51] INFO: Node 3 ready to rebuild (8/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 17:43:51] INFO: All 8 nodes ready. Target rank already killed (node 0 local_rank 1). Launching spare...
+[watcher 17:43:51] INFO: Elastic resume iteration selected: 18 from ready steps={4: 18, 5: 18, 1: 18, 6: 18, 7: 18, 2: 18, 0: 18, 3: 18} step_tags={4: 18, 5: 18, 1: 18, 6: 18, 7: 18, 2: 18, 0: 18, 3: 18} phases={4: 'forward_backward', 5: 'forward_backward', 1: 'forward_backward', 6: 'forward_backward', 7: 'forward_backward', 2: 'forward_backward', 0: 'forward_backward', 3: 'forward_backward'}
+[watcher 17:43:51] INFO: Launching spare: replacing global_rank=1 (node 0, local_rank 1)
+[watcher 17:43:51] INFO: Activated warm standby pid=1019 for replacement rank=1
+[watcher 17:43:51] INFO: Waiting up to 300.0s for replacement to reach init_pg_start...
+[watcher 17:43:52] INFO: [spare-standby] [spare-rank] Warm standby activated: RANK=1, CUDA_VISIBLE_DEVICES=1
+[watcher 17:43:52] INFO: [spare-standby] [spare-rank] Starting replacement: RANK=1, LOCAL_RANK=0, NODE_RANK=0
+[watcher 17:43:52] INFO: [spare-standby] [spare-rank] MASTER=33.163.40.96:20117, WORLD_SIZE=64
+[watcher 17:43:52] INFO: [spare-standby] [spare-rank] CUDA_VISIBLE_DEVICES=1
+[watcher 17:43:52] INFO: [spare-standby] [spare-rank] ELASTIC_REBUILD_MODE=1
+[watcher 17:43:56] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 17:43:57] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=init_pg_start
+[watcher 17:43:57] INFO: Replacement reached init_pg_start; broadcasting rebuild signal
+[watcher 17:43:57] INFO: Rebuild signal sent to all nodes. Waiting for training to resume...
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=pg_ready
+[watcher 17:44:02] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_init_start
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=pg_ready
+[watcher 17:44:03] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=mpu_ready
+[watcher 17:44:03] INFO: [spare-standby] WARNING:megatron.training.initialize:[elastic] REBUILD MODE: skipping cold-start init barriers after model-parallel setup
+[watcher 17:44:03] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=cold_start_deps_ready
+[watcher 17:44:06] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Replacement worker: watcher heartbeat disabled to avoid duplicate node_rank ownership
+[watcher 17:44:06] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] REBUILD MODE: loading checkpoint model weights and optimizer metadata only; expert optimizer tensors will be restored locally and dense/non-expert state will be refreshed from DP peer
+[watcher 17:44:07] INFO: [spare-standby] /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+[watcher 17:44:07] INFO: [spare-standby]   state_dict = torch.load(checkpoint_name, map_location='cpu')
+[watcher 17:44:30] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=checkpoint_loaded
+[watcher 17:44:30] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense params with peer transfer (pp_rank=0, dp_rank=1, group=[0, 1, 2, 3, 4, 5, 6, 7], src=0, replacement=1)
+[watcher 17:44:30] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=model_optimizer_ready
+[watcher 17:44:30] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=param_sync_done
+[watcher 17:44:30] INFO: Peer sync endpoint: id=20117:18:0:1 src=0 dst=1 endpoint=33.163.40.96:45601
+[watcher 17:44:30] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: peer TCP sync connected id=20117:18:0:1 endpoint=33.163.40.96:45601
+[watcher 17:44:30] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 1 name=module.module.embedding.word_embeddings.weight shape=(151680, 2048) dtype=torch.bfloat16
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=param_sync_start
+[watcher 17:44:30] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: [spare-standby] /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/elastic_client.py:2371: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+[watcher 17:44:31] INFO: [spare-standby]   chunk = torch.load(io.BytesIO(payload), map_location="cpu")
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=param_sync_start
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=param_sync_done
+[watcher 17:44:31] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 2 name=module.module.decoder.layers.0.self_attention.linear_proj.weight shape=(2048, 4096) dtype=torch.bfloat16
+[watcher 17:44:31] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 3 name=module.module.decoder.layers.0.self_attention.linear_qkv.layer_norm_weight shape=(2048,) dtype=torch.bfloat16
+[watcher 17:44:32] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: dense model param sync complete (synced=43, expert_from_ckpt=192)
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=param_sync_done
+[watcher 17:44:40] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: non-expert optimizer sync complete (main_params=43, state_tensors=86, skipped=0, unmapped=0)
+[watcher 17:44:40] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: param sync complete
+[watcher 17:44:40] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
+[watcher 17:44:40] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: skipped 10 rebuild warmup groups: [('model', 'not-selected', [1, 9, 17, 25, 33, 41, 49, 57]), ('pipeline', 'not-selected', [1, 9, 17, 25, 33, 41, 49, 57]), ('data', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('data_cp', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('tensor_data', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('tensor_data_cp', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('embedding', 'not-selected', [1, 57]), ('expert', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('expert_tensor_model', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
+[watcher 17:44:40] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=param_sync_done
+[watcher 17:44:40] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=comm_warmup_start
+[watcher 17:44:40] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=comm_warmup_start
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: rebuild communicator warmup complete
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=train_ready
+[watcher 17:44:41] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=comm_warmup_done
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=train_ready
+[watcher 17:44:41] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: waiting for 64 ranks to reach train_ready via watcher
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=train_ready
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=comm_warmup_done
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=train_ready
+[watcher 17:44:42] INFO: All training ranks reached train_ready; recovery complete
+[watcher 17:44:42] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=train_ready
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: all ranks reached train_ready
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Replacement node: param sync complete, joining training loop
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Aligned optimizer scheduler to resume_iteration=18 (num_steps=1152, previous=640)
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] REBUILD MODE: resuming replacement at iteration 18 (consumed_train_samples=1152)
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] REBUILD MODE: param sync complete, joining training loop
+[watcher 17:44:42] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=resume_state_applied
+[watcher 17:44:42] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=data_ready
+[watcher 17:44:42] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=train_loop_entered
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-06 17:44:42] BSR-MoE: initializing on rank 1 ...
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[0, 1, 2, 3, 4, 5, 6, 7], dp_group_ranks=[0, 1, 2, 3, 4, 5, 6, 7], global_ep_groups=8
+[watcher 17:44:42] INFO: [spare-standby] INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[0, 1, 2, 3, 4, 5, 6, 7])
+[watcher 17:44:42] INFO: [spare-standby] INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+[watcher 17:44:42] INFO: [spare-standby] INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[0, 1, 2, 3, 4, 5, 6, 7]
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+[watcher 17:44:42] INFO: [spare-standby] INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
+[watcher 17:44:42] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-06 17:44:42] BSR-MoE: initialization complete on rank 1
+[watcher 17:44:43] INFO: [spare-standby] NCCL version 2.21.5+cuda12.4

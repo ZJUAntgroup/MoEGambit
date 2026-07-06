@@ -66,6 +66,13 @@ _PHASE_ORDER = {
     "resume_state_applied": 92,
     "data_ready": 94,
     "train_loop_entered": 100,
+    "post_rebuild_iteration_ready": 110,
+    "forward_backward_start": 120,
+    "forward_backward_done": 130,
+    "optimizer_step_start": 140,
+    "optimizer_step_done": 150,
+    "optimizer_skipped": 155,
+    "post_rebuild_step_complete": 160,
 }
 
 
