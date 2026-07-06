@@ -994,9 +994,17 @@ def pretrain(
     if wandb_writer:
         wandb_writer.finish()
 
+    elastic_client_update_step(iteration, phase="async_checkpoint_finalize", step_tag=iteration)
     ft_integration.on_checkpointing_start()
-    maybe_finalize_async_save(blocking=True, terminate=True)
-    ft_integration.on_checkpointing_end(is_async_finalization=True)
+    try:
+        maybe_finalize_async_save(blocking=True, terminate=True)
+    finally:
+        ft_integration.on_checkpointing_end(is_async_finalization=True)
+        elastic_client_update_step(
+            iteration,
+            phase="async_checkpoint_finalize_done",
+            step_tag=iteration,
+        )
 
     one_logger and one_logger.log_metrics(
         {'app_finish_time': one_logger_utils.get_timestamp_in_ms()}
@@ -1979,24 +1987,28 @@ def save_checkpoint_and_time(
     one_logger_utils.track_e2e_metrics()
     if should_disable_forward_pre_hook(args):
         disable_forward_pre_hook(model)
-    save_checkpoint(
-        iteration,
-        model,
-        optimizer,
-        opt_param_scheduler,
-        num_floating_point_operations_so_far,
-        checkpointing_context,
-        non_persistent_ckpt=non_persistent_ckpt,
-        train_data_iterator=train_data_iterator,
-        preprocess_common_state_dict_fn=preprocess_common_state_dict,
-    )
+    elastic_client_update_step(iteration, phase="checkpoint", step_tag=iteration)
+    try:
+        save_checkpoint(
+            iteration,
+            model,
+            optimizer,
+            opt_param_scheduler,
+            num_floating_point_operations_so_far,
+            checkpointing_context,
+            non_persistent_ckpt=non_persistent_ckpt,
+            train_data_iterator=train_data_iterator,
+            preprocess_common_state_dict_fn=preprocess_common_state_dict,
+        )
+    finally:
+        elastic_client_update_step(iteration, phase="checkpoint_done", step_tag=iteration)
+        if should_disable_forward_pre_hook(args):
+            enable_forward_pre_hook(model)
     if args.fp8:
         # Run garbage collection after checkpoint saving to free memory from
         # dequantized bf16 tensors that were temporarily created during fp8
         # model checkpoint saving.
         gc.collect()
-    if should_disable_forward_pre_hook(args):
-        enable_forward_pre_hook(model)
     timers(timer_key).stop(barrier=True)
     timers.log([timer_key])
 
@@ -2451,9 +2463,21 @@ def train(
                 torch.cuda.cudart().cudaProfilerStart()
                 torch.autograd.profiler.emit_nvtx(record_shapes=True).__enter__()
 
+        elastic_client_update_step(
+            iteration,
+            phase="async_checkpoint_finalize",
+            step_tag=iteration,
+        )
         ft_integration.on_checkpointing_start()
-        maybe_finalize_async_save(blocking=False)
-        ft_integration.on_checkpointing_end(is_async_finalization=True)
+        try:
+            maybe_finalize_async_save(blocking=False)
+        finally:
+            ft_integration.on_checkpointing_end(is_async_finalization=True)
+            elastic_client_update_step(
+                iteration,
+                phase="async_checkpoint_finalize_done",
+                step_tag=iteration,
+            )
         # Update the timeout for all process groups after initialization
         # We update the timeout after the first successful iteration,
         # which takes longer than others usually
@@ -2538,7 +2562,11 @@ def train(
 
         # Elastic hot-spare: check if watcher requested a pause for group rebuild.
         # This is the safe point — all ranks are synchronized here.
-        elastic_client_update_step(iteration)
+        elastic_client_update_step(
+            iteration,
+            phase="iteration_safe_point",
+            step_tag=iteration,
+        )
         if elastic_check_pause():
             logger.warning(
                 "[elastic] Iteration %d: pause requested, entering rebuild...",
@@ -2967,11 +2995,19 @@ def train(
     if pre_hook_enabled:
         disable_forward_pre_hook(model)
 
+    elastic_client_update_step(iteration, phase="async_checkpoint_finalize", step_tag=iteration)
     ft_integration.on_checkpointing_start()
-    # This will finalize all unfinalized async request and terminate
-    # a persistent async worker if persistent ckpt worker is enabled
-    maybe_finalize_async_save(blocking=True, terminate=True)
-    ft_integration.on_checkpointing_end(is_async_finalization=True)
+    try:
+        # This will finalize all unfinalized async request and terminate
+        # a persistent async worker if persistent ckpt worker is enabled
+        maybe_finalize_async_save(blocking=True, terminate=True)
+    finally:
+        ft_integration.on_checkpointing_end(is_async_finalization=True)
+        elastic_client_update_step(
+            iteration,
+            phase="async_checkpoint_finalize_done",
+            step_tag=iteration,
+        )
     if args.enable_ft_package and ft_integration.get_rank_monitor_client() is not None:
         ft_integration.get_rank_monitor_client().shutdown_workload_monitoring()
 

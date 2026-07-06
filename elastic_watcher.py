@@ -92,6 +92,9 @@ class ElasticWatcher:
         self.fault_dir = Path(args.fault_dir)
         self.heartbeat_timeout = args.heartbeat_timeout
         self.startup_heartbeat_timeout = args.startup_heartbeat_timeout
+        self.forward_heartbeat_timeout = args.forward_heartbeat_timeout
+        self.checkpoint_heartbeat_timeout = args.checkpoint_heartbeat_timeout
+        self.disconnect_grace_timeout = args.disconnect_grace_timeout
 
         # Fault injection config
         self.fault_inject_step = args.fault_inject_step
@@ -103,6 +106,7 @@ class ElasticWatcher:
         self.running = True
         self.node_connections = {}  # node_rank -> socket
         self.last_heartbeat = {}   # node_rank -> timestamp
+        self.node_disconnected_at = {}  # node_rank -> TCP EOF/reset timestamp
         self.node_steps = {}       # node_rank -> last reported step
         self.node_step_tags = {}   # node_rank -> FlashRecovery step tag
         self.node_train_phases = {}  # node_rank -> forward_backward / optimizer_step / step_complete
@@ -132,6 +136,9 @@ class ElasticWatcher:
         log.info(f"Monitoring {self.training_nnodes} training nodes")
         log.info(f"Heartbeat timeout: {self.heartbeat_timeout}s")
         log.info(f"Startup heartbeat timeout: {self.startup_heartbeat_timeout}s")
+        log.info(f"Forward/backward heartbeat timeout: {self.forward_heartbeat_timeout}s")
+        log.info(f"Checkpoint heartbeat timeout: {self.checkpoint_heartbeat_timeout}s")
+        log.info(f"Disconnect grace timeout: {self.disconnect_grace_timeout}s")
         if self.fault_inject_step >= 0:
             log.info(f"Fault injection: kill node {self.fault_inject_node} "
                      f"local_rank {self.fault_inject_local_rank} at step {self.fault_inject_step}")
@@ -202,7 +209,12 @@ class ElasticWatcher:
                 with self.lock:
                     if self.node_connections.get(node_rank) is conn:
                         del self.node_connections[node_rank]
-                        log.warning(f"Node {node_rank} disconnected")
+                        self.node_disconnected_at[node_rank] = time.time()
+                        log.warning(
+                            "Node %s disconnected; allowing %.1fs reconnect grace",
+                            node_rank,
+                            self.disconnect_grace_timeout,
+                        )
             conn.close()
 
     def _process_message(self, msg, conn, addr=None):
@@ -214,6 +226,7 @@ class ElasticWatcher:
             with self.lock:
                 self.node_connections[node_rank] = conn
                 self.last_heartbeat[node_rank] = time.time()
+                self.node_disconnected_at.pop(node_rank, None)
                 step = msg.get("step", -1)
                 step_tag = msg.get("step_tag", step)
                 train_phase = msg.get("train_phase", "unknown")
@@ -544,6 +557,23 @@ class ElasticWatcher:
                 return False
         return True
 
+    def _heartbeat_timeout_for_phase_locked(self, phase, training_started):
+        """Return a heartbeat timeout that matches the latest reported phase."""
+        if not training_started:
+            return self.startup_heartbeat_timeout
+        if phase in {
+            "checkpoint",
+            "checkpoint_done",
+            "save_checkpoint",
+            "save_checkpoint_done",
+            "async_checkpoint_finalize",
+            "async_checkpoint_finalize_done",
+        }:
+            return self.checkpoint_heartbeat_timeout
+        if phase in {"forward_backward", "iteration_safe_point"}:
+            return self.forward_heartbeat_timeout
+        return self.heartbeat_timeout
+
     def _heartbeat_checker(self):
         """Periodically check for heartbeat timeouts."""
         while self.running and not self.last_heartbeat:
@@ -562,17 +592,37 @@ class ElasticWatcher:
             timed_out_timeout = self.heartbeat_timeout
             timed_out_phase = "unknown"
             timed_out_step = -1
+            timed_out_reason = "heartbeat-timeout"
             training_started = False
             with self.lock:
                 training_started = self._training_started_locked()
                 for node_rank, last_ts in list(self.last_heartbeat.items()):
                     phase = self.node_train_phases.get(node_rank, "startup")
                     step = self.node_steps.get(node_rank, -1)
-                    timeout = (
-                        self.heartbeat_timeout
-                        if training_started
-                        else self.startup_heartbeat_timeout
-                    )
+                    disconnected_at = self.node_disconnected_at.get(node_rank)
+                    if disconnected_at is not None:
+                        elapsed = now - disconnected_at
+                        timeout = self.disconnect_grace_timeout
+                        if elapsed > timeout:
+                            log.error(
+                                "FAULT DETECTED: Node %s disconnected "
+                                "(%.1fs > %.1fs grace, phase=%s, step=%s, "
+                                "training_started=%s)",
+                                node_rank,
+                                elapsed,
+                                timeout,
+                                phase,
+                                step,
+                                training_started,
+                            )
+                            timed_out_node = node_rank
+                            timed_out_elapsed = elapsed
+                            timed_out_timeout = timeout
+                            timed_out_phase = phase
+                            timed_out_step = step
+                            timed_out_reason = "node-disconnected"
+                            break
+                    timeout = self._heartbeat_timeout_for_phase_locked(phase, training_started)
                     elapsed = now - last_ts
                     if elapsed > timeout:
                         log.error(
@@ -593,7 +643,7 @@ class ElasticWatcher:
                         break
             if timed_out_node is not None:
                 self._log_recovery_phase_summary(
-                    "heartbeat-timeout "
+                    f"{timed_out_reason} "
                     f"node={timed_out_node} elapsed={timed_out_elapsed:.1f}s "
                     f"timeout={timed_out_timeout:.1f}s phase={timed_out_phase} "
                     f"step={timed_out_step} training_started={training_started}"
@@ -975,6 +1025,24 @@ def main():
         type=float,
         default=float(os.environ.get("ELASTIC_STARTUP_HEARTBEAT_TIMEOUT", "600")),
         help="Seconds without heartbeat tolerated before all nodes enter training",
+    )
+    parser.add_argument(
+        "--forward-heartbeat-timeout",
+        type=float,
+        default=float(os.environ.get("ELASTIC_FORWARD_HEARTBEAT_TIMEOUT", "180")),
+        help="Seconds without heartbeat tolerated during a long forward/backward step",
+    )
+    parser.add_argument(
+        "--checkpoint-heartbeat-timeout",
+        type=float,
+        default=float(os.environ.get("ELASTIC_CHECKPOINT_HEARTBEAT_TIMEOUT", "900")),
+        help="Seconds without heartbeat tolerated while saving or finalizing checkpoints",
+    )
+    parser.add_argument(
+        "--disconnect-grace-timeout",
+        type=float,
+        default=float(os.environ.get("ELASTIC_DISCONNECT_GRACE_TIMEOUT", "15")),
+        help="Seconds to wait for a node to reconnect after TCP EOF/reset",
     )
     # Fault injection args
     parser.add_argument("--fault-inject-step", type=int, default=-1,

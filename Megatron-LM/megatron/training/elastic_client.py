@@ -125,6 +125,7 @@ class ElasticClient:
             data = self.sock.recv(4096)
             self.sock.setblocking(True)
             if not data:
+                self.sock = None
                 return None
             lines = data.decode().strip().split("\n")
             for line in reversed(lines):
