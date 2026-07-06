@@ -54,6 +54,8 @@ _PHASE_ORDER = {
     "init_pg_start": 10,
     "pg_ready": 20,
     "mpu_init_start": 30,
+    "mpu_init_done": 35,
+    "rebind_start": 37,
     "mpu_ready": 40,
     "cold_start_deps_ready": 50,
     "checkpoint_loaded": 55,

@@ -14,8 +14,8 @@ nohup: ignoring input
 + NPROC_PER_NODE=8
 + export NODE_RANK=8
 + NODE_RANK=8
-+ export MASTER_ADDR=33.181.101.167
-+ MASTER_ADDR=33.181.101.167
++ export MASTER_ADDR=33.181.108.82
++ MASTER_ADDR=33.181.108.82
 + export MASTER_PORT=20116
 + MASTER_PORT=20116
 + export ELASTIC_WATCHER_PORT=20200
@@ -25,8 +25,8 @@ nohup: ignoring input
 + IS_SPARE=1
 + export NNODES=8
 + NNODES=8
-+ export ELASTIC_WATCHER_ADDR=33.181.108.189
-+ ELASTIC_WATCHER_ADDR=33.181.108.189
++ export ELASTIC_WATCHER_ADDR=33.181.100.203
++ ELASTIC_WATCHER_ADDR=33.181.100.203
 + export ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + rm -rf /tmp/elastic_faults
@@ -110,104 +110,199 @@ nohup: ignoring input
 [test-replace] Starting elastic watcher on spare node...
 + echo '[test-replace] Fault injection: kill node 0 local_rank 1 at step 17'
 [test-replace] Fault injection: kill node 0 local_rank 1 at step 17
-+ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.181.101.167 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
-[watcher 21:22:02] INFO: Starting watcher on port 20200
-[watcher 21:22:02] INFO: Monitoring 8 training nodes
-[watcher 21:22:02] INFO: Heartbeat timeout: 30.0s
-[watcher 21:22:02] INFO: Startup heartbeat timeout: 600.0s
-[watcher 21:22:02] INFO: Forward/backward heartbeat timeout: 180.0s
-[watcher 21:22:02] INFO: Checkpoint heartbeat timeout: 900.0s
-[watcher 21:22:02] INFO: Disconnect grace timeout: 15.0s
-[watcher 21:22:02] INFO: Fault injection: kill node 0 local_rank 1 at step 17
-[watcher 21:22:02] INFO: Warm standby worker pid=825 started; waiting on /tmp/elastic_faults/spare_assignment.json
-[watcher 21:22:02] INFO: [spare-standby] [spare-rank] Warm standby pid=825 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
-[watcher 21:23:55] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[watcher 21:23:56] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
-[watcher 21:24:40] INFO: Heartbeat checker active
-[watcher 21:28:49] WARNING: FAULT INJECTION: step 17 >= 17, pausing ALL nodes then killing node 0 local_rank 1
-[watcher 21:28:49] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)
-[watcher 21:29:04] INFO: Node 6 ready to rebuild (1/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 21:29:05] INFO: Node 5 ready to rebuild (2/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 21:29:05] INFO: Node 4 ready to rebuild (3/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 21:29:06] INFO: Node 1 ready to rebuild (4/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 21:29:06] INFO: Node 2 ready to rebuild (5/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 21:29:07] INFO: Node 3 ready to rebuild (6/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 21:29:07] INFO: Node 0 ready to rebuild (7/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 21:29:07] INFO: Node 7 ready to rebuild (8/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 21:29:07] INFO: All 8 nodes ready. Target rank already killed (node 0 local_rank 1). Launching spare...
-[watcher 21:29:07] INFO: Elastic resume iteration selected: 18 from ready steps={6: 18, 5: 18, 4: 18, 1: 18, 2: 18, 3: 18, 0: 18, 7: 18} step_tags={6: 18, 5: 18, 4: 18, 1: 18, 2: 18, 3: 18, 0: 18, 7: 18} phases={6: 'iteration_safe_point', 5: 'iteration_safe_point', 4: 'iteration_safe_point', 1: 'iteration_safe_point', 2: 'iteration_safe_point', 3: 'iteration_safe_point', 0: 'iteration_safe_point', 7: 'iteration_safe_point'}
-[watcher 21:29:07] INFO: Launching spare: replacing global_rank=1 (node 0, local_rank 1)
-[watcher 21:29:07] INFO: Activated warm standby pid=825 for replacement rank=1
-[watcher 21:29:07] INFO: Waiting up to 300.0s for replacement to reach init_pg_start...
-[watcher 21:29:08] INFO: [spare-standby] [spare-rank] Warm standby activated: RANK=1, CUDA_VISIBLE_DEVICES=1
-[watcher 21:29:08] INFO: [spare-standby] [spare-rank] Starting replacement: RANK=1, LOCAL_RANK=0, NODE_RANK=0
-[watcher 21:29:08] INFO: [spare-standby] [spare-rank] MASTER=33.181.101.167:20117, WORLD_SIZE=64
-[watcher 21:29:08] INFO: [spare-standby] [spare-rank] CUDA_VISIBLE_DEVICES=1
-[watcher 21:29:08] INFO: [spare-standby] [spare-rank] ELASTIC_REBUILD_MODE=1
-[watcher 21:29:13] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[watcher 21:29:14] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=init_pg_start
-[watcher 21:29:14] INFO: Replacement reached init_pg_start; broadcasting rebuild signal
-[watcher 21:29:14] INFO: Rebuild signal sent to all nodes. Waiting for training to resume...
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=pg_ready
-[watcher 21:29:20] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=pg_ready
++ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.181.108.82 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
+[watcher 22:34:16] INFO: Starting watcher on port 20200
+[watcher 22:34:16] INFO: Monitoring 8 training nodes
+[watcher 22:34:16] INFO: Heartbeat timeout: 30.0s
+[watcher 22:34:16] INFO: Startup heartbeat timeout: 600.0s
+[watcher 22:34:16] INFO: Forward/backward heartbeat timeout: 180.0s
+[watcher 22:34:16] INFO: Checkpoint heartbeat timeout: 900.0s
+[watcher 22:34:16] INFO: Disconnect grace timeout: 15.0s
+[watcher 22:34:16] INFO: Fault injection: kill node 0 local_rank 1 at step 17
+[watcher 22:34:16] INFO: Warm standby worker pid=848 started; waiting on /tmp/elastic_faults/spare_assignment.json
+[watcher 22:34:16] INFO: [spare-standby] [spare-rank] Warm standby pid=848 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
+[watcher 22:36:24] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 22:36:25] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
+[watcher 22:36:34] INFO: Heartbeat checker active
+[watcher 22:40:39] WARNING: FAULT INJECTION: step 17 >= 17, pausing ALL nodes then killing node 0 local_rank 1
+[watcher 22:40:39] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)
+[watcher 22:40:53] INFO: Node 2 ready to rebuild (1/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 22:40:53] INFO: Node 3 ready to rebuild (2/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 22:40:54] INFO: Node 6 ready to rebuild (3/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 22:40:54] INFO: Node 1 ready to rebuild (4/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 22:40:54] INFO: Node 4 ready to rebuild (5/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 22:40:54] INFO: Node 7 ready to rebuild (6/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 22:40:55] INFO: Node 0 ready to rebuild (7/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 22:40:55] INFO: Node 5 ready to rebuild (8/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 22:40:55] INFO: All 8 nodes ready. Target rank already killed (node 0 local_rank 1). Launching spare...
+[watcher 22:40:55] INFO: Elastic resume iteration selected: 18 from ready steps={2: 18, 3: 18, 6: 18, 1: 18, 4: 18, 7: 18, 0: 18, 5: 18} step_tags={2: 18, 3: 18, 6: 18, 1: 18, 4: 18, 7: 18, 0: 18, 5: 18} phases={2: 'iteration_safe_point', 3: 'iteration_safe_point', 6: 'iteration_safe_point', 1: 'iteration_safe_point', 4: 'iteration_safe_point', 7: 'iteration_safe_point', 0: 'iteration_safe_point', 5: 'iteration_safe_point'}
+[watcher 22:40:55] INFO: Launching spare: replacing global_rank=1 (node 0, local_rank 1)
+[watcher 22:40:55] INFO: Activated warm standby pid=848 for replacement rank=1
+[watcher 22:40:55] INFO: Waiting up to 300.0s for replacement to reach init_pg_start...
+[watcher 22:40:56] INFO: [spare-standby] [spare-rank] Warm standby activated: RANK=1, CUDA_VISIBLE_DEVICES=1
+[watcher 22:40:56] INFO: [spare-standby] [spare-rank] Starting replacement: RANK=1, LOCAL_RANK=0, NODE_RANK=0
+[watcher 22:40:56] INFO: [spare-standby] [spare-rank] MASTER=33.181.108.82:20117, WORLD_SIZE=64
+[watcher 22:40:56] INFO: [spare-standby] [spare-rank] CUDA_VISIBLE_DEVICES=1
+[watcher 22:40:56] INFO: [spare-standby] [spare-rank] ELASTIC_REBUILD_MODE=1
+[watcher 22:41:01] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 22:41:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=init_pg_start
+[watcher 22:41:02] INFO: Replacement reached init_pg_start; broadcasting rebuild signal
+[watcher 22:41:02] INFO: Rebuild signal sent to all nodes. Waiting for training to resume...
+[watcher 22:41:05] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_init_start
+[watcher 22:41:05] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=pg_ready
+[watcher 22:41:05] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=pg_ready
+[watcher 22:41:06] INFO: [spare-standby] WARNING:megatron.training.initialize:[elastic] REBUILD MODE: skipping cold-start init barriers after model-parallel setup
+[watcher 22:41:06] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=cold_start_deps_ready
+[watcher 22:41:10] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Replacement worker: watcher heartbeat disabled to avoid duplicate node_rank ownership
+[watcher 22:41:10] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] REBUILD MODE: loading checkpoint model weights and optimizer metadata only; expert optimizer tensors will be restored locally and dense/non-expert state will be refreshed from DP peer
+[watcher 22:41:10] INFO: [spare-standby] /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+[watcher 22:41:10] INFO: [spare-standby]   state_dict = torch.load(checkpoint_name, map_location='cpu')
+[watcher 22:41:35] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=checkpoint_loaded
+[watcher 22:41:35] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=model_optimizer_ready
+[watcher 22:41:35] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=param_sync_start
+[watcher 22:41:35] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense params with peer transfer (pp_rank=0, dp_rank=1, group=[0, 1, 2, 3, 4, 5, 6, 7], src=0, replacement=1)
+[watcher 22:56:35] WARNING: wait_peer_sync_endpoint timed out: id=20117:18:0:1
+[watcher 22:56:35] INFO: [spare-standby] [rank1]: Traceback (most recent call last):
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:     pretrain(
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 850, in pretrain
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:     elastic_replacement_sync_params(model, optimizer)
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/elastic_client.py", line 2111, in elastic_replacement_sync_params
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:     _sync_params_to_new_rank(
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/elastic_client.py", line 2890, in _sync_params_to_new_rank
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:     with _PeerSyncStream(sync_src_rank, replacement_rank) as peer_stream:
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/elastic_client.py", line 2459, in __enter__
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:     self._open_destination()
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/elastic_client.py", line 2521, in _open_destination
+[watcher 22:56:35] INFO: [spare-standby] [rank1]:     raise RuntimeError(f"[elastic] timed out waiting for peer sync endpoint {peer_id}")
+[watcher 22:56:35] INFO: [spare-standby] [rank1]: RuntimeError: [elastic] timed out waiting for peer sync endpoint 20117:18:0:1
+[watcher 22:56:36] INFO: [spare-standby] [rank1]:[W706 22:56:36.377220385 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[watcher 22:56:38] INFO: spare-standby exited with code 1
+[watcher 22:56:38] WARNING: Recovery phase summary (spare-standby-exit):
+[watcher 22:56:38] WARNING:   replacement:1 node=0 step=18 phase=param_sync_start
+[watcher 22:56:38] WARNING:   survivor:0 node=0 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:10 node=1 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:11 node=1 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:12 node=1 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:13 node=1 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:14 node=1 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:15 node=1 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:16 node=2 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:17 node=2 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:18 node=2 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:19 node=2 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:2 node=0 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:20 node=2 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:21 node=2 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:22 node=2 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:23 node=2 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:24 node=3 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:25 node=3 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:26 node=3 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:27 node=3 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:28 node=3 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:29 node=3 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:3 node=0 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:30 node=3 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:31 node=3 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:32 node=4 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:33 node=4 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:34 node=4 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:35 node=4 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:36 node=4 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:37 node=4 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:38 node=4 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:39 node=4 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:4 node=0 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:40 node=5 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:41 node=5 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:42 node=5 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:43 node=5 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:44 node=5 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:45 node=5 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:46 node=5 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:47 node=5 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:48 node=6 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:49 node=6 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:5 node=0 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:50 node=6 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:51 node=6 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:52 node=6 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:53 node=6 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:54 node=6 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:55 node=6 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:56 node=7 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:57 node=7 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:58 node=7 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:59 node=7 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:6 node=0 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:60 node=7 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:61 node=7 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:62 node=7 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:63 node=7 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:7 node=0 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:8 node=1 step=18 phase=pg_ready
+[watcher 22:56:38] WARNING:   survivor:9 node=1 step=18 phase=pg_ready

@@ -1172,6 +1172,62 @@ def _elastic_rebuild_timeout_minutes(args):
     return int(_elastic_rebuild_timeout(args).total_seconds() // 60)
 
 
+def _elastic_destroy_stale_model_parallel_groups(mpu):
+    """Abort old Megatron subgroups before in-process rebuild creates new ones."""
+    if not dist.is_available() or not dist.is_initialized():
+        return
+
+    group_list = getattr(mpu, "_global_process_group_list", None)
+    if not group_list:
+        return
+
+    rank = dist.get_rank()
+    seen = set()
+    destroyed = 0
+    skipped = 0
+    for group in reversed(group_list):
+        if group is None:
+            continue
+        group_id = id(group)
+        if group_id in seen:
+            continue
+        seen.add(group_id)
+
+        try:
+            pg_map = torch.distributed.distributed_c10d._world.pg_map
+            if pg_map.get(group, None) is None:
+                skipped += 1
+                continue
+        except Exception:
+            pass
+
+        try:
+            backend = dist.get_backend(group)
+        except Exception:
+            backend = "unknown"
+
+        try:
+            dist.destroy_process_group(group)
+            destroyed += 1
+        except Exception as exc:
+            skipped += 1
+            logger.warning(
+                "[elastic] Rank %d: failed to destroy stale model-parallel "
+                "subgroup backend=%s: %s",
+                rank,
+                backend,
+                exc,
+            )
+
+    logger.warning(
+        "[elastic] Rank %d: destroyed stale model-parallel subgroups before "
+        "rebuild (destroyed=%d, skipped=%d)",
+        rank,
+        destroyed,
+        skipped,
+    )
+
+
 def _initialize_model_parallel_for_rebuild(mpu, args):
     mpu.initialize_model_parallel(
         tensor_model_parallel_size=args.tensor_model_parallel_size,
@@ -1929,6 +1985,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     # groups stops the watchdog immediately.
     logger.info(f"[elastic] Rank {rank}: destroying process groups (stop watchdog)")
     try:
+        _elastic_destroy_stale_model_parallel_groups(mpu)
         mpu.destroy_model_parallel()
     except Exception as e:
         logger.warning(f"[elastic] destroy_model_parallel failed (expected): {e}")
@@ -2039,7 +2096,10 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     # Step 3: Re-initialize model parallel groups
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")
+    elastic_report_recovery_phase("mpu_init_start")
     _initialize_model_parallel_for_rebuild(mpu, args)
+    elastic_report_recovery_phase("mpu_init_done")
+    elastic_report_recovery_phase("rebind_start")
     _elastic_rebind_model_process_groups(model, optimizer)
     elastic_report_recovery_phase("mpu_ready")
     phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
