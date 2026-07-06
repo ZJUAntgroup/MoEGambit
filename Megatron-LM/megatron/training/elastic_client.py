@@ -66,9 +66,9 @@ class ElasticClient:
         self.sock: Optional[socket.socket] = None
         self.running = False
         self.thread: Optional[threading.Thread] = None
-        self.step = 0
-        self.step_tag = 0
-        self.train_phase = "forward_backward"
+        self.step = -1
+        self.step_tag = -1
+        self.train_phase = "startup"
 
     def start(self):
         """Connect to watcher and start heartbeat thread."""

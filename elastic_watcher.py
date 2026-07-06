@@ -91,6 +91,7 @@ class ElasticWatcher:
         self.master_port = args.master_port
         self.fault_dir = Path(args.fault_dir)
         self.heartbeat_timeout = args.heartbeat_timeout
+        self.startup_heartbeat_timeout = args.startup_heartbeat_timeout
 
         # Fault injection config
         self.fault_inject_step = args.fault_inject_step
@@ -130,6 +131,7 @@ class ElasticWatcher:
         log.info(f"Starting watcher on port {self.port}")
         log.info(f"Monitoring {self.training_nnodes} training nodes")
         log.info(f"Heartbeat timeout: {self.heartbeat_timeout}s")
+        log.info(f"Startup heartbeat timeout: {self.startup_heartbeat_timeout}s")
         if self.fault_inject_step >= 0:
             log.info(f"Fault injection: kill node {self.fault_inject_node} "
                      f"local_rank {self.fault_inject_local_rank} at step {self.fault_inject_step}")
@@ -533,6 +535,15 @@ class ElasticWatcher:
         # reach the safe point and destroy process groups before any kill.
         self._handle_fault(target)
 
+    def _training_started_locked(self):
+        """Return True only after all training nodes have entered train-loop heartbeats."""
+        if len(self.last_heartbeat) < self.training_nnodes:
+            return False
+        for node_rank in range(self.training_nnodes):
+            if self.node_train_phases.get(node_rank, "startup") == "startup":
+                return False
+        return True
+
     def _heartbeat_checker(self):
         """Periodically check for heartbeat timeouts."""
         while self.running and not self.last_heartbeat:
@@ -547,15 +558,46 @@ class ElasticWatcher:
 
             now = time.time()
             timed_out_node = None
+            timed_out_elapsed = 0.0
+            timed_out_timeout = self.heartbeat_timeout
+            timed_out_phase = "unknown"
+            timed_out_step = -1
+            training_started = False
             with self.lock:
+                training_started = self._training_started_locked()
                 for node_rank, last_ts in list(self.last_heartbeat.items()):
-                    if now - last_ts > self.heartbeat_timeout:
-                        log.error(f"FAULT DETECTED: Node {node_rank} heartbeat timeout "
-                                  f"({now - last_ts:.1f}s > {self.heartbeat_timeout}s)")
+                    phase = self.node_train_phases.get(node_rank, "startup")
+                    step = self.node_steps.get(node_rank, -1)
+                    timeout = (
+                        self.heartbeat_timeout
+                        if training_started
+                        else self.startup_heartbeat_timeout
+                    )
+                    elapsed = now - last_ts
+                    if elapsed > timeout:
+                        log.error(
+                            "FAULT DETECTED: Node %s heartbeat timeout "
+                            "(%.1fs > %.1fs, phase=%s, step=%s, training_started=%s)",
+                            node_rank,
+                            elapsed,
+                            timeout,
+                            phase,
+                            step,
+                            training_started,
+                        )
                         timed_out_node = node_rank
+                        timed_out_elapsed = elapsed
+                        timed_out_timeout = timeout
+                        timed_out_phase = phase
+                        timed_out_step = step
                         break
             if timed_out_node is not None:
-                self._log_recovery_phase_summary("heartbeat-timeout")
+                self._log_recovery_phase_summary(
+                    "heartbeat-timeout "
+                    f"node={timed_out_node} elapsed={timed_out_elapsed:.1f}s "
+                    f"timeout={timed_out_timeout:.1f}s phase={timed_out_phase} "
+                    f"step={timed_out_step} training_started={training_started}"
+                )
                 self._handle_fault(timed_out_node)
 
     def _log_recovery_phase_summary(self, reason):
@@ -928,6 +970,12 @@ def main():
     parser.add_argument("--fault-dir", type=str, default="/tmp/elastic_faults")
     parser.add_argument("--heartbeat-timeout", type=float, default=30.0,
                         help="Seconds without heartbeat before declaring node dead")
+    parser.add_argument(
+        "--startup-heartbeat-timeout",
+        type=float,
+        default=float(os.environ.get("ELASTIC_STARTUP_HEARTBEAT_TIMEOUT", "600")),
+        help="Seconds without heartbeat tolerated before all nodes enter training",
+    )
     # Fault injection args
     parser.add_argument("--fault-inject-step", type=int, default=-1,
                         help="Step at which to inject a fault (-1 = disabled)")
