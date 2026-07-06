@@ -609,6 +609,125 @@ def _elastic_iter_groups(groups):
         yield groups
 
 
+def _elastic_wait_distributed_works(works, timeout: float, label: str):
+    """Wait for asynchronous distributed works without blocking past timeout."""
+    works = list(works)
+    if not works:
+        return
+
+    pending = works
+    deadline = time.monotonic() + max(float(timeout), 0.0)
+    while pending:
+        next_pending = []
+        for work in pending:
+            try:
+                if work.is_completed():
+                    continue
+            except Exception:
+                wait_timeout = max(deadline - time.monotonic(), 0.0)
+                try:
+                    wait_result = work.wait(timeout=timedelta(seconds=wait_timeout))
+                except TypeError:
+                    wait_result = work.wait()
+                if wait_result is False:
+                    next_pending.append(work)
+                continue
+            next_pending.append(work)
+
+        if not next_pending:
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"[elastic] distributed work timed out: {label}")
+        time.sleep(0.05)
+        pending = next_pending
+
+    for work in works:
+        work.wait()
+
+
+def _elastic_warmup_pipeline_p2p(group, ranks, timeout: float):
+    """Warm the rebuilt pipeline communicator with Megatron-style P2P ops."""
+    rank = dist.get_rank()
+    group_size = dist.get_world_size(group=group)
+    if group_size <= 1:
+        return
+
+    try:
+        group_rank = dist.get_rank(group=group)
+    except Exception:
+        group_rank = list(ranks).index(rank)
+
+    device = torch.cuda.current_device()
+    dtype = torch.float32
+
+    def global_rank(group_index: int) -> int:
+        try:
+            return dist.get_global_rank(group, group_index)
+        except Exception:
+            return list(ranks)[group_index]
+
+    def run_direction(direction: str, ops, peers):
+        if not ops:
+            logger.info(
+                "[elastic] Rank %d: no-op pipeline P2P warmup direction=%s",
+                rank,
+                direction,
+            )
+            return
+        logger.info(
+            "[elastic] Rank %d: warming pipeline P2P direction=%s group_rank=%d peers=%s ranks=%s",
+            rank,
+            direction,
+            group_rank,
+            peers,
+            list(ranks),
+        )
+        reqs = dist.batch_isend_irecv(ops)
+        _elastic_wait_distributed_works(
+            reqs,
+            timeout,
+            f"pipeline-p2p-{direction} rank={rank} group_rank={group_rank} ranks={list(ranks)}",
+        )
+        logger.info(
+            "[elastic] Rank %d: warmed pipeline P2P direction=%s group_rank=%d",
+            rank,
+            direction,
+            group_rank,
+        )
+
+    # Match the real training directions instead of using a full pipeline
+    # collective.  The first train step will receive/send along the PP chain,
+    # not all-reduce the model group.  Keeping this warmup semantically close
+    # to the real P2P path avoids creating another recovery-only NCCL ordering.
+    forward_ops = []
+    forward_peers = []
+    if group_rank > 0:
+        prev_rank = global_rank(group_rank - 1)
+        recv_prev = torch.empty(1, device=device, dtype=dtype)
+        forward_ops.append(dist.P2POp(dist.irecv, recv_prev, prev_rank, group))
+        forward_peers.append(("recv_prev", prev_rank))
+    if group_rank < group_size - 1:
+        next_rank = global_rank(group_rank + 1)
+        send_next = torch.ones(1, device=device, dtype=dtype)
+        forward_ops.append(dist.P2POp(dist.isend, send_next, next_rank, group))
+        forward_peers.append(("send_next", next_rank))
+    run_direction("forward", forward_ops, forward_peers)
+
+    backward_ops = []
+    backward_peers = []
+    if group_rank > 0:
+        prev_rank = global_rank(group_rank - 1)
+        send_prev = torch.ones(1, device=device, dtype=dtype)
+        backward_ops.append(dist.P2POp(dist.isend, send_prev, prev_rank, group))
+        backward_peers.append(("send_prev", prev_rank))
+    if group_rank < group_size - 1:
+        next_rank = global_rank(group_rank + 1)
+        recv_next = torch.empty(1, device=device, dtype=dtype)
+        backward_ops.append(dist.P2POp(dist.irecv, recv_next, next_rank, group))
+        backward_peers.append(("recv_next", next_rank))
+    run_direction("backward", backward_ops, backward_peers)
+
+
 def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: Optional[float] = None):
     """Eagerly initialize replacement-facing NCCL communicators before resume.
 
@@ -638,6 +757,9 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
         )
     warm_full_groups = os.environ.get("ELASTIC_REBUILD_WARMUP_FULL_GROUPS", "0") == "1"
     warm_data_groups = os.environ.get("ELASTIC_REBUILD_WARMUP_DATA_GROUPS", "0") == "1"
+    allow_collective_warmup = (
+        os.environ.get("ELASTIC_REBUILD_ALLOW_COLLECTIVE_WARMUP", "0") == "1"
+    )
     selected_group_names_env = os.environ.get("ELASTIC_REBUILD_WARMUP_GROUPS")
     if selected_group_names_env:
         if selected_group_names_env.strip().lower() in ("0", "none", "off", "false"):
@@ -647,18 +769,13 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
                 name.strip() for name in selected_group_names_env.split(",") if name.strip()
             }
     else:
-        # Warm the narrow set of replacement-facing groups that the first real
-        # train step can immediately use.  Leaving pipeline P2P lazy is unsafe:
-        # once ranks report train_ready, the next forward can try to fetch an
-        # NCCL unique id through a store whose owner/source rank has already
-        # moved on or exited.  Data/expert/full metadata groups remain opt-in
-        # because they were the earlier source of recovery-stage stalls.
-        selected_group_names = {
-            "model",
-            "pipeline",
-            "embedding",
-            "position_embedding",
-        }
+        # FlashRecovery's restart path keeps normal nodes alive and avoids
+        # cluster-scale communication establishment during recovery.  Do the
+        # same here: keep the rebuild TCPStore alive and let Megatron's real
+        # training path lazily initialize NCCL communicators in its normal
+        # order.  Recovery-only probes such as model/pipeline all_reduce have
+        # repeatedly caused train_ready=56/64 stalls.
+        selected_group_names = set()
     group_timeout = float(
         os.environ.get(
             "ELASTIC_REBUILD_WARMUP_GROUP_TIMEOUT",
@@ -686,6 +803,9 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
                 continue
             if name not in selected_group_names:
                 skipped_groups.append((ranks, name, "not-selected"))
+                continue
+            if name != "pipeline" and not allow_collective_warmup:
+                skipped_groups.append((ranks, name, "collective-disabled"))
                 continue
             if not warm_data_groups and "data" in name:
                 skipped_groups.append((ranks, name, "data"))
@@ -765,13 +885,23 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
             name,
             list(ranks),
         )
-        work = dist.all_reduce(warmup, group=group, async_op=True)
-        wait_result = work.wait(timeout=timedelta(seconds=group_timeout))
-        if wait_result is False:
-            raise RuntimeError(
-                "[elastic] communicator warmup timed out "
-                f"(rank={rank}, group={name}, ranks={list(ranks)}, timeout={group_timeout}s)"
+        if name == "pipeline" and os.environ.get("ELASTIC_REBUILD_PIPELINE_P2P_WARMUP", "1") != "0":
+            _elastic_warmup_pipeline_p2p(group, ranks, group_timeout)
+        elif allow_collective_warmup:
+            work = dist.all_reduce(warmup, group=group, async_op=True)
+            _elastic_wait_distributed_works(
+                [work],
+                group_timeout,
+                f"communicator warmup rank={rank} group={name} ranks={list(ranks)}",
             )
+        else:
+            logger.info(
+                "[elastic] Rank %d: skipping communicator %s collective warmup ranks=%s",
+                rank,
+                name,
+                list(ranks),
+            )
+            continue
         logger.info("[elastic] Rank %d: warmed communicator %s", rank, name)
     torch.cuda.synchronize()
     elastic_report_recovery_phase("comm_warmup_done")
