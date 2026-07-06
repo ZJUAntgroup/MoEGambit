@@ -2021,7 +2021,8 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         "rank": rank,
         "timeout": rebuild_timeout,
     }
-    if device_id is not None:
+    use_rebuild_device_id = os.environ.get("ELASTIC_REBUILD_INIT_PG_DEVICE_ID", "1") != "0"
+    if device_id is not None and use_rebuild_device_id:
         try:
             if "device_id" in signature(dist.init_process_group).parameters:
                 init_process_group_kwargs["device_id"] = device_id
