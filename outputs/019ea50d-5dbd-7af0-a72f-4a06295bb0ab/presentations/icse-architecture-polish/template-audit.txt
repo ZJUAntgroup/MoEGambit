@@ -1,0 +1,6 @@
+Task mode: template-following / targeted polish of a one-slide architecture diagram.
+Primary profile: engineering-platform.
+Source inventory: one blank-layout PowerPoint slide containing editable vector shapes and text boxes. No images, charts, or tables.
+Keep: four-region architecture narrative: Training, Failure Detection & Safe-Point Repair, Rank-Exposure Guarded Policy, MoE-aware Hybrid Recovery, Checkpoint Restart.
+Edit intent: reduce slide-level prose, normalize GPU/worker iconography, tighten hierarchy, use ICSE-appropriate clean academic styling with restrained palette and high whitespace.
+Known issues in source: too many sentence-length bullets; Worker (GPU) legend icon does not match GPU cards; dense threshold/formula area; mixed outline colors and hand-built shape irregularity; small bottom callouts.

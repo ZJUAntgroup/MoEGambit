@@ -1,0 +1,14 @@
+Thesis:
+MoEGambit makes MoE failure recovery a contract-governed runtime decision instead of a monolithic restart.
+
+Audience:
+ICSE 2027 reviewers and readers scanning a paper architecture figure.
+
+One-line arc:
+Failure event -> contract guards -> hybrid repair if safe -> restart fallback if unsafe -> logged reintegration.
+
+Slide 1:
+Claim: MoEGambit repairs only the invalidated state, but admits the fast path only under an auditable contract.
+Proof object: one architecture map with R1/R2/R3 guard rail, green hybrid path, red restart fallback, and bottom metric rail.
+Source: source PPTX and paper.tex.
+Omissions: detailed pipeline grid and long per-component bullet lists are removed to preserve figure readability.

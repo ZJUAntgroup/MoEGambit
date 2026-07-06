@@ -1,0 +1,24 @@
+{
+  "sourcePptx": "/Users/zds/Desktop/架构图1.pptx",
+  "mapPath": "/Users/zds/bsr/outputs/019ea50d-5dbd-7af0-a72f-4a06295bb0ab/presentations/icse-architecture-polish/template-frame-map.json",
+  "output": "/Users/zds/bsr/outputs/019ea50d-5dbd-7af0-a72f-4a06295bb0ab/presentations/icse-architecture-polish/template-starter.pptx",
+  "outputBytes": 55968,
+  "sourceSlideCount": 1,
+  "slideCount": 1,
+  "previewDir": "/Users/zds/bsr/outputs/019ea50d-5dbd-7af0-a72f-4a06295bb0ab/presentations/icse-architecture-polish/template-starter-preview",
+  "layoutDir": "/Users/zds/bsr/outputs/019ea50d-5dbd-7af0-a72f-4a06295bb0ab/presentations/icse-architecture-polish/template-starter-layout",
+  "contactSheet": "/Users/zds/bsr/outputs/019ea50d-5dbd-7af0-a72f-4a06295bb0ab/presentations/icse-architecture-polish/template-starter-contact-sheet.png",
+  "slides": [
+    {
+      "outputSlide": 1,
+      "sourceSlide": 1,
+      "narrativeRole": "architecture workflow diagram polished for ICSE talk/poster use",
+      "reuseMode": "duplicate-slide",
+      "editTargetCount": 0,
+      "previewPath": "/Users/zds/bsr/outputs/019ea50d-5dbd-7af0-a72f-4a06295bb0ab/presentations/icse-architecture-polish/template-starter-preview/starter-slide-01.png",
+      "previewRelativePath": "template-starter-preview/starter-slide-01.png",
+      "layoutPath": "/Users/zds/bsr/outputs/019ea50d-5dbd-7af0-a72f-4a06295bb0ab/presentations/icse-architecture-polish/template-starter-layout/starter-slide-01.layout.json",
+      "layoutRelativePath": "template-starter-layout/starter-slide-01.layout.json"
+    }
+  ]
+}

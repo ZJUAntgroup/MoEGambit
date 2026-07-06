@@ -1,0 +1,33 @@
+# yaml file for compatibility with inspect-ai
+
+name: piqa
+description: "Physical Interaction: Question Answering"
+author: "Yonatan Bisk"
+version: 1.0.0
+license: "MIT"
+url: "https://github.com/yonatanbisk/piqa"
+
+tasks:
+  - name: piqa
+    description: "Physical Interaction: Question Answering"
+    dataset: "lighteval/piqa"
+    subset: "plain_text"
+    splits: "validation"
+
+    field_spec:
+      input: "goal"
+      target: "label"
+      choices: ["sol1", "sol2"]
+      id: "question_id"
+      metadata: ["label_confidence"]
+
+    solvers: ["prompt_template", "system_message", "chain_of_thought", "multiple_choice"]
+
+    scorers: ["choice"]
+
+    prompt_template: |
+      "Answer this {{prompt}}."
+
+    system_message: |
+      "You are a helpful assistant that can answer questions about physical interaction."
+

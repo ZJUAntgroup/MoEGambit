@@ -1,0 +1,969 @@
+nohup: ignoring input
++++ dirname ./test_hotspare_replace.sh
+++ cd .
+++ pwd
++ SCRIPT_DIR=/root/workdir/antllm/bsr2
++ export TP_SIZE=1
++ TP_SIZE=1
++ export PP_SIZE=8
++ PP_SIZE=8
++ export EP_SIZE=8
++ EP_SIZE=8
++ export MODE=moegambit
++ MODE=moegambit
++ NPROC_PER_NODE=8
++ export NODE_RANK=8
++ NODE_RANK=8
++ export MASTER_ADDR=33.181.96.183
++ MASTER_ADDR=33.181.96.183
++ export MASTER_PORT=20116
++ MASTER_PORT=20116
++ export ELASTIC_WATCHER_PORT=20200
++ ELASTIC_WATCHER_PORT=20200
++ TRAINING_NNODES=8
++ '[' 8 -ge 8 ']'
++ IS_SPARE=1
++ export NNODES=8
++ NNODES=8
++ export ELASTIC_WATCHER_ADDR=33.181.103.252
++ ELASTIC_WATCHER_ADDR=33.181.103.252
++ export ELASTIC_FAULT_DIR=/tmp/elastic_faults
++ ELASTIC_FAULT_DIR=/tmp/elastic_faults
++ rm -rf /tmp/elastic_faults
++ mkdir -p /tmp/elastic_faults
++ FAULT_INJECT_STEP=17
++ FAULT_INJECT_NODE=0
++ FAULT_INJECT_LOCAL_RANK=1
++ export BSR_HOT_SPARE_POOL=1
++ BSR_HOT_SPARE_POOL=1
++ export BSR_NUM_HOT_SPARES=8
++ BSR_NUM_HOT_SPARES=8
++ export BSR_GAP_AWARE_RECOVERY=1
++ BSR_GAP_AWARE_RECOVERY=1
++ export BSR_RECOVERY_POLICY_TYPE=rank_exposure_guarded_hybrid
++ BSR_RECOVERY_POLICY_TYPE=rank_exposure_guarded_hybrid
++ export BSR_GAP_THRESHOLD=100
++ BSR_GAP_THRESHOLD=100
++ unset BSR_FAULT_INJECT_TYPE
++ unset BSR_FAULT_INJECT_STEP
++ export SAVE_INTERVAL=10
++ SAVE_INTERVAL=10
++ export CKPT_DIR=/mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
++ CKPT_DIR=/mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
++ export TRAIN_LOG_DIR=/mnt/ais-c1/dataset/zds/log/test_replace
++ TRAIN_LOG_DIR=/mnt/ais-c1/dataset/zds/log/test_replace
++ export NCCL_DEBUG=WARN
++ NCCL_DEBUG=WARN
++ export TORCH_NCCL_ASYNC_ERROR_HANDLING=0
++ TORCH_NCCL_ASYNC_ERROR_HANDLING=0
++ export TORCH_NCCL_ENABLE_MONITORING=0
++ TORCH_NCCL_ENABLE_MONITORING=0
++ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=600
++ TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=600
++ export PYTHONPATH=/opt/conda/lib/python3.10/site-packages/aistudio_notebook/public:/opt/conda/lib/python3.10/site-packages/aistudio_notebook/public::./Megatron-LM
++ PYTHONPATH=/opt/conda/lib/python3.10/site-packages/aistudio_notebook/public:/opt/conda/lib/python3.10/site-packages/aistudio_notebook/public::./Megatron-LM
++ export HF_HUB_OFFLINE=1
++ HF_HUB_OFFLINE=1
++ export TRANSFORMERS_OFFLINE=1
++ TRANSFORMERS_OFFLINE=1
++ export CUDA_DEVICE_MAX_CONNECTIONS=1
++ CUDA_DEVICE_MAX_CONNECTIONS=1
++ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
++ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
++ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
++ TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
++ export TORCH_CUDA_ARCH_LIST=9.0
++ TORCH_CUDA_ARCH_LIST=9.0
++ export TRAIN_ITERS=100
++ TRAIN_ITERS=100
++ mkdir -p /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt /mnt/ais-c1/dataset/zds/log/test_replace
++ TRAINING_WORLD_SIZE=64
++ DP_SIZE=8
++ GLOBAL_BATCH_SIZE=64
++ export GLOBAL_BATCH_SIZE
++ echo '[test-replace] =============================================='
+[test-replace] ==============================================
++ echo '[test-replace] Hot-Spare REPLACEMENT TEST'
+[test-replace] Hot-Spare REPLACEMENT TEST
++ echo '[test-replace] =============================================='
+[test-replace] ==============================================
+++ '[' 1 = 1 ']'
+++ echo '(SPARE WATCHER)'
++ echo '[test-replace] NODE_RANK:       8 (SPARE WATCHER)'
+[test-replace] NODE_RANK:       8 (SPARE WATCHER)
++ echo '[test-replace] Training nodes:  8 (64 GPUs)'
+[test-replace] Training nodes:  8 (64 GPUs)
++ echo '[test-replace] Fault inject:    kill node 0 local_rank 1 at step 17'
+[test-replace] Fault inject:    kill node 0 local_rank 1 at step 17
++ echo '[test-replace] Save interval:   10'
+[test-replace] Save interval:   10
++ echo '[test-replace] Train iters:     100'
+[test-replace] Train iters:     100
++ echo '[test-replace] NCCL timeout:    60s (dynamic, after init)'
+[test-replace] NCCL timeout:    60s (dynamic, after init)
++ echo '[test-replace] CKPT_DIR:        /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt'
+[test-replace] CKPT_DIR:        /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
++ echo '[test-replace] =============================================='
+[test-replace] ==============================================
++ '[' 1 = 1 ']'
++ echo '[test-replace] Starting elastic watcher on spare node...'
+[test-replace] Starting elastic watcher on spare node...
++ echo '[test-replace] Fault injection: kill node 0 local_rank 1 at step 17'
+[test-replace] Fault injection: kill node 0 local_rank 1 at step 17
++ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.181.96.183 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
+[watcher 19:38:19] INFO: Starting watcher on port 20200
+[watcher 19:38:19] INFO: Monitoring 8 training nodes
+[watcher 19:38:19] INFO: Heartbeat timeout: 30.0s
+[watcher 19:38:19] INFO: Fault injection: kill node 0 local_rank 1 at step 17
+[watcher 19:38:19] INFO: Warm standby worker pid=1000 started; waiting on /tmp/elastic_faults/spare_assignment.json
+[watcher 19:38:19] INFO: [spare-standby] [spare-rank] Warm standby pid=1000 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
+[watcher 19:40:12] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 19:40:13] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
+[watcher 19:40:35] INFO: Heartbeat checker active
+[watcher 19:44:34] WARNING: FAULT INJECTION: step 17 >= 17, pausing ALL nodes then killing node 0 local_rank 1
+[watcher 19:44:34] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)
+[watcher 19:44:52] INFO: Node 4 ready to rebuild (1/8)
+[watcher 19:44:52] INFO: Node 1 ready to rebuild (2/8)
+[watcher 19:44:52] INFO: Node 2 ready to rebuild (3/8)
+[watcher 19:44:52] INFO: Node 5 ready to rebuild (4/8)
+[watcher 19:44:52] INFO: Node 6 ready to rebuild (5/8)
+[watcher 19:44:53] INFO: Node 3 ready to rebuild (6/8)
+[watcher 19:44:53] INFO: Node 7 ready to rebuild (7/8)
+[watcher 19:44:54] INFO: Node 0 ready to rebuild (8/8)
+[watcher 19:44:54] INFO: All 8 nodes ready. Target rank already killed (node 0 local_rank 1). Launching spare...
+[watcher 19:44:54] INFO: Elastic resume iteration selected: 18 from ready steps {4: 18, 1: 18, 2: 18, 5: 18, 6: 18, 3: 18, 7: 18, 0: 18}
+[watcher 19:44:54] INFO: Launching spare: replacing global_rank=1 (node 0, local_rank 1)
+[watcher 19:44:54] INFO: Activated warm standby pid=1000 for replacement rank=1
+[watcher 19:44:54] INFO: Waiting up to 300.0s for replacement to reach init_pg_start...
+[watcher 19:44:55] INFO: [spare-standby] [spare-rank] Warm standby activated: RANK=1, CUDA_VISIBLE_DEVICES=1
+[watcher 19:44:55] INFO: [spare-standby] [spare-rank] Starting replacement: RANK=1, LOCAL_RANK=0, NODE_RANK=0
+[watcher 19:44:55] INFO: [spare-standby] [spare-rank] MASTER=33.181.96.183:20117, WORLD_SIZE=64
+[watcher 19:44:55] INFO: [spare-standby] [spare-rank] CUDA_VISIBLE_DEVICES=1
+[watcher 19:44:55] INFO: [spare-standby] [spare-rank] ELASTIC_REBUILD_MODE=1
+[watcher 19:44:59] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 19:45:00] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=init_pg_start
+[watcher 19:45:00] INFO: Replacement reached init_pg_start; broadcasting rebuild signal
+[watcher 19:45:00] INFO: Rebuild signal sent to all nodes. Waiting for training to resume...
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=pg_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=mpu_ready
+[watcher 19:45:04] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=pg_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=mpu_ready
+[watcher 19:45:05] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=mpu_ready
+[watcher 19:45:06] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=pg_ready
+[watcher 19:45:06] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=pg_ready
+[watcher 19:45:06] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_init_start
+[watcher 19:45:06] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_ready
+[watcher 19:45:06] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=mpu_ready
+[watcher 19:45:06] INFO: [spare-standby] WARNING:megatron.training.initialize:[elastic] REBUILD MODE: skipping cold-start init barriers after model-parallel setup
+[watcher 19:45:06] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=cold_start_deps_ready
+[watcher 19:45:09] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Replacement worker: watcher heartbeat disabled to avoid duplicate node_rank ownership
+[watcher 19:45:09] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] REBUILD MODE: loading checkpoint model weights and optimizer metadata only; expert optimizer tensors will be restored locally and dense/non-expert state will be refreshed from DP peer
+[watcher 19:45:10] INFO: [spare-standby] /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+[watcher 19:45:10] INFO: [spare-standby]   state_dict = torch.load(checkpoint_name, map_location='cpu')
+[watcher 19:45:35] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=checkpoint_loaded
+[watcher 19:45:35] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense params with peer transfer (pp_rank=0, dp_rank=1, group=[0, 1, 2, 3, 4, 5, 6, 7], src=0, replacement=1)
+[watcher 19:45:35] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=model_optimizer_ready
+[watcher 19:45:35] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=param_sync_done
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=param_sync_start
+[watcher 19:45:35] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Peer sync endpoint: id=20117:18:0:1 src=0 dst=1 endpoint=33.181.96.183:38173
+[watcher 19:45:36] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: peer TCP sync connected id=20117:18:0:1 endpoint=33.181.96.183:38173
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 1 name=module.module.embedding.word_embeddings.weight shape=(151680, 2048) dtype=torch.bfloat16
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=param_sync_start
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=param_sync_done
+[watcher 19:45:36] INFO: [spare-standby] /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/elastic_client.py:1622: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+[watcher 19:45:36] INFO: [spare-standby]   chunk = torch.load(io.BytesIO(payload), map_location="cpu")
+[watcher 19:45:37] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 2 name=module.module.decoder.layers.0.self_attention.linear_proj.weight shape=(2048, 4096) dtype=torch.bfloat16
+[watcher 19:45:37] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: syncing dense param 3 name=module.module.decoder.layers.0.self_attention.linear_qkv.layer_norm_weight shape=(2048,) dtype=torch.bfloat16
+[watcher 19:45:38] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: dense model param sync complete (synced=43, expert_from_ckpt=192)
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=param_sync_done
+[watcher 19:45:46] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: non-expert optimizer sync complete (main_params=43, state_tensors=86, skipped=0, unmapped=0)
+[watcher 19:45:46] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: param sync complete
+[watcher 19:45:46] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
+[watcher 19:45:46] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: skipped 10 rebuild warmup groups: [('model', 'not-selected', [1, 9, 17, 25, 33, 41, 49, 57]), ('pipeline', 'not-selected', [1, 9, 17, 25, 33, 41, 49, 57]), ('data', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('data_cp', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('tensor_data', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('tensor_data_cp', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('embedding', 'not-selected', [1, 57]), ('expert', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('expert_tensor_model', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7]), ('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
+[watcher 19:45:46] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=param_sync_done
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=comm_warmup_start
+[watcher 19:45:46] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=comm_warmup_start
+[watcher 19:45:47] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: rebuild communicator warmup complete
+[watcher 19:45:47] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
+[watcher 19:45:47] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: waiting for 64 ranks to reach train_ready via watcher
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=comm_warmup_done
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=train_ready
+[watcher 19:45:47] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=train_ready
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=comm_warmup_done
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=train_ready
+[watcher 19:45:48] INFO: All training ranks reached train_ready; recovery complete
+[watcher 19:45:48] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=train_ready
+[watcher 19:45:48] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: all ranks reached train_ready
+[watcher 19:45:48] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Replacement node: param sync complete, joining training loop
+[watcher 19:45:48] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] REBUILD MODE: resuming replacement at iteration 18 (consumed_train_samples=1152)
+[watcher 19:45:48] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] REBUILD MODE: param sync complete, joining training loop
+[watcher 19:45:48] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=resume_state_applied
+[watcher 19:45:49] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=data_ready
+[watcher 19:45:49] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=train_loop_entered
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:[2026-06-21 19:45:49] BSR-MoE: initializing on rank 1 ...
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[0, 1, 2, 3, 4, 5, 6, 7], dp_group_ranks=[0, 1, 2, 3, 4, 5, 6, 7], global_ep_groups=8
+[watcher 19:45:49] INFO: [spare-standby] INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[0, 1, 2, 3, 4, 5, 6, 7])
+[watcher 19:45:49] INFO: [spare-standby] INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+[watcher 19:45:49] INFO: [spare-standby] INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[0, 1, 2, 3, 4, 5, 6, 7]
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+[watcher 19:45:49] INFO: [spare-standby] INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
+[watcher 19:45:49] INFO: [spare-standby] WARNING:megatron.core.transformer.moe.bsr_integration:[2026-06-21 19:45:49] BSR-MoE: initialization complete on rank 1
+[watcher 19:45:49] INFO: [spare-standby] NCCL version 2.21.5+cuda12.4
+[watcher 19:46:01] WARNING: Node 0 disconnected
+[watcher 19:46:01] INFO: [spare-standby] WARNING:megatron.core.utils:[1] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[watcher 19:46:01] INFO: [spare-standby] Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[watcher 19:46:01] INFO: [spare-standby] frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7fefd8cf2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #1: <unknown function> + 0x59a2a3e (0x7fefc8fa2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #2: <unknown function> + 0x59a3bc0 (0x7fefc8fa3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7fefc8fa03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7fefc8fa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7fefc8fa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #9: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #10: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7fef8f8f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #11: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7fef8f9029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #12: c10d::ProcessGroupNCCL::_allgather_base(at::Tensor&, at::Tensor&, c10d::AllgatherOptions const&) + 0x13e6 (0x7fef8f926b36 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #13: <unknown function> + 0x593e068 (0x7fefc8f3e068 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #14: <unknown function> + 0x594daac (0x7fefc8f4daac in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #15: <unknown function> + 0x50166e0 (0x7fefc86166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #16: <unknown function> + 0x5966472 (0x7fefc8f66472 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #17: <unknown function> + 0xd29a00 (0x7fefd8529a00 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #18: <unknown function> + 0x42d55e (0x7fefd7c2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #19: python3() [0x4fdcf7]
+[watcher 19:46:01] INFO: [spare-standby] <omitting python frames>
+[watcher 19:46:01] INFO: [spare-standby] frame #21: python3() [0x509d6f]
+[watcher 19:46:01] INFO: [spare-standby] frame #31: THPFunction_apply(_object*, _object*) + 0xe24 (0x7fefd7f98b64 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #32: python3() [0x4fdd20]
+[watcher 19:46:01] INFO: [spare-standby] frame #35: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #43: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #47: python3() [0x509bd6]
+[watcher 19:46:01] INFO: [spare-standby] frame #49: python3() [0x509bd6]
+[watcher 19:46:01] INFO: [spare-standby] frame #53: python3() [0x5d0153]
+[watcher 19:46:01] INFO: [spare-standby] frame #56: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #58: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #61: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] . This may indicate a possible application crash on rank 0 or a network set up issue.
+[watcher 19:46:01] INFO: [spare-standby] ['Traceback (most recent call last):\n', '  File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 152, in forward_step\n    output_tensor = model(\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/distributed/data_parallel_base.py", line 22, in forward\n    return self.module(*inputs, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/module.py", line 429, in forward\n    outputs = self.module(*inputs, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/models/gpt/gpt_model.py", line 456, in forward\n    hidden_states = self.decoder(\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_block.py", line 553, in __call__\n    return super().__call__(*args, **kwargs)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/module.py", line 305, in __call__\n    return super().__call__(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_block.py", line 697, in forward\n    hidden_states, context = layer(\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_layer.py", line 852, in __call__\n    return super().__call__(*args, **kwargs)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/module.py", line 305, in __call__\n    return super().__call__(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_layer.py", line 435, in forward\n    output = self._forward_mlp(hidden_states, kwargs.get("inference_context", None))\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_layer.py", line 618, in _forward_mlp\n    mlp_output_with_bias = self.mlp(pre_mlp_layernorm_output)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/moe_layer.py", line 292, in forward\n    output, mlp_bias = custom_forward(hidden_states)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/moe_layer.py", line 274, in custom_forward\n    hidden_states, probs, residual = self.router_and_preprocess(hidden_states)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/moe_layer.py", line 179, in router_and_preprocess\n    hidden_states, probs = self.token_dispatcher.dispatch_preprocess(\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/token_dispatcher.py", line 583, in dispatch_preprocess\n    self.tokens_per_expert = self.preprocess(self.routing_map)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/token_dispatcher.py", line 499, in preprocess\n    gather_from_sequence_parallel_region(\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/tensor_parallel/mappings.py", line 508, in gather_from_sequence_parallel_region\n    return _GatherFromSequenceParallelRegion.apply(\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/autograd/function.py", line 575, in apply\n    return super().apply(*args, **kwargs)  # type: ignore[misc]\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/tensor_parallel/mappings.py", line 325, in forward\n    return _gather_along_first_dim(input_, group, output_split_sizes, use_global_buffer)\n', '  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/tensor_parallel/mappings.py", line 142, in _gather_along_first_dim\n    dist_all_gather_func(output, input_.contiguous(), group=group)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper\n    return func(*args, **kwargs)\n', '  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 3798, in all_gather_into_tensor\n    work = group._allgather_base(output_tensor, input_tensor, opts)\n', "torch.distributed.DistBackendError: [1] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes\nException raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):\nframe #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7fefd8cf2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)\nframe #1: <unknown function> + 0x59a2a3e (0x7fefc8fa2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #2: <unknown function> + 0x59a3bc0 (0x7fefc8fa3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7fefc8fa03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7fefc8fa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7fefc8fa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #9: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #10: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7fef8f8f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)\nframe #11: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7fef8f9029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)\nframe #12: c10d::ProcessGroupNCCL::_allgather_base(at::Tensor&, at::Tensor&, c10d::AllgatherOptions const&) + 0x13e6 (0x7fef8f926b36 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)\nframe #13: <unknown function> + 0x593e068 (0x7fefc8f3e068 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #14: <unknown function> + 0x594daac (0x7fefc8f4daac in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #15: <unknown function> + 0x50166e0 (0x7fefc86166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #16: <unknown function> + 0x5966472 (0x7fefc8f66472 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)\nframe #17: <unknown function> + 0xd29a00 (0x7fefd8529a00 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)\nframe #18: <unknown function> + 0x42d55e (0x7fefd7c2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)\nframe #19: python3() [0x4fdcf7]\n<omitting python frames>\nframe #21: python3() [0x509d6f]\nframe #31: THPFunction_apply(_object*, _object*) + 0xe24 (0x7fefd7f98b64 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)\nframe #32: python3() [0x4fdd20]\nframe #35: python3() [0x509a7e]\nframe #43: python3() [0x509a7e]\nframe #47: python3() [0x509bd6]\nframe #49: python3() [0x509bd6]\nframe #53: python3() [0x5d0153]\nframe #56: python3() [0x509a7e]\nframe #58: python3() [0x509a7e]\nframe #61: python3() [0x509a7e]\n. This may indicate a possible application crash on rank 0 or a network set up issue.\n"]
+[watcher 19:46:01] INFO: [spare-standby] ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [1] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[watcher 19:46:01] INFO: [spare-standby] Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[watcher 19:46:01] INFO: [spare-standby] frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7fefd8cf2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #1: <unknown function> + 0x59a2a3e (0x7fefc8fa2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #2: <unknown function> + 0x59a3bc0 (0x7fefc8fa3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7fefc8fa03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7fefc8fa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7fefc8fa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #9: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #10: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7fef8f8f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #11: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7fef8f9029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #12: c10d::ProcessGroupNCCL::_allgather_base(at::Tensor&, at::Tensor&, c10d::AllgatherOptions const&) + 0x13e6 (0x7fef8f926b36 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #13: <unknown function> + 0x593e068 (0x7fefc8f3e068 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #14: <unknown function> + 0x594daac (0x7fefc8f4daac in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #15: <unknown function> + 0x50166e0 (0x7fefc86166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #16: <unknown function> + 0x5966472 (0x7fefc8f66472 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #17: <unknown function> + 0xd29a00 (0x7fefd8529a00 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #18: <unknown function> + 0x42d55e (0x7fefd7c2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #19: python3() [0x4fdcf7]
+[watcher 19:46:01] INFO: [spare-standby] <omitting python frames>
+[watcher 19:46:01] INFO: [spare-standby] frame #21: python3() [0x509d6f]
+[watcher 19:46:01] INFO: [spare-standby] frame #31: THPFunction_apply(_object*, _object*) + 0xe24 (0x7fefd7f98b64 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #32: python3() [0x4fdd20]
+[watcher 19:46:01] INFO: [spare-standby] frame #35: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #43: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #47: python3() [0x509bd6]
+[watcher 19:46:01] INFO: [spare-standby] frame #49: python3() [0x509bd6]
+[watcher 19:46:01] INFO: [spare-standby] frame #53: python3() [0x5d0153]
+[watcher 19:46:01] INFO: [spare-standby] frame #56: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #58: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #61: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] . This may indicate a possible application crash on rank 0 or a network set up issue.
+[watcher 19:46:01] INFO: [spare-standby] Traceback (most recent call last):
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2573, in train
+[watcher 19:46:01] INFO: [spare-standby]     ) = train_step(
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1459, in train_step
+[watcher 19:46:01] INFO: [spare-standby]     losses_reduced = forward_backward_func(
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2135, in forward_backward_pipelining_without_interleaving
+[watcher 19:46:01] INFO: [spare-standby]     output_tensor, num_tokens = forward_step(
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 402, in forward_step
+[watcher 19:46:01] INFO: [spare-standby]     output_tensor, loss_func = forward_step_func(data_iterator, model)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 152, in forward_step
+[watcher 19:46:01] INFO: [spare-standby]     output_tensor = model(
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return self._call_impl(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return forward_call(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/distributed/data_parallel_base.py", line 22, in forward
+[watcher 19:46:01] INFO: [spare-standby]     return self.module(*inputs, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return self._call_impl(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return forward_call(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/module.py", line 429, in forward
+[watcher 19:46:01] INFO: [spare-standby]     outputs = self.module(*inputs, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return self._call_impl(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return forward_call(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/models/gpt/gpt_model.py", line 456, in forward
+[watcher 19:46:01] INFO: [spare-standby]     hidden_states = self.decoder(
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_block.py", line 553, in __call__
+[watcher 19:46:01] INFO: [spare-standby]     return super().__call__(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/module.py", line 305, in __call__
+[watcher 19:46:01] INFO: [spare-standby]     return super().__call__(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return self._call_impl(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return forward_call(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_block.py", line 697, in forward
+[watcher 19:46:01] INFO: [spare-standby]     hidden_states, context = layer(
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_layer.py", line 852, in __call__
+[watcher 19:46:01] INFO: [spare-standby]     return super().__call__(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/module.py", line 305, in __call__
+[watcher 19:46:01] INFO: [spare-standby]     return super().__call__(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return self._call_impl(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return forward_call(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_layer.py", line 435, in forward
+[watcher 19:46:01] INFO: [spare-standby]     output = self._forward_mlp(hidden_states, kwargs.get("inference_context", None))
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/transformer_layer.py", line 618, in _forward_mlp
+[watcher 19:46:01] INFO: [spare-standby]     mlp_output_with_bias = self.mlp(pre_mlp_layernorm_output)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return self._call_impl(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[watcher 19:46:01] INFO: [spare-standby]     return forward_call(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/moe_layer.py", line 292, in forward
+[watcher 19:46:01] INFO: [spare-standby]     output, mlp_bias = custom_forward(hidden_states)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/moe_layer.py", line 274, in custom_forward
+[watcher 19:46:01] INFO: [spare-standby]     hidden_states, probs, residual = self.router_and_preprocess(hidden_states)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/moe_layer.py", line 179, in router_and_preprocess
+[watcher 19:46:01] INFO: [spare-standby]     hidden_states, probs = self.token_dispatcher.dispatch_preprocess(
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/token_dispatcher.py", line 583, in dispatch_preprocess
+[watcher 19:46:01] INFO: [spare-standby]     self.tokens_per_expert = self.preprocess(self.routing_map)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/transformer/moe/token_dispatcher.py", line 499, in preprocess
+[watcher 19:46:01] INFO: [spare-standby]     gather_from_sequence_parallel_region(
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/tensor_parallel/mappings.py", line 508, in gather_from_sequence_parallel_region
+[watcher 19:46:01] INFO: [spare-standby]     return _GatherFromSequenceParallelRegion.apply(
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/autograd/function.py", line 575, in apply
+[watcher 19:46:01] INFO: [spare-standby]     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/tensor_parallel/mappings.py", line 325, in forward
+[watcher 19:46:01] INFO: [spare-standby]     return _gather_along_first_dim(input_, group, output_split_sizes, use_global_buffer)
+[watcher 19:46:01] INFO: [spare-standby]   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/tensor_parallel/mappings.py", line 142, in _gather_along_first_dim
+[watcher 19:46:01] INFO: [spare-standby]     dist_all_gather_func(output, input_.contiguous(), group=group)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[watcher 19:46:01] INFO: [spare-standby]     return func(*args, **kwargs)
+[watcher 19:46:01] INFO: [spare-standby]   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 3798, in all_gather_into_tensor
+[watcher 19:46:01] INFO: [spare-standby]     work = group._allgather_base(output_tensor, input_tensor, opts)
+[watcher 19:46:01] INFO: [spare-standby] torch.distributed.DistBackendError: [1] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[watcher 19:46:01] INFO: [spare-standby] Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[watcher 19:46:01] INFO: [spare-standby] frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7fefd8cf2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #1: <unknown function> + 0x59a2a3e (0x7fefc8fa2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #2: <unknown function> + 0x59a3bc0 (0x7fefc8fa3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7fefc8fa03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7fefc8fa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7fefc8fa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #9: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #10: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7fef8f8f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #11: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7fef8f9029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #12: c10d::ProcessGroupNCCL::_allgather_base(at::Tensor&, at::Tensor&, c10d::AllgatherOptions const&) + 0x13e6 (0x7fef8f926b36 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #13: <unknown function> + 0x593e068 (0x7fefc8f3e068 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #14: <unknown function> + 0x594daac (0x7fefc8f4daac in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #15: <unknown function> + 0x50166e0 (0x7fefc86166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #16: <unknown function> + 0x5966472 (0x7fefc8f66472 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #17: <unknown function> + 0xd29a00 (0x7fefd8529a00 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #18: <unknown function> + 0x42d55e (0x7fefd7c2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #19: python3() [0x4fdcf7]
+[watcher 19:46:01] INFO: [spare-standby] <omitting python frames>
+[watcher 19:46:01] INFO: [spare-standby] frame #21: python3() [0x509d6f]
+[watcher 19:46:01] INFO: [spare-standby] frame #31: THPFunction_apply(_object*, _object*) + 0xe24 (0x7fefd7f98b64 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #32: python3() [0x4fdd20]
+[watcher 19:46:01] INFO: [spare-standby] frame #35: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #43: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #47: python3() [0x509bd6]
+[watcher 19:46:01] INFO: [spare-standby] frame #49: python3() [0x509bd6]
+[watcher 19:46:01] INFO: [spare-standby] frame #53: python3() [0x5d0153]
+[watcher 19:46:01] INFO: [spare-standby] frame #56: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #58: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #61: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] . This may indicate a possible application crash on rank 0 or a network set up issue.
+[watcher 19:46:01] INFO: [spare-standby] 
+[watcher 19:46:01] INFO: [spare-standby] ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [1] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[watcher 19:46:01] INFO: [spare-standby] Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[watcher 19:46:01] INFO: [spare-standby] frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7fefd8cf2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #1: <unknown function> + 0x59a2a3e (0x7fefc8fa2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #2: <unknown function> + 0x59a3bc0 (0x7fefc8fa3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7fefc8fa03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7fefc8fa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7fefc8fa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #9: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fefc8f4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #10: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7fef8f8f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #11: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7fef8f9029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #12: c10d::ProcessGroupNCCL::_allgather_base(at::Tensor&, at::Tensor&, c10d::AllgatherOptions const&) + 0x13e6 (0x7fef8f926b36 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #13: <unknown function> + 0x593e068 (0x7fefc8f3e068 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #14: <unknown function> + 0x594daac (0x7fefc8f4daac in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #15: <unknown function> + 0x50166e0 (0x7fefc86166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #16: <unknown function> + 0x5966472 (0x7fefc8f66472 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #17: <unknown function> + 0xd29a00 (0x7fefd8529a00 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #18: <unknown function> + 0x42d55e (0x7fefd7c2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #19: python3() [0x4fdcf7]
+[watcher 19:46:01] INFO: [spare-standby] <omitting python frames>
+[watcher 19:46:01] INFO: [spare-standby] frame #21: python3() [0x509d6f]
+[watcher 19:46:01] INFO: [spare-standby] frame #31: THPFunction_apply(_object*, _object*) + 0xe24 (0x7fefd7f98b64 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[watcher 19:46:01] INFO: [spare-standby] frame #32: python3() [0x4fdd20]
+[watcher 19:46:01] INFO: [spare-standby] frame #35: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #43: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #47: python3() [0x509bd6]
+[watcher 19:46:01] INFO: [spare-standby] frame #49: python3() [0x509bd6]
+[watcher 19:46:01] INFO: [spare-standby] frame #53: python3() [0x5d0153]
+[watcher 19:46:01] INFO: [spare-standby] frame #56: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #58: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] frame #61: python3() [0x509a7e]
+[watcher 19:46:01] INFO: [spare-standby] . This may indicate a possible application crash on rank 0 or a network set up issue.
+[watcher 19:46:01] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+[watcher 19:46:01] INFO: [spare-standby] WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+[watcher 19:46:01] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: entering rebuild sequence
+[watcher 19:46:01] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: destroying process groups (stop watchdog)
+[watcher 19:46:01] WARNING: Node 1 reported NCCL error: [1] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+Exception raised from recvBytes
+[watcher 19:46:01] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:46:01] WARNING: Node 3 reported NCCL error: [3] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+Exception raised from recvBytes
+[watcher 19:46:01] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:46:01] WARNING: Node 4 reported NCCL error: [4] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+Exception raised from recvBytes
+[watcher 19:46:01] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:46:01] WARNING: Node 7 reported NCCL error: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+Exception raised from recvBytes
+[watcher 19:46:01] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:46:01] WARNING: Node 5 reported NCCL error: [5] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+Exception raised from recvBytes
+[watcher 19:46:01] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:46:01] WARNING: Node 2 reported NCCL error: [2] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+Exception raised from recvBytes
+[watcher 19:46:01] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:46:01] WARNING: Node 6 reported NCCL error: [6] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+Exception raised from recvBytes
+[watcher 19:46:01] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:46:03] INFO: Node 1 ready to rebuild (1/8)
+[watcher 19:46:03] INFO: Node 3 ready to rebuild (2/8)
+[watcher 19:46:03] INFO: Node 4 ready to rebuild (3/8)
+[watcher 19:46:03] INFO: Node 7 ready to rebuild (4/8)
+[watcher 19:46:03] INFO: Node 2 ready to rebuild (5/8)
+[watcher 19:46:03] INFO: Node 6 ready to rebuild (6/8)
+[watcher 19:46:03] INFO: Node 5 ready to rebuild (7/8)
+[watcher 19:46:29] ERROR: FAULT DETECTED: Node 0 heartbeat timeout (30.6s > 30.0s)
+[watcher 19:46:29] WARNING: Recovery phase summary (heartbeat-timeout):
+[watcher 19:46:29] WARNING:   replacement:1 node=0 step=18 phase=train_loop_entered
+[watcher 19:46:29] WARNING:   survivor:0 node=0 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:10 node=1 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:11 node=1 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:12 node=1 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:13 node=1 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:14 node=1 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:15 node=1 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:16 node=2 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:17 node=2 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:18 node=2 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:19 node=2 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:2 node=0 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:20 node=2 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:21 node=2 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:22 node=2 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:23 node=2 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:24 node=3 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:25 node=3 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:26 node=3 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:27 node=3 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:28 node=3 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:29 node=3 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:3 node=0 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:30 node=3 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:31 node=3 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:32 node=4 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:33 node=4 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:34 node=4 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:35 node=4 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:36 node=4 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:37 node=4 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:38 node=4 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:39 node=4 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:4 node=0 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:40 node=5 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:41 node=5 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:42 node=5 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:43 node=5 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:44 node=5 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:45 node=5 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:46 node=5 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:47 node=5 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:48 node=6 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:49 node=6 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:5 node=0 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:50 node=6 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:51 node=6 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:52 node=6 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:53 node=6 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:54 node=6 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:55 node=6 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:56 node=7 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:57 node=7 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:58 node=7 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:59 node=7 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:6 node=0 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:60 node=7 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:61 node=7 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:62 node=7 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:63 node=7 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:7 node=0 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:8 node=1 step=18 phase=train_ready
+[watcher 19:46:29] WARNING:   survivor:9 node=1 step=18 phase=train_ready
+[watcher 19:46:29] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)

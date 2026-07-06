@@ -760,6 +760,7 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
     allow_collective_warmup = (
         os.environ.get("ELASTIC_REBUILD_ALLOW_COLLECTIVE_WARMUP", "0") == "1"
     )
+    safe_collective_warmup_names = {"expert", "expert_tensor_model"}
     selected_group_names_env = os.environ.get("ELASTIC_REBUILD_WARMUP_GROUPS")
     if selected_group_names_env:
         if selected_group_names_env.strip().lower() in ("0", "none", "off", "false"):
@@ -769,13 +770,12 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
                 name.strip() for name in selected_group_names_env.split(",") if name.strip()
             }
     else:
-        # FlashRecovery's restart path keeps normal nodes alive and avoids
-        # cluster-scale communication establishment during recovery.  Do the
-        # same here: keep the rebuild TCPStore alive and let Megatron's real
-        # training path lazily initialize NCCL communicators in its normal
-        # order.  Recovery-only probes such as model/pipeline all_reduce have
-        # repeatedly caused train_ready=56/64 stalls.
-        selected_group_names = set()
+        # Keep warmup narrow: the first post-rebuild forward enters the MoE
+        # token dispatcher, whose ep/tp_ep groups contain the replacement rank.
+        # Broad recovery probes previously stalled unrelated data/pipeline
+        # groups, so only these immediate MoE communication surfaces are
+        # eagerly initialized by default.
+        selected_group_names = set(safe_collective_warmup_names)
     group_timeout = float(
         os.environ.get(
             "ELASTIC_REBUILD_WARMUP_GROUP_TIMEOUT",
@@ -804,7 +804,11 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
             if name not in selected_group_names:
                 skipped_groups.append((ranks, name, "not-selected"))
                 continue
-            if name != "pipeline" and not allow_collective_warmup:
+            if (
+                name != "pipeline"
+                and not allow_collective_warmup
+                and name not in safe_collective_warmup_names
+            ):
                 skipped_groups.append((ranks, name, "collective-disabled"))
                 continue
             if not warm_data_groups and "data" in name:
@@ -1428,6 +1432,7 @@ def _elastic_rebind_model_process_groups(model, optimizer=None):
     total_count = 0
     module_count = 0
     ddp_count = 0
+    dispatcher_count = 0
     optimizer_count = 0
 
     for chunk_idx, model_chunk in enumerate(_elastic_iter_model_chunks(model)):
@@ -1452,6 +1457,7 @@ def _elastic_rebind_model_process_groups(model, optimizer=None):
                 )
                 if changed:
                     rebind_dispatcher_derived_values(module)
+                    dispatcher_count += 1
                 total_count += changed
                 handled_specific = True
             elif "Router" in module_type or "router" in name:
@@ -1470,6 +1476,19 @@ def _elastic_rebind_model_process_groups(model, optimizer=None):
                 )
                 handled_specific = True
 
+            token_dispatcher = getattr(module, "token_dispatcher", None)
+            if token_dispatcher is not None:
+                changed = rebind_moe_module_groups(
+                    token_dispatcher,
+                    pg_dict,
+                    MOE_DISPATCHER_REBIND_MAP,
+                    module_name=f"{module_name}.token_dispatcher",
+                )
+                if changed:
+                    rebind_dispatcher_derived_values(token_dispatcher)
+                    dispatcher_count += 1
+                total_count += changed
+
             total_count += _elastic_rebind_pg_collection(module, pg_dict)
             total_count += _elastic_rebind_direct_module_groups(
                 module, pg_dict, handled_specific=handled_specific
@@ -1479,11 +1498,12 @@ def _elastic_rebind_model_process_groups(model, optimizer=None):
     total_count += optimizer_count
     logger.warning(
         "[elastic] Rank %d: rebound cached process groups after rebuild "
-        "(attrs=%d, modules=%d, ddp_wrappers=%d, optimizer_attrs=%d)",
+        "(attrs=%d, modules=%d, ddp_wrappers=%d, dispatchers=%d, optimizer_attrs=%d)",
         rank,
         total_count,
         module_count,
         ddp_count,
+        dispatcher_count,
         optimizer_count,
     )
 

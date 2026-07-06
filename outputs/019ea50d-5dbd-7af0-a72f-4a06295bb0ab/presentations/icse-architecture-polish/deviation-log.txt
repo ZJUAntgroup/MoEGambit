@@ -1,0 +1,1 @@
+Slide 1: Intentional redesign within source narrative. The original is a dense architecture diagram; output keeps all pipeline/recovery concepts but simplifies text, normalizes GPU cards, and uses cleaner ICSE-style typography, spacing, and muted section colors.

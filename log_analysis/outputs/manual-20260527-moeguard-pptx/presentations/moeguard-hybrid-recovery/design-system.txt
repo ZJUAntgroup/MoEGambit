@@ -1,0 +1,15 @@
+Slide size: 1672x941, matching the original image aspect and SVG viewBox.
+Background system: white canvas.
+Typography: inherited from SVG text objects.
+Color palette: inherited from source diagram.
+Chart grammar: not applicable.
+Diagram grammar: source SVG remains the proof object.
+Connector grammar: inherited from source SVG.
+Container / box grammar: inherited from source SVG.
+Source/footer grammar: no footer added for a direct conversion.
+Page marker grammar: not applicable for one slide.
+Title/kicker grammar: inherited from source SVG.
+Data-label grammar: inherited from source SVG.
+Brand asset policy: no external identity assets.
+Allowed layout families: full-bleed diagram.
+Banned motifs: additional decoration or restyling.

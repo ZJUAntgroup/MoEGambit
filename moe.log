@@ -1,0 +1,823 @@
+nohup: ignoring input
++ export NCCL_IB_DISABLE=1
++ NCCL_IB_DISABLE=1
++ export NCCL_DEBUG=WARN
++ NCCL_DEBUG=WARN
++ export PYTHONPATH=/opt/conda/lib/python3.10/site-packages/aistudio_notebook/public:/opt/conda/lib/python3.10/site-packages/aistudio_notebook/public::./Megatron-LM
++ PYTHONPATH=/opt/conda/lib/python3.10/site-packages/aistudio_notebook/public:/opt/conda/lib/python3.10/site-packages/aistudio_notebook/public::./Megatron-LM
++ export HF_HUB_OFFLINE=1
++ HF_HUB_OFFLINE=1
++ export TRANSFORMERS_OFFLINE=1
++ TRANSFORMERS_OFFLINE=1
++ export CUDA_DEVICE_MAX_CONNECTIONS=1
++ CUDA_DEVICE_MAX_CONNECTIONS=1
++ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
++ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
++ export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
++ TORCH_NCCL_ASYNC_ERROR_HANDLING=1
++ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
++ TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
++ export TORCH_CUDA_ARCH_LIST=9.0
++ TORCH_CUDA_ARCH_LIST=9.0
++++ dirname ./run_main_exp_moeguard.sh
+++ cd .
+++ pwd
++ SCRIPT_DIR=/root/workdir/antllm/bsr2
++ NPROC_PER_NODE=8
++ NNODES=8
++ PP_SIZE=8
++ EP_SIZE=8
++ PLAN_WORLD_SIZE=64
++ export NPROC_PER_NODE NNODES PP_SIZE EP_SIZE PLAN_WORLD_SIZE
++ PLAN_SEED=42
++ export PLAN_SEED
++ BASE_DIR=/mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard
++ CKPT_DIR=/mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard/ckpt
++ export TRAIN_LOG_DIR=/mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard/log
++ TRAIN_LOG_DIR=/mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard/log
++ mkdir -p /mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard/ckpt /mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard/log
++ echo ============================================================
+============================================================
++ echo '[main_exp_moeguard] generating 10-fault plan (seed=42)'
+[main_exp_moeguard] generating 10-fault plan (seed=42)
++ echo ============================================================
+============================================================
+++ build_main_plan
++ MAIN_FAULT_PLAN='723:49;1188:35;2461:52;3517:42;4309:49;5640:56;6855:34;7912:7,12,22,25,38,45,49,61;8689:0,10,20,24,37,41,53,61;9304:0,3,8,10,19,22,28,31,33,38,43,44,49,52,60,61'
++ cat /tmp/main_plan_debug.347
+++ python3 - 64 8 42
+  # 1  step= 723  |F|= 1  ranks=[49]  stage_hist=[0, 0, 0, 0, 0, 0, 1, 0]  cat=single-GPU
+  # 2  step=1188  |F|= 1  ranks=[35]  stage_hist=[0, 0, 0, 0, 1, 0, 0, 0]  cat=single-GPU HBM
+  # 3  step=2461  |F|= 1  ranks=[52]  stage_hist=[0, 0, 0, 0, 0, 0, 1, 0]  cat=single-GPU (small Δ, Δ_min test)
+  # 4  step=3517  |F|= 1  ranks=[42]  stage_hist=[0, 0, 0, 0, 0, 1, 0, 0]  cat=single-GPU SSD/PCIe
+  # 5  step=4309  |F|= 1  ranks=[49]  stage_hist=[0, 0, 0, 0, 0, 0, 1, 0]  cat=single-GPU REPEAT (same rank as #1)
+  # 6  step=5640  |F|= 1  ranks=[56]  stage_hist=[0, 0, 0, 0, 0, 0, 0, 1]  cat=single-GPU
+  # 7  step=6855  |F|= 1  ranks=[34]  stage_hist=[0, 0, 0, 0, 1, 0, 0, 0]  cat=single-GPU
+  # 8  step=7912  |F|= 8  ranks=[7, 12, 22, 25, 38, 45, 49, 61]  stage_hist=[1, 1, 1, 1, 1, 1, 1, 1]  cat=8-card burst (DP-safe spread)
+  # 9  step=8689  |F|= 8  ranks=[0, 10, 20, 24, 37, 41, 53, 61]  stage_hist=[1, 1, 1, 1, 1, 1, 1, 1]  cat=8-card burst (DP-safe spread, other PP region)
+  #10  step=9304  |F|=16  ranks=[0, 3, 8, 10, 19, 22, 28, 31, 33, 38, 43, 44, 49, 52, 60, 61]  stage_hist=[2, 2, 2, 2, 2, 2, 2, 2]  cat=16-card rack outage (DP-safe spread)
+  PLAN_SEED=42, world_size=64, pp_size=8, stage_width=8, max_per_stage=7
++ rm -f /tmp/main_plan_debug.347
++ echo '[main_exp_moeguard] resolved plan: 723:49;1188:35;2461:52;3517:42;4309:49;5640:56;6855:34;7912:7,12,22,25,38,45,49,61;8689:0,10,20,24,37,41,53,61;9304:0,3,8,10,19,22,28,31,33,38,43,44,49,52,60,61'
+[main_exp_moeguard] resolved plan: 723:49;1188:35;2461:52;3517:42;4309:49;5640:56;6855:34;7912:7,12,22,25,38,45,49,61;8689:0,10,20,24,37,41,53,61;9304:0,3,8,10,19,22,28,31,33,38,43,44,49,52,60,61
++ echo ============================================================
+============================================================
++ export BSR_FAULT_INJECT_TYPE=restart_in_place
++ BSR_FAULT_INJECT_TYPE=restart_in_place
++ export 'BSR_FAULT_INJECT_PLAN=723:49;1188:35;2461:52;3517:42;4309:49;5640:56;6855:34;7912:7,12,22,25,38,45,49,61;8689:0,10,20,24,37,41,53,61;9304:0,3,8,10,19,22,28,31,33,38,43,44,49,52,60,61'
++ BSR_FAULT_INJECT_PLAN='723:49;1188:35;2461:52;3517:42;4309:49;5640:56;6855:34;7912:7,12,22,25,38,45,49,61;8689:0,10,20,24,37,41,53,61;9304:0,3,8,10,19,22,28,31,33,38,43,44,49,52,60,61'
++ export BSR_FAULT_INJECT_PLAN_MODE=burst_all
++ BSR_FAULT_INJECT_PLAN_MODE=burst_all
++ export BSR_FAULT_INJECT_STEP=0
++ BSR_FAULT_INJECT_STEP=0
++ export BSR_FAULT_INJECT_INTERVAL=0
++ BSR_FAULT_INJECT_INTERVAL=0
++ export BSR_FAULT_INJECT_SEED=42
++ BSR_FAULT_INJECT_SEED=42
++ export BSR_FAULT_INJECT_RANK=0
++ BSR_FAULT_INJECT_RANK=0
++ export BSR_FAULT_REPLACEMENT_STEP=0
++ BSR_FAULT_REPLACEMENT_STEP=0
++ export BSR_FAULT_REPLACEMENT_RANK=-1
++ BSR_FAULT_REPLACEMENT_RANK=-1
++ export BSR_FAULT_ZERO_MEMORY=1
++ BSR_FAULT_ZERO_MEMORY=1
++ export BSR_FAULT_MEMORY_FILL=zero
++ BSR_FAULT_MEMORY_FILL=zero
++ export BSR_REQUIRE_OLD_PARAM_RESTORE=1
++ BSR_REQUIRE_OLD_PARAM_RESTORE=1
++ export LOG_ANALYZE_INTERVAL=0
++ LOG_ANALYZE_INTERVAL=0
++ export LOG_ANALYZE_ON_EXIT=0
++ LOG_ANALYZE_ON_EXIT=0
++ export LOG_ANALYZE_SCRIPT=/root/workdir/antllm/bsr2/log_analysis/analyze_train_log.py
++ LOG_ANALYZE_SCRIPT=/root/workdir/antllm/bsr2/log_analysis/analyze_train_log.py
++ MAX_RETRIES=1
++ RETRY_DELAY=30
++ SAVE_LOG_SCRIPT=/root/workdir/antllm/bsr2/log_analysis/save_train_log.sh
++ retry=0
++ true
++ '[' -f /root/workdir/antllm/bsr2/log_analysis/save_train_log.sh ']'
+++ declare -f run_training
++ bash /root/workdir/antllm/bsr2/log_analysis/save_train_log.sh bash -c 'run_training () 
+{ 
+    LOAD_ARGS=();
+    if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ] || ls "${CKPT_DIR}"/iter_* > /dev/null 2>&1; then
+        LOAD_ARGS=(--load "${CKPT_DIR}");
+    fi;
+    torchrun --nproc_per_node="${NPROC_PER_NODE}" --nnodes="${NNODES}" --node_rank="${NODE_RANK:-0}" --master_addr="${MASTER_ADDR:-127.0.0.1}" --master_port="${MASTER_PORT:-20115}" ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size "${PP_SIZE}" --expert-model-parallel-size "${EP_SIZE}" --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file "./tokenizer/vocab.json" --merge-file "./tokenizer/merges.txt" --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 10000 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --moe-bsr-enable --moe-bsr-health-mask --moe-bsr-rank-quarantine --moe-bsr-dispatch-quarantine-assert --moe-bsr-dispatch-sanitize --moe-bsr-expert-directory --moe-bsr-replacement-protocol --moe-bsr-group-rebuild --moe-bsr-dispatch-topology-refresh --moe-bsr-dense-param-sync --moe-bsr-stale-expert-restore --moe-bsr-recovery-controller --moe-bsr-deferred-optimizer-load --moe-bsr-degraded-mode-policy --moe-bsr-reintegration-barrier --moe-bsr-fault-injection --moe-bsr-restart-in-place --moe-bsr-hybrid-expert-restore --moe-bsr-expert-opt-restore --moe-bsr-weights-first-recovery --moe-bsr-defer-optimizer-load --moe-bsr-degraded-tau-c 0.5 --moe-bsr-degraded-t-max 1000 --moe-bsr-degraded-s-max 500 --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" --split 99,1,0 --ckpt-format torch --save "${CKPT_DIR}" --save-interval 200 --eval-interval 1000 --eval-iters 50 --log-interval 1 "${LOAD_ARGS[@]}"
+}; run_training'
+============================================================
+ Megatron 训练日志保存
+ run_id:       20260527_160526_398
+ 最新日志:     /mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard/log/train_latest.log (覆盖)
+ 完整日志:     /mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard/log/train_full.log (追加)
+ 状态文件:     /mnt/ais-c1/dataset/zds/main_exp/5.27/moeguard/log/train_latest.status
+ 分析间隔:     0 iterations (0=仅结束时分析)
+ 结束时分析:   0
+ 信号后分析:   1
+ 分析脚本:     /root/workdir/antllm/bsr2/log_analysis/analyze_train_log.py
+ 启动命令:     bash -c run_training () 
+{ 
+    LOAD_ARGS=();
+    if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ] || ls "${CKPT_DIR}"/iter_* > /dev/null 2>&1; then
+        LOAD_ARGS=(--load "${CKPT_DIR}");
+    fi;
+    torchrun --nproc_per_node="${NPROC_PER_NODE}" --nnodes="${NNODES}" --node_rank="${NODE_RANK:-0}" --master_addr="${MASTER_ADDR:-127.0.0.1}" --master_port="${MASTER_PORT:-20115}" ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size "${PP_SIZE}" --expert-model-parallel-size "${EP_SIZE}" --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file "./tokenizer/vocab.json" --merge-file "./tokenizer/merges.txt" --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 10000 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --moe-bsr-enable --moe-bsr-health-mask --moe-bsr-rank-quarantine --moe-bsr-dispatch-quarantine-assert --moe-bsr-dispatch-sanitize --moe-bsr-expert-directory --moe-bsr-replacement-protocol --moe-bsr-group-rebuild --moe-bsr-dispatch-topology-refresh --moe-bsr-dense-param-sync --moe-bsr-stale-expert-restore --moe-bsr-recovery-controller --moe-bsr-deferred-optimizer-load --moe-bsr-degraded-mode-policy --moe-bsr-reintegration-barrier --moe-bsr-fault-injection --moe-bsr-restart-in-place --moe-bsr-hybrid-expert-restore --moe-bsr-expert-opt-restore --moe-bsr-weights-first-recovery --moe-bsr-defer-optimizer-load --moe-bsr-degraded-tau-c 0.5 --moe-bsr-degraded-t-max 1000 --moe-bsr-degraded-s-max 500 --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" --split 99,1,0 --ckpt-format torch --save "${CKPT_DIR}" --save-interval 200 --eval-interval 1000 --eval-iters 50 --log-interval 1 "${LOAD_ARGS[@]}"
+}; run_training
+ 开始时间:     2026年 05月 27日 星期三 16:05:27 CST
+============================================================
+W0527 16:05:32.771000 504 site-packages/torch/distributed/run.py:792] 
+W0527 16:05:32.771000 504 site-packages/torch/distributed/run.py:792] *****************************************
+W0527 16:05:32.771000 504 site-packages/torch/distributed/run.py:792] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0527 16:05:32.771000 504 site-packages/torch/distributed/run.py:792] *****************************************
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+WARNING: one_logger package is required to enable e2e metrics tracking. please go to https://confluence.nvidia.com/display/MLWFO/Package+Repositories for details to install it
+[rank57]:[W527 16:07:32.057315039 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 57]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank63]:[W527 16:07:32.057547639 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 63]  using GPU 7 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank59]:[W527 16:07:32.057765606 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 59]  using GPU 3 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank62]:[W527 16:07:32.058924421 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 62]  using GPU 6 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank60]:[W527 16:07:32.059144940 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 60]  using GPU 4 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank58]:[W527 16:07:32.066322427 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 58]  using GPU 2 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank61]:[W527 16:07:32.097408529 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 61]  using GPU 5 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank56]:[W527 16:07:32.150323965 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 56]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+ > number of parameters on (tensor, pipeline) model parallel rank (0, 7): 878472704
+INFO:megatron.core.distributed.param_and_grad_buffer:Number of buckets for gradient all-reduce / reduce-scatter: 1
+Params for bucket 1 (425487872 elements, 425487872 padded size):
+	module.decoder.layers.4.self_attention.k_layernorm.weight
+	module.decoder.layers.3.pre_mlp_layernorm.weight
+	module.decoder.layers.3.self_attention.q_layernorm.weight
+	module.decoder.layers.2.self_attention.linear_proj.weight
+	module.decoder.layers.0.self_attention.linear_proj.weight
+	module.output_layer.weight
+	module.decoder.layers.3.self_attention.linear_proj.weight
+	module.decoder.layers.2.self_attention.k_layernorm.weight
+	module.decoder.layers.0.pre_mlp_layernorm.weight
+	module.decoder.layers.5.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.3.self_attention.k_layernorm.weight
+	module.decoder.layers.0.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.4.self_attention.linear_proj.weight
+	module.decoder.final_layernorm.weight
+	module.decoder.layers.5.mlp.router.weight
+	module.decoder.layers.5.self_attention.linear_qkv.weight
+	module.decoder.layers.1.mlp.router.weight
+	module.decoder.layers.1.self_attention.linear_qkv.weight
+	module.decoder.layers.1.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.0.mlp.router.weight
+	module.decoder.layers.0.self_attention.k_layernorm.weight
+	module.decoder.layers.5.pre_mlp_layernorm.weight
+	module.decoder.layers.5.self_attention.q_layernorm.weight
+	module.decoder.layers.4.mlp.router.weight
+	module.decoder.layers.4.self_attention.linear_qkv.weight
+	module.decoder.layers.3.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.1.pre_mlp_layernorm.weight
+	module.decoder.layers.1.self_attention.q_layernorm.weight
+	module.decoder.layers.0.self_attention.q_layernorm.weight
+	module.decoder.layers.0.self_attention.linear_qkv.weight
+	module.decoder.layers.5.self_attention.linear_proj.weight
+	module.decoder.layers.4.pre_mlp_layernorm.weight
+	module.decoder.layers.4.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.2.mlp.router.weight
+	module.decoder.layers.2.self_attention.linear_qkv.weight
+	module.decoder.layers.2.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.1.self_attention.linear_proj.weight
+	module.decoder.layers.5.self_attention.k_layernorm.weight
+	module.decoder.layers.4.self_attention.q_layernorm.weight
+	module.decoder.layers.3.mlp.router.weight
+	module.decoder.layers.3.self_attention.linear_qkv.weight
+	module.decoder.layers.2.pre_mlp_layernorm.weight
+	module.decoder.layers.2.self_attention.q_layernorm.weight
+	module.decoder.layers.1.self_attention.k_layernorm.weight
+INFO:megatron.core.distributed.param_and_grad_buffer:Number of buckets for gradient all-reduce / reduce-scatter: 1
+Params for bucket 1 (452984832 elements, 452984832 padded size):
+	module.decoder.layers.5.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc1.weight
+(min, max) time across ranks (ms):
+    model-and-optimizer-setup ......................: (741.84, 1213.18)
+    train/valid/test-data-iterators-setup ..........: (159.57, 248.67)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initializing on rank 57 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initializing on rank 59 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initializing on rank 60 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initializing on rank 61 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initializing on rank 56 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initializing on rank 58 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initializing on rank 63 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initializing on rank 62 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: two-phase recovery coordinator initialized (defer_optimizer=True)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: two-phase recovery coordinator initialized (defer_optimizer=True)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: two-phase recovery coordinator initialized (defer_optimizer=True)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: two-phase recovery coordinator initialized (defer_optimizer=True)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: two-phase recovery coordinator initialized (defer_optimizer=True)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: two-phase recovery coordinator initialized (defer_optimizer=True)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: two-phase recovery coordinator initialized (defer_optimizer=True)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: two-phase recovery coordinator initialized (defer_optimizer=True)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: pipeline rollback coordinator initialized
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection configured — type=restart_in_place, rank=0, step=0, interval=0, random_rank=False, seed=42, zero_memory=True, memory_fill=zero
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection plan configured — 39 rank events (mode=burst_all): [(723, 49), (1188, 35), (2461, 52), (3517, 42), (4309, 49), (5640, 56), (6855, 34), (7912, 7), (7912, 12), (7912, 22), (7912, 25), (7912, 38), (7912, 45), (7912, 49), (7912, 61), (8689, 0), (8689, 10), (8689, 20), (8689, 24), (8689, 37), (8689, 41), (8689, 53), (8689, 61), (9304, 0), (9304, 3), (9304, 8), (9304, 10), (9304, 19), (9304, 22), (9304, 28), (9304, 31), (9304, 33), (9304, 38), (9304, 43), (9304, 44), (9304, 49), (9304, 52), (9304, 60), (9304, 61)]
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection configured — type=restart_in_place, rank=0, step=0, interval=0, random_rank=False, seed=42, zero_memory=True, memory_fill=zero
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection plan configured — 39 rank events (mode=burst_all): [(723, 49), (1188, 35), (2461, 52), (3517, 42), (4309, 49), (5640, 56), (6855, 34), (7912, 7), (7912, 12), (7912, 22), (7912, 25), (7912, 38), (7912, 45), (7912, 49), (7912, 61), (8689, 0), (8689, 10), (8689, 20), (8689, 24), (8689, 37), (8689, 41), (8689, 53), (8689, 61), (9304, 0), (9304, 3), (9304, 8), (9304, 10), (9304, 19), (9304, 22), (9304, 28), (9304, 31), (9304, 33), (9304, 38), (9304, 43), (9304, 44), (9304, 49), (9304, 52), (9304, 60), (9304, 61)]
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection configured — type=restart_in_place, rank=0, step=0, interval=0, random_rank=False, seed=42, zero_memory=True, memory_fill=zero
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection plan configured — 39 rank events (mode=burst_all): [(723, 49), (1188, 35), (2461, 52), (3517, 42), (4309, 49), (5640, 56), (6855, 34), (7912, 7), (7912, 12), (7912, 22), (7912, 25), (7912, 38), (7912, 45), (7912, 49), (7912, 61), (8689, 0), (8689, 10), (8689, 20), (8689, 24), (8689, 37), (8689, 41), (8689, 53), (8689, 61), (9304, 0), (9304, 3), (9304, 8), (9304, 10), (9304, 19), (9304, 22), (9304, 28), (9304, 31), (9304, 33), (9304, 38), (9304, 43), (9304, 44), (9304, 49), (9304, 52), (9304, 60), (9304, 61)]
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection configured — type=restart_in_place, rank=0, step=0, interval=0, random_rank=False, seed=42, zero_memory=True, memory_fill=zero
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection plan configured — 39 rank events (mode=burst_all): [(723, 49), (1188, 35), (2461, 52), (3517, 42), (4309, 49), (5640, 56), (6855, 34), (7912, 7), (7912, 12), (7912, 22), (7912, 25), (7912, 38), (7912, 45), (7912, 49), (7912, 61), (8689, 0), (8689, 10), (8689, 20), (8689, 24), (8689, 37), (8689, 41), (8689, 53), (8689, 61), (9304, 0), (9304, 3), (9304, 8), (9304, 10), (9304, 19), (9304, 22), (9304, 28), (9304, 31), (9304, 33), (9304, 38), (9304, 43), (9304, 44), (9304, 49), (9304, 52), (9304, 60), (9304, 61)]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection configured — type=restart_in_place, rank=0, step=0, interval=0, random_rank=False, seed=42, zero_memory=True, memory_fill=zero
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection plan configured — 39 rank events (mode=burst_all): [(723, 49), (1188, 35), (2461, 52), (3517, 42), (4309, 49), (5640, 56), (6855, 34), (7912, 7), (7912, 12), (7912, 22), (7912, 25), (7912, 38), (7912, 45), (7912, 49), (7912, 61), (8689, 0), (8689, 10), (8689, 20), (8689, 24), (8689, 37), (8689, 41), (8689, 53), (8689, 61), (9304, 0), (9304, 3), (9304, 8), (9304, 10), (9304, 19), (9304, 22), (9304, 28), (9304, 31), (9304, 33), (9304, 38), (9304, 43), (9304, 44), (9304, 49), (9304, 52), (9304, 60), (9304, 61)]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection configured — type=restart_in_place, rank=0, step=0, interval=0, random_rank=False, seed=42, zero_memory=True, memory_fill=zero
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection plan configured — 39 rank events (mode=burst_all): [(723, 49), (1188, 35), (2461, 52), (3517, 42), (4309, 49), (5640, 56), (6855, 34), (7912, 7), (7912, 12), (7912, 22), (7912, 25), (7912, 38), (7912, 45), (7912, 49), (7912, 61), (8689, 0), (8689, 10), (8689, 20), (8689, 24), (8689, 37), (8689, 41), (8689, 53), (8689, 61), (9304, 0), (9304, 3), (9304, 8), (9304, 10), (9304, 19), (9304, 22), (9304, 28), (9304, 31), (9304, 33), (9304, 38), (9304, 43), (9304, 44), (9304, 49), (9304, 52), (9304, 60), (9304, 61)]
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection configured — type=restart_in_place, rank=0, step=0, interval=0, random_rank=False, seed=42, zero_memory=True, memory_fill=zero
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection plan configured — 39 rank events (mode=burst_all): [(723, 49), (1188, 35), (2461, 52), (3517, 42), (4309, 49), (5640, 56), (6855, 34), (7912, 7), (7912, 12), (7912, 22), (7912, 25), (7912, 38), (7912, 45), (7912, 49), (7912, 61), (8689, 0), (8689, 10), (8689, 20), (8689, 24), (8689, 37), (8689, 41), (8689, 53), (8689, 61), (9304, 0), (9304, 3), (9304, 8), (9304, 10), (9304, 19), (9304, 22), (9304, 28), (9304, 31), (9304, 33), (9304, 38), (9304, 43), (9304, 44), (9304, 49), (9304, 52), (9304, 60), (9304, 61)]
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection configured — type=restart_in_place, rank=0, step=0, interval=0, random_rank=False, seed=42, zero_memory=True, memory_fill=zero
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: fault injection plan configured — 39 rank events (mode=burst_all): [(723, 49), (1188, 35), (2461, 52), (3517, 42), (4309, 49), (5640, 56), (6855, 34), (7912, 7), (7912, 12), (7912, 22), (7912, 25), (7912, 38), (7912, 45), (7912, 49), (7912, 61), (8689, 0), (8689, 10), (8689, 20), (8689, 24), (8689, 37), (8689, 41), (8689, 53), (8689, 61), (9304, 0), (9304, 3), (9304, 8), (9304, 10), (9304, 19), (9304, 22), (9304, 28), (9304, 31), (9304, 33), (9304, 38), (9304, 43), (9304, 44), (9304, 49), (9304, 52), (9304, 60), (9304, 61)]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: restart-in-place invalidate_tensor_fn wired (target rank only)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initialization complete on rank 59
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: restart-in-place invalidate_tensor_fn wired (target rank only)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initialization complete on rank 61
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: restart-in-place invalidate_tensor_fn wired (target rank only)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initialization complete on rank 60
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: restart-in-place invalidate_tensor_fn wired (target rank only)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initialization complete on rank 56
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: restart-in-place invalidate_tensor_fn wired (target rank only)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initialization complete on rank 62
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: restart-in-place invalidate_tensor_fn wired (target rank only)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initialization complete on rank 57
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: restart-in-place invalidate_tensor_fn wired (target rank only)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initialization complete on rank 58
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: restart-in-place invalidate_tensor_fn wired (target rank only)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-05-27 16:07:44] BSR-MoE: initialization complete on rank 63
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+ [2026-05-27 16:11:03] iteration        1/   10000 | consumed samples:           64 | elapsed time per iteration (ms): 199144.3 | learning rate: 2.000000E-05 | global batch size:    64 | lm loss: 1.236787E+01 | load_balancing_loss: 1.825992E+00 | loss scale: 1.0 | grad norm: 38.794 | number of skipped iterations:   0 | number of nan iterations:   0 |
+[Rank 56] (after 1 iterations) memory (MB) | allocated: 16203.49267578125 | max allocated: 65721.8828125 | reserved: 70638.0 | max reserved: 70638.0
+ [2026-05-27 16:11:17] iteration        2/   10000 | consumed samples:          128 | elapsed time per iteration (ms): 13281.8 | learning rate: 4.000000E-05 | global batch size:    64 | lm loss: 1.237476E+01 | load_balancing_loss: 1.829490E+00 | loss scale: 1.0 | grad norm: 37.717 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:11:33] iteration        3/   10000 | consumed samples:          192 | elapsed time per iteration (ms): 16585.7 | learning rate: 6.000000E-05 | global batch size:    64 | lm loss: 1.106541E+01 | load_balancing_loss: 3.196417E+00 | loss scale: 1.0 | grad norm: 71.843 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:11:49] iteration        4/   10000 | consumed samples:          256 | elapsed time per iteration (ms): 15781.2 | learning rate: 8.000000E-05 | global batch size:    64 | lm loss: 1.320943E+01 | load_balancing_loss: 3.774589E+00 | loss scale: 1.0 | grad norm: 92.708 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:12:05] iteration        5/   10000 | consumed samples:          320 | elapsed time per iteration (ms): 15804.2 | learning rate: 1.000000E-04 | global batch size:    64 | lm loss: 1.141799E+01 | load_balancing_loss: 3.887883E+00 | loss scale: 1.0 | grad norm: 29.457 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:12:20] iteration        6/   10000 | consumed samples:          384 | elapsed time per iteration (ms): 15061.6 | learning rate: 1.000000E-04 | global batch size:    64 | lm loss: 1.124220E+01 | load_balancing_loss: 3.550130E+00 | loss scale: 1.0 | grad norm: 7.058 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:12:35] iteration        7/   10000 | consumed samples:          448 | elapsed time per iteration (ms): 15425.8 | learning rate: 9.999999E-05 | global batch size:    64 | lm loss: 1.093052E+01 | load_balancing_loss: 3.147600E+00 | loss scale: 1.0 | grad norm: 4.020 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:12:50] iteration        8/   10000 | consumed samples:          512 | elapsed time per iteration (ms): 14814.8 | learning rate: 9.999998E-05 | global batch size:    64 | lm loss: 1.038069E+01 | load_balancing_loss: 2.792386E+00 | loss scale: 1.0 | grad norm: 3.501 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:13:05] iteration        9/   10000 | consumed samples:          576 | elapsed time per iteration (ms): 14965.7 | learning rate: 9.999996E-05 | global batch size:    64 | lm loss: 9.855793E+00 | load_balancing_loss: 2.617090E+00 | loss scale: 1.0 | grad norm: 2.854 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:13:20] iteration       10/   10000 | consumed samples:          640 | elapsed time per iteration (ms): 14543.4 | learning rate: 9.999995E-05 | global batch size:    64 | lm loss: 9.552653E+00 | load_balancing_loss: 2.373152E+00 | loss scale: 1.0 | grad norm: 2.456 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:13:34] iteration       11/   10000 | consumed samples:          704 | elapsed time per iteration (ms): 14525.1 | learning rate: 9.999992E-05 | global batch size:    64 | lm loss: 9.273555E+00 | load_balancing_loss: 2.188632E+00 | loss scale: 1.0 | grad norm: 2.000 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:13:48] iteration       12/   10000 | consumed samples:          768 | elapsed time per iteration (ms): 14383.3 | learning rate: 9.999989E-05 | global batch size:    64 | lm loss: 9.254698E+00 | load_balancing_loss: 2.036670E+00 | loss scale: 1.0 | grad norm: 7.834 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:14:03] iteration       13/   10000 | consumed samples:          832 | elapsed time per iteration (ms): 14524.4 | learning rate: 9.999986E-05 | global batch size:    64 | lm loss: 9.171467E+00 | load_balancing_loss: 1.943812E+00 | loss scale: 1.0 | grad norm: 8.630 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:14:17] iteration       14/   10000 | consumed samples:          896 | elapsed time per iteration (ms): 14260.1 | learning rate: 9.999982E-05 | global batch size:    64 | lm loss: 8.933385E+00 | load_balancing_loss: 1.897213E+00 | loss scale: 1.0 | grad norm: 4.300 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:14:33] iteration       15/   10000 | consumed samples:          960 | elapsed time per iteration (ms): 15290.9 | learning rate: 9.999978E-05 | global batch size:    64 | lm loss: 8.706494E+00 | load_balancing_loss: 1.815134E+00 | loss scale: 1.0 | grad norm: 1.915 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:14:47] iteration       16/   10000 | consumed samples:         1024 | elapsed time per iteration (ms): 14464.1 | learning rate: 9.999973E-05 | global batch size:    64 | lm loss: 8.603692E+00 | load_balancing_loss: 1.693861E+00 | loss scale: 1.0 | grad norm: 1.393 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:15:01] iteration       17/   10000 | consumed samples:         1088 | elapsed time per iteration (ms): 13986.9 | learning rate: 9.999968E-05 | global batch size:    64 | lm loss: 8.483710E+00 | load_balancing_loss: 1.598606E+00 | loss scale: 1.0 | grad norm: 1.514 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:15:15] iteration       18/   10000 | consumed samples:         1152 | elapsed time per iteration (ms): 13557.3 | learning rate: 9.999963E-05 | global batch size:    64 | lm loss: 8.399989E+00 | load_balancing_loss: 1.528564E+00 | loss scale: 1.0 | grad norm: 1.446 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:15:28] iteration       19/   10000 | consumed samples:         1216 | elapsed time per iteration (ms): 13600.0 | learning rate: 9.999956E-05 | global batch size:    64 | lm loss: 8.242138E+00 | load_balancing_loss: 1.473176E+00 | loss scale: 1.0 | grad norm: 1.335 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:15:41] iteration       20/   10000 | consumed samples:         1280 | elapsed time per iteration (ms): 13292.4 | learning rate: 9.999950E-05 | global batch size:    64 | lm loss: 8.181681E+00 | load_balancing_loss: 1.436053E+00 | loss scale: 1.0 | grad norm: 0.928 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:15:55] iteration       21/   10000 | consumed samples:         1344 | elapsed time per iteration (ms): 13442.6 | learning rate: 9.999943E-05 | global batch size:    64 | lm loss: 8.070597E+00 | load_balancing_loss: 1.403681E+00 | loss scale: 1.0 | grad norm: 0.785 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:16:08] iteration       22/   10000 | consumed samples:         1408 | elapsed time per iteration (ms): 13611.5 | learning rate: 9.999936E-05 | global batch size:    64 | lm loss: 8.007233E+00 | load_balancing_loss: 1.375420E+00 | loss scale: 1.0 | grad norm: 0.785 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:16:22] iteration       23/   10000 | consumed samples:         1472 | elapsed time per iteration (ms): 13259.7 | learning rate: 9.999928E-05 | global batch size:    64 | lm loss: 7.957144E+00 | load_balancing_loss: 1.349748E+00 | loss scale: 1.0 | grad norm: 0.815 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:16:35] iteration       24/   10000 | consumed samples:         1536 | elapsed time per iteration (ms): 13066.3 | learning rate: 9.999920E-05 | global batch size:    64 | lm loss: 7.921802E+00 | load_balancing_loss: 1.329660E+00 | loss scale: 1.0 | grad norm: 0.747 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:16:48] iteration       25/   10000 | consumed samples:         1600 | elapsed time per iteration (ms): 13003.2 | learning rate: 9.999911E-05 | global batch size:    64 | lm loss: 7.929685E+00 | load_balancing_loss: 1.317597E+00 | loss scale: 1.0 | grad norm: 0.550 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:17:01] iteration       26/   10000 | consumed samples:         1664 | elapsed time per iteration (ms): 13611.9 | learning rate: 9.999902E-05 | global batch size:    64 | lm loss: 7.904838E+00 | load_balancing_loss: 1.305830E+00 | loss scale: 1.0 | grad norm: 0.574 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:17:15] iteration       27/   10000 | consumed samples:         1728 | elapsed time per iteration (ms): 13271.2 | learning rate: 9.999892E-05 | global batch size:    64 | lm loss: 7.838023E+00 | load_balancing_loss: 1.293906E+00 | loss scale: 1.0 | grad norm: 0.614 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:17:28] iteration       28/   10000 | consumed samples:         1792 | elapsed time per iteration (ms): 13191.4 | learning rate: 9.999883E-05 | global batch size:    64 | lm loss: 7.794215E+00 | load_balancing_loss: 1.284487E+00 | loss scale: 1.0 | grad norm: 0.556 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:17:41] iteration       29/   10000 | consumed samples:         1856 | elapsed time per iteration (ms): 13219.8 | learning rate: 9.999872E-05 | global batch size:    64 | lm loss: 7.782074E+00 | load_balancing_loss: 1.271286E+00 | loss scale: 1.0 | grad norm: 0.441 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:17:54] iteration       30/   10000 | consumed samples:         1920 | elapsed time per iteration (ms): 13054.7 | learning rate: 9.999861E-05 | global batch size:    64 | lm loss: 7.838190E+00 | load_balancing_loss: 1.255627E+00 | loss scale: 1.0 | grad norm: 0.434 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:18:07] iteration       31/   10000 | consumed samples:         1984 | elapsed time per iteration (ms): 12906.7 | learning rate: 9.999850E-05 | global batch size:    64 | lm loss: 7.853498E+00 | load_balancing_loss: 1.240966E+00 | loss scale: 1.0 | grad norm: 0.415 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:18:20] iteration       32/   10000 | consumed samples:         2048 | elapsed time per iteration (ms): 12972.8 | learning rate: 9.999838E-05 | global batch size:    64 | lm loss: 7.771960E+00 | load_balancing_loss: 1.229263E+00 | loss scale: 1.0 | grad norm: 0.471 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:18:33] iteration       33/   10000 | consumed samples:         2112 | elapsed time per iteration (ms): 12940.2 | learning rate: 9.999826E-05 | global batch size:    64 | lm loss: 7.807219E+00 | load_balancing_loss: 1.219023E+00 | loss scale: 1.0 | grad norm: 0.374 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:18:45] iteration       34/   10000 | consumed samples:         2176 | elapsed time per iteration (ms): 12474.9 | learning rate: 9.999813E-05 | global batch size:    64 | lm loss: 7.753786E+00 | load_balancing_loss: 1.208005E+00 | loss scale: 1.0 | grad norm: 0.372 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:18:58] iteration       35/   10000 | consumed samples:         2240 | elapsed time per iteration (ms): 12397.9 | learning rate: 9.999800E-05 | global batch size:    64 | lm loss: 7.786852E+00 | load_balancing_loss: 1.200657E+00 | loss scale: 1.0 | grad norm: 0.334 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:19:10] iteration       36/   10000 | consumed samples:         2304 | elapsed time per iteration (ms): 12434.9 | learning rate: 9.999787E-05 | global batch size:    64 | lm loss: 7.767762E+00 | load_balancing_loss: 1.194765E+00 | loss scale: 1.0 | grad norm: 0.432 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:19:23] iteration       37/   10000 | consumed samples:         2368 | elapsed time per iteration (ms): 12439.1 | learning rate: 9.999773E-05 | global batch size:    64 | lm loss: 7.810158E+00 | load_balancing_loss: 1.186646E+00 | loss scale: 1.0 | grad norm: 0.338 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:19:35] iteration       38/   10000 | consumed samples:         2432 | elapsed time per iteration (ms): 12333.2 | learning rate: 9.999758E-05 | global batch size:    64 | lm loss: 7.760409E+00 | load_balancing_loss: 1.183975E+00 | loss scale: 1.0 | grad norm: 0.382 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:19:47] iteration       39/   10000 | consumed samples:         2496 | elapsed time per iteration (ms): 12202.9 | learning rate: 9.999743E-05 | global batch size:    64 | lm loss: 7.773008E+00 | load_balancing_loss: 1.181286E+00 | loss scale: 1.0 | grad norm: 0.354 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:19:59] iteration       40/   10000 | consumed samples:         2560 | elapsed time per iteration (ms): 12135.0 | learning rate: 9.999728E-05 | global batch size:    64 | lm loss: 7.757621E+00 | load_balancing_loss: 1.169464E+00 | loss scale: 1.0 | grad norm: 0.375 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:20:11] iteration       41/   10000 | consumed samples:         2624 | elapsed time per iteration (ms): 12070.6 | learning rate: 9.999712E-05 | global batch size:    64 | lm loss: 7.725233E+00 | load_balancing_loss: 1.166991E+00 | loss scale: 1.0 | grad norm: 0.349 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:20:23] iteration       42/   10000 | consumed samples:         2688 | elapsed time per iteration (ms): 11960.9 | learning rate: 9.999696E-05 | global batch size:    64 | lm loss: 7.700834E+00 | load_balancing_loss: 1.158759E+00 | loss scale: 1.0 | grad norm: 0.334 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:20:35] iteration       43/   10000 | consumed samples:         2752 | elapsed time per iteration (ms): 11922.7 | learning rate: 9.999679E-05 | global batch size:    64 | lm loss: 7.705579E+00 | load_balancing_loss: 1.155859E+00 | loss scale: 1.0 | grad norm: 0.467 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:20:47] iteration       44/   10000 | consumed samples:         2816 | elapsed time per iteration (ms): 12013.1 | learning rate: 9.999662E-05 | global batch size:    64 | lm loss: 7.681534E+00 | load_balancing_loss: 1.152075E+00 | loss scale: 1.0 | grad norm: 0.306 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:20:59] iteration       45/   10000 | consumed samples:         2880 | elapsed time per iteration (ms): 11916.0 | learning rate: 9.999645E-05 | global batch size:    64 | lm loss: 7.706372E+00 | load_balancing_loss: 1.153121E+00 | loss scale: 1.0 | grad norm: 0.334 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:21:11] iteration       46/   10000 | consumed samples:         2944 | elapsed time per iteration (ms): 12203.6 | learning rate: 9.999626E-05 | global batch size:    64 | lm loss: 7.699095E+00 | load_balancing_loss: 1.158248E+00 | loss scale: 1.0 | grad norm: 1.509 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:21:24] iteration       47/   10000 | consumed samples:         3008 | elapsed time per iteration (ms): 12323.4 | learning rate: 9.999608E-05 | global batch size:    64 | lm loss: 7.636214E+00 | load_balancing_loss: 1.171666E+00 | loss scale: 1.0 | grad norm: 0.541 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:21:36] iteration       48/   10000 | consumed samples:         3072 | elapsed time per iteration (ms): 12207.9 | learning rate: 9.999589E-05 | global batch size:    64 | lm loss: 7.613698E+00 | load_balancing_loss: 1.171009E+00 | loss scale: 1.0 | grad norm: 0.715 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:21:48] iteration       49/   10000 | consumed samples:         3136 | elapsed time per iteration (ms): 12463.3 | learning rate: 9.999570E-05 | global batch size:    64 | lm loss: 7.624900E+00 | load_balancing_loss: 1.205802E+00 | loss scale: 1.0 | grad norm: 1.829 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:22:01] iteration       50/   10000 | consumed samples:         3200 | elapsed time per iteration (ms): 12069.9 | learning rate: 9.999550E-05 | global batch size:    64 | lm loss: 7.569799E+00 | load_balancing_loss: 1.157788E+00 | loss scale: 1.0 | grad norm: 0.749 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:22:13] iteration       51/   10000 | consumed samples:         3264 | elapsed time per iteration (ms): 12018.9 | learning rate: 9.999530E-05 | global batch size:    64 | lm loss: 7.588981E+00 | load_balancing_loss: 1.161186E+00 | loss scale: 1.0 | grad norm: 1.052 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:22:25] iteration       52/   10000 | consumed samples:         3328 | elapsed time per iteration (ms): 12015.8 | learning rate: 9.999509E-05 | global batch size:    64 | lm loss: 7.603277E+00 | load_balancing_loss: 1.158698E+00 | loss scale: 1.0 | grad norm: 1.848 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:22:37] iteration       53/   10000 | consumed samples:         3392 | elapsed time per iteration (ms): 11907.7 | learning rate: 9.999488E-05 | global batch size:    64 | lm loss: 7.560027E+00 | load_balancing_loss: 1.163973E+00 | loss scale: 1.0 | grad norm: 0.729 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:22:48] iteration       54/   10000 | consumed samples:         3456 | elapsed time per iteration (ms): 11939.4 | learning rate: 9.999466E-05 | global batch size:    64 | lm loss: 7.556864E+00 | load_balancing_loss: 1.211364E+00 | loss scale: 1.0 | grad norm: 1.869 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:23:01] iteration       55/   10000 | consumed samples:         3520 | elapsed time per iteration (ms): 12094.5 | learning rate: 9.999445E-05 | global batch size:    64 | lm loss: 7.560065E+00 | load_balancing_loss: 1.151621E+00 | loss scale: 1.0 | grad norm: 1.561 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:23:13] iteration       56/   10000 | consumed samples:         3584 | elapsed time per iteration (ms): 12276.1 | learning rate: 9.999422E-05 | global batch size:    64 | lm loss: 7.539389E+00 | load_balancing_loss: 1.162198E+00 | loss scale: 1.0 | grad norm: 0.729 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:23:25] iteration       57/   10000 | consumed samples:         3648 | elapsed time per iteration (ms): 12227.8 | learning rate: 9.999399E-05 | global batch size:    64 | lm loss: 7.510737E+00 | load_balancing_loss: 1.176985E+00 | loss scale: 1.0 | grad norm: 0.995 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:23:37] iteration       58/   10000 | consumed samples:         3712 | elapsed time per iteration (ms): 11825.5 | learning rate: 9.999375E-05 | global batch size:    64 | lm loss: 7.478379E+00 | load_balancing_loss: 1.138352E+00 | loss scale: 1.0 | grad norm: 1.016 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:23:49] iteration       59/   10000 | consumed samples:         3776 | elapsed time per iteration (ms): 11827.6 | learning rate: 9.999351E-05 | global batch size:    64 | lm loss: 7.434416E+00 | load_balancing_loss: 1.146672E+00 | loss scale: 1.0 | grad norm: 0.743 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:24:00] iteration       60/   10000 | consumed samples:         3840 | elapsed time per iteration (ms): 11665.8 | learning rate: 9.999327E-05 | global batch size:    64 | lm loss: 7.435459E+00 | load_balancing_loss: 1.143199E+00 | loss scale: 1.0 | grad norm: 0.762 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:24:12] iteration       61/   10000 | consumed samples:         3904 | elapsed time per iteration (ms): 11509.6 | learning rate: 9.999303E-05 | global batch size:    64 | lm loss: 7.450171E+00 | load_balancing_loss: 1.124226E+00 | loss scale: 1.0 | grad norm: 1.083 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:24:23] iteration       62/   10000 | consumed samples:         3968 | elapsed time per iteration (ms): 11508.0 | learning rate: 9.999278E-05 | global batch size:    64 | lm loss: 7.391283E+00 | load_balancing_loss: 1.137287E+00 | loss scale: 1.0 | grad norm: 0.903 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:24:35] iteration       63/   10000 | consumed samples:         4032 | elapsed time per iteration (ms): 11644.0 | learning rate: 9.999253E-05 | global batch size:    64 | lm loss: 7.390935E+00 | load_balancing_loss: 1.144002E+00 | loss scale: 1.0 | grad norm: 1.257 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:24:47] iteration       64/   10000 | consumed samples:         4096 | elapsed time per iteration (ms): 11661.7 | learning rate: 9.999226E-05 | global batch size:    64 | lm loss: 7.407944E+00 | load_balancing_loss: 1.114492E+00 | loss scale: 1.0 | grad norm: 1.502 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:24:58] iteration       65/   10000 | consumed samples:         4160 | elapsed time per iteration (ms): 11721.9 | learning rate: 9.999200E-05 | global batch size:    64 | lm loss: 7.412494E+00 | load_balancing_loss: 1.123773E+00 | loss scale: 1.0 | grad norm: 1.930 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:25:10] iteration       66/   10000 | consumed samples:         4224 | elapsed time per iteration (ms): 11918.4 | learning rate: 9.999173E-05 | global batch size:    64 | lm loss: 7.399323E+00 | load_balancing_loss: 1.158983E+00 | loss scale: 1.0 | grad norm: 0.632 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:25:22] iteration       67/   10000 | consumed samples:         4288 | elapsed time per iteration (ms): 11712.8 | learning rate: 9.999146E-05 | global batch size:    64 | lm loss: 7.295505E+00 | load_balancing_loss: 1.151047E+00 | loss scale: 1.0 | grad norm: 1.219 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:25:34] iteration       68/   10000 | consumed samples:         4352 | elapsed time per iteration (ms): 11577.5 | learning rate: 9.999118E-05 | global batch size:    64 | lm loss: 7.405483E+00 | load_balancing_loss: 1.121103E+00 | loss scale: 1.0 | grad norm: 0.993 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:25:45] iteration       69/   10000 | consumed samples:         4416 | elapsed time per iteration (ms): 11478.1 | learning rate: 9.999090E-05 | global batch size:    64 | lm loss: 7.389521E+00 | load_balancing_loss: 1.108136E+00 | loss scale: 1.0 | grad norm: 2.142 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:25:57] iteration       70/   10000 | consumed samples:         4480 | elapsed time per iteration (ms): 11565.5 | learning rate: 9.999061E-05 | global batch size:    64 | lm loss: 7.328364E+00 | load_balancing_loss: 1.117951E+00 | loss scale: 1.0 | grad norm: 1.447 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:26:08] iteration       71/   10000 | consumed samples:         4544 | elapsed time per iteration (ms): 11595.2 | learning rate: 9.999032E-05 | global batch size:    64 | lm loss: 7.338242E+00 | load_balancing_loss: 1.133368E+00 | loss scale: 1.0 | grad norm: 1.121 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:26:20] iteration       72/   10000 | consumed samples:         4608 | elapsed time per iteration (ms): 11403.3 | learning rate: 9.999002E-05 | global batch size:    64 | lm loss: 7.335736E+00 | load_balancing_loss: 1.114911E+00 | loss scale: 1.0 | grad norm: 1.228 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:26:31] iteration       73/   10000 | consumed samples:         4672 | elapsed time per iteration (ms): 11511.7 | learning rate: 9.998972E-05 | global batch size:    64 | lm loss: 7.348928E+00 | load_balancing_loss: 1.111982E+00 | loss scale: 1.0 | grad norm: 0.910 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:26:43] iteration       74/   10000 | consumed samples:         4736 | elapsed time per iteration (ms): 11458.1 | learning rate: 9.998942E-05 | global batch size:    64 | lm loss: 7.384264E+00 | load_balancing_loss: 1.107405E+00 | loss scale: 1.0 | grad norm: 1.553 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:26:54] iteration       75/   10000 | consumed samples:         4800 | elapsed time per iteration (ms): 11574.6 | learning rate: 9.998911E-05 | global batch size:    64 | lm loss: 7.300108E+00 | load_balancing_loss: 1.119791E+00 | loss scale: 1.0 | grad norm: 0.741 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:27:06] iteration       76/   10000 | consumed samples:         4864 | elapsed time per iteration (ms): 11521.7 | learning rate: 9.998879E-05 | global batch size:    64 | lm loss: 7.299494E+00 | load_balancing_loss: 1.111426E+00 | loss scale: 1.0 | grad norm: 1.008 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:27:17] iteration       77/   10000 | consumed samples:         4928 | elapsed time per iteration (ms): 11321.2 | learning rate: 9.998848E-05 | global batch size:    64 | lm loss: 7.292268E+00 | load_balancing_loss: 1.094785E+00 | loss scale: 1.0 | grad norm: 0.844 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:27:28] iteration       78/   10000 | consumed samples:         4992 | elapsed time per iteration (ms): 11349.6 | learning rate: 9.998815E-05 | global batch size:    64 | lm loss: 7.268125E+00 | load_balancing_loss: 1.088362E+00 | loss scale: 1.0 | grad norm: 1.379 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:27:40] iteration       79/   10000 | consumed samples:         5056 | elapsed time per iteration (ms): 11529.0 | learning rate: 9.998782E-05 | global batch size:    64 | lm loss: 7.301934E+00 | load_balancing_loss: 1.098599E+00 | loss scale: 1.0 | grad norm: 0.966 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:27:52] iteration       80/   10000 | consumed samples:         5120 | elapsed time per iteration (ms): 11609.2 | learning rate: 9.998750E-05 | global batch size:    64 | lm loss: 7.261360E+00 | load_balancing_loss: 1.116868E+00 | loss scale: 1.0 | grad norm: 1.102 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:28:03] iteration       81/   10000 | consumed samples:         5184 | elapsed time per iteration (ms): 11565.1 | learning rate: 9.998716E-05 | global batch size:    64 | lm loss: 7.284614E+00 | load_balancing_loss: 1.107708E+00 | loss scale: 1.0 | grad norm: 1.025 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:28:15] iteration       82/   10000 | consumed samples:         5248 | elapsed time per iteration (ms): 11468.5 | learning rate: 9.998682E-05 | global batch size:    64 | lm loss: 7.260400E+00 | load_balancing_loss: 1.106109E+00 | loss scale: 1.0 | grad norm: 0.687 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:28:26] iteration       83/   10000 | consumed samples:         5312 | elapsed time per iteration (ms): 11366.2 | learning rate: 9.998648E-05 | global batch size:    64 | lm loss: 7.202303E+00 | load_balancing_loss: 1.088079E+00 | loss scale: 1.0 | grad norm: 1.568 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:28:37] iteration       84/   10000 | consumed samples:         5376 | elapsed time per iteration (ms): 11411.1 | learning rate: 9.998613E-05 | global batch size:    64 | lm loss: 7.293633E+00 | load_balancing_loss: 1.076427E+00 | loss scale: 1.0 | grad norm: 1.005 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:28:49] iteration       85/   10000 | consumed samples:         5440 | elapsed time per iteration (ms): 11540.2 | learning rate: 9.998577E-05 | global batch size:    64 | lm loss: 7.190241E+00 | load_balancing_loss: 1.095996E+00 | loss scale: 1.0 | grad norm: 0.999 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:29:00] iteration       86/   10000 | consumed samples:         5504 | elapsed time per iteration (ms): 11440.5 | learning rate: 9.998542E-05 | global batch size:    64 | lm loss: 7.215220E+00 | load_balancing_loss: 1.097872E+00 | loss scale: 1.0 | grad norm: 1.089 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:29:12] iteration       87/   10000 | consumed samples:         5568 | elapsed time per iteration (ms): 11332.0 | learning rate: 9.998505E-05 | global batch size:    64 | lm loss: 7.256453E+00 | load_balancing_loss: 1.091068E+00 | loss scale: 1.0 | grad norm: 0.832 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:29:23] iteration       88/   10000 | consumed samples:         5632 | elapsed time per iteration (ms): 11241.2 | learning rate: 9.998469E-05 | global batch size:    64 | lm loss: 7.173889E+00 | load_balancing_loss: 1.084339E+00 | loss scale: 1.0 | grad norm: 0.994 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:29:34] iteration       89/   10000 | consumed samples:         5696 | elapsed time per iteration (ms): 11375.2 | learning rate: 9.998432E-05 | global batch size:    64 | lm loss: 7.223789E+00 | load_balancing_loss: 1.080005E+00 | loss scale: 1.0 | grad norm: 1.050 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:29:46] iteration       90/   10000 | consumed samples:         5760 | elapsed time per iteration (ms): 11419.6 | learning rate: 9.998394E-05 | global batch size:    64 | lm loss: 7.201670E+00 | load_balancing_loss: 1.086614E+00 | loss scale: 1.0 | grad norm: 0.687 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:29:57] iteration       91/   10000 | consumed samples:         5824 | elapsed time per iteration (ms): 11286.4 | learning rate: 9.998356E-05 | global batch size:    64 | lm loss: 7.145530E+00 | load_balancing_loss: 1.077746E+00 | loss scale: 1.0 | grad norm: 0.828 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:30:08] iteration       92/   10000 | consumed samples:         5888 | elapsed time per iteration (ms): 11298.1 | learning rate: 9.998318E-05 | global batch size:    64 | lm loss: 7.111239E+00 | load_balancing_loss: 1.075859E+00 | loss scale: 1.0 | grad norm: 0.633 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:30:20] iteration       93/   10000 | consumed samples:         5952 | elapsed time per iteration (ms): 11416.5 | learning rate: 9.998279E-05 | global batch size:    64 | lm loss: 7.122453E+00 | load_balancing_loss: 1.079286E+00 | loss scale: 1.0 | grad norm: 0.633 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:30:31] iteration       94/   10000 | consumed samples:         6016 | elapsed time per iteration (ms): 11333.8 | learning rate: 9.998240E-05 | global batch size:    64 | lm loss: 7.151805E+00 | load_balancing_loss: 1.066097E+00 | loss scale: 1.0 | grad norm: 0.618 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:30:42] iteration       95/   10000 | consumed samples:         6080 | elapsed time per iteration (ms): 11278.1 | learning rate: 9.998200E-05 | global batch size:    64 | lm loss: 7.045246E+00 | load_balancing_loss: 1.059778E+00 | loss scale: 1.0 | grad norm: 0.609 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:30:54] iteration       96/   10000 | consumed samples:         6144 | elapsed time per iteration (ms): 11378.1 | learning rate: 9.998160E-05 | global batch size:    64 | lm loss: 7.043545E+00 | load_balancing_loss: 1.075556E+00 | loss scale: 1.0 | grad norm: 0.787 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:31:05] iteration       97/   10000 | consumed samples:         6208 | elapsed time per iteration (ms): 11401.0 | learning rate: 9.998119E-05 | global batch size:    64 | lm loss: 7.071232E+00 | load_balancing_loss: 1.086959E+00 | loss scale: 1.0 | grad norm: 0.408 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:31:16] iteration       98/   10000 | consumed samples:         6272 | elapsed time per iteration (ms): 11156.5 | learning rate: 9.998077E-05 | global batch size:    64 | lm loss: 7.064619E+00 | load_balancing_loss: 1.074732E+00 | loss scale: 1.0 | grad norm: 0.638 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:31:28] iteration       99/   10000 | consumed samples:         6336 | elapsed time per iteration (ms): 11234.9 | learning rate: 9.998036E-05 | global batch size:    64 | lm loss: 7.030278E+00 | load_balancing_loss: 1.092684E+00 | loss scale: 1.0 | grad norm: 0.724 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:31:39] iteration      100/   10000 | consumed samples:         6400 | elapsed time per iteration (ms): 11184.1 | learning rate: 9.997994E-05 | global batch size:    64 | lm loss: 7.030802E+00 | load_balancing_loss: 1.091736E+00 | loss scale: 1.0 | grad norm: 0.711 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:31:50] iteration      101/   10000 | consumed samples:         6464 | elapsed time per iteration (ms): 11123.0 | learning rate: 9.997952E-05 | global batch size:    64 | lm loss: 7.032440E+00 | load_balancing_loss: 1.081403E+00 | loss scale: 1.0 | grad norm: 0.601 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:32:01] iteration      102/   10000 | consumed samples:         6528 | elapsed time per iteration (ms): 11059.2 | learning rate: 9.997909E-05 | global batch size:    64 | lm loss: 6.964703E+00 | load_balancing_loss: 1.057744E+00 | loss scale: 1.0 | grad norm: 0.585 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:32:12] iteration      103/   10000 | consumed samples:         6592 | elapsed time per iteration (ms): 11215.8 | learning rate: 9.997865E-05 | global batch size:    64 | lm loss: 7.042095E+00 | load_balancing_loss: 1.085274E+00 | loss scale: 1.0 | grad norm: 0.687 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:32:23] iteration      104/   10000 | consumed samples:         6656 | elapsed time per iteration (ms): 11135.5 | learning rate: 9.997821E-05 | global batch size:    64 | lm loss: 6.991910E+00 | load_balancing_loss: 1.084611E+00 | loss scale: 1.0 | grad norm: 0.649 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:32:34] iteration      105/   10000 | consumed samples:         6720 | elapsed time per iteration (ms): 11075.0 | learning rate: 9.997777E-05 | global batch size:    64 | lm loss: 6.977587E+00 | load_balancing_loss: 1.081367E+00 | loss scale: 1.0 | grad norm: 0.482 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:32:45] iteration      106/   10000 | consumed samples:         6784 | elapsed time per iteration (ms): 11098.3 | learning rate: 9.997733E-05 | global batch size:    64 | lm loss: 6.998485E+00 | load_balancing_loss: 1.067154E+00 | loss scale: 1.0 | grad norm: 0.692 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:32:57] iteration      107/   10000 | consumed samples:         6848 | elapsed time per iteration (ms): 11132.0 | learning rate: 9.997687E-05 | global batch size:    64 | lm loss: 6.982799E+00 | load_balancing_loss: 1.057604E+00 | loss scale: 1.0 | grad norm: 0.672 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:33:08] iteration      108/   10000 | consumed samples:         6912 | elapsed time per iteration (ms): 11340.5 | learning rate: 9.997642E-05 | global batch size:    64 | lm loss: 6.954973E+00 | load_balancing_loss: 1.070949E+00 | loss scale: 1.0 | grad norm: 0.650 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:33:20] iteration      109/   10000 | consumed samples:         6976 | elapsed time per iteration (ms): 12037.8 | learning rate: 9.997596E-05 | global batch size:    64 | lm loss: 6.981287E+00 | load_balancing_loss: 1.080845E+00 | loss scale: 1.0 | grad norm: 0.831 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:33:31] iteration      110/   10000 | consumed samples:         7040 | elapsed time per iteration (ms): 10928.1 | learning rate: 9.997549E-05 | global batch size:    64 | lm loss: 6.997889E+00 | load_balancing_loss: 1.069942E+00 | loss scale: 1.0 | grad norm: 0.704 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:33:42] iteration      111/   10000 | consumed samples:         7104 | elapsed time per iteration (ms): 10928.2 | learning rate: 9.997503E-05 | global batch size:    64 | lm loss: 6.902001E+00 | load_balancing_loss: 1.058016E+00 | loss scale: 1.0 | grad norm: 0.843 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:33:53] iteration      112/   10000 | consumed samples:         7168 | elapsed time per iteration (ms): 11042.0 | learning rate: 9.997455E-05 | global batch size:    64 | lm loss: 6.955524E+00 | load_balancing_loss: 1.077447E+00 | loss scale: 1.0 | grad norm: 0.677 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:34:04] iteration      113/   10000 | consumed samples:         7232 | elapsed time per iteration (ms): 10922.3 | learning rate: 9.997407E-05 | global batch size:    64 | lm loss: 6.915848E+00 | load_balancing_loss: 1.063871E+00 | loss scale: 1.0 | grad norm: 0.440 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:34:15] iteration      114/   10000 | consumed samples:         7296 | elapsed time per iteration (ms): 10909.0 | learning rate: 9.997359E-05 | global batch size:    64 | lm loss: 6.867558E+00 | load_balancing_loss: 1.053544E+00 | loss scale: 1.0 | grad norm: 0.625 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:34:26] iteration      115/   10000 | consumed samples:         7360 | elapsed time per iteration (ms): 10934.6 | learning rate: 9.997311E-05 | global batch size:    64 | lm loss: 6.845541E+00 | load_balancing_loss: 1.071960E+00 | loss scale: 1.0 | grad norm: 0.886 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:34:37] iteration      116/   10000 | consumed samples:         7424 | elapsed time per iteration (ms): 10988.8 | learning rate: 9.997262E-05 | global batch size:    64 | lm loss: 6.910417E+00 | load_balancing_loss: 1.056611E+00 | loss scale: 1.0 | grad norm: 0.561 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:34:48] iteration      117/   10000 | consumed samples:         7488 | elapsed time per iteration (ms): 10941.2 | learning rate: 9.997212E-05 | global batch size:    64 | lm loss: 6.883377E+00 | load_balancing_loss: 1.071044E+00 | loss scale: 1.0 | grad norm: 1.488 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:34:58] iteration      118/   10000 | consumed samples:         7552 | elapsed time per iteration (ms): 10929.2 | learning rate: 9.997162E-05 | global batch size:    64 | lm loss: 6.919939E+00 | load_balancing_loss: 1.072811E+00 | loss scale: 1.0 | grad norm: 0.733 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:35:09] iteration      119/   10000 | consumed samples:         7616 | elapsed time per iteration (ms): 11036.3 | learning rate: 9.997111E-05 | global batch size:    64 | lm loss: 6.875754E+00 | load_balancing_loss: 1.072851E+00 | loss scale: 1.0 | grad norm: 0.665 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:35:21] iteration      120/   10000 | consumed samples:         7680 | elapsed time per iteration (ms): 11129.3 | learning rate: 9.997060E-05 | global batch size:    64 | lm loss: 6.768409E+00 | load_balancing_loss: 1.063254E+00 | loss scale: 1.0 | grad norm: 0.628 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:35:32] iteration      121/   10000 | consumed samples:         7744 | elapsed time per iteration (ms): 11003.0 | learning rate: 9.997009E-05 | global batch size:    64 | lm loss: 6.846913E+00 | load_balancing_loss: 1.066620E+00 | loss scale: 1.0 | grad norm: 0.561 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:35:43] iteration      122/   10000 | consumed samples:         7808 | elapsed time per iteration (ms): 11096.9 | learning rate: 9.996958E-05 | global batch size:    64 | lm loss: 6.780596E+00 | load_balancing_loss: 1.081648E+00 | loss scale: 1.0 | grad norm: 0.668 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:35:54] iteration      123/   10000 | consumed samples:         7872 | elapsed time per iteration (ms): 11051.9 | learning rate: 9.996905E-05 | global batch size:    64 | lm loss: 6.736443E+00 | load_balancing_loss: 1.056373E+00 | loss scale: 1.0 | grad norm: 1.051 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:36:05] iteration      124/   10000 | consumed samples:         7936 | elapsed time per iteration (ms): 11240.6 | learning rate: 9.996853E-05 | global batch size:    64 | lm loss: 6.791033E+00 | load_balancing_loss: 1.098588E+00 | loss scale: 1.0 | grad norm: 1.315 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:36:16] iteration      125/   10000 | consumed samples:         8000 | elapsed time per iteration (ms): 10899.0 | learning rate: 9.996800E-05 | global batch size:    64 | lm loss: 6.766457E+00 | load_balancing_loss: 1.082427E+00 | loss scale: 1.0 | grad norm: 0.645 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:36:27] iteration      126/   10000 | consumed samples:         8064 | elapsed time per iteration (ms): 10904.8 | learning rate: 9.996746E-05 | global batch size:    64 | lm loss: 6.805666E+00 | load_balancing_loss: 1.061217E+00 | loss scale: 1.0 | grad norm: 1.122 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:36:38] iteration      127/   10000 | consumed samples:         8128 | elapsed time per iteration (ms): 10841.8 | learning rate: 9.996692E-05 | global batch size:    64 | lm loss: 6.739725E+00 | load_balancing_loss: 1.052466E+00 | loss scale: 1.0 | grad norm: 0.745 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:36:49] iteration      128/   10000 | consumed samples:         8192 | elapsed time per iteration (ms): 10937.5 | learning rate: 9.996638E-05 | global batch size:    64 | lm loss: 6.744157E+00 | load_balancing_loss: 1.067567E+00 | loss scale: 1.0 | grad norm: 0.817 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:36:59] iteration      129/   10000 | consumed samples:         8256 | elapsed time per iteration (ms): 10858.7 | learning rate: 9.996582E-05 | global batch size:    64 | lm loss: 6.751157E+00 | load_balancing_loss: 1.075988E+00 | loss scale: 1.0 | grad norm: 0.991 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:37:10] iteration      130/   10000 | consumed samples:         8320 | elapsed time per iteration (ms): 10825.7 | learning rate: 9.996527E-05 | global batch size:    64 | lm loss: 6.772252E+00 | load_balancing_loss: 1.060679E+00 | loss scale: 1.0 | grad norm: 0.891 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:37:21] iteration      131/   10000 | consumed samples:         8384 | elapsed time per iteration (ms): 10827.9 | learning rate: 9.996472E-05 | global batch size:    64 | lm loss: 6.717549E+00 | load_balancing_loss: 1.043094E+00 | loss scale: 1.0 | grad norm: 1.169 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:37:33] iteration      132/   10000 | consumed samples:         8448 | elapsed time per iteration (ms): 12043.2 | learning rate: 9.996415E-05 | global batch size:    64 | lm loss: 6.703866E+00 | load_balancing_loss: 1.047083E+00 | loss scale: 1.0 | grad norm: 0.853 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:37:44] iteration      133/   10000 | consumed samples:         8512 | elapsed time per iteration (ms): 10860.0 | learning rate: 9.996359E-05 | global batch size:    64 | lm loss: 6.648677E+00 | load_balancing_loss: 1.055690E+00 | loss scale: 1.0 | grad norm: 0.700 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:37:55] iteration      134/   10000 | consumed samples:         8576 | elapsed time per iteration (ms): 10771.8 | learning rate: 9.996301E-05 | global batch size:    64 | lm loss: 6.695530E+00 | load_balancing_loss: 1.050570E+00 | loss scale: 1.0 | grad norm: 0.718 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:38:06] iteration      135/   10000 | consumed samples:         8640 | elapsed time per iteration (ms): 10767.0 | learning rate: 9.996244E-05 | global batch size:    64 | lm loss: 6.643064E+00 | load_balancing_loss: 1.044152E+00 | loss scale: 1.0 | grad norm: 0.600 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:38:16] iteration      136/   10000 | consumed samples:         8704 | elapsed time per iteration (ms): 10801.1 | learning rate: 9.996186E-05 | global batch size:    64 | lm loss: 6.667105E+00 | load_balancing_loss: 1.046049E+00 | loss scale: 1.0 | grad norm: 0.649 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:38:27] iteration      137/   10000 | consumed samples:         8768 | elapsed time per iteration (ms): 10776.9 | learning rate: 9.996127E-05 | global batch size:    64 | lm loss: 6.628043E+00 | load_balancing_loss: 1.042448E+00 | loss scale: 1.0 | grad norm: 0.522 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:38:38] iteration      138/   10000 | consumed samples:         8832 | elapsed time per iteration (ms): 10740.0 | learning rate: 9.996069E-05 | global batch size:    64 | lm loss: 6.657372E+00 | load_balancing_loss: 1.039302E+00 | loss scale: 1.0 | grad norm: 0.555 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:38:49] iteration      139/   10000 | consumed samples:         8896 | elapsed time per iteration (ms): 10735.5 | learning rate: 9.996009E-05 | global batch size:    64 | lm loss: 6.586156E+00 | load_balancing_loss: 1.050796E+00 | loss scale: 1.0 | grad norm: 0.542 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:38:59] iteration      140/   10000 | consumed samples:         8960 | elapsed time per iteration (ms): 10672.0 | learning rate: 9.995949E-05 | global batch size:    64 | lm loss: 6.622734E+00 | load_balancing_loss: 1.049351E+00 | loss scale: 1.0 | grad norm: 0.638 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:39:10] iteration      141/   10000 | consumed samples:         9024 | elapsed time per iteration (ms): 10714.1 | learning rate: 9.995889E-05 | global batch size:    64 | lm loss: 6.635298E+00 | load_balancing_loss: 1.040884E+00 | loss scale: 1.0 | grad norm: 0.871 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:39:21] iteration      142/   10000 | consumed samples:         9088 | elapsed time per iteration (ms): 10752.1 | learning rate: 9.995828E-05 | global batch size:    64 | lm loss: 6.530430E+00 | load_balancing_loss: 1.062515E+00 | loss scale: 1.0 | grad norm: 0.648 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:39:31] iteration      143/   10000 | consumed samples:         9152 | elapsed time per iteration (ms): 10618.8 | learning rate: 9.995767E-05 | global batch size:    64 | lm loss: 6.553981E+00 | load_balancing_loss: 1.042362E+00 | loss scale: 1.0 | grad norm: 0.742 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:39:42] iteration      144/   10000 | consumed samples:         9216 | elapsed time per iteration (ms): 10701.7 | learning rate: 9.995706E-05 | global batch size:    64 | lm loss: 6.576551E+00 | load_balancing_loss: 1.047979E+00 | loss scale: 1.0 | grad norm: 0.953 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:39:53] iteration      145/   10000 | consumed samples:         9280 | elapsed time per iteration (ms): 10684.0 | learning rate: 9.995644E-05 | global batch size:    64 | lm loss: 6.531768E+00 | load_balancing_loss: 1.051438E+00 | loss scale: 1.0 | grad norm: 0.851 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:40:04] iteration      146/   10000 | consumed samples:         9344 | elapsed time per iteration (ms): 10810.2 | learning rate: 9.995581E-05 | global batch size:    64 | lm loss: 6.523829E+00 | load_balancing_loss: 1.041979E+00 | loss scale: 1.0 | grad norm: 0.501 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:40:14] iteration      147/   10000 | consumed samples:         9408 | elapsed time per iteration (ms): 10687.0 | learning rate: 9.995518E-05 | global batch size:    64 | lm loss: 6.536652E+00 | load_balancing_loss: 1.037482E+00 | loss scale: 1.0 | grad norm: 1.015 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:40:25] iteration      148/   10000 | consumed samples:         9472 | elapsed time per iteration (ms): 10690.3 | learning rate: 9.995455E-05 | global batch size:    64 | lm loss: 6.549459E+00 | load_balancing_loss: 1.042747E+00 | loss scale: 1.0 | grad norm: 0.588 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:40:36] iteration      149/   10000 | consumed samples:         9536 | elapsed time per iteration (ms): 10658.3 | learning rate: 9.995391E-05 | global batch size:    64 | lm loss: 6.515627E+00 | load_balancing_loss: 1.039268E+00 | loss scale: 1.0 | grad norm: 0.659 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:40:46] iteration      150/   10000 | consumed samples:         9600 | elapsed time per iteration (ms): 10648.9 | learning rate: 9.995327E-05 | global batch size:    64 | lm loss: 6.493383E+00 | load_balancing_loss: 1.039963E+00 | loss scale: 1.0 | grad norm: 0.505 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:40:57] iteration      151/   10000 | consumed samples:         9664 | elapsed time per iteration (ms): 10670.7 | learning rate: 9.995262E-05 | global batch size:    64 | lm loss: 6.528075E+00 | load_balancing_loss: 1.041932E+00 | loss scale: 1.0 | grad norm: 0.600 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:41:08] iteration      152/   10000 | consumed samples:         9728 | elapsed time per iteration (ms): 10683.7 | learning rate: 9.995198E-05 | global batch size:    64 | lm loss: 6.513389E+00 | load_balancing_loss: 1.043111E+00 | loss scale: 1.0 | grad norm: 0.485 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:41:18] iteration      153/   10000 | consumed samples:         9792 | elapsed time per iteration (ms): 10675.7 | learning rate: 9.995132E-05 | global batch size:    64 | lm loss: 6.508441E+00 | load_balancing_loss: 1.039026E+00 | loss scale: 1.0 | grad norm: 0.593 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:41:29] iteration      154/   10000 | consumed samples:         9856 | elapsed time per iteration (ms): 10823.6 | learning rate: 9.995066E-05 | global batch size:    64 | lm loss: 6.447354E+00 | load_balancing_loss: 1.052138E+00 | loss scale: 1.0 | grad norm: 0.579 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:41:40] iteration      155/   10000 | consumed samples:         9920 | elapsed time per iteration (ms): 10703.4 | learning rate: 9.995000E-05 | global batch size:    64 | lm loss: 6.550261E+00 | load_balancing_loss: 1.052045E+00 | loss scale: 1.0 | grad norm: 0.870 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:41:51] iteration      156/   10000 | consumed samples:         9984 | elapsed time per iteration (ms): 10748.1 | learning rate: 9.994933E-05 | global batch size:    64 | lm loss: 6.531920E+00 | load_balancing_loss: 1.079295E+00 | loss scale: 1.0 | grad norm: 1.001 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:42:01] iteration      157/   10000 | consumed samples:        10048 | elapsed time per iteration (ms): 10651.6 | learning rate: 9.994865E-05 | global batch size:    64 | lm loss: 6.500120E+00 | load_balancing_loss: 1.053410E+00 | loss scale: 1.0 | grad norm: 0.791 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:42:12] iteration      158/   10000 | consumed samples:        10112 | elapsed time per iteration (ms): 10635.7 | learning rate: 9.994797E-05 | global batch size:    64 | lm loss: 6.421309E+00 | load_balancing_loss: 1.034348E+00 | loss scale: 1.0 | grad norm: 0.597 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:42:23] iteration      159/   10000 | consumed samples:        10176 | elapsed time per iteration (ms): 10879.8 | learning rate: 9.994729E-05 | global batch size:    64 | lm loss: 6.493180E+00 | load_balancing_loss: 1.032113E+00 | loss scale: 1.0 | grad norm: 0.577 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:42:33] iteration      160/   10000 | consumed samples:        10240 | elapsed time per iteration (ms): 10616.3 | learning rate: 9.994661E-05 | global batch size:    64 | lm loss: 6.424037E+00 | load_balancing_loss: 1.031626E+00 | loss scale: 1.0 | grad norm: 0.813 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:42:44] iteration      161/   10000 | consumed samples:        10304 | elapsed time per iteration (ms): 10634.8 | learning rate: 9.994592E-05 | global batch size:    64 | lm loss: 6.368582E+00 | load_balancing_loss: 1.039850E+00 | loss scale: 1.0 | grad norm: 0.516 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:42:55] iteration      162/   10000 | consumed samples:        10368 | elapsed time per iteration (ms): 10613.0 | learning rate: 9.994522E-05 | global batch size:    64 | lm loss: 6.479689E+00 | load_balancing_loss: 1.031005E+00 | loss scale: 1.0 | grad norm: 0.641 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:43:05] iteration      163/   10000 | consumed samples:        10432 | elapsed time per iteration (ms): 10633.2 | learning rate: 9.994452E-05 | global batch size:    64 | lm loss: 6.387671E+00 | load_balancing_loss: 1.032508E+00 | loss scale: 1.0 | grad norm: 0.521 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:43:16] iteration      164/   10000 | consumed samples:        10496 | elapsed time per iteration (ms): 10632.9 | learning rate: 9.994381E-05 | global batch size:    64 | lm loss: 6.464783E+00 | load_balancing_loss: 1.034712E+00 | loss scale: 1.0 | grad norm: 0.498 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:43:26] iteration      165/   10000 | consumed samples:        10560 | elapsed time per iteration (ms): 10593.7 | learning rate: 9.994311E-05 | global batch size:    64 | lm loss: 6.388535E+00 | load_balancing_loss: 1.029338E+00 | loss scale: 1.0 | grad norm: 0.640 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:43:37] iteration      166/   10000 | consumed samples:        10624 | elapsed time per iteration (ms): 10582.8 | learning rate: 9.994239E-05 | global batch size:    64 | lm loss: 6.365386E+00 | load_balancing_loss: 1.032046E+00 | loss scale: 1.0 | grad norm: 0.567 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:43:48] iteration      167/   10000 | consumed samples:        10688 | elapsed time per iteration (ms): 10556.5 | learning rate: 9.994167E-05 | global batch size:    64 | lm loss: 6.350876E+00 | load_balancing_loss: 1.037724E+00 | loss scale: 1.0 | grad norm: 0.510 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:43:58] iteration      168/   10000 | consumed samples:        10752 | elapsed time per iteration (ms): 10571.3 | learning rate: 9.994095E-05 | global batch size:    64 | lm loss: 6.328968E+00 | load_balancing_loss: 1.031243E+00 | loss scale: 1.0 | grad norm: 0.635 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:44:09] iteration      169/   10000 | consumed samples:        10816 | elapsed time per iteration (ms): 10580.7 | learning rate: 9.994023E-05 | global batch size:    64 | lm loss: 6.354488E+00 | load_balancing_loss: 1.044264E+00 | loss scale: 1.0 | grad norm: 0.456 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:44:19] iteration      170/   10000 | consumed samples:        10880 | elapsed time per iteration (ms): 10571.5 | learning rate: 9.993950E-05 | global batch size:    64 | lm loss: 6.371763E+00 | load_balancing_loss: 1.037461E+00 | loss scale: 1.0 | grad norm: 0.414 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:44:30] iteration      171/   10000 | consumed samples:        10944 | elapsed time per iteration (ms): 10593.8 | learning rate: 9.993876E-05 | global batch size:    64 | lm loss: 6.346125E+00 | load_balancing_loss: 1.033202E+00 | loss scale: 1.0 | grad norm: 0.546 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:44:41] iteration      172/   10000 | consumed samples:        11008 | elapsed time per iteration (ms): 10734.5 | learning rate: 9.993802E-05 | global batch size:    64 | lm loss: 6.355211E+00 | load_balancing_loss: 1.039253E+00 | loss scale: 1.0 | grad norm: 0.434 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:44:51] iteration      173/   10000 | consumed samples:        11072 | elapsed time per iteration (ms): 10603.2 | learning rate: 9.993728E-05 | global batch size:    64 | lm loss: 6.293936E+00 | load_balancing_loss: 1.038409E+00 | loss scale: 1.0 | grad norm: 0.452 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:45:02] iteration      174/   10000 | consumed samples:        11136 | elapsed time per iteration (ms): 10635.0 | learning rate: 9.993653E-05 | global batch size:    64 | lm loss: 6.286668E+00 | load_balancing_loss: 1.039315E+00 | loss scale: 1.0 | grad norm: 0.473 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:45:13] iteration      175/   10000 | consumed samples:        11200 | elapsed time per iteration (ms): 10604.3 | learning rate: 9.993577E-05 | global batch size:    64 | lm loss: 6.279657E+00 | load_balancing_loss: 1.037612E+00 | loss scale: 1.0 | grad norm: 0.505 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:45:23] iteration      176/   10000 | consumed samples:        11264 | elapsed time per iteration (ms): 10630.5 | learning rate: 9.993502E-05 | global batch size:    64 | lm loss: 6.343926E+00 | load_balancing_loss: 1.043997E+00 | loss scale: 1.0 | grad norm: 0.632 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:45:34] iteration      177/   10000 | consumed samples:        11328 | elapsed time per iteration (ms): 10627.4 | learning rate: 9.993425E-05 | global batch size:    64 | lm loss: 6.384295E+00 | load_balancing_loss: 1.041055E+00 | loss scale: 1.0 | grad norm: 0.639 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:45:44] iteration      178/   10000 | consumed samples:        11392 | elapsed time per iteration (ms): 10569.1 | learning rate: 9.993349E-05 | global batch size:    64 | lm loss: 6.230944E+00 | load_balancing_loss: 1.036568E+00 | loss scale: 1.0 | grad norm: 0.393 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:45:55] iteration      179/   10000 | consumed samples:        11456 | elapsed time per iteration (ms): 10559.3 | learning rate: 9.993272E-05 | global batch size:    64 | lm loss: 6.278559E+00 | load_balancing_loss: 1.032706E+00 | loss scale: 1.0 | grad norm: 0.497 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:46:05] iteration      180/   10000 | consumed samples:        11520 | elapsed time per iteration (ms): 10546.0 | learning rate: 9.993194E-05 | global batch size:    64 | lm loss: 6.263894E+00 | load_balancing_loss: 1.032948E+00 | loss scale: 1.0 | grad norm: 0.440 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:46:16] iteration      181/   10000 | consumed samples:        11584 | elapsed time per iteration (ms): 10538.0 | learning rate: 9.993116E-05 | global batch size:    64 | lm loss: 6.255759E+00 | load_balancing_loss: 1.033908E+00 | loss scale: 1.0 | grad norm: 0.495 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:46:27] iteration      182/   10000 | consumed samples:        11648 | elapsed time per iteration (ms): 10599.6 | learning rate: 9.993037E-05 | global batch size:    64 | lm loss: 6.283040E+00 | load_balancing_loss: 1.046821E+00 | loss scale: 1.0 | grad norm: 0.495 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:46:37] iteration      183/   10000 | consumed samples:        11712 | elapsed time per iteration (ms): 10541.1 | learning rate: 9.992959E-05 | global batch size:    64 | lm loss: 6.250896E+00 | load_balancing_loss: 1.034054E+00 | loss scale: 1.0 | grad norm: 0.444 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:46:48] iteration      184/   10000 | consumed samples:        11776 | elapsed time per iteration (ms): 10522.7 | learning rate: 9.992879E-05 | global batch size:    64 | lm loss: 6.188048E+00 | load_balancing_loss: 1.030848E+00 | loss scale: 1.0 | grad norm: 0.490 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:46:58] iteration      185/   10000 | consumed samples:        11840 | elapsed time per iteration (ms): 10551.0 | learning rate: 9.992799E-05 | global batch size:    64 | lm loss: 6.182675E+00 | load_balancing_loss: 1.040995E+00 | loss scale: 1.0 | grad norm: 0.521 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:47:09] iteration      186/   10000 | consumed samples:        11904 | elapsed time per iteration (ms): 10529.7 | learning rate: 9.992719E-05 | global batch size:    64 | lm loss: 6.190319E+00 | load_balancing_loss: 1.034539E+00 | loss scale: 1.0 | grad norm: 0.672 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:47:19] iteration      187/   10000 | consumed samples:        11968 | elapsed time per iteration (ms): 10571.1 | learning rate: 9.992639E-05 | global batch size:    64 | lm loss: 6.176727E+00 | load_balancing_loss: 1.041640E+00 | loss scale: 1.0 | grad norm: 0.606 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:47:30] iteration      188/   10000 | consumed samples:        12032 | elapsed time per iteration (ms): 10569.7 | learning rate: 9.992558E-05 | global batch size:    64 | lm loss: 6.267155E+00 | load_balancing_loss: 1.042427E+00 | loss scale: 1.0 | grad norm: 0.665 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:47:40] iteration      189/   10000 | consumed samples:        12096 | elapsed time per iteration (ms): 10524.0 | learning rate: 9.992476E-05 | global batch size:    64 | lm loss: 6.213711E+00 | load_balancing_loss: 1.037817E+00 | loss scale: 1.0 | grad norm: 0.737 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:47:51] iteration      190/   10000 | consumed samples:        12160 | elapsed time per iteration (ms): 10532.7 | learning rate: 9.992394E-05 | global batch size:    64 | lm loss: 6.181070E+00 | load_balancing_loss: 1.044614E+00 | loss scale: 1.0 | grad norm: 0.620 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:48:01] iteration      191/   10000 | consumed samples:        12224 | elapsed time per iteration (ms): 10543.1 | learning rate: 9.992312E-05 | global batch size:    64 | lm loss: 6.190707E+00 | load_balancing_loss: 1.040769E+00 | loss scale: 1.0 | grad norm: 0.649 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:48:12] iteration      192/   10000 | consumed samples:        12288 | elapsed time per iteration (ms): 10511.7 | learning rate: 9.992229E-05 | global batch size:    64 | lm loss: 6.192988E+00 | load_balancing_loss: 1.036602E+00 | loss scale: 1.0 | grad norm: 0.685 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:48:23] iteration      193/   10000 | consumed samples:        12352 | elapsed time per iteration (ms): 10521.4 | learning rate: 9.992146E-05 | global batch size:    64 | lm loss: 6.090427E+00 | load_balancing_loss: 1.033925E+00 | loss scale: 1.0 | grad norm: 0.593 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:48:33] iteration      194/   10000 | consumed samples:        12416 | elapsed time per iteration (ms): 10519.0 | learning rate: 9.992062E-05 | global batch size:    64 | lm loss: 6.198395E+00 | load_balancing_loss: 1.035717E+00 | loss scale: 1.0 | grad norm: 0.536 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:48:44] iteration      195/   10000 | consumed samples:        12480 | elapsed time per iteration (ms): 10522.0 | learning rate: 9.991978E-05 | global batch size:    64 | lm loss: 6.165913E+00 | load_balancing_loss: 1.030888E+00 | loss scale: 1.0 | grad norm: 0.658 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:48:54] iteration      196/   10000 | consumed samples:        12544 | elapsed time per iteration (ms): 10534.6 | learning rate: 9.991893E-05 | global batch size:    64 | lm loss: 6.187552E+00 | load_balancing_loss: 1.031086E+00 | loss scale: 1.0 | grad norm: 0.542 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:49:05] iteration      197/   10000 | consumed samples:        12608 | elapsed time per iteration (ms): 10559.9 | learning rate: 9.991808E-05 | global batch size:    64 | lm loss: 6.155538E+00 | load_balancing_loss: 1.036224E+00 | loss scale: 1.0 | grad norm: 0.579 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:49:15] iteration      198/   10000 | consumed samples:        12672 | elapsed time per iteration (ms): 10502.6 | learning rate: 9.991723E-05 | global batch size:    64 | lm loss: 6.158741E+00 | load_balancing_loss: 1.032471E+00 | loss scale: 1.0 | grad norm: 0.483 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:49:26] iteration      199/   10000 | consumed samples:        12736 | elapsed time per iteration (ms): 10523.0 | learning rate: 9.991637E-05 | global batch size:    64 | lm loss: 6.091636E+00 | load_balancing_loss: 1.031125E+00 | loss scale: 1.0 | grad norm: 0.459 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:49:36] iteration      200/   10000 | consumed samples:        12800 | elapsed time per iteration (ms): 10516.2 | learning rate: 9.991550E-05 | global batch size:    64 | lm loss: 6.080532E+00 | load_balancing_loss: 1.032835E+00 | loss scale: 1.0 | grad norm: 0.441 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:49:47] iteration      201/   10000 | consumed samples:        12864 | elapsed time per iteration (ms): 10475.9 | learning rate: 9.991464E-05 | global batch size:    64 | lm loss: 6.131932E+00 | load_balancing_loss: 1.029051E+00 | loss scale: 1.0 | grad norm: 0.499 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:49:57] iteration      202/   10000 | consumed samples:        12928 | elapsed time per iteration (ms): 10482.2 | learning rate: 9.991376E-05 | global batch size:    64 | lm loss: 6.068604E+00 | load_balancing_loss: 1.033292E+00 | loss scale: 1.0 | grad norm: 0.408 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:50:08] iteration      203/   10000 | consumed samples:        12992 | elapsed time per iteration (ms): 10544.4 | learning rate: 9.991288E-05 | global batch size:    64 | lm loss: 6.090198E+00 | load_balancing_loss: 1.034666E+00 | loss scale: 1.0 | grad norm: 0.593 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:50:18] iteration      204/   10000 | consumed samples:        13056 | elapsed time per iteration (ms): 10515.0 | learning rate: 9.991200E-05 | global batch size:    64 | lm loss: 6.043305E+00 | load_balancing_loss: 1.041448E+00 | loss scale: 1.0 | grad norm: 0.629 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:50:29] iteration      205/   10000 | consumed samples:        13120 | elapsed time per iteration (ms): 10501.7 | learning rate: 9.991111E-05 | global batch size:    64 | lm loss: 6.112468E+00 | load_balancing_loss: 1.028450E+00 | loss scale: 1.0 | grad norm: 0.556 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:50:39] iteration      206/   10000 | consumed samples:        13184 | elapsed time per iteration (ms): 10477.2 | learning rate: 9.991023E-05 | global batch size:    64 | lm loss: 6.116477E+00 | load_balancing_loss: 1.037797E+00 | loss scale: 1.0 | grad norm: 0.767 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:50:50] iteration      207/   10000 | consumed samples:        13248 | elapsed time per iteration (ms): 10505.9 | learning rate: 9.990932E-05 | global batch size:    64 | lm loss: 6.066768E+00 | load_balancing_loss: 1.039326E+00 | loss scale: 1.0 | grad norm: 0.446 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:51:00] iteration      208/   10000 | consumed samples:        13312 | elapsed time per iteration (ms): 10437.1 | learning rate: 9.990843E-05 | global batch size:    64 | lm loss: 6.034369E+00 | load_balancing_loss: 1.024508E+00 | loss scale: 1.0 | grad norm: 0.529 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:51:11] iteration      209/   10000 | consumed samples:        13376 | elapsed time per iteration (ms): 10456.7 | learning rate: 9.990753E-05 | global batch size:    64 | lm loss: 6.028286E+00 | load_balancing_loss: 1.030903E+00 | loss scale: 1.0 | grad norm: 0.643 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:51:21] iteration      210/   10000 | consumed samples:        13440 | elapsed time per iteration (ms): 10501.0 | learning rate: 9.990662E-05 | global batch size:    64 | lm loss: 6.042838E+00 | load_balancing_loss: 1.036072E+00 | loss scale: 1.0 | grad norm: 0.653 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:51:32] iteration      211/   10000 | consumed samples:        13504 | elapsed time per iteration (ms): 10493.5 | learning rate: 9.990570E-05 | global batch size:    64 | lm loss: 6.038339E+00 | load_balancing_loss: 1.034215E+00 | loss scale: 1.0 | grad norm: 0.516 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:51:42] iteration      212/   10000 | consumed samples:        13568 | elapsed time per iteration (ms): 10480.3 | learning rate: 9.990478E-05 | global batch size:    64 | lm loss: 6.005925E+00 | load_balancing_loss: 1.030907E+00 | loss scale: 1.0 | grad norm: 0.519 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:51:53] iteration      213/   10000 | consumed samples:        13632 | elapsed time per iteration (ms): 10473.4 | learning rate: 9.990386E-05 | global batch size:    64 | lm loss: 6.038422E+00 | load_balancing_loss: 1.027825E+00 | loss scale: 1.0 | grad norm: 0.667 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:52:03] iteration      214/   10000 | consumed samples:        13696 | elapsed time per iteration (ms): 10539.4 | learning rate: 9.990294E-05 | global batch size:    64 | lm loss: 6.005857E+00 | load_balancing_loss: 1.038241E+00 | loss scale: 1.0 | grad norm: 0.754 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:52:14] iteration      215/   10000 | consumed samples:        13760 | elapsed time per iteration (ms): 10445.0 | learning rate: 9.990200E-05 | global batch size:    64 | lm loss: 6.040076E+00 | load_balancing_loss: 1.033470E+00 | loss scale: 1.0 | grad norm: 0.478 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:52:24] iteration      216/   10000 | consumed samples:        13824 | elapsed time per iteration (ms): 10468.9 | learning rate: 9.990107E-05 | global batch size:    64 | lm loss: 6.042875E+00 | load_balancing_loss: 1.038072E+00 | loss scale: 1.0 | grad norm: 0.537 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:52:34] iteration      217/   10000 | consumed samples:        13888 | elapsed time per iteration (ms): 10445.3 | learning rate: 9.990013E-05 | global batch size:    64 | lm loss: 6.044854E+00 | load_balancing_loss: 1.029457E+00 | loss scale: 1.0 | grad norm: 0.544 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:52:45] iteration      218/   10000 | consumed samples:        13952 | elapsed time per iteration (ms): 10469.2 | learning rate: 9.989919E-05 | global batch size:    64 | lm loss: 6.026309E+00 | load_balancing_loss: 1.030807E+00 | loss scale: 1.0 | grad norm: 0.600 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:52:55] iteration      219/   10000 | consumed samples:        14016 | elapsed time per iteration (ms): 10453.3 | learning rate: 9.989824E-05 | global batch size:    64 | lm loss: 5.966789E+00 | load_balancing_loss: 1.032461E+00 | loss scale: 1.0 | grad norm: 0.624 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:53:06] iteration      220/   10000 | consumed samples:        14080 | elapsed time per iteration (ms): 10459.1 | learning rate: 9.989728E-05 | global batch size:    64 | lm loss: 5.951876E+00 | load_balancing_loss: 1.029592E+00 | loss scale: 1.0 | grad norm: 0.436 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:53:16] iteration      221/   10000 | consumed samples:        14144 | elapsed time per iteration (ms): 10485.9 | learning rate: 9.989633E-05 | global batch size:    64 | lm loss: 5.925457E+00 | load_balancing_loss: 1.040325E+00 | loss scale: 1.0 | grad norm: 0.503 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:53:27] iteration      222/   10000 | consumed samples:        14208 | elapsed time per iteration (ms): 10472.7 | learning rate: 9.989537E-05 | global batch size:    64 | lm loss: 5.949293E+00 | load_balancing_loss: 1.034983E+00 | loss scale: 1.0 | grad norm: 0.438 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:53:37] iteration      223/   10000 | consumed samples:        14272 | elapsed time per iteration (ms): 10417.3 | learning rate: 9.989440E-05 | global batch size:    64 | lm loss: 5.967253E+00 | load_balancing_loss: 1.025396E+00 | loss scale: 1.0 | grad norm: 0.393 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:53:48] iteration      224/   10000 | consumed samples:        14336 | elapsed time per iteration (ms): 10463.3 | learning rate: 9.989343E-05 | global batch size:    64 | lm loss: 5.925552E+00 | load_balancing_loss: 1.031004E+00 | loss scale: 1.0 | grad norm: 0.441 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:53:58] iteration      225/   10000 | consumed samples:        14400 | elapsed time per iteration (ms): 10441.4 | learning rate: 9.989246E-05 | global batch size:    64 | lm loss: 5.972076E+00 | load_balancing_loss: 1.028084E+00 | loss scale: 1.0 | grad norm: 0.516 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:54:09] iteration      226/   10000 | consumed samples:        14464 | elapsed time per iteration (ms): 10442.7 | learning rate: 9.989148E-05 | global batch size:    64 | lm loss: 5.906544E+00 | load_balancing_loss: 1.027940E+00 | loss scale: 1.0 | grad norm: 0.342 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:54:19] iteration      227/   10000 | consumed samples:        14528 | elapsed time per iteration (ms): 10477.5 | learning rate: 9.989049E-05 | global batch size:    64 | lm loss: 5.911190E+00 | load_balancing_loss: 1.027396E+00 | loss scale: 1.0 | grad norm: 0.378 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:54:29] iteration      228/   10000 | consumed samples:        14592 | elapsed time per iteration (ms): 10446.5 | learning rate: 9.988950E-05 | global batch size:    64 | lm loss: 5.834552E+00 | load_balancing_loss: 1.033040E+00 | loss scale: 1.0 | grad norm: 0.359 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:54:40] iteration      229/   10000 | consumed samples:        14656 | elapsed time per iteration (ms): 10511.3 | learning rate: 9.988851E-05 | global batch size:    64 | lm loss: 5.926013E+00 | load_balancing_loss: 1.032120E+00 | loss scale: 1.0 | grad norm: 0.423 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:54:51] iteration      230/   10000 | consumed samples:        14720 | elapsed time per iteration (ms): 10513.1 | learning rate: 9.988751E-05 | global batch size:    64 | lm loss: 5.905642E+00 | load_balancing_loss: 1.042214E+00 | loss scale: 1.0 | grad norm: 0.699 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:55:01] iteration      231/   10000 | consumed samples:        14784 | elapsed time per iteration (ms): 10608.5 | learning rate: 9.988651E-05 | global batch size:    64 | lm loss: 5.963555E+00 | load_balancing_loss: 1.054300E+00 | loss scale: 1.0 | grad norm: 0.752 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:55:12] iteration      232/   10000 | consumed samples:        14848 | elapsed time per iteration (ms): 10506.2 | learning rate: 9.988550E-05 | global batch size:    64 | lm loss: 5.952389E+00 | load_balancing_loss: 1.039494E+00 | loss scale: 1.0 | grad norm: 0.806 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:55:22] iteration      233/   10000 | consumed samples:        14912 | elapsed time per iteration (ms): 10494.5 | learning rate: 9.988449E-05 | global batch size:    64 | lm loss: 5.901947E+00 | load_balancing_loss: 1.033310E+00 | loss scale: 1.0 | grad norm: 0.437 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:55:33] iteration      234/   10000 | consumed samples:        14976 | elapsed time per iteration (ms): 10432.7 | learning rate: 9.988348E-05 | global batch size:    64 | lm loss: 5.871538E+00 | load_balancing_loss: 1.035104E+00 | loss scale: 1.0 | grad norm: 0.725 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:55:43] iteration      235/   10000 | consumed samples:        15040 | elapsed time per iteration (ms): 10471.7 | learning rate: 9.988246E-05 | global batch size:    64 | lm loss: 5.905112E+00 | load_balancing_loss: 1.038886E+00 | loss scale: 1.0 | grad norm: 0.499 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:55:54] iteration      236/   10000 | consumed samples:        15104 | elapsed time per iteration (ms): 10480.4 | learning rate: 9.988144E-05 | global batch size:    64 | lm loss: 5.918733E+00 | load_balancing_loss: 1.037007E+00 | loss scale: 1.0 | grad norm: 0.586 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:56:04] iteration      237/   10000 | consumed samples:        15168 | elapsed time per iteration (ms): 10515.3 | learning rate: 9.988041E-05 | global batch size:    64 | lm loss: 5.851727E+00 | load_balancing_loss: 1.040920E+00 | loss scale: 1.0 | grad norm: 0.701 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:56:15] iteration      238/   10000 | consumed samples:        15232 | elapsed time per iteration (ms): 10492.7 | learning rate: 9.987938E-05 | global batch size:    64 | lm loss: 5.869823E+00 | load_balancing_loss: 1.031518E+00 | loss scale: 1.0 | grad norm: 0.669 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:56:25] iteration      239/   10000 | consumed samples:        15296 | elapsed time per iteration (ms): 10515.3 | learning rate: 9.987834E-05 | global batch size:    64 | lm loss: 5.858912E+00 | load_balancing_loss: 1.036691E+00 | loss scale: 1.0 | grad norm: 0.573 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:56:36] iteration      240/   10000 | consumed samples:        15360 | elapsed time per iteration (ms): 10475.5 | learning rate: 9.987730E-05 | global batch size:    64 | lm loss: 5.823953E+00 | load_balancing_loss: 1.031067E+00 | loss scale: 1.0 | grad norm: 0.554 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:56:46] iteration      241/   10000 | consumed samples:        15424 | elapsed time per iteration (ms): 10527.4 | learning rate: 9.987625E-05 | global batch size:    64 | lm loss: 5.823979E+00 | load_balancing_loss: 1.034168E+00 | loss scale: 1.0 | grad norm: 0.569 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:56:57] iteration      242/   10000 | consumed samples:        15488 | elapsed time per iteration (ms): 10453.7 | learning rate: 9.987520E-05 | global batch size:    64 | lm loss: 5.840392E+00 | load_balancing_loss: 1.030212E+00 | loss scale: 1.0 | grad norm: 0.469 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:57:07] iteration      243/   10000 | consumed samples:        15552 | elapsed time per iteration (ms): 10430.6 | learning rate: 9.987415E-05 | global batch size:    64 | lm loss: 5.838523E+00 | load_balancing_loss: 1.032223E+00 | loss scale: 1.0 | grad norm: 0.402 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:57:17] iteration      244/   10000 | consumed samples:        15616 | elapsed time per iteration (ms): 10434.7 | learning rate: 9.987308E-05 | global batch size:    64 | lm loss: 5.830864E+00 | load_balancing_loss: 1.026186E+00 | loss scale: 1.0 | grad norm: 0.437 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:57:28] iteration      245/   10000 | consumed samples:        15680 | elapsed time per iteration (ms): 10452.8 | learning rate: 9.987202E-05 | global batch size:    64 | lm loss: 5.790104E+00 | load_balancing_loss: 1.028275E+00 | loss scale: 1.0 | grad norm: 0.452 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:57:38] iteration      246/   10000 | consumed samples:        15744 | elapsed time per iteration (ms): 10577.9 | learning rate: 9.987095E-05 | global batch size:    64 | lm loss: 5.765754E+00 | load_balancing_loss: 1.027195E+00 | loss scale: 1.0 | grad norm: 0.384 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:57:49] iteration      247/   10000 | consumed samples:        15808 | elapsed time per iteration (ms): 10454.0 | learning rate: 9.986988E-05 | global batch size:    64 | lm loss: 5.760450E+00 | load_balancing_loss: 1.027265E+00 | loss scale: 1.0 | grad norm: 0.373 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:57:59] iteration      248/   10000 | consumed samples:        15872 | elapsed time per iteration (ms): 10468.1 | learning rate: 9.986880E-05 | global batch size:    64 | lm loss: 5.827568E+00 | load_balancing_loss: 1.025604E+00 | loss scale: 1.0 | grad norm: 0.339 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:58:10] iteration      249/   10000 | consumed samples:        15936 | elapsed time per iteration (ms): 10447.7 | learning rate: 9.986772E-05 | global batch size:    64 | lm loss: 5.835257E+00 | load_balancing_loss: 1.026845E+00 | loss scale: 1.0 | grad norm: 0.458 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:58:20] iteration      250/   10000 | consumed samples:        16000 | elapsed time per iteration (ms): 10470.6 | learning rate: 9.986664E-05 | global batch size:    64 | lm loss: 5.719954E+00 | load_balancing_loss: 1.033591E+00 | loss scale: 1.0 | grad norm: 0.488 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:58:31] iteration      251/   10000 | consumed samples:        16064 | elapsed time per iteration (ms): 10483.3 | learning rate: 9.986555E-05 | global batch size:    64 | lm loss: 5.763765E+00 | load_balancing_loss: 1.025732E+00 | loss scale: 1.0 | grad norm: 0.444 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:58:41] iteration      252/   10000 | consumed samples:        16128 | elapsed time per iteration (ms): 10485.7 | learning rate: 9.986445E-05 | global batch size:    64 | lm loss: 5.816075E+00 | load_balancing_loss: 1.037345E+00 | loss scale: 1.0 | grad norm: 0.554 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:58:52] iteration      253/   10000 | consumed samples:        16192 | elapsed time per iteration (ms): 10498.1 | learning rate: 9.986335E-05 | global batch size:    64 | lm loss: 5.771130E+00 | load_balancing_loss: 1.041511E+00 | loss scale: 1.0 | grad norm: 0.728 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:59:02] iteration      254/   10000 | consumed samples:        16256 | elapsed time per iteration (ms): 10517.0 | learning rate: 9.986225E-05 | global batch size:    64 | lm loss: 5.784203E+00 | load_balancing_loss: 1.041355E+00 | loss scale: 1.0 | grad norm: 0.969 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:59:13] iteration      255/   10000 | consumed samples:        16320 | elapsed time per iteration (ms): 10488.4 | learning rate: 9.986114E-05 | global batch size:    64 | lm loss: 5.803347E+00 | load_balancing_loss: 1.040261E+00 | loss scale: 1.0 | grad norm: 0.809 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:59:23] iteration      256/   10000 | consumed samples:        16384 | elapsed time per iteration (ms): 10474.9 | learning rate: 9.986003E-05 | global batch size:    64 | lm loss: 5.722289E+00 | load_balancing_loss: 1.035013E+00 | loss scale: 1.0 | grad norm: 0.471 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:59:34] iteration      257/   10000 | consumed samples:        16448 | elapsed time per iteration (ms): 10452.2 | learning rate: 9.985891E-05 | global batch size:    64 | lm loss: 5.676116E+00 | load_balancing_loss: 1.027039E+00 | loss scale: 1.0 | grad norm: 0.539 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:59:44] iteration      258/   10000 | consumed samples:        16512 | elapsed time per iteration (ms): 10437.8 | learning rate: 9.985779E-05 | global batch size:    64 | lm loss: 5.755515E+00 | load_balancing_loss: 1.028743E+00 | loss scale: 1.0 | grad norm: 0.388 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 16:59:55] iteration      259/   10000 | consumed samples:        16576 | elapsed time per iteration (ms): 10445.6 | learning rate: 9.985666E-05 | global batch size:    64 | lm loss: 5.757093E+00 | load_balancing_loss: 1.029070E+00 | loss scale: 1.0 | grad norm: 0.497 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-05-27 17:00:05] iteration      260/   10000 | consumed samples:        16640 | elapsed time per iteration (ms): 10472.3 | learning rate: 9.985553E-05 | global batch size:    64 | lm loss: 5.701463E+00 | load_balancing_loss: 1.034604E+00 | loss scale: 1.0 | grad norm: 0.471 | number of skipped iterations:   0 | number of nan iterations:   0 |

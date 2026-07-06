@@ -1,0 +1,4 @@
+Source asset:
+- /Users/zds/bsr/log_analysis/figures/innovation1_hybrid_recovery.svg
+
+The deck is a direct one-slide vector conversion of the locally authored MoEGuard Hybrid Recovery SVG.

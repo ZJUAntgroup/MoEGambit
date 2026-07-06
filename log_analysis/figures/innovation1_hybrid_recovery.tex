@@ -1,0 +1,245 @@
+\definecolor{mgRed}{HTML}{E00008}
+\definecolor{mgBlue}{HTML}{1F65D6}
+\definecolor{mgBlueText}{HTML}{004AD5}
+\definecolor{mgGreen}{HTML}{2C8D2D}
+\definecolor{mgGreenText}{HTML}{147A12}
+\definecolor{mgPurple}{HTML}{6A3FB5}
+\definecolor{mgAmber}{HTML}{EEA320}
+\definecolor{mgRedFill}{HTML}{FFFAFA}
+\definecolor{mgBlueFill}{HTML}{F8FBFF}
+\definecolor{mgGreenFill}{HTML}{F8FFF7}
+\definecolor{mgAmberFill}{HTML}{FFFAF0}
+\definecolor{mgGray}{HTML}{7F8794}
+
+\tikzset{
+  panel red/.style={draw=mgRed, fill=mgRedFill, line width=1.4pt, rounded corners=11},
+  panel blue/.style={draw=mgBlue, fill=mgBlueFill, line width=1.4pt, rounded corners=11},
+  panel green/.style={draw=mgGreen, fill=mgGreenFill, line width=1.4pt, rounded corners=11},
+  healthy/.style={draw=mgBlue, fill=mgBlueFill, line width=1.2pt, rounded corners=7},
+  healthy green/.style={draw=mgGreen, fill=mgGreenFill, line width=1.2pt, rounded corners=7},
+  failed/.style={draw=mgRed, fill=mgRedFill, line width=1.3pt, rounded corners=7},
+  replacement/.style={draw=mgRed, fill=mgRedFill, line width=1.3pt, rounded corners=8, dash pattern=on 8pt off 7pt},
+  phase blue/.style={draw=mgBlue, fill=white, line width=1.2pt, rounded corners=10},
+  phase green/.style={draw=mgGreen, fill=mgGreenFill, line width=1.2pt, rounded corners=10},
+  blue arrow/.style={draw=mgBlue, line width=4pt, -{Latex[length=10pt,width=8pt]}},
+  purple arrow/.style={draw=mgPurple, line width=3.2pt, -{Latex[length=10pt,width=8pt]}},
+  title text/.style={font=\sffamily\bfseries\fontsize{38}{42}\selectfont, text=black},
+  panel title/.style={font=\sffamily\bfseries\fontsize{25}{29}\selectfont},
+  body/.style={font=\sffamily\fontsize{18}{22}\selectfont, text=black},
+  body bold/.style={font=\sffamily\bfseries\fontsize{18}{22}\selectfont, text=black},
+  small/.style={font=\sffamily\fontsize{16}{19}\selectfont, text=black},
+  small bold/.style={font=\sffamily\bfseries\fontsize{16}{19}\selectfont, text=black},
+  tiny bold/.style={font=\sffamily\bfseries\fontsize{14}{17}\selectfont},
+  worker text/.style={font=\sffamily\bfseries\fontsize{22}{25}\selectfont, text=black}
+}
+
+\newcommand{\servericon}[3]{%
+  \begin{scope}[shift={(#1,#2)}, scale=#3]
+    \draw[black, line width=1.8pt, rounded corners=1] (4,5) rectangle (32,13);
+    \draw[black, line width=1.8pt, rounded corners=1] (4,13) rectangle (32,21);
+    \draw[black, line width=1.8pt, rounded corners=1] (4,21) rectangle (32,29);
+    \draw[black, line width=1.8pt, line join=round] (8,5) -- (12,1) -- (24,1) -- (28,5);
+    \fill[black] (10,9) circle (1.1) (10,17) circle (1.1) (10,25) circle (1.1);
+    \draw[black, line width=1.5pt, line cap=round] (25,9) -- (29,9) (25,17) -- (29,17) (25,25) -- (29,25);
+  \end{scope}%
+}
+
+\newcommand{\warningicon}[2]{%
+  \begin{scope}[shift={(#1,#2)}]
+    \draw[mgRed, line width=4pt, line join=round, fill=white] (25,6) -- (46,43) -- (4,43) -- cycle;
+    \draw[mgRed, line width=4pt, line cap=round] (25,17) -- (25,31);
+    \fill[mgRed] (25,38) circle (2.5);
+  \end{scope}%
+}
+
+\newcommand{\crossicon}[4][mgRed]{%
+  \begin{scope}[shift={(#2,#3)}, scale=#4]
+    \draw[#1, line width=5pt, line cap=round] (12,12) -- (38,38) (38,12) -- (12,38);
+  \end{scope}%
+}
+
+\newcommand{\checkicon}[2]{%
+  \begin{scope}[shift={(#1,#2)}]
+    \draw[mgGreen, line width=4pt, fill=white] (29,29) circle (25);
+    \draw[mgGreen, line width=5pt, line cap=round, line join=round] (16,30) -- (25,39) -- (43,18);
+  \end{scope}%
+}
+
+\newcommand{\bulbicon}[2]{%
+  \begin{scope}[shift={(#1,#2)}]
+    \draw[black, line width=1.7pt, line cap=round] (25,5) -- (25,0) (12,10) -- (8,6) (38,10) -- (42,6) (6,23) -- (0,23) (50,23) -- (44,23);
+    \draw[black, line width=2pt, fill=white] (25,8) .. controls (16,8) and (10,15) .. (10,24) .. controls (10,30) and (13,34) .. (18,38) -- (32,38) .. controls (37,34) and (40,30) .. (40,24) .. controls (40,15) and (34,8) .. (25,8);
+    \draw[black, line width=2pt, line cap=round] (18,38) -- (32,38) (19,43) -- (31,43) (21,48) -- (29,48);
+  \end{scope}%
+}
+
+\newcommand{\workerbox}[4]{%
+  \begin{scope}[shift={(#1,#2)}]
+    \draw[#4] (0,0) rectangle (75,86);
+    \servericon{20}{13}{1}
+    \node[worker text] at (37.5,71) {$W_{#3}$};
+  \end{scope}%
+}
+
+\newcommand{\workerboxgreen}[3]{%
+  \begin{scope}[shift={(#1,#2)}]
+    \draw[healthy green] (0,0) rectangle (74,86);
+    \servericon{19}{13}{1}
+    \node[worker text] at (37,71) {$W_{#3}$};
+  \end{scope}%
+}
+
+\newcommand{\peerbox}[3]{%
+  \begin{scope}[shift={(#1,#2)}]
+    \draw[healthy green, rounded corners=8] (0,0) rectangle (102,108);
+    \node[worker text] at (51,26) {$W_{#3}$};
+    \servericon{33}{39}{1}
+    \node[small] at (51,91) {(Stage 2)};
+  \end{scope}%
+}
+
+\newcommand{\stagebadge}[5]{%
+  \shade[ball color=#4] (#1,#2) circle (21);
+  \node[font=\sffamily\bfseries\fontsize{26}{29}\selectfont, text=white] at (#1,#2+2) {#3};
+  \node[panel title, text=#4, anchor=west] at (#1+38,#2+5) {#5};
+}
+
+\begin{tikzpicture}[x=0.01cm, y=-0.01cm, line cap=round, line join=round]
+  \fill[white] (0,0) rectangle (1672,941);
+  \node[title text] at (836,40) {MoEGuard Hybrid Recovery};
+
+  % Stage 1
+  \draw[panel red] (19,74) rectangle (510,784);
+  \draw[mgRed, line width=1.2pt] (19,138) -- (510,138);
+  \stagebadge{179}{106}{1}{mgRed}{Failure Occurs}
+
+  \warningicon{115}{153}
+  \node[body, anchor=west] at (179,184) {Worker $W_{1,2}$ fails};
+  \foreach \x/\s in {160/0,260/1,360/2,460/3}
+    \node[small bold] at (\x,230) {Stage \s};
+  \node[body, anchor=west] at (31,300) {Pipeline 0};
+  \node[body, anchor=west] at (31,418) {Pipeline 1};
+  \node[body, anchor=west] at (31,536) {Pipeline 2};
+
+  \workerbox{122}{255}{0,0}{healthy}
+  \workerbox{222}{255}{0,1}{healthy}
+  \workerbox{322}{255}{0,2}{healthy}
+  \workerbox{422}{255}{0,3}{healthy}
+  \workerbox{122}{374}{1,0}{healthy}
+  \workerbox{222}{374}{1,1}{healthy}
+  \begin{scope}[shift={(322,374)}]
+    \draw[failed] (0,0) rectangle (75,86);
+    \crossicon{21}{13}{0.68}
+    \node[worker text] at (37.5,71) {$W_{1,2}$};
+  \end{scope}
+  \workerbox{422}{374}{1,3}{healthy}
+  \workerbox{122}{492}{2,0}{healthy}
+  \workerbox{222}{492}{2,1}{healthy}
+  \workerbox{322}{492}{2,2}{healthy}
+  \workerbox{422}{492}{2,3}{healthy}
+
+  \draw[blue arrow] (510,383) -- (546,383);
+
+  % Stage 2
+  \draw[panel blue] (532,74) rectangle (1137,784);
+  \draw[mgBlue, line width=1.2pt] (532,138) -- (1137,138);
+  \stagebadge{733}{106}{2}{mgBlue}{Hybrid Recovery}
+
+  \peerbox{562}{165}{0,2}
+  \peerbox{562}{449}{2,2}
+  \draw[blue arrow] (670,218) .. controls (706,221) and (736,245) .. (759,283);
+  \draw[blue arrow] (670,504) .. controls (706,501) and (737,477) .. (759,440);
+  \node[body bold, text=mgBlueText] at (815,217) {Dense / Router};
+  \node[body bold, text=mgBlueText] at (815,244) {+ Opt State};
+  \node[body bold, text=mgBlueText] at (816,504) {Dense / Router};
+  \node[body bold, text=mgBlueText] at (816,531) {+ Opt State};
+
+  \begin{scope}[shift={(720,300)}]
+    \draw[replacement] (0,0) rectangle (114,132);
+    \servericon{39}{17}{1}
+    \node[worker text] at (57,73) {$W_{1,2}$};
+    \node[small] at (57,98) {(Stage 2)};
+    \node[tiny bold, text=mgRed] at (57,124) {(replacement)};
+  \end{scope}
+
+  \draw[purple arrow] (980,359) -- (850,359);
+  \node[small bold, text=mgPurple] at (918,394) {Expert State};
+  \begin{scope}[shift={(990,302)}]
+    \draw[mgPurple, line width=1.5pt, fill=white] (0,18) .. controls (0,8) and (25,0) .. (57,0) .. controls (89,0) and (114,8) .. (114,18) .. controls (114,28) and (89,36) .. (57,36) .. controls (25,36) and (0,28) .. (0,18);
+    \draw[mgPurple, line width=1.5pt, fill=white] (0,18) -- (0,102) .. controls (0,112) and (25,120) .. (57,120) .. controls (89,120) and (114,112) .. (114,102) -- (114,18);
+    \draw[mgPurple, line width=1.5pt] (0,102) .. controls (0,112) and (25,120) .. (57,120) .. controls (89,120) and (114,112) .. (114,102);
+    \node[small] at (57,69) {Checkpoint};
+    \node[small] at (57,91) {(latest)};
+  \end{scope}
+
+  \begin{scope}[shift={(545,574)}]
+    \draw[panel blue, rounded corners=12] (0,0) rectangle (570,194);
+    \node[body bold, text=mgBlueText] at (285,30) {Two-Phase Recovery};
+    \draw[phase blue] (16,44) rectangle (271,183);
+    \node[small bold, text=mgBlueText] at (143.5,72) {Phase A: Weights First};
+    \servericon{34}{91}{0.94}
+    \node[small, anchor=west] at (82,105) {Dense / Router};
+    \node[small, anchor=west] at (82,125) {Weights};
+    \servericon{34}{140}{0.94}
+    \node[small, anchor=west] at (82,159) {Expert Weights};
+    \draw[blue arrow] (278,112) -- (310,112);
+    \draw[phase green] (320,44) rectangle (550,183);
+    \node[small bold, text=mgGreenText] at (435,84) {Phase B: Optimizer Later};
+    \servericon{340}{113}{0.94}
+    \node[small, anchor=west] at (387,136) {Optimizer States};
+  \end{scope}
+
+  \draw[blue arrow] (1135,383) -- (1171,383);
+
+  % Stage 3
+  \draw[panel green] (1159,74) rectangle (1652,784);
+  \draw[mgGreen, line width=1.2pt] (1159,138) -- (1652,138);
+  \stagebadge{1296}{106}{3}{mgGreen}{Rebuild \& Resume}
+  \foreach \x/\s in {1297/0,1395/1,1493/2,1591/3}
+    \node[small bold] at (\x,228) {Stage \s};
+  \node[body, anchor=west] at (1172,300) {Pipeline 0};
+  \node[body, anchor=west] at (1172,418) {Pipeline 1};
+  \node[body, anchor=west] at (1172,536) {Pipeline 2};
+
+  \workerboxgreen{1260}{255}{0,0}
+  \workerboxgreen{1358}{255}{0,1}
+  \workerboxgreen{1456}{255}{0,2}
+  \workerboxgreen{1554}{255}{0,3}
+  \workerboxgreen{1260}{374}{1,0}
+  \workerboxgreen{1358}{374}{1,1}
+  \workerboxgreen{1456}{374}{1,2}
+  \workerboxgreen{1554}{374}{1,3}
+  \workerboxgreen{1260}{492}{2,0}
+  \workerboxgreen{1358}{492}{2,1}
+  \workerboxgreen{1456}{492}{2,2}
+  \workerboxgreen{1554}{492}{2,3}
+
+  \checkicon{1255}{644}
+  \node[body bold, anchor=west] at (1330,671) {All workers healthy.};
+  \node[body bold, anchor=west] at (1330,700) {Training resumes.};
+
+  % Legend
+  \draw[draw=mgGray, fill=white, line width=1.1pt, rounded corners=8] (73,818) rectangle (1158,928);
+  \node[body bold, anchor=west] at (97,847) {Legend};
+  \draw[healthy, rounded corners=5] (96,864) rectangle (138,906);
+  \servericon{104}{870}{0.75}
+  \node[small, anchor=west] at (148,892) {Healthy};
+  \draw[failed, rounded corners=5] (266,864) rectangle (308,906);
+  \crossicon{274}{872}{0.52}
+  \node[small, anchor=west] at (318,892) {Failed};
+  \draw[replacement, rounded corners=5] (435,859) rectangle (485,909);
+  \servericon{447}{870}{0.75}
+  \node[small, anchor=west] at (497,892) {Replacement};
+  \draw[blue arrow] (651,876) -- (692,876);
+  \node[small, anchor=west] at (707,874) {Pull from Peers};
+  \node[small, anchor=west] at (707,900) {(Dense/Router + Opt State)};
+  \draw[purple arrow] (963,876) -- (1004,876);
+  \node[small, anchor=west] at (1018,874) {Restore from};
+  \node[small, anchor=west] at (1018,900) {Checkpoint};
+
+  % Example note
+  \draw[draw=mgAmber, fill=mgAmberFill, line width=1.2pt, rounded corners=7] (1227,828) rectangle (1574,912);
+  \bulbicon{1246}{846}
+  \node[body bold, anchor=west] at (1304,864) {Example: $W_{1,2}$ recovered};
+  \node[body bold, anchor=west] at (1304,893) {from $W_{0,2}$ and $W_{2,2}$.};
+\end{tikzpicture}
