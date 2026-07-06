@@ -891,7 +891,7 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
         )
         if name == "pipeline" and os.environ.get("ELASTIC_REBUILD_PIPELINE_P2P_WARMUP", "1") != "0":
             _elastic_warmup_pipeline_p2p(group, ranks, group_timeout)
-        elif allow_collective_warmup:
+        elif allow_collective_warmup or name in safe_collective_warmup_names:
             work = dist.all_reduce(warmup, group=group, async_op=True)
             _elastic_wait_distributed_works(
                 [work],
