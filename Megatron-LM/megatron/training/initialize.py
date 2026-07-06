@@ -52,6 +52,20 @@ def _elastic_report_phase_safely(phase, **extra):
         logger.warning("[elastic] failed to report recovery phase %s: %s", phase, exc)
 
 
+def _elastic_wait_phase_count_or_raise(phase, world_size, timeout):
+    if not _is_elastic_rebuild_mode():
+        return
+    try:
+        from megatron.training.elastic_client import elastic_wait_for_recovery_phase_count
+    except Exception as exc:
+        raise RuntimeError(f"[elastic] failed to import watcher phase wait for {phase}") from exc
+
+    if not elastic_wait_for_recovery_phase_count(phase, world_size, timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks reached {phase} within {timeout}s"
+        )
+
+
 def initialize_megatron(
     extra_args_provider=None,
     args_defaults={},
@@ -403,29 +417,44 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             print("model parallel is already initialized")
         else:
             _elastic_report_phase_safely("mpu_init_start")
-            mpu.initialize_model_parallel(
-                args.tensor_model_parallel_size,
-                args.pipeline_model_parallel_size,
-                args.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_comm_backend=args.pipeline_model_parallel_comm_backend,
-                use_sharp=args.use_sharp,
-                context_parallel_size=args.context_parallel_size,
-                hierarchical_context_parallel_sizes=args.hierarchical_context_parallel_sizes,
-                expert_model_parallel_size=args.expert_model_parallel_size,
-                num_distributed_optimizer_instances=args.num_distributed_optimizer_instances,
-                expert_tensor_parallel_size=args.expert_tensor_parallel_size,
-                distributed_timeout_minutes=args.distributed_timeout_minutes,
-                nccl_communicator_config_path=args.nccl_communicator_config_path,
-                order='tp-cp-ep-dp-pp' if not args.use_tp_pp_dp_mapping else 'tp-cp-ep-pp-dp',
-                get_embedding_ranks=get_embedding_ranks,
-                get_position_embedding_ranks=get_position_embedding_ranks,
-                create_gloo_process_groups=(
-                    False if _is_elastic_rebuild_mode() else args.enable_gloo_process_groups
-                ),
-                high_priority_stream_groups=args.high_priority_stream_groups,
-                sharp_enabled_group=args.sharp_enabled_group,
-            )
+            if _is_elastic_rebuild_mode():
+                phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
+                _elastic_wait_phase_count_or_raise(
+                    "mpu_init_start", args.world_size, phase_timeout
+                )
+            old_trace_mpu_groups = os.environ.get("ELASTIC_TRACE_MPU_GROUPS")
+            if _is_elastic_rebuild_mode() and old_trace_mpu_groups is None:
+                os.environ["ELASTIC_TRACE_MPU_GROUPS"] = "1"
+            try:
+                mpu.initialize_model_parallel(
+                    args.tensor_model_parallel_size,
+                    args.pipeline_model_parallel_size,
+                    args.virtual_pipeline_model_parallel_size,
+                    pipeline_model_parallel_comm_backend=args.pipeline_model_parallel_comm_backend,
+                    use_sharp=args.use_sharp,
+                    context_parallel_size=args.context_parallel_size,
+                    hierarchical_context_parallel_sizes=args.hierarchical_context_parallel_sizes,
+                    expert_model_parallel_size=args.expert_model_parallel_size,
+                    num_distributed_optimizer_instances=args.num_distributed_optimizer_instances,
+                    expert_tensor_parallel_size=args.expert_tensor_parallel_size,
+                    distributed_timeout_minutes=args.distributed_timeout_minutes,
+                    nccl_communicator_config_path=args.nccl_communicator_config_path,
+                    order='tp-cp-ep-dp-pp' if not args.use_tp_pp_dp_mapping else 'tp-cp-ep-pp-dp',
+                    get_embedding_ranks=get_embedding_ranks,
+                    get_position_embedding_ranks=get_position_embedding_ranks,
+                    create_gloo_process_groups=(
+                        False if _is_elastic_rebuild_mode() else args.enable_gloo_process_groups
+                    ),
+                    high_priority_stream_groups=args.high_priority_stream_groups,
+                    sharp_enabled_group=args.sharp_enabled_group,
+                )
+            finally:
+                if _is_elastic_rebuild_mode() and old_trace_mpu_groups is None:
+                    os.environ.pop("ELASTIC_TRACE_MPU_GROUPS", None)
+            _elastic_report_phase_safely("mpu_init_done")
             _elastic_report_phase_safely("mpu_ready")
+            if _is_elastic_rebuild_mode():
+                _elastic_wait_phase_count_or_raise("mpu_ready", args.world_size, phase_timeout)
             if args.rank == 0:
                 print(
                     f"> initialized tensor model parallel with size "

@@ -211,6 +211,7 @@ def create_group(
     group_desc=None,
 ):
     """Creates a ProcessGroup."""
+    _elastic_trace_mpu_group("mpu_group_start", ranks, timeout, backend, group_desc)
     kwargs = {
         "ranks": ranks,
         "timeout": timeout,
@@ -230,13 +231,78 @@ def create_group(
             # type error.
             kwargs.pop("timeout")
     group = torch.distributed.new_group(**kwargs)
+    _elastic_trace_mpu_group("mpu_group_done", ranks, timeout, backend, group_desc)
     global _global_process_group_list
     if _global_process_group_list is None:
         # None stands for the default process group
         _global_process_group_list = [None]
-    if torch.distributed.get_rank() in ranks:
+    if ranks is None or torch.distributed.get_rank() in ranks:
         _global_process_group_list.append(group)
     return group
+
+
+def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc):
+    """Trace rebuild-time Megatron subgroup creation without perturbing normal runs."""
+    if os.environ.get("ELASTIC_TRACE_MPU_GROUPS", "0").lower() not in ("1", "true", "yes", "on"):
+        return
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        return
+
+    try:
+        rank = torch.distributed.get_rank()
+        world_size = torch.distributed.get_world_size()
+    except Exception:
+        return
+
+    ranks_list = None if ranks is None else [int(r) for r in ranks]
+    in_group = ranks_list is None or rank in ranks_list
+    if not in_group:
+        return
+
+    representative_rank = 0 if ranks_list is None else min(ranks_list)
+    verbose = os.environ.get("ELASTIC_TRACE_MPU_GROUPS_VERBOSE", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if verbose or rank == representative_rank:
+        logger.warning(
+            "[elastic] Rank %d: %s desc=%s backend=%s group_size=%d ranks=%s",
+            rank,
+            phase,
+            group_desc,
+            backend,
+            world_size if ranks_list is None else len(ranks_list),
+            "ALL" if ranks_list is None else ranks_list,
+        )
+
+    # Report only one representative per group to avoid flooding the watcher.
+    if rank != representative_rank:
+        return
+
+    try:
+        from megatron.training.elastic_client import elastic_report_recovery_phase
+
+        group_size = world_size if ranks_list is None else len(ranks_list)
+        extra = {
+            "group_desc": str(group_desc),
+            "group_backend": "default" if backend is None else str(backend),
+            "group_size": group_size,
+            "group_representative_rank": representative_rank,
+        }
+        if timeout is not None:
+            extra["group_timeout_seconds"] = float(timeout.total_seconds())
+        if ranks_list is None:
+            extra["group_ranks"] = "ALL"
+        elif len(ranks_list) <= 16:
+            extra["group_ranks"] = ranks_list
+        else:
+            extra["group_first_rank"] = ranks_list[0]
+            extra["group_last_rank"] = ranks_list[-1]
+        elastic_report_recovery_phase(phase, **extra)
+    except Exception as exc:
+        logger.debug("[elastic] failed to trace mpu group %s desc=%s: %s", phase, group_desc, exc)
 
 
 def generate_masked_orthogonal_rank_groups(

@@ -1172,6 +1172,13 @@ def _elastic_rebuild_timeout_minutes(args):
     return int(_elastic_rebuild_timeout(args).total_seconds() // 60)
 
 
+def _elastic_rebuild_subgroup_timeout_minutes(args):
+    timeout_minutes = getattr(args, "distributed_timeout_minutes", None)
+    if timeout_minutes is None:
+        timeout_minutes = _elastic_rebuild_timeout_minutes(args)
+    return int(timeout_minutes)
+
+
 def _elastic_destroy_stale_model_parallel_groups(mpu):
     """Abort old Megatron subgroups before in-process rebuild creates new ones."""
     if not dist.is_available() or not dist.is_initialized():
@@ -1229,34 +1236,47 @@ def _elastic_destroy_stale_model_parallel_groups(mpu):
 
 
 def _initialize_model_parallel_for_rebuild(mpu, args):
-    mpu.initialize_model_parallel(
-        tensor_model_parallel_size=args.tensor_model_parallel_size,
-        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
-        virtual_pipeline_model_parallel_size=getattr(
-            args, "virtual_pipeline_model_parallel_size", None
-        ),
-        pipeline_model_parallel_comm_backend=getattr(
-            args, "pipeline_model_parallel_comm_backend", None
-        ),
-        use_sharp=getattr(args, "use_sharp", False),
-        context_parallel_size=getattr(args, "context_parallel_size", 1),
-        hierarchical_context_parallel_sizes=getattr(
-            args, "hierarchical_context_parallel_sizes", None
-        ),
-        expert_model_parallel_size=getattr(args, "expert_model_parallel_size", 1),
-        num_distributed_optimizer_instances=getattr(
-            args, "num_distributed_optimizer_instances", 1
-        ),
-        expert_tensor_parallel_size=getattr(args, "expert_tensor_parallel_size", None),
-        distributed_timeout_minutes=_elastic_rebuild_timeout_minutes(args),
-        nccl_communicator_config_path=getattr(args, "nccl_communicator_config_path", None),
-        order="tp-cp-ep-dp-pp"
-        if not getattr(args, "use_tp_pp_dp_mapping", False)
-        else "tp-cp-ep-pp-dp",
-        create_gloo_process_groups=False,
-        high_priority_stream_groups=getattr(args, "high_priority_stream_groups", None),
-        sharp_enabled_group=getattr(args, "sharp_enabled_group", None),
+    subgroup_timeout_minutes = _elastic_rebuild_subgroup_timeout_minutes(args)
+    logger.warning(
+        "[elastic] Rank %d: rebuilding Megatron subgroups with timeout=%d minutes",
+        dist.get_rank() if dist.is_initialized() else -1,
+        subgroup_timeout_minutes,
     )
+    old_trace_mpu_groups = os.environ.get("ELASTIC_TRACE_MPU_GROUPS")
+    if old_trace_mpu_groups is None:
+        os.environ["ELASTIC_TRACE_MPU_GROUPS"] = "1"
+    try:
+        mpu.initialize_model_parallel(
+            tensor_model_parallel_size=args.tensor_model_parallel_size,
+            pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+            virtual_pipeline_model_parallel_size=getattr(
+                args, "virtual_pipeline_model_parallel_size", None
+            ),
+            pipeline_model_parallel_comm_backend=getattr(
+                args, "pipeline_model_parallel_comm_backend", None
+            ),
+            use_sharp=getattr(args, "use_sharp", False),
+            context_parallel_size=getattr(args, "context_parallel_size", 1),
+            hierarchical_context_parallel_sizes=getattr(
+                args, "hierarchical_context_parallel_sizes", None
+            ),
+            expert_model_parallel_size=getattr(args, "expert_model_parallel_size", 1),
+            num_distributed_optimizer_instances=getattr(
+                args, "num_distributed_optimizer_instances", 1
+            ),
+            expert_tensor_parallel_size=getattr(args, "expert_tensor_parallel_size", None),
+            distributed_timeout_minutes=subgroup_timeout_minutes,
+            nccl_communicator_config_path=getattr(args, "nccl_communicator_config_path", None),
+            order="tp-cp-ep-dp-pp"
+            if not getattr(args, "use_tp_pp_dp_mapping", False)
+            else "tp-cp-ep-pp-dp",
+            create_gloo_process_groups=False,
+            high_priority_stream_groups=getattr(args, "high_priority_stream_groups", None),
+            sharp_enabled_group=getattr(args, "sharp_enabled_group", None),
+        )
+    finally:
+        if old_trace_mpu_groups is None:
+            os.environ.pop("ELASTIC_TRACE_MPU_GROUPS", None)
 
 
 def _elastic_safe_get_group(name, getter):
@@ -2096,13 +2116,31 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     # Step 3: Re-initialize model parallel groups
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")
+    phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
     elastic_report_recovery_phase("mpu_init_start")
+    logger.warning(
+        "[elastic] Rank %d: waiting for %d ranks to reach mpu_init_start",
+        rank,
+        world_size,
+    )
+    if not elastic_wait_for_recovery_phase_count("mpu_init_start", world_size, phase_timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks reached mpu_init_start within {phase_timeout}s"
+        )
     _initialize_model_parallel_for_rebuild(mpu, args)
     elastic_report_recovery_phase("mpu_init_done")
     elastic_report_recovery_phase("rebind_start")
     _elastic_rebind_model_process_groups(model, optimizer)
     elastic_report_recovery_phase("mpu_ready")
-    phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
+    logger.warning(
+        "[elastic] Rank %d: waiting for %d ranks to reach mpu_ready before param sync",
+        rank,
+        world_size,
+    )
+    if not elastic_wait_for_recovery_phase_count("mpu_ready", world_size, phase_timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks reached mpu_ready within {phase_timeout}s"
+        )
     if killed_global_rank >= 0:
         logger.warning(
             "[elastic] Rank %d: waiting for replacement rank %d model_optimizer_ready",

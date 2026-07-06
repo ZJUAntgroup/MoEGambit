@@ -54,6 +54,8 @@ _PHASE_ORDER = {
     "init_pg_start": 10,
     "pg_ready": 20,
     "mpu_init_start": 30,
+    "mpu_group_start": 32,
+    "mpu_group_done": 32,
     "mpu_init_done": 35,
     "rebind_start": 37,
     "mpu_ready": 40,
@@ -302,12 +304,26 @@ class ElasticWatcher:
                         role, rank, node_rank, step, phase, prev_phase,
                     )
                 else:
+                    extra = {
+                        k: v
+                        for k, v in msg.items()
+                        if k
+                        not in (
+                            "type",
+                            "node_rank",
+                            "rank",
+                            "role",
+                            "phase",
+                            "step",
+                        )
+                    }
                     self.recovery_phases[key] = {
                         "phase": phase,
                         "step": step,
                         "timestamp": time.time(),
                         "node_rank": node_rank,
                         "role": role,
+                        "extra": extra,
                     }
                 if role == "replacement" and phase in ("init_pg_start", "pg_ready"):
                     self.replacement_ready_event.set()
@@ -325,10 +341,17 @@ class ElasticWatcher:
                     self.rebuild_ready_phases = {}
                     log.info("All training ranks reached train_ready; recovery complete")
                 self.phase_cv.notify_all()
-            log.info(
-                "Recovery phase: role=%s rank=%s node=%s step=%s phase=%s",
-                role, rank, node_rank, step, phase,
-            )
+            extra_text = self._format_recovery_phase_extra(msg)
+            if extra_text:
+                log.info(
+                    "Recovery phase: role=%s rank=%s node=%s step=%s phase=%s %s",
+                    role, rank, node_rank, step, phase, extra_text,
+                )
+            else:
+                log.info(
+                    "Recovery phase: role=%s rank=%s node=%s step=%s phase=%s",
+                    role, rank, node_rank, step, phase,
+                )
             return node_rank
 
         elif msg_type == "wait_phase":
@@ -500,6 +523,7 @@ class ElasticWatcher:
                         "node": state.get("node_rank"),
                         "phase": state.get("phase"),
                         "step": state.get("step"),
+                        "extra": state.get("extra"),
                     }
                 )
         return missing, pending, unreported
@@ -661,13 +685,45 @@ class ElasticWatcher:
         log.warning("Recovery phase summary (%s):", reason)
         for key in sorted(phases):
             item = phases[key]
-            log.warning(
-                "  %s node=%s step=%s phase=%s",
-                key,
-                item.get("node_rank"),
-                item.get("step"),
-                item.get("phase"),
-            )
+            extra_text = self._format_recovery_phase_extra(item.get("extra") or {})
+            if extra_text:
+                log.warning(
+                    "  %s node=%s step=%s phase=%s %s",
+                    key,
+                    item.get("node_rank"),
+                    item.get("step"),
+                    item.get("phase"),
+                    extra_text,
+                )
+            else:
+                log.warning(
+                    "  %s node=%s step=%s phase=%s",
+                    key,
+                    item.get("node_rank"),
+                    item.get("step"),
+                    item.get("phase"),
+                )
+
+    @staticmethod
+    def _format_recovery_phase_extra(data):
+        if not data:
+            return ""
+        keys = (
+            "group_desc",
+            "group_backend",
+            "group_size",
+            "group_ranks",
+            "group_first_rank",
+            "group_last_rank",
+            "group_representative_rank",
+            "group_timeout_seconds",
+            "replacement_rank",
+        )
+        parts = []
+        for key in keys:
+            if key in data and data.get(key) is not None:
+                parts.append(f"{key}={data.get(key)}")
+        return " ".join(parts)
 
     @staticmethod
     def _coerce_step(value, default=-1):
