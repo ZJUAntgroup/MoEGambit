@@ -378,10 +378,7 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             'rank': args.rank,
             'timeout': timedelta(minutes=args.distributed_timeout_minutes),
         }
-        use_init_pg_device_id = (
-            _is_elastic_rebuild_mode()
-            or os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "0") == "1"
-        )
+        use_init_pg_device_id = os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "0") == "1"
         if device_id is not None and args.distributed_backend == "nccl" and use_init_pg_device_id:
             try:
                 if "device_id" in signature(torch.distributed.init_process_group).parameters:
