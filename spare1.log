@@ -939,3 +939,923 @@ WARNING:megatron.training.elastic_client:[elastic] Rank 59: all ranks aligned be
 WARNING:megatron.training.elastic_client:[elastic] Rank 59: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
 WARNING:megatron.training.elastic_client:[elastic] Rank 56: all ranks aligned before first post-rebuild train step (iteration=18)
 WARNING:megatron.training.elastic_client:[elastic] Rank 56: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
+[rank59]:[W707 19:14:22.624696481 socket.cpp:464] [c10d] waitForInput: poll for socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41370, remote=[::ffff:33.181.97.148]:20117) returned 0, likely a timeout
+[rank59]:[W707 19:14:22.626418936 socket.cpp:489] [c10d] waitForInput: socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41370, remote=[::ffff:33.181.97.148]:20117) timed out after 1800000ms
+[rank57]:[W707 19:14:22.634575401 socket.cpp:464] [c10d] waitForInput: poll for socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41344, remote=[::ffff:33.181.97.148]:20117) returned 0, likely a timeout
+[rank57]:[W707 19:14:22.636005079 socket.cpp:489] [c10d] waitForInput: socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41344, remote=[::ffff:33.181.97.148]:20117) timed out after 1800000ms
+[rank61]:[W707 19:14:22.647641545 socket.cpp:464] [c10d] waitForInput: poll for socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41356, remote=[::ffff:33.181.97.148]:20117) returned 0, likely a timeout
+[rank61]:[W707 19:14:22.648177701 socket.cpp:489] [c10d] waitForInput: socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41356, remote=[::ffff:33.181.97.148]:20117) timed out after 1800000ms
+ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//156//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f88640f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f884fd66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f88543a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f88543a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f881acf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f881ad029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f881ad210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f885433d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f885434dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f8853a16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f885435914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f885435db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f886392cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f886302d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f886cd161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2646, in train
+    ) = train_step(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1474, in train_step
+    losses_reduced = forward_backward_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2162, in forward_backward_pipelining_without_interleaving
+    input_tensor = p2p_communicator.recv_forward(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 419, in recv_forward
+    input_tensor, _, _ = self._communicate(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 376, in _communicate
+    p2p_reqs = p2p_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 48, in _batched_p2p_ops
+    reqs = torch.distributed.batch_isend_irecv(ops)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2663, in batch_isend_irecv
+    p2p_op.op(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2420, in irecv
+    return group.recv([tensor], group_src, tag)
+torch.distributed.DistBackendError: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//156//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f88640f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f884fd66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f88543a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f88543a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f881acf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f881ad029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f881ad210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f885433d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f885434dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f8853a16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f885435914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f885435db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f886392cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f886302d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f886cd161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+
+ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//162//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f247837d788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f2465566d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f2469ba0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f2469ba189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f24304f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f24305029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f24305210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f2469b3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f2469b4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f2469216d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f2469b5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f2469b5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f247912cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f247882d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f248245c1b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2646, in train
+    ) = train_step(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1474, in train_step
+    losses_reduced = forward_backward_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2162, in forward_backward_pipelining_without_interleaving
+    input_tensor = p2p_communicator.recv_forward(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 419, in recv_forward
+    input_tensor, _, _ = self._communicate(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 376, in _communicate
+    p2p_reqs = p2p_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 48, in _batched_p2p_ops
+    reqs = torch.distributed.batch_isend_irecv(ops)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2663, in batch_isend_irecv
+    p2p_op.op(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2420, in irecv
+    return group.recv([tensor], group_src, tag)
+torch.distributed.DistBackendError: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//162//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f247837d788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f2465566d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f2469ba0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f2469ba189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f24304f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f24305029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f24305210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f2469b3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f2469b4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f2469216d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f2469b5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f2469b5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f247912cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f247882d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f248245c1b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+
+ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//168//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f997d2f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f9968f66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f996d5a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f996d5a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f9933ef517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f9933f029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f9933f210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f996d53d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f996d54dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f996cc16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f996d55914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f996d55db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f997cb2cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f997c22d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f9985f161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2646, in train
+    ) = train_step(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1474, in train_step
+    losses_reduced = forward_backward_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2162, in forward_backward_pipelining_without_interleaving
+    input_tensor = p2p_communicator.recv_forward(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 419, in recv_forward
+    input_tensor, _, _ = self._communicate(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 376, in _communicate
+    p2p_reqs = p2p_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 48, in _batched_p2p_ops
+    reqs = torch.distributed.batch_isend_irecv(ops)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2663, in batch_isend_irecv
+    p2p_op.op(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2420, in irecv
+    return group.recv([tensor], group_src, tag)
+torch.distributed.DistBackendError: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//168//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f997d2f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f9968f66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f996d5a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f996d5a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f9933ef517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f9933f029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f9933f210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f996d53d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f996d54dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f996cc16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f996d55914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f996d55db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f997cb2cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f997c22d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f9985f161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+
+ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//156//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f88640f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f884fd66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f88543a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f88543a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f885434fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f881acf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f881ad029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f881ad210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f885433d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f885434dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f8853a16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f885435914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f885435db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f886392cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f886302d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f886cd161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//162//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f247837d788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f2465566d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f2469ba0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f2469ba189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2469b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f24304f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f24305029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f24305210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f2469b3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f2469b4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f2469216d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f2469b5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f2469b5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f247912cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f247882d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f248245c1b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//168//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f997d2f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f9968f66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f996d5a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f996d5a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f996d54fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f9933ef517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f9933f029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f9933f210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f996d53d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f996d54dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f996cc16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f996d55914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f996d55db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f997cb2cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f997c22d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f9985f161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+WARNING:megatron.training.elastic_client:[elastic] Rank 59: entering rebuild sequence
+WARNING:megatron.training.elastic_client:[elastic] Rank 57: entering rebuild sequence
+INFO:megatron.training.elastic_client:[elastic] Rank 59: destroying process groups (stop watchdog)
+INFO:megatron.training.elastic_client:[elastic] Rank 57: destroying process groups (stop watchdog)
+WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+WARNING:megatron.training.elastic_client:[elastic] Rank 61: entering rebuild sequence
+INFO:megatron.training.elastic_client:[elastic] Rank 61: destroying process groups (stop watchdog)
+WARNING:megatron.training.elastic_client:[elastic] Rank 57: destroyed stale model-parallel subgroups before rebuild (destroyed=16, skipped=0)
+WARNING:megatron.training.elastic_client:[elastic] Rank 61: destroyed stale model-parallel subgroups before rebuild (destroyed=16, skipped=0)
+WARNING:megatron.training.elastic_client:[elastic] Rank 59: destroyed stale model-parallel subgroups before rebuild (destroyed=16, skipped=0)
+[rank60]:[W707 19:14:22.685362441 socket.cpp:464] [c10d] waitForInput: poll for socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41386, remote=[::ffff:33.181.97.148]:20117) returned 0, likely a timeout
+[rank60]:[W707 19:14:22.686580878 socket.cpp:489] [c10d] waitForInput: socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41386, remote=[::ffff:33.181.97.148]:20117) timed out after 1800000ms
+ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//165//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f93f7e41788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f93e3b66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f93e81a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f93e81a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f93aeaf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f93aeb029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f93aeb210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f93e813d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f93e814dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f93e7816d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f93e815914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f93e815db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f93f772cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f93f6e2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f94009161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2646, in train
+    ) = train_step(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1474, in train_step
+    losses_reduced = forward_backward_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2162, in forward_backward_pipelining_without_interleaving
+    input_tensor = p2p_communicator.recv_forward(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 419, in recv_forward
+    input_tensor, _, _ = self._communicate(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 376, in _communicate
+    p2p_reqs = p2p_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 48, in _batched_p2p_ops
+    reqs = torch.distributed.batch_isend_irecv(ops)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2663, in batch_isend_irecv
+    p2p_op.op(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2420, in irecv
+    return group.recv([tensor], group_src, tag)
+torch.distributed.DistBackendError: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//165//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f93f7e41788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f93e3b66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f93e81a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f93e81a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f93aeaf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f93aeb029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f93aeb210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f93e813d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f93e814dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f93e7816d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f93e815914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f93e815db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f93f772cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f93f6e2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f94009161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+
+ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//165//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f93f7e41788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f93e3b66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f93e81a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f93e81a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f93e814fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f93aeaf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f93aeb029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f93aeb210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f93e813d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f93e814dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f93e7816d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f93e815914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f93e815db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f93f772cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f93f6e2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f94009161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+WARNING:megatron.training.elastic_client:[elastic] Rank 60: entering rebuild sequence
+INFO:megatron.training.elastic_client:[elastic] Rank 60: destroying process groups (stop watchdog)
+WARNING:megatron.training.elastic_client:[elastic] Rank 60: destroyed stale model-parallel subgroups before rebuild (destroyed=16, skipped=0)
+[rank63]:[W707 19:14:22.700029040 socket.cpp:464] [c10d] waitForInput: poll for socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41364, remote=[::ffff:33.181.97.148]:20117) returned 0, likely a timeout
+[rank63]:[W707 19:14:22.700491032 socket.cpp:489] [c10d] waitForInput: socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41364, remote=[::ffff:33.181.97.148]:20117) timed out after 1800000ms
+[rank62]:[W707 19:14:22.708528243 socket.cpp:464] [c10d] waitForInput: poll for socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41394, remote=[::ffff:33.181.97.148]:20117) returned 0, likely a timeout
+[rank58]:[W707 19:14:22.708744285 socket.cpp:464] [c10d] waitForInput: poll for socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41332, remote=[::ffff:33.181.97.148]:20117) returned 0, likely a timeout
+[rank62]:[W707 19:14:22.708989953 socket.cpp:489] [c10d] waitForInput: socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41394, remote=[::ffff:33.181.97.148]:20117) timed out after 1800000ms
+[rank58]:[W707 19:14:22.709143468 socket.cpp:489] [c10d] waitForInput: socket SocketImpl(fd=108, addr=[::ffff:33.181.99.149]:41332, remote=[::ffff:33.181.97.148]:20117) timed out after 1800000ms
+[rank56]:[W707 19:14:22.709865058 socket.cpp:464] [c10d] waitForInput: poll for socket SocketImpl(fd=88, addr=[::ffff:33.181.99.149]:41316, remote=[::ffff:33.181.97.148]:20117) returned 0, likely a timeout
+[rank56]:[W707 19:14:22.710304147 socket.cpp:489] [c10d] waitForInput: socket SocketImpl(fd=88, addr=[::ffff:33.181.99.149]:41316, remote=[::ffff:33.181.97.148]:20117) timed out after 1800000ms
+ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//174//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f85014f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f84ed166d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f84f17a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f84f17a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f84b80f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f84b81029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f84b81210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f84f173d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f84f174dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f84f0e16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f84f175914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f84f175db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f8500d2cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f850042d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f850a1161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2646, in train
+    ) = train_step(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1474, in train_step
+    losses_reduced = forward_backward_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2162, in forward_backward_pipelining_without_interleaving
+    input_tensor = p2p_communicator.recv_forward(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 419, in recv_forward
+    input_tensor, _, _ = self._communicate(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 376, in _communicate
+    p2p_reqs = p2p_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 48, in _batched_p2p_ops
+    reqs = torch.distributed.batch_isend_irecv(ops)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2663, in batch_isend_irecv
+    p2p_op.op(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2420, in irecv
+    return group.recv([tensor], group_src, tag)
+torch.distributed.DistBackendError: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//174//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f85014f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f84ed166d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f84f17a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f84f17a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f84b80f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f84b81029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f84b81210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f84f173d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f84f174dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f84f0e16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f84f175914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f84f175db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f8500d2cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f850042d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f850a1161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+
+ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//174//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f85014f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f84ed166d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f84f17a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f84f17a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f84f174fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f84b80f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f84b81029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f84b81210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f84f173d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f84f174dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f84f0e16d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f84f175914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f84f175db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f8500d2cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f850042d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f850a1161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+WARNING:megatron.training.elastic_client:[elastic] Rank 63: entering rebuild sequence
+INFO:megatron.training.elastic_client:[elastic] Rank 63: destroying process groups (stop watchdog)
+WARNING:megatron.training.elastic_client:[elastic] Rank 63: destroyed stale model-parallel subgroups before rebuild (destroyed=16, skipped=0)
+ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//171//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f5158ef2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f5144b66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f51491a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f51491a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f510faf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f510fb029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f510fb210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f514913d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f514914dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f5148816d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f514915914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f514915db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f515872cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f5157e2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f5161b161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2646, in train
+    ) = train_step(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1474, in train_step
+    losses_reduced = forward_backward_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2162, in forward_backward_pipelining_without_interleaving
+    input_tensor = p2p_communicator.recv_forward(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 419, in recv_forward
+    input_tensor, _, _ = self._communicate(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 376, in _communicate
+    p2p_reqs = p2p_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 48, in _batched_p2p_ops
+    reqs = torch.distributed.batch_isend_irecv(ops)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2663, in batch_isend_irecv
+    p2p_op.op(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2420, in irecv
+    return group.recv([tensor], group_src, tag)
+torch.distributed.DistBackendError: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//171//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f5158ef2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f5144b66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f51491a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f51491a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f510faf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f510fb029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f510fb210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f514913d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f514914dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f5148816d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f514915914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f514915db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f515872cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f5157e2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f5161b161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+
+ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//171//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f5158ef2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f5144b66d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f51491a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f51491a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f514914fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f510faf517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f510fb029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f510fb210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f514913d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f514914dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f5148816d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f514915914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f514915db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f515872cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f5157e2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f5161b161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//159//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f4fdec41788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f4fca966d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f4fcefa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f4fcefa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f4f958f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f4f959029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f4f959210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f4fcef3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f4fcef4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f4fce616d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f4fcef5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f4fcef5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f4fde52cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f4fddc2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f4fe77161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2646, in train
+    ) = train_step(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1474, in train_step
+    losses_reduced = forward_backward_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2162, in forward_backward_pipelining_without_interleaving
+    input_tensor = p2p_communicator.recv_forward(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 419, in recv_forward
+    input_tensor, _, _ = self._communicate(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 376, in _communicate
+    p2p_reqs = p2p_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 48, in _batched_p2p_ops
+    reqs = torch.distributed.batch_isend_irecv(ops)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2663, in batch_isend_irecv
+    p2p_op.op(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2420, in irecv
+    return group.recv([tensor], group_src, tag)
+torch.distributed.DistBackendError: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//159//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f4fdec41788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f4fca966d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f4fcefa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f4fcefa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f4f958f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f4f959029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f4f959210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f4fcef3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f4fcef4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f4fce616d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f4fcef5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f4fcef5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f4fde52cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f4fddc2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f4fe77161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+
+INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+WARNING:megatron.training.elastic_client:[elastic] Rank 62: entering rebuild sequence
+INFO:megatron.training.elastic_client:[elastic] Rank 62: destroying process groups (stop watchdog)
+ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//159//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f4fdec41788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7f4fca966d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f4fcefa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f4fcefa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f4fcef4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f4f958f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f4f959029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7f4f959210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7f4fcef3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7f4fcef4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7f4fce616d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7f4fcef5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7f4fcef5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7f4fde52cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7f4fddc2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7f4fe77161b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+ERROR:megatron.training.training:BSR-MoE: caught communication error in train_step at iteration 18: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7fc1f6841788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7fc1e2566d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7fc1e6ba0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7fc1e6ba189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7fc1ad4f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7fc1ad5029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7fc1ad5210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7fc1e6b3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7fc1e6b4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7fc1e6216d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7fc1e6b5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7fc1e6b5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7fc1f612cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7fc1f582d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7fc1ff45c1b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 2646, in train
+    ) = train_step(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 1474, in train_step
+    losses_reduced = forward_backward_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 2162, in forward_backward_pipelining_without_interleaving
+    input_tensor = p2p_communicator.recv_forward(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 419, in recv_forward
+    input_tensor, _, _ = self._communicate(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 376, in _communicate
+    p2p_reqs = p2p_func(
+  File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/pipeline_parallel/p2p_communication.py", line 48, in _batched_p2p_ops
+    reqs = torch.distributed.batch_isend_irecv(ops)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2663, in batch_isend_irecv
+    p2p_op.op(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 2420, in irecv
+    return group.recv([tensor], group_src, tag)
+torch.distributed.DistBackendError: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7fc1f6841788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7fc1e2566d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7fc1e6ba0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7fc1e6ba189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7fc1ad4f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7fc1ad5029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7fc1ad5210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7fc1e6b3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7fc1e6b4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7fc1e6216d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7fc1e6b5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7fc1e6b5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7fc1f612cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7fc1f582d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7fc1ff45c1b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+
+INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+WARNING:megatron.training.elastic_client:[elastic] Rank 58: entering rebuild sequence
+INFO:megatron.training.elastic_client:[elastic] Rank 58: destroying process groups (stop watchdog)
+ERROR:megatron.training.elastic_client:[elastic] NCCL error detected: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Exception raised from doWait at /pytorch/torch/csrc/distributed/c10d/TCPStore.cpp:572 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7fc1f6841788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x1366d6c (0x7fc1e2566d6c in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7fc1e6ba0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7fc1e6ba189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7fc1e6b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7fc1ad4f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #8: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7fc1ad5029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #9: c10d::ProcessGroupNCCL::recv(std::vector<at::Tensor, std::allocator<at::Tensor> >&, int, int) + 0x1957 (0x7fc1ad5210e7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+frame #10: <unknown function> + 0x593d445 (0x7fc1e6b3d445 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #11: <unknown function> + 0x594dd7a (0x7fc1e6b4dd7a in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #12: <unknown function> + 0x5016d7b (0x7fc1e6216d7b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #13: <unknown function> + 0x595914e (0x7fc1e6b5914e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #14: <unknown function> + 0x595db7d (0x7fc1e6b5db7d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+frame #15: <unknown function> + 0xd2cdb3 (0x7fc1f612cdb3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #16: <unknown function> + 0x42d55e (0x7fc1f582d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+frame #17: python3() [0x4fdcf7]
+<omitting python frames>
+frame #19: python3() [0x509d6f]
+frame #28: python3() [0x509a7e]
+frame #40: python3() [0x5953a2]
+frame #42: python3() [0x5c6737]
+frame #43: python3() [0x5c1870]
+frame #44: python3() [0x459839]
+frame #49: __libc_start_main + 0xf2 (0x7fc1ff45c1b2 in /usr/lib64/libc.so.6)
+frame #50: python3() [0x58848e]
+. This may indicate a possible application crash on rank 0 or a network set up issue.
+WARNING:megatron.training.elastic_client:[elastic] Rank 62: destroyed stale model-parallel subgroups before rebuild (destroyed=16, skipped=0)
+INFO:megatron.training.elastic_client:[elastic] Wrote pause signal file: /tmp/elastic_faults/pause_signal
+WARNING:megatron.training.training:[elastic] NCCL error caught + pause signal present. Skipping BSR logic, entering rebuild immediately.
+WARNING:megatron.training.elastic_client:[elastic] Rank 56: entering rebuild sequence
+INFO:megatron.training.elastic_client:[elastic] Rank 56: destroying process groups (stop watchdog)
+WARNING:megatron.training.elastic_client:[elastic] Rank 58: destroyed stale model-parallel subgroups before rebuild (destroyed=16, skipped=0)
+WARNING:megatron.training.elastic_client:[elastic] Rank 56: destroyed stale model-parallel subgroups before rebuild (destroyed=16, skipped=0)

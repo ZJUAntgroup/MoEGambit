@@ -1,6 +1,8 @@
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
 
+import logging
+import os
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -9,8 +11,95 @@ import torch.distributed as dist
 from megatron.core.model_parallel_config import ModelParallelConfig
 from megatron.core.utils import nvtx_decorator
 
+logger = logging.getLogger(__name__)
+
 # Types
 Shape = Union[List[int], torch.Size]
+
+_ELASTIC_PIPELINE_FIRST_P2P_BARRIERS = set()
+
+
+def _elastic_group_ranks(group):
+    try:
+        return list(torch.distributed.get_process_group_ranks(group))
+    except Exception:
+        return None
+
+
+def _elastic_wait_first_pipeline_p2p_barrier(group):
+    """Align the first post-rebuild pipeline P2P call before NCCL lazy init."""
+    if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+        return
+    if os.environ.get("ELASTIC_PIPELINE_FIRST_P2P_BARRIER", "1") == "0":
+        return
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        return
+
+    ranks = _elastic_group_ranks(group)
+    if not ranks or len(ranks) <= 1:
+        return
+    try:
+        rank = torch.distributed.get_rank()
+    except Exception:
+        return
+    if rank not in ranks:
+        return
+
+    resume_iteration = os.environ.get("ELASTIC_RESUME_ITERATION", "-1")
+    replacement_rank = os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1")
+    token = os.environ.get(
+        "ELASTIC_PIPELINE_FIRST_P2P_BARRIER_TOKEN",
+        f"iter{resume_iteration}:replacement{replacement_rank}",
+    )
+    barrier_key = (token, tuple(ranks))
+    if barrier_key in _ELASTIC_PIPELINE_FIRST_P2P_BARRIERS:
+        return
+
+    timeout = float(
+        os.environ.get(
+            "ELASTIC_PIPELINE_FIRST_P2P_BARRIER_TIMEOUT",
+            os.environ.get(
+                "ELASTIC_PHASE_TIMEOUT_SECONDS",
+                os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "720"),
+            ),
+        )
+    )
+    ranks_token = "-".join(str(r) for r in ranks)
+    barrier_id = f"pipeline_first_p2p:{token}:{ranks_token}"
+
+    logger.warning(
+        "[elastic] Rank %d: waiting before first pipeline P2P ranks=%s",
+        rank,
+        ranks,
+    )
+    try:
+        from megatron.training.elastic_client import elastic_wait_for_ordinal_barrier
+
+        ok = elastic_wait_for_ordinal_barrier(
+            barrier_id,
+            rank,
+            len(ranks),
+            timeout,
+            group_desc="PIPELINE_P2P",
+            group_backend="default",
+            group_size=len(ranks),
+            group_ranks=ranks,
+            barrier_stage="first_p2p",
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"[elastic] failed waiting before first pipeline P2P rank={rank} ranks={ranks}: {exc}"
+        ) from exc
+    if not ok:
+        raise RuntimeError(
+            f"[elastic] timed out before first pipeline P2P rank={rank} ranks={ranks}"
+        )
+    _ELASTIC_PIPELINE_FIRST_P2P_BARRIERS.add(barrier_key)
+    logger.warning(
+        "[elastic] Rank %d: aligned before first pipeline P2P ranks=%s",
+        rank,
+        ranks,
+    )
 
 
 def _batched_p2p_ops(
@@ -372,6 +461,14 @@ class P2PCommunicator:
 
         if tensor_recv_next_func is not None:
             tensor_recv_next = tensor_recv_next_func()
+
+        if (
+            tensor_send_prev is not None
+            or tensor_recv_prev is not None
+            or tensor_send_next is not None
+            or tensor_recv_next is not None
+        ):
+            _elastic_wait_first_pipeline_p2p_barrier(pp_group)
 
         p2p_reqs = p2p_func(
             tensor_send_prev=tensor_send_prev,

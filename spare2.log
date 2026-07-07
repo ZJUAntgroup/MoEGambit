@@ -3220,3 +3220,31 @@ nohup: ignoring input
 [watcher 18:54:24] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: entering rebuild sequence
 [watcher 18:54:24] INFO: [spare-standby] INFO:megatron.training.elastic_client:[elastic] Rank 1: destroying process groups (stop watchdog)
 [watcher 18:54:25] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: destroyed stale model-parallel subgroups before rebuild (destroyed=17, skipped=0)
+[watcher 19:14:22] WARNING: Node 6 reported NCCL error at step=18 step_tag=18 phase=forward_backward: [6] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Except
+[watcher 19:14:22] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:14:22] WARNING: Node 1 reported NCCL error at step=18 step_tag=18 phase=forward_backward: [1] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Except
+[watcher 19:14:22] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:14:22] WARNING: Node 2 reported NCCL error at step=18 step_tag=18 phase=forward_backward: [2] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Except
+[watcher 19:14:22] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:14:22] WARNING: Node 5 reported NCCL error at step=18 step_tag=18 phase=forward_backward: [5] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Except
+[watcher 19:14:22] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:14:22] WARNING: Node 4 reported NCCL error at step=18 step_tag=18 phase=forward_backward: [4] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Except
+[watcher 19:14:22] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:14:22] WARNING: Node 7 reported NCCL error at step=18 step_tag=18 phase=forward_backward: [7] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Except
+[watcher 19:14:22] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:14:22] WARNING: Node 3 reported NCCL error at step=18 step_tag=18 phase=forward_backward: [3] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: wait timeout after 1800000ms, keys: /0//153//cuda//0
+Except
+[watcher 19:14:22] INFO: NCCL error report received but no recovery in progress yet — waiting for heartbeat timeout to confirm
+[watcher 19:14:24] INFO: Node 6 ready to rebuild (1/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 19:14:24] INFO: Node 1 ready to rebuild (2/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 19:14:24] INFO: Node 2 ready to rebuild (3/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 19:14:24] INFO: Node 5 ready to rebuild (4/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 19:14:24] INFO: Node 4 ready to rebuild (5/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 19:14:24] INFO: Node 7 ready to rebuild (6/8, step=18, step_tag=18, phase=forward_backward)
+[watcher 19:14:24] INFO: Node 3 ready to rebuild (7/8, step=18, step_tag=18, phase=forward_backward)
