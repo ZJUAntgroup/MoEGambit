@@ -2182,7 +2182,11 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         "rank": rank,
         "timeout": rebuild_timeout,
     }
-    use_rebuild_device_id = os.environ.get("ELASTIC_REBUILD_INIT_PG_DEVICE_ID", "1") != "0"
+    # Do not bind the rebuilt default NCCL process group to device_id by
+    # default.  A bound default group makes PyTorch create subgroups via
+    # ncclCommSplit (perform_nocolor_split), which is fragile after hot
+    # replacement and can diverge from the replacement worker's cold path.
+    use_rebuild_device_id = os.environ.get("ELASTIC_REBUILD_INIT_PG_DEVICE_ID", "0") == "1"
     if device_id is not None and use_rebuild_device_id:
         try:
             if "device_id" in signature(dist.init_process_group).parameters:

@@ -1099,6 +1099,14 @@ class ElasticWatcher:
             "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
             env["ELASTIC_PHASE_TIMEOUT_SECONDS"],
         )
+        env["ELASTIC_INIT_PG_DEVICE_ID"] = os.environ.get(
+            "ELASTIC_INIT_PG_DEVICE_ID",
+            "0",
+        )
+        env["ELASTIC_REBUILD_INIT_PG_DEVICE_ID"] = os.environ.get(
+            "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
+            "0",
+        )
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
         return env
@@ -1185,6 +1193,8 @@ class ElasticWatcher:
                 "ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS",
                 "ELASTIC_MPU_GROUP_ORDINAL_BARRIER",
                 "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
+                "ELASTIC_INIT_PG_DEVICE_ID",
+                "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
                 "CUDA_VISIBLE_DEVICES",
             }
         }

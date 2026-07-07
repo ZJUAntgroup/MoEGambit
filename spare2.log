@@ -14,8 +14,8 @@ nohup: ignoring input
 + NPROC_PER_NODE=8
 + export NODE_RANK=8
 + NODE_RANK=8
-+ export MASTER_ADDR=33.181.103.63
-+ MASTER_ADDR=33.181.103.63
++ export MASTER_ADDR=33.181.96.202
++ MASTER_ADDR=33.181.96.202
 + export MASTER_PORT=20116
 + MASTER_PORT=20116
 + export ELASTIC_WATCHER_PORT=20200
@@ -25,8 +25,8 @@ nohup: ignoring input
 + IS_SPARE=1
 + export NNODES=8
 + NNODES=8
-+ export ELASTIC_WATCHER_ADDR=33.163.14.253
-+ ELASTIC_WATCHER_ADDR=33.163.14.253
++ export ELASTIC_WATCHER_ADDR=33.215.193.133
++ ELASTIC_WATCHER_ADDR=33.215.193.133
 + export ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + rm -rf /tmp/elastic_faults
@@ -78,6 +78,17 @@ nohup: ignoring input
 + TRAIN_ITERS=100
 + export DISTRIBUTED_TIMEOUT_MINUTES=10
 + DISTRIBUTED_TIMEOUT_MINUTES=10
++ PHASE_TIMEOUT_DEFAULT=720
++ export ELASTIC_PHASE_TIMEOUT_SECONDS=720
++ ELASTIC_PHASE_TIMEOUT_SECONDS=720
++ export ELASTIC_REBUILD_PHASE_TIMEOUT=720
++ ELASTIC_REBUILD_PHASE_TIMEOUT=720
++ export ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS=1
++ ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS=1
++ export ELASTIC_MPU_GROUP_ORDINAL_BARRIER=1
++ ELASTIC_MPU_GROUP_ORDINAL_BARRIER=1
++ export ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS=720
++ ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS=720
 + mkdir -p /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt /mnt/ais-c1/dataset/zds/log/test_replace
 + TRAINING_WORLD_SIZE=64
 + DP_SIZE=8
@@ -103,6 +114,10 @@ nohup: ignoring input
 [test-replace] Train iters:     100
 + echo '[test-replace] Dist timeout:    10min (60s after init)'
 [test-replace] Dist timeout:    10min (60s after init)
++ echo '[test-replace] Phase timeout:   720s'
+[test-replace] Phase timeout:   720s
++ echo '[test-replace] Group barrier:   1 (720s)'
+[test-replace] Group barrier:   1 (720s)
 + echo '[test-replace] CKPT_DIR:        /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt'
 [test-replace] CKPT_DIR:        /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
 + echo '[test-replace] =============================================='
@@ -112,308 +127,277 @@ nohup: ignoring input
 [test-replace] Starting elastic watcher on spare node...
 + echo '[test-replace] Fault injection: kill node 0 local_rank 1 at step 17'
 [test-replace] Fault injection: kill node 0 local_rank 1 at step 17
-+ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.181.103.63 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
-[watcher 13:48:35] INFO: Starting watcher on port 20200
-[watcher 13:48:35] INFO: Monitoring 8 training nodes
-[watcher 13:48:35] INFO: Heartbeat timeout: 30.0s
-[watcher 13:48:35] INFO: Startup heartbeat timeout: 600.0s
-[watcher 13:48:35] INFO: Forward/backward heartbeat timeout: 180.0s
-[watcher 13:48:35] INFO: Checkpoint heartbeat timeout: 900.0s
-[watcher 13:48:35] INFO: Disconnect grace timeout: 15.0s
-[watcher 13:48:35] INFO: Fault injection: kill node 0 local_rank 1 at step 17
-[watcher 13:48:35] INFO: Warm standby worker pid=2176 started; waiting on /tmp/elastic_faults/spare_assignment.json
-[watcher 13:48:36] INFO: [spare-standby] [spare-rank] Warm standby pid=2176 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
-[watcher 13:50:29] INFO: Heartbeat checker active
-[watcher 13:50:30] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[watcher 13:50:30] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
-[watcher 13:54:34] WARNING: FAULT INJECTION: step 17 >= 17, pausing ALL nodes then killing node 0 local_rank 1
-[watcher 13:54:34] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)
-[watcher 13:54:49] INFO: Node 2 ready to rebuild (1/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 13:54:50] INFO: Node 5 ready to rebuild (2/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 13:54:50] INFO: Node 3 ready to rebuild (3/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 13:54:50] INFO: Node 4 ready to rebuild (4/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 13:54:50] INFO: Node 6 ready to rebuild (5/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 13:54:50] INFO: Node 1 ready to rebuild (6/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 13:54:50] INFO: Node 7 ready to rebuild (7/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 13:54:51] INFO: Node 0 ready to rebuild (8/8, step=18, step_tag=18, phase=iteration_safe_point)
-[watcher 13:54:51] INFO: All 8 nodes ready. Target rank already killed (node 0 local_rank 1). Launching spare...
-[watcher 13:54:51] INFO: Elastic resume iteration selected: 18 from ready steps={2: 18, 5: 18, 3: 18, 4: 18, 6: 18, 1: 18, 7: 18, 0: 18} step_tags={2: 18, 5: 18, 3: 18, 4: 18, 6: 18, 1: 18, 7: 18, 0: 18} phases={2: 'iteration_safe_point', 5: 'iteration_safe_point', 3: 'iteration_safe_point', 4: 'iteration_safe_point', 6: 'iteration_safe_point', 1: 'iteration_safe_point', 7: 'iteration_safe_point', 0: 'iteration_safe_point'}
-[watcher 13:54:51] INFO: Launching spare: replacing global_rank=1 (node 0, local_rank 1)
-[watcher 13:54:51] INFO: Activated warm standby pid=2176 for replacement rank=1
-[watcher 13:54:51] INFO: Waiting up to 300.0s for replacement to reach init_pg_start...
-[watcher 13:54:51] INFO: [spare-standby] [spare-rank] Warm standby activated: RANK=1, CUDA_VISIBLE_DEVICES=1
-[watcher 13:54:51] INFO: [spare-standby] [spare-rank] Starting replacement: RANK=1, LOCAL_RANK=0, NODE_RANK=0
-[watcher 13:54:51] INFO: [spare-standby] [spare-rank] MASTER=33.181.103.63:20117, WORLD_SIZE=64
-[watcher 13:54:51] INFO: [spare-standby] [spare-rank] CUDA_VISIBLE_DEVICES=1
-[watcher 13:54:51] INFO: [spare-standby] [spare-rank] ELASTIC_REBUILD_MODE=1
-[watcher 13:54:51] INFO: [spare-standby] [spare-rank] distributed timeout=10min
-[watcher 13:54:56] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[watcher 13:54:57] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=init_pg_start
-[watcher 13:54:57] INFO: Replacement reached init_pg_start; broadcasting rebuild signal
-[watcher 13:54:57] INFO: Rebuild signal sent to all nodes. Waiting for training to resume...
-[watcher 13:55:00] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=pg_ready
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=mpu_init_start
-[watcher 13:55:00] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=mpu_init_start
-[watcher 13:55:01] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=mpu_init_start
-[watcher 13:55:02] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=mpu_init_start
-[watcher 13:55:02] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=mpu_init_start
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=0 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=MODEL_PARALLEL_GROUP backend=None group_size=8 ranks=[1, 9, 17, 25, 33, 41, 49, 57]
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=MODEL_PARALLEL_GROUP backend=None group_size=8 ranks=[1, 9, 17, 25, 33, 41, 49, 57]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=DATA_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=CONTEXT_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=CONTEXT_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=MODEL_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[1, 9, 17, 25, 33, 41, 49, 57] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=MODEL_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[1, 9, 17, 25, 33, 41, 49, 57] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=TENSOR_MODEL_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=TENSOR_MODEL_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=PIPELINE_MODEL_PARALLEL_GROUP backend=None group_size=8 ranks=[1, 9, 17, 25, 33, 41, 49, 57]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=PIPELINE_MODEL_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[1, 9, 17, 25, 33, 41, 49, 57] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=PIPELINE_MODEL_PARALLEL_GROUP backend=None group_size=8 ranks=[1, 9, 17, 25, 33, 41, 49, 57]
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=EMBEDDING_GROUP backend=None group_size=2 ranks=[1, 57]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=PIPELINE_MODEL_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[1, 9, 17, 25, 33, 41, 49, 57] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=EMBEDDING_GROUP group_backend=default group_size=2 group_ranks=[1, 57] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=EMBEDDING_GROUP backend=None group_size=2 ranks=[1, 57]
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=POSITION_EMBEDDING_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=EMBEDDING_GROUP group_backend=default group_size=2 group_ranks=[1, 57] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=POSITION_EMBEDDING_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=POSITION_EMBEDDING_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=POSITION_EMBEDDING_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=TENSOR_AND_DATA_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=TENSOR_AND_DATA_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=EXPERT_MODEL_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=EXPERT_MODEL_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=EXPERT_TENSOR_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=EXPERT_TENSOR_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=EXPERT_TENSOR_MODEL_PIPELINE_PARALLEL_GROUP group_backend=default group_size=64 group_first_rank=0 group_last_rank=63 group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=EXPERT_TENSOR_MODEL_PIPELINE_PARALLEL_GROUP group_backend=default group_size=64 group_first_rank=0 group_last_rank=63 group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=EXPERT_DATA_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: [spare-standby] WARNING:megatron.core.parallel_state:[elastic] Rank 1: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[1]
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=EXPERT_DATA_PARALLEL_GROUP group_backend=default group_size=1 group_ranks=[1] group_representative_rank=1 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=INTRA_DISTRIBUTED_OPTIMIZER_INSTANCE_GROUP group_backend=default group_size=64 group_first_rank=0 group_last_rank=63 group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=INTRA_DISTRIBUTED_OPTIMIZER_INSTANCE_GROUP group_backend=default group_size=64 group_first_rank=0 group_last_rank=63 group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_init_done
-[watcher 13:55:02] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_ready
-[watcher 14:00:02] WARNING: wait_phase_count timed out: phase=mpu_ready count=1 min_count=64 missing=[0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63] pending=[{'rank': 0, 'role': 'survivor', 'node': 0, 'phase': 'mpu_group_start', 'step': 18, 'extra': {'group_desc': 'DATA_PARALLEL_GROUP_WITH_CP', 'group_backend': 'default', 'group_size': 8, 'group_representative_rank': 0, 'group_report_rank': 0, 'group_timeout_seconds': 600.0, 'group_ranks': [0, 1, 2, 3, 4, 5, 6, 7]}}, {'rank': 2, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 3, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 4, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 5, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 6, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 7, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 8, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 9, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 10, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 11, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 12, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 13, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 14, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 15, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 16, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 17, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 18, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 19, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 20, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 21, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 22, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 23, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 24, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 25, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 26, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 27, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 28, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 29, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 30, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 31, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 32, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 33, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 34, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 35, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 36, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 37, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 38, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 39, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 40, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 41, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 42, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 43, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 44, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 45, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 46, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 47, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 48, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 49, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 50, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 51, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 52, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 53, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 54, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 55, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 56, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 57, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 58, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 59, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 60, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 61, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 62, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 63, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}] unreported=[]
-[watcher 14:00:02] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] phase-count wait failed: phase=mpu_ready count=1 min_count=64 missing=[0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63] pending=[{'rank': 0, 'role': 'survivor', 'node': 0, 'phase': 'mpu_group_start', 'step': 18, 'extra': {'group_desc': 'DATA_PARALLEL_GROUP_WITH_CP', 'group_backend': 'default', 'group_size': 8, 'group_representative_rank': 0, 'group_report_rank': 0, 'group_timeout_seconds': 600.0, 'group_ranks': [0, 1, 2, 3, 4, 5, 6, 7]}}, {'rank': 2, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 3, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 4, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 5, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 6, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 7, 'role': 'survivor', 'node': 0, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 8, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 9, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 10, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 11, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 12, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 13, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 14, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 15, 'role': 'survivor', 'node': 1, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 16, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 17, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 18, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 19, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 20, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 21, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 22, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 23, 'role': 'survivor', 'node': 2, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 24, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 25, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 26, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 27, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 28, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 29, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 30, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 31, 'role': 'survivor', 'node': 3, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 32, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 33, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 34, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 35, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 36, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 37, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 38, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 39, 'role': 'survivor', 'node': 4, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 40, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 41, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 42, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 43, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 44, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 45, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 46, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 47, 'role': 'survivor', 'node': 5, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 48, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 49, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 50, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 51, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 52, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 53, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 54, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 55, 'role': 'survivor', 'node': 6, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 56, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 57, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 58, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 59, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 60, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 61, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 62, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}, {'rank': 63, 'role': 'survivor', 'node': 7, 'phase': 'mpu_init_start', 'step': 18, 'extra': {}}] unreported=[]
-[watcher 14:00:02] INFO: [spare-standby] [rank1]: Traceback (most recent call last):
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:     pretrain(
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 726, in pretrain
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:     initialize_megatron(
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 187, in initialize_megatron
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:     finish_mpu_init()
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 152, in finish_mpu_init
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:     _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, store)
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 457, in _initialize_distributed
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:     _elastic_wait_phase_count_or_raise("mpu_ready", args.world_size, phase_timeout)
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 64, in _elastic_wait_phase_count_or_raise
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:     raise RuntimeError(
-[watcher 14:00:02] INFO: [spare-standby] [rank1]: RuntimeError: [elastic] Not all 64 ranks reached mpu_ready within 300.0s
-[watcher 14:00:02] INFO: [spare-standby] [rank1]:[W707 14:00:02.913319475 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[watcher 14:00:02] INFO: spare-standby exited with code 1
-[watcher 14:00:02] WARNING: Recovery phase summary (spare-standby-exit):
-[watcher 14:00:02] WARNING:   replacement:1 node=0 step=18 phase=mpu_ready
-[watcher 14:00:02] WARNING:   survivor:0 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=0 group_timeout_seconds=600.0
-[watcher 14:00:02] WARNING:   survivor:10 node=1 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:11 node=1 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:12 node=1 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:13 node=1 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:14 node=1 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:15 node=1 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:16 node=2 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:17 node=2 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:18 node=2 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:19 node=2 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:2 node=0 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:20 node=2 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:21 node=2 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:22 node=2 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:23 node=2 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:24 node=3 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:25 node=3 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:26 node=3 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:27 node=3 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:28 node=3 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:29 node=3 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:3 node=0 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:30 node=3 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:31 node=3 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:32 node=4 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:33 node=4 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:34 node=4 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:35 node=4 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:36 node=4 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:37 node=4 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:38 node=4 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:39 node=4 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:4 node=0 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:40 node=5 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:41 node=5 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:42 node=5 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:43 node=5 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:44 node=5 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:45 node=5 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:46 node=5 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:47 node=5 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:48 node=6 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:49 node=6 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:5 node=0 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:50 node=6 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:51 node=6 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:52 node=6 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:53 node=6 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:54 node=6 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:55 node=6 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:56 node=7 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:57 node=7 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:58 node=7 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:59 node=7 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:6 node=0 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:60 node=7 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:61 node=7 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:62 node=7 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:63 node=7 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:7 node=0 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:8 node=1 step=18 phase=mpu_init_start
-[watcher 14:00:02] WARNING:   survivor:9 node=1 step=18 phase=mpu_init_start
++ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.181.96.202 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
+[watcher 14:59:23] INFO: Starting watcher on port 20200
+[watcher 14:59:23] INFO: Monitoring 8 training nodes
+[watcher 14:59:23] INFO: Heartbeat timeout: 30.0s
+[watcher 14:59:23] INFO: Startup heartbeat timeout: 600.0s
+[watcher 14:59:23] INFO: Forward/backward heartbeat timeout: 180.0s
+[watcher 14:59:23] INFO: Checkpoint heartbeat timeout: 900.0s
+[watcher 14:59:23] INFO: Disconnect grace timeout: 15.0s
+[watcher 14:59:23] INFO: Fault injection: kill node 0 local_rank 1 at step 17
+[watcher 14:59:23] INFO: Warm standby worker pid=967 started; waiting on /tmp/elastic_faults/spare_assignment.json
+[watcher 14:59:23] INFO: [spare-standby] [spare-rank] Warm standby pid=967 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
+[watcher 15:01:21] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 15:01:21] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
+[watcher 15:02:03] INFO: Heartbeat checker active
+[watcher 15:06:13] WARNING: FAULT INJECTION: step 17 >= 17, pausing ALL nodes then killing node 0 local_rank 1
+[watcher 15:06:13] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)
+[watcher 15:06:28] INFO: Node 5 ready to rebuild (1/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 15:06:28] INFO: Node 2 ready to rebuild (2/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 15:06:28] INFO: Node 4 ready to rebuild (3/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 15:06:28] INFO: Node 1 ready to rebuild (4/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 15:06:29] INFO: Node 6 ready to rebuild (5/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 15:06:29] INFO: Node 7 ready to rebuild (6/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 15:06:29] INFO: Node 0 ready to rebuild (7/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 15:06:30] INFO: Node 3 ready to rebuild (8/8, step=18, step_tag=18, phase=iteration_safe_point)
+[watcher 15:06:30] INFO: All 8 nodes ready. Target rank already killed (node 0 local_rank 1). Launching spare...
+[watcher 15:06:30] INFO: Elastic resume iteration selected: 18 from ready steps={5: 18, 2: 18, 4: 18, 1: 18, 6: 18, 7: 18, 0: 18, 3: 18} step_tags={5: 18, 2: 18, 4: 18, 1: 18, 6: 18, 7: 18, 0: 18, 3: 18} phases={5: 'iteration_safe_point', 2: 'iteration_safe_point', 4: 'iteration_safe_point', 1: 'iteration_safe_point', 6: 'iteration_safe_point', 7: 'iteration_safe_point', 0: 'iteration_safe_point', 3: 'iteration_safe_point'}
+[watcher 15:06:30] INFO: Launching spare: replacing global_rank=1 (node 0, local_rank 1)
+[watcher 15:06:30] INFO: Activated warm standby pid=967 for replacement rank=1
+[watcher 15:06:30] INFO: Waiting up to 300.0s for replacement to reach init_pg_start...
+[watcher 15:06:30] INFO: [spare-standby] [spare-rank] Warm standby activated: RANK=1, CUDA_VISIBLE_DEVICES=1
+[watcher 15:06:30] INFO: [spare-standby] [spare-rank] Starting replacement: RANK=1, LOCAL_RANK=0, NODE_RANK=0
+[watcher 15:06:30] INFO: [spare-standby] [spare-rank] MASTER=33.181.96.202:20117, WORLD_SIZE=64
+[watcher 15:06:30] INFO: [spare-standby] [spare-rank] CUDA_VISIBLE_DEVICES=1
+[watcher 15:06:30] INFO: [spare-standby] [spare-rank] ELASTIC_REBUILD_MODE=1
+[watcher 15:06:30] INFO: [spare-standby] [spare-rank] distributed timeout=10min
+[watcher 15:06:30] INFO: [spare-standby] [spare-rank] phase timeout=720s
+[watcher 15:06:30] INFO: [spare-standby] [spare-rank] group ordinal barrier=1 (720s)
+[watcher 15:06:34] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 15:06:35] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=init_pg_start
+[watcher 15:06:35] INFO: Replacement reached init_pg_start; broadcasting rebuild signal
+[watcher 15:06:35] INFO: Rebuild signal sent to all nodes. Waiting for training to resume...
+[watcher 15:06:38] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=pg_ready
+[watcher 15:06:38] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=32 node=4 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=56 node=7 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=24 node=3 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=16 node=2 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=40 node=5 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=48 node=6 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=8 node=1 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=pg_ready
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=23 node=2 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=34 node=4 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=42 node=5 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=47 node=5 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=45 node=5 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=21 node=2 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=53 node=6 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=52 node=6 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=50 node=6 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=22 node=2 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=13 node=1 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=46 node=5 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=14 node=1 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=35 node=4 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=59 node=7 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=11 node=1 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=54 node=6 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=51 node=6 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=37 node=4 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=17 node=2 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=19 node=2 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=20 node=2 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=10 node=1 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=31 node=3 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=15 node=1 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=9 node=1 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=12 node=1 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=29 node=3 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=41 node=5 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=26 node=3 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=43 node=5 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=25 node=3 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=44 node=5 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=30 node=3 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=63 node=7 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=57 node=7 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=28 node=3 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=62 node=7 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=61 node=7 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=55 node=6 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=27 node=3 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=39 node=4 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=36 node=4 step=18 phase=mpu_init_start
+[watcher 15:06:39] INFO: Recovery phase: role=survivor rank=38 node=4 step=18 phase=mpu_init_start
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=mpu_init_start
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=58 node=7 step=18 phase=mpu_init_start
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=60 node=7 step=18 phase=mpu_init_start
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=49 node=6 step=18 phase=mpu_init_start
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=18 node=2 step=18 phase=mpu_init_start
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=0 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=0 group_timeout_seconds=600.0
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=2 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=2 group_timeout_seconds=600.0
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=6 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=6 group_timeout_seconds=600.0
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=4 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=4 group_timeout_seconds=600.0
+[watcher 15:06:40] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=3 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=3 group_timeout_seconds=600.0
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=7 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=7 group_timeout_seconds=600.0
+[watcher 15:06:40] INFO: Recovery phase: role=survivor rank=5 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=5 group_timeout_seconds=600.0
+[watcher 15:06:40] INFO: ordinal_barrier released: id=mpu_group:iter18:replacement1:000001:enter count=64 desc=DATA_PARALLEL_GROUP_WITH_CP ordinal=1 stage=enter
+[watcher 15:06:40] INFO: Recovery phase: role=replacement rank=1 node=0 step=18 phase=mpu_group_done group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
+[watcher 15:18:40] WARNING: ordinal_barrier timed out: id=mpu_group:iter18:replacement1:000001:exit count=1 min_count=64 missing=[0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63] arrived=[1] sample=[{'barrier_id': 'mpu_group:iter18:replacement1:000001:exit', 'rank': 1, 'group_ordinal': 1, 'barrier_stage': 'exit', 'group_desc': 'DATA_PARALLEL_GROUP_WITH_CP', 'group_backend': 'default', 'group_size': 8, 'group_representative_rank': 0, 'group_timeout_seconds': 600.0, 'group_ranks': [0, 1, 2, 3, 4, 5, 6, 7]}]
+[watcher 15:18:40] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] ordinal barrier failed: id=mpu_group:iter18:replacement1:000001:exit count=1 min_count=64 missing=[0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63] arrived=[1]
+[watcher 15:18:40] INFO: [spare-standby] [rank1]: Traceback (most recent call last):
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:     pretrain(
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 726, in pretrain
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:     initialize_megatron(
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 211, in initialize_megatron
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:     finish_mpu_init()
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 176, in finish_mpu_init
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:     _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, store)
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 457, in _initialize_distributed
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:     mpu.initialize_model_parallel(
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/parallel_state.py", line 1014, in initialize_model_parallel
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:     group_with_cp = create_group(
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/parallel_state.py", line 250, in create_group
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:     _elastic_wait_mpu_group_ordinal_barrier(
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/core/parallel_state.py", line 363, in _elastic_wait_mpu_group_ordinal_barrier
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:     raise RuntimeError(
+[watcher 15:18:40] INFO: [spare-standby] [rank1]: RuntimeError: [elastic] timed out waiting for Megatron group ordinal barrier mpu_group:iter18:replacement1:000001:exit rank=1 desc=DATA_PARALLEL_GROUP_WITH_CP
+[watcher 15:18:40] INFO: [spare-standby] [rank1]:[W707 15:18:40.223573684 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[watcher 15:18:41] INFO: spare-standby exited with code 1
+[watcher 15:18:41] WARNING: Recovery phase summary (spare-standby-exit):
+[watcher 15:18:41] WARNING:   replacement:1 node=0 step=18 phase=mpu_group_done group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=1 group_timeout_seconds=600.0
+[watcher 15:18:41] WARNING:   survivor:0 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=0 group_timeout_seconds=600.0
+[watcher 15:18:41] WARNING:   survivor:10 node=1 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:11 node=1 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:12 node=1 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:13 node=1 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:14 node=1 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:15 node=1 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:16 node=2 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:17 node=2 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:18 node=2 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:19 node=2 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:2 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=2 group_timeout_seconds=600.0
+[watcher 15:18:41] WARNING:   survivor:20 node=2 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:21 node=2 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:22 node=2 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:23 node=2 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:24 node=3 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:25 node=3 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:26 node=3 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:27 node=3 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:28 node=3 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:29 node=3 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:3 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=3 group_timeout_seconds=600.0
+[watcher 15:18:41] WARNING:   survivor:30 node=3 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:31 node=3 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:32 node=4 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:33 node=4 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:34 node=4 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:35 node=4 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:36 node=4 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:37 node=4 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:38 node=4 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:39 node=4 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:4 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=4 group_timeout_seconds=600.0
+[watcher 15:18:41] WARNING:   survivor:40 node=5 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:41 node=5 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:42 node=5 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:43 node=5 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:44 node=5 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:45 node=5 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:46 node=5 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:47 node=5 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:48 node=6 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:49 node=6 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:5 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=5 group_timeout_seconds=600.0
+[watcher 15:18:41] WARNING:   survivor:50 node=6 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:51 node=6 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:52 node=6 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:53 node=6 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:54 node=6 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:55 node=6 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:56 node=7 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:57 node=7 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:58 node=7 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:59 node=7 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:6 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=6 group_timeout_seconds=600.0
+[watcher 15:18:41] WARNING:   survivor:60 node=7 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:61 node=7 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:62 node=7 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:63 node=7 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:7 node=0 step=18 phase=mpu_group_start group_desc=DATA_PARALLEL_GROUP_WITH_CP group_backend=default group_size=8 group_ranks=[0, 1, 2, 3, 4, 5, 6, 7] group_representative_rank=0 group_report_rank=7 group_timeout_seconds=600.0
+[watcher 15:18:41] WARNING:   survivor:8 node=1 step=18 phase=mpu_init_start
+[watcher 15:18:41] WARNING:   survivor:9 node=1 step=18 phase=mpu_init_start
+[watcher 15:36:42] WARNING: Node 3 disconnected; allowing 15.0s reconnect grace
+[watcher 15:36:42] WARNING: Node 6 disconnected; allowing 15.0s reconnect grace
+[watcher 15:36:42] WARNING: Node 4 disconnected; allowing 15.0s reconnect grace
+[watcher 15:36:43] WARNING: Node 2 disconnected; allowing 15.0s reconnect grace
+[watcher 15:36:43] WARNING: Node 1 disconnected; allowing 15.0s reconnect grace
+[watcher 15:36:43] WARNING: Node 5 disconnected; allowing 15.0s reconnect grace
+[watcher 15:36:52] WARNING: Node 7 disconnected; allowing 15.0s reconnect grace
+[watcher 15:36:52] WARNING: Node 0 disconnected; allowing 15.0s reconnect grace
