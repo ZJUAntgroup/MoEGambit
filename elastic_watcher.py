@@ -1120,6 +1120,10 @@ class ElasticWatcher:
             "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
             "1",
         )
+        env["ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP"] = os.environ.get(
+            "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",
+            "1",
+        )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
             env["ELASTIC_PHASE_TIMEOUT_SECONDS"],
@@ -1214,6 +1218,7 @@ class ElasticWatcher:
                 "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
                 "ELASTIC_POST_REBUILD_COMM_WARMUP",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
+                "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
                 "CUDA_VISIBLE_DEVICES",
             }

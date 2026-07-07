@@ -37,6 +37,7 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 logger = logging.getLogger(__name__)
 
 _ELASTIC_MOE_FIRST_COLLECTIVE_BARRIERS = set()
+_ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS = set()
 
 """ We use the following notation throughout this file:
      H: hidden size
@@ -299,6 +300,45 @@ class MoETokenDispatcher:
         _ELASTIC_MOE_FIRST_COLLECTIVE_BARRIERS.add(barrier_key)
         logger.warning(
             "[elastic] Rank %d: aligned before first MoE %s collective ranks=%s",
+            rank,
+            name,
+            ranks,
+        )
+        MoETokenDispatcher._elastic_warm_first_collective(name, group, ranks, replacement_rank)
+
+    @staticmethod
+    def _elastic_warm_first_collective(name: str, group, ranks, replacement_rank: int):
+        """Run one tiny same-order collective before the first real MoE collective."""
+        if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP", "1") == "0":
+            return
+        warmup_key = (name, tuple(ranks), replacement_rank)
+        if warmup_key in _ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS:
+            return
+
+        rank = torch.distributed.get_rank()
+        world_size = len(ranks)
+        device = torch.device("cuda", torch.cuda.current_device())
+        warmup_input = torch.zeros(1, dtype=torch.int64, device=device)
+        warmup_output = torch.empty(world_size, dtype=torch.int64, device=device)
+        logger.warning(
+            "[elastic] Rank %d: warming first MoE %s collective ranks=%s",
+            rank,
+            name,
+            ranks,
+        )
+        try:
+            if hasattr(torch.distributed, "all_gather_into_tensor"):
+                torch.distributed.all_gather_into_tensor(warmup_output, warmup_input, group=group)
+            else:
+                torch.distributed._all_gather_base(warmup_output, warmup_input, group=group)
+        except Exception as exc:
+            raise RuntimeError(
+                f"[elastic] failed warming first MoE {name} collective "
+                f"rank={rank} ranks={ranks}: {exc}"
+            ) from exc
+        _ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS.add(warmup_key)
+        logger.warning(
+            "[elastic] Rank %d: warmed first MoE %s collective ranks=%s",
             rank,
             name,
             ranks,
@@ -613,6 +653,10 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
             )
             self._elastic_wait_first_collective_barrier(
                 "tp_ep_metadata_gather", self.tp_ep_group
+            )
+            self._elastic_trace_once(
+                "tp_ep_metadata_real_start",
+                "MoE dispatcher starting TPxEP metadata gather",
             )
             num_global_tokens_per_expert = (
                 gather_from_sequence_parallel_region(
