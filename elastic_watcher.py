@@ -1107,6 +1107,10 @@ class ElasticWatcher:
             "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
             "0",
         )
+        env["ELASTIC_POST_REBUILD_COMM_WARMUP"] = os.environ.get(
+            "ELASTIC_POST_REBUILD_COMM_WARMUP",
+            "0",
+        )
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
         return env
@@ -1195,6 +1199,7 @@ class ElasticWatcher:
                 "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
                 "ELASTIC_INIT_PG_DEVICE_ID",
                 "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
+                "ELASTIC_POST_REBUILD_COMM_WARMUP",
                 "CUDA_VISIBLE_DEVICES",
             }
         }

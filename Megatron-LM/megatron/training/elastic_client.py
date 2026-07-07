@@ -462,20 +462,26 @@ def _elastic_replacement_warmup_groups(replacement_rank: int):
 
 
 def elastic_warmup_post_rebuild_communicators(iteration: int) -> bool:
-    """Warm replacement-facing communicators before the first real forward.
+    """Optionally warm replacement-facing communicators before the first real forward.
 
-    The first post-rebuild MoE forward lazily creates the TPxEP/EP NCCL
-    communicators that now include a physically remote spare rank; later in the
-    same iteration, pipeline P2P and DP grad sync touch other replacement-facing
-    groups.  Do this at the control-plane-aligned safe point so the real forward
-    does not become the first place that discovers a bad replacement-facing
-    NCCL ring.
+    Keep this opt-in.  Megatron normally creates communicators lazily in the
+    exact order used by forward/backward.  Probing replacement-facing groups at
+    recovery time can introduce a new order that does not match all ranks
+    (for example pipeline P2P vs embedding/model collectives), so the default
+    is to rely on the aligned first train step to initialize them naturally.
     """
     if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
         return False
     if os.environ.get("ELASTIC_POST_REBUILD_COMM_WARMUP_DONE") == "1":
         return False
-    if os.environ.get("ELASTIC_POST_REBUILD_COMM_WARMUP", "1") == "0":
+    if os.environ.get("ELASTIC_POST_REBUILD_COMM_WARMUP", "0") == "0":
+        os.environ["ELASTIC_POST_REBUILD_COMM_WARMUP_DONE"] = "1"
+        if dist.is_available() and dist.is_initialized():
+            logger.warning(
+                "[elastic] Rank %d: skipping post-rebuild communicator warmup; "
+                "using Megatron's lazy first-step communicator order",
+                dist.get_rank(),
+            )
         return False
     if not dist.is_available() or not dist.is_initialized() or not torch.cuda.is_available():
         return False

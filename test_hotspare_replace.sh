@@ -131,6 +131,7 @@ export ELASTIC_MPU_GROUP_ORDINAL_BARRIER="${ELASTIC_MPU_GROUP_ORDINAL_BARRIER:-1
 export ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS="${ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS:-${ELASTIC_PHASE_TIMEOUT_SECONDS}}"
 export ELASTIC_INIT_PG_DEVICE_ID="${ELASTIC_INIT_PG_DEVICE_ID:-0}"
 export ELASTIC_REBUILD_INIT_PG_DEVICE_ID="${ELASTIC_REBUILD_INIT_PG_DEVICE_ID:-0}"
+export ELASTIC_POST_REBUILD_COMM_WARMUP="${ELASTIC_POST_REBUILD_COMM_WARMUP:-0}"
 
 mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 
@@ -155,6 +156,7 @@ echo "[test-replace] Dist timeout:    ${DISTRIBUTED_TIMEOUT_MINUTES}min (60s aft
 echo "[test-replace] Phase timeout:   ${ELASTIC_PHASE_TIMEOUT_SECONDS}s"
 echo "[test-replace] Group barrier:   ${ELASTIC_MPU_GROUP_ORDINAL_BARRIER} (${ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS}s)"
 echo "[test-replace] PG device_id:    init=${ELASTIC_INIT_PG_DEVICE_ID}, rebuild=${ELASTIC_REBUILD_INIT_PG_DEVICE_ID}"
+echo "[test-replace] Post warmup:     ${ELASTIC_POST_REBUILD_COMM_WARMUP}"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
 
