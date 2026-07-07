@@ -123,6 +123,7 @@ class ElasticWatcher:
         self.rebuild_ready_step_tags = {}
         self.rebuild_ready_phases = {}
         self.recovery_phases = {}
+        self.ordinal_barriers = {}
         self.peer_sync_endpoints = {}
         self.rebuild_triggered = False
         self.replacement_ready_event = threading.Event()
@@ -339,6 +340,7 @@ class ElasticWatcher:
                     self.rebuild_ready_steps = {}
                     self.rebuild_ready_step_tags = {}
                     self.rebuild_ready_phases = {}
+                    self.ordinal_barriers = {}
                     log.info("All training ranks reached train_ready; recovery complete")
                 self.phase_cv.notify_all()
             extra_text = self._format_recovery_phase_extra(msg)
@@ -393,6 +395,33 @@ class ElasticWatcher:
                 "missing": missing,
                 "pending": pending,
                 "unreported": unreported,
+            }) + "\n"
+            try:
+                conn.sendall(response.encode())
+            except OSError:
+                pass
+            return node_rank
+
+        elif msg_type == "ordinal_barrier":
+            barrier_id = msg.get("barrier_id", "?")
+            rank = int(msg.get("rank", -1))
+            min_count = int(msg.get("min_count", self.training_nnodes * self.nproc_per_node))
+            timeout = float(msg.get("timeout", 300.0))
+            count, missing, arrived = self._wait_for_ordinal_barrier(
+                barrier_id,
+                rank,
+                min_count,
+                timeout,
+                msg,
+            )
+            response = json.dumps({
+                "type": "ordinal_barrier_result",
+                "barrier_id": barrier_id,
+                "min_count": min_count,
+                "count": count,
+                "ok": count >= min_count,
+                "missing": missing,
+                "arrived": arrived,
             }) + "\n"
             try:
                 conn.sendall(response.encode())
@@ -458,6 +487,101 @@ class ElasticWatcher:
                     return None
                 self.phase_cv.wait(timeout=min(remaining, 1.0))
             return dict(self.peer_sync_endpoints[peer_id])
+
+    def _wait_for_ordinal_barrier(self, barrier_id, rank, min_count, timeout, msg):
+        deadline = time.time() + timeout
+        with self.phase_cv:
+            state = self.ordinal_barriers.setdefault(
+                barrier_id,
+                {
+                    "arrived": set(),
+                    "meta_by_rank": {},
+                    "manifest_by_rank": {},
+                    "created": time.time(),
+                    "mismatch_logged": False,
+                    "released_logged": False,
+                },
+            )
+            state["arrived"].add(rank)
+            state["meta_by_rank"][rank] = {
+                k: v
+                for k, v in msg.items()
+                if k
+                not in (
+                    "type",
+                    "node_rank",
+                    "timeout",
+                    "min_count",
+                )
+            }
+            manifest = {
+                k: msg.get(k)
+                for k in (
+                    "group_desc",
+                    "group_backend",
+                    "group_size",
+                    "group_ranks",
+                    "group_first_rank",
+                    "group_last_rank",
+                    "group_timeout_seconds",
+                    "group_ordinal",
+                    "barrier_stage",
+                )
+                if k in msg
+            }
+            state["manifest_by_rank"][rank] = json.dumps(manifest, sort_keys=True)
+            if (
+                len(set(state["manifest_by_rank"].values())) > 1
+                and not state["mismatch_logged"]
+            ):
+                state["mismatch_logged"] = True
+                sample = {
+                    r: state["manifest_by_rank"][r]
+                    for r in sorted(state["manifest_by_rank"])[:8]
+                }
+                log.warning(
+                    "ordinal_barrier manifest mismatch: id=%s sample=%s",
+                    barrier_id,
+                    sample,
+                )
+            self.phase_cv.notify_all()
+
+            while len(state["arrived"]) < min_count:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    arrived = sorted(state["arrived"])
+                    missing = [r for r in range(min_count) if r not in state["arrived"]]
+                    sample = [
+                        state["meta_by_rank"].get(r)
+                        for r in arrived[:8]
+                    ]
+                    log.warning(
+                        "ordinal_barrier timed out: id=%s count=%s min_count=%s "
+                        "missing=%s arrived=%s sample=%s",
+                        barrier_id,
+                        len(arrived),
+                        min_count,
+                        missing,
+                        arrived,
+                        sample,
+                    )
+                    return len(arrived), missing, arrived
+                self.phase_cv.wait(timeout=min(remaining, 1.0))
+
+            arrived = sorted(state["arrived"])
+            missing = []
+            if not state["released_logged"]:
+                state["released_logged"] = True
+                meta = state["meta_by_rank"].get(rank, {})
+                log.info(
+                    "ordinal_barrier released: id=%s count=%s desc=%s ordinal=%s stage=%s",
+                    barrier_id,
+                    len(arrived),
+                    meta.get("group_desc"),
+                    meta.get("group_ordinal"),
+                    meta.get("barrier_stage"),
+                )
+            return len(arrived), missing, arrived
 
     def _phase_reached_locked(self, role, rank, target_phase):
         state = self.recovery_phases.get(f"{role}:{rank}")
@@ -792,6 +916,7 @@ class ElasticWatcher:
             self.rebuild_ready_step_tags = {}
             self.rebuild_ready_phases = {}
             self.recovery_phases = {}
+            self.ordinal_barriers = {}
             self.peer_sync_endpoints = {}
             self.rebuild_triggered = False
             connections = list(self.node_connections.items())
@@ -948,9 +1073,31 @@ class ElasticWatcher:
             "ELASTIC_REBUILD_TIMEOUT_MINUTES",
             env["DISTRIBUTED_TIMEOUT_MINUTES"],
         )
+        phase_timeout = os.environ.get(
+            "ELASTIC_PHASE_TIMEOUT_SECONDS",
+            os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT"),
+        )
+        if not phase_timeout:
+            try:
+                phase_timeout = str(int(env["DISTRIBUTED_TIMEOUT_MINUTES"]) * 60 + 120)
+            except (TypeError, ValueError):
+                phase_timeout = "720"
+        env["ELASTIC_PHASE_TIMEOUT_SECONDS"] = phase_timeout
+        env["ELASTIC_REBUILD_PHASE_TIMEOUT"] = os.environ.get(
+            "ELASTIC_REBUILD_PHASE_TIMEOUT",
+            phase_timeout,
+        )
         env["ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS"] = os.environ.get(
             "ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS",
             "1",
+        )
+        env["ELASTIC_MPU_GROUP_ORDINAL_BARRIER"] = os.environ.get(
+            "ELASTIC_MPU_GROUP_ORDINAL_BARRIER",
+            "1",
+        )
+        env["ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS"] = os.environ.get(
+            "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
+            env["ELASTIC_PHASE_TIMEOUT_SECONDS"],
         )
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
@@ -1033,7 +1180,11 @@ class ElasticWatcher:
                 "PYTHONUNBUFFERED",
                 "DISTRIBUTED_TIMEOUT_MINUTES",
                 "ELASTIC_REBUILD_TIMEOUT_MINUTES",
+                "ELASTIC_PHASE_TIMEOUT_SECONDS",
+                "ELASTIC_REBUILD_PHASE_TIMEOUT",
                 "ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS",
+                "ELASTIC_MPU_GROUP_ORDINAL_BARRIER",
+                "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
                 "CUDA_VISIBLE_DEVICES",
             }
         }

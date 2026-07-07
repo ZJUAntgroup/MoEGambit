@@ -361,12 +361,7 @@ def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
 
     os.environ["ELASTIC_RESUME_ITERATION"] = str(iteration)
     world_size = dist.get_world_size()
-    timeout = float(
-        os.environ.get(
-            "ELASTIC_REBUILD_PHASE_TIMEOUT",
-            os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"),
-        )
-    )
+    timeout = _elastic_phase_timeout_seconds()
     phase = "post_rebuild_iteration_ready"
     elastic_report_recovery_phase(phase, step=iteration)
     if not elastic_wait_for_recovery_phase_count(phase, world_size, timeout):
@@ -487,12 +482,7 @@ def elastic_warmup_post_rebuild_communicators(iteration: int) -> bool:
 
     replacement_rank = _elastic_replacement_rank_from_env()
     world_size = dist.get_world_size()
-    timeout = float(
-        os.environ.get(
-            "ELASTIC_REBUILD_PHASE_TIMEOUT",
-            os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"),
-        )
-    )
+    timeout = _elastic_phase_timeout_seconds()
     group_timeout = float(
         os.environ.get(
             "ELASTIC_POST_REBUILD_COMM_WARMUP_TIMEOUT",
@@ -749,6 +739,78 @@ def elastic_wait_for_recovery_phase_count(
     return False
 
 
+def elastic_wait_for_ordinal_barrier(
+    barrier_id: str,
+    rank: int,
+    min_count: int,
+    timeout: float = 300.0,
+    **extra,
+) -> bool:
+    watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
+    watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
+    if not watcher_addr or not watcher_port:
+        return False
+
+    msg = {
+        "type": "ordinal_barrier",
+        "node_rank": int(os.environ.get("NODE_RANK", "-1")),
+        "barrier_id": barrier_id,
+        "rank": int(rank),
+        "min_count": int(min_count),
+        "timeout": float(timeout),
+    }
+    msg.update(extra)
+    deadline = time.time() + timeout
+    last_error = None
+    attempt = 0
+    while time.time() < deadline:
+        attempt += 1
+        remaining = max(1.0, deadline - time.time())
+        msg["timeout"] = remaining
+        try:
+            with socket.create_connection(
+                (watcher_addr, int(watcher_port)),
+                timeout=min(10.0, remaining),
+            ) as sock:
+                sock.settimeout(remaining + 5.0)
+                sock.sendall((json.dumps(msg) + "\n").encode())
+                data = b""
+                while b"\n" not in data:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                if not data:
+                    last_error = RuntimeError("empty watcher response")
+                    time.sleep(min(1.0, max(0.0, deadline - time.time())))
+                    continue
+                response = json.loads(data.split(b"\n", 1)[0].decode())
+                ok = bool(response.get("ok"))
+                if not ok:
+                    logger.warning(
+                        "[elastic] ordinal barrier failed: id=%s count=%s "
+                        "min_count=%s missing=%s arrived=%s",
+                        barrier_id,
+                        response.get("count"),
+                        response.get("min_count"),
+                        response.get("missing"),
+                        response.get("arrived"),
+                    )
+                return ok
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            last_error = e
+            if time.time() < deadline:
+                logger.warning(
+                    "[elastic] ordinal barrier retry %d failed id=%s: %s",
+                    attempt,
+                    barrier_id,
+                    e,
+                )
+                time.sleep(min(1.0, max(0.0, deadline - time.time())))
+    logger.warning("[elastic] Failed waiting for ordinal barrier id=%s: %s", barrier_id, last_error)
+    return False
+
+
 def _elastic_wait_for_peer_sync_endpoint(peer_id: str, timeout: float = 300.0) -> Optional[dict]:
     watcher_addr = os.environ.get("ELASTIC_WATCHER_ADDR")
     watcher_port = os.environ.get("ELASTIC_WATCHER_PORT")
@@ -983,12 +1045,7 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
             os.environ.get("ELASTIC_REPLACEMENT_RANK", os.environ.get("RANK", "-1"))
         )
     if timeout is None:
-        timeout = float(
-            os.environ.get(
-                "ELASTIC_REBUILD_PHASE_TIMEOUT",
-                os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"),
-            )
-        )
+        timeout = _elastic_phase_timeout_seconds()
     warm_full_groups = os.environ.get("ELASTIC_REBUILD_WARMUP_FULL_GROUPS", "0") == "1"
     warm_data_groups = os.environ.get("ELASTIC_REBUILD_WARMUP_DATA_GROUPS", "0") == "1"
     allow_collective_warmup = (
@@ -1179,6 +1236,30 @@ def _elastic_rebuild_subgroup_timeout_minutes(args):
     return int(timeout_minutes)
 
 
+def _elastic_phase_timeout_seconds(args=None, default_seconds: float = 300.0) -> float:
+    """Return a watcher/control-plane timeout compatible with NCCL group setup."""
+    env_value = os.environ.get(
+        "ELASTIC_PHASE_TIMEOUT_SECONDS",
+        os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT"),
+    )
+    if env_value:
+        return float(env_value)
+
+    timeout_minutes = None
+    if args is not None:
+        timeout_minutes = getattr(args, "distributed_timeout_minutes", None)
+    if timeout_minutes is None:
+        timeout_minutes = os.environ.get("DISTRIBUTED_TIMEOUT_MINUTES")
+
+    try:
+        group_timeout = float(timeout_minutes) * 60.0
+    except (TypeError, ValueError):
+        group_timeout = 0.0
+
+    margin = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_MARGIN_SECONDS", "120"))
+    return max(float(default_seconds), group_timeout + margin)
+
+
 def _elastic_destroy_stale_model_parallel_groups(mpu):
     """Abort old Megatron subgroups before in-process rebuild creates new ones."""
     if not dist.is_available() or not dist.is_initialized():
@@ -1246,6 +1327,8 @@ def _initialize_model_parallel_for_rebuild(mpu, args):
     if old_trace_mpu_groups is None:
         os.environ["ELASTIC_TRACE_MPU_GROUPS"] = "1"
     try:
+        if hasattr(mpu, "reset_elastic_mpu_group_ordinal"):
+            mpu.reset_elastic_mpu_group_ordinal()
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=args.tensor_model_parallel_size,
             pipeline_model_parallel_size=args.pipeline_model_parallel_size,
@@ -2054,6 +2137,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         os.environ["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
     if killed_global_rank >= 0:
         os.environ["ELASTIC_REPLACEMENT_RANK"] = str(killed_global_rank)
+        os.environ.setdefault("ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS", "1")
 
     logger.warning(f"[elastic] Rank {rank}: rebuild signal received. "
                    f"Failed node={failed_node}, killed_rank={killed_global_rank}, "
@@ -2116,7 +2200,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     # Step 3: Re-initialize model parallel groups
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")
-    phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
+    phase_timeout = _elastic_phase_timeout_seconds(args)
     elastic_report_recovery_phase("mpu_init_start")
     logger.warning(
         "[elastic] Rank %d: waiting for %d ranks to reach mpu_init_start",
@@ -2213,12 +2297,10 @@ def elastic_replacement_sync_params(model, optimizer):
         model_param_to_name=model_param_to_name,
     )
     elastic_report_recovery_phase("param_sync_done")
-    _elastic_warmup_rebuild_communicators(
-        replacement_rank,
-        float(os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "300")),
-    )
+    phase_timeout = _elastic_phase_timeout_seconds()
+    _elastic_warmup_rebuild_communicators(replacement_rank, phase_timeout)
     _elastic_rebuild_final_barrier()
-    _elastic_report_and_wait_train_ready(float(os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "300")))
+    _elastic_report_and_wait_train_ready(phase_timeout)
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")
     resume_iteration = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
     elastic_mark_post_rebuild_pending(resume_iteration)

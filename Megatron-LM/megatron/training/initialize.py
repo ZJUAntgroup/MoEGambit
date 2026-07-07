@@ -66,6 +66,30 @@ def _elastic_wait_phase_count_or_raise(phase, world_size, timeout):
         )
 
 
+def _elastic_phase_timeout_seconds(args=None, default_seconds=300.0):
+    """Control-plane waits must outlive NCCL subgroup creation timeouts."""
+    env_value = os.environ.get(
+        "ELASTIC_PHASE_TIMEOUT_SECONDS",
+        os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT"),
+    )
+    if env_value:
+        return float(env_value)
+
+    timeout_minutes = None
+    if args is not None:
+        timeout_minutes = getattr(args, "distributed_timeout_minutes", None)
+    if timeout_minutes is None:
+        timeout_minutes = os.environ.get("DISTRIBUTED_TIMEOUT_MINUTES")
+
+    try:
+        group_timeout = float(timeout_minutes) * 60.0
+    except (TypeError, ValueError):
+        group_timeout = 0.0
+
+    margin = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_MARGIN_SECONDS", "120"))
+    return max(float(default_seconds), group_timeout + margin)
+
+
 def initialize_megatron(
     extra_args_provider=None,
     args_defaults={},
@@ -418,7 +442,7 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
         else:
             _elastic_report_phase_safely("mpu_init_start")
             if _is_elastic_rebuild_mode():
-                phase_timeout = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", "300"))
+                phase_timeout = _elastic_phase_timeout_seconds(args)
                 _elastic_wait_phase_count_or_raise(
                     "mpu_init_start", args.world_size, phase_timeout
                 )
@@ -426,6 +450,10 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             if _is_elastic_rebuild_mode() and old_trace_mpu_groups is None:
                 os.environ["ELASTIC_TRACE_MPU_GROUPS"] = "1"
             try:
+                if _is_elastic_rebuild_mode() and hasattr(
+                    mpu, "reset_elastic_mpu_group_ordinal"
+                ):
+                    mpu.reset_elastic_mpu_group_ordinal()
                 mpu.initialize_model_parallel(
                     args.tensor_model_parallel_size,
                     args.pipeline_model_parallel_size,

@@ -136,6 +136,13 @@ _GLOBAL_MEMORY_BUFFER = None
 # Used for updating the timeout for all process groups
 # None represents the default process group
 _global_process_group_list = None
+_ELASTIC_MPU_GROUP_ORDINAL = 0
+
+
+def reset_elastic_mpu_group_ordinal():
+    """Reset rebuild-time group ordinals before Megatron subgroup recreation."""
+    global _ELASTIC_MPU_GROUP_ORDINAL
+    _ELASTIC_MPU_GROUP_ORDINAL = 0
 
 
 def get_nccl_options(pg_name, nccl_comm_cfgs):
@@ -211,7 +218,13 @@ def create_group(
     group_desc=None,
 ):
     """Creates a ProcessGroup."""
-    _elastic_trace_mpu_group("mpu_group_start", ranks, timeout, backend, group_desc)
+    group_ordinal = _elastic_next_mpu_group_ordinal()
+    _elastic_trace_mpu_group(
+        "mpu_group_start", ranks, timeout, backend, group_desc, group_ordinal
+    )
+    _elastic_wait_mpu_group_ordinal_barrier(
+        group_ordinal, "enter", ranks, timeout, backend, group_desc
+    )
     kwargs = {
         "ranks": ranks,
         "timeout": timeout,
@@ -231,7 +244,12 @@ def create_group(
             # type error.
             kwargs.pop("timeout")
     group = torch.distributed.new_group(**kwargs)
-    _elastic_trace_mpu_group("mpu_group_done", ranks, timeout, backend, group_desc)
+    _elastic_trace_mpu_group(
+        "mpu_group_done", ranks, timeout, backend, group_desc, group_ordinal
+    )
+    _elastic_wait_mpu_group_ordinal_barrier(
+        group_ordinal, "exit", ranks, timeout, backend, group_desc
+    )
     global _global_process_group_list
     if _global_process_group_list is None:
         # None stands for the default process group
@@ -241,7 +259,116 @@ def create_group(
     return group
 
 
-def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc):
+def _elastic_mpu_group_ordinal_barrier_enabled():
+    if os.environ.get("ELASTIC_TRACE_MPU_GROUPS", "0").lower() not in ("1", "true", "yes", "on"):
+        return False
+    if os.environ.get("ELASTIC_MPU_GROUP_ORDINAL_BARRIER", "1").lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return False
+    if (
+        os.environ.get("ELASTIC_REBUILD_MODE") != "1"
+        and "ELASTIC_REPLACEMENT_RANK" not in os.environ
+    ):
+        return False
+    if not os.environ.get("ELASTIC_WATCHER_ADDR"):
+        return False
+    return torch.distributed.is_available() and torch.distributed.is_initialized()
+
+
+def _elastic_next_mpu_group_ordinal():
+    if not _elastic_mpu_group_ordinal_barrier_enabled():
+        return None
+    global _ELASTIC_MPU_GROUP_ORDINAL
+    _ELASTIC_MPU_GROUP_ORDINAL += 1
+    return _ELASTIC_MPU_GROUP_ORDINAL
+
+
+def _elastic_mpu_group_barrier_timeout(timeout):
+    env_timeout = os.environ.get(
+        "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
+        os.environ.get("ELASTIC_PHASE_TIMEOUT_SECONDS", os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT")),
+    )
+    if env_timeout:
+        return float(env_timeout)
+    if timeout is not None:
+        try:
+            return max(300.0, float(timeout.total_seconds()) + 120.0)
+        except (TypeError, ValueError):
+            pass
+    return 300.0
+
+
+def _elastic_group_manifest(ranks, timeout, backend, group_desc, group_ordinal, stage):
+    ranks_list = None if ranks is None else [int(r) for r in ranks]
+    if ranks_list is None:
+        group_size = torch.distributed.get_world_size()
+        representative_rank = 0
+    else:
+        group_size = len(ranks_list)
+        representative_rank = min(ranks_list) if ranks_list else -1
+
+    manifest = {
+        "group_ordinal": int(group_ordinal) if group_ordinal is not None else -1,
+        "barrier_stage": stage,
+        "group_desc": str(group_desc),
+        "group_backend": "default" if backend is None else str(backend),
+        "group_size": group_size,
+        "group_representative_rank": representative_rank,
+    }
+    if timeout is not None:
+        manifest["group_timeout_seconds"] = float(timeout.total_seconds())
+    if ranks_list is None:
+        manifest["group_ranks"] = "ALL"
+    elif len(ranks_list) <= 16:
+        manifest["group_ranks"] = ranks_list
+    else:
+        manifest["group_first_rank"] = ranks_list[0]
+        manifest["group_last_rank"] = ranks_list[-1]
+    return manifest
+
+
+def _elastic_wait_mpu_group_ordinal_barrier(
+    group_ordinal, stage, ranks, timeout, backend, group_desc
+):
+    if group_ordinal is None:
+        return
+    try:
+        from megatron.training.elastic_client import elastic_wait_for_ordinal_barrier
+
+        rank = torch.distributed.get_rank()
+        world_size = torch.distributed.get_world_size()
+        resume_iteration = os.environ.get("ELASTIC_RESUME_ITERATION", "-1")
+        replacement_rank = os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1")
+        token = os.environ.get(
+            "ELASTIC_MPU_GROUP_BARRIER_TOKEN",
+            f"iter{resume_iteration}:replacement{replacement_rank}",
+        )
+        barrier_id = f"mpu_group:{token}:{int(group_ordinal):06d}:{stage}"
+        wait_timeout = _elastic_mpu_group_barrier_timeout(timeout)
+        manifest = _elastic_group_manifest(
+            ranks, timeout, backend, group_desc, group_ordinal, stage
+        )
+        ok = elastic_wait_for_ordinal_barrier(
+            barrier_id,
+            rank,
+            world_size,
+            wait_timeout,
+            **manifest,
+        )
+        if not ok:
+            raise RuntimeError(
+                f"[elastic] timed out waiting for Megatron group ordinal barrier "
+                f"{barrier_id} rank={rank} desc={group_desc}"
+            )
+    except Exception:
+        raise
+
+
+def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc, group_ordinal=None):
     """Trace rebuild-time Megatron subgroup creation without perturbing normal runs."""
     if os.environ.get("ELASTIC_TRACE_MPU_GROUPS", "0").lower() not in ("1", "true", "yes", "on"):
         return
@@ -297,6 +424,7 @@ def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc):
 
         group_size = world_size if ranks_list is None else len(ranks_list)
         extra = {
+            "group_ordinal": int(group_ordinal) if group_ordinal is not None else -1,
             "group_desc": str(group_desc),
             "group_backend": "default" if backend is None else str(backend),
             "group_size": group_size,
