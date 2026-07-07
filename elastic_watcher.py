@@ -716,6 +716,7 @@ class ElasticWatcher:
             "group_first_rank",
             "group_last_rank",
             "group_representative_rank",
+            "group_report_rank",
             "group_timeout_seconds",
             "replacement_rank",
         )
@@ -939,6 +940,18 @@ class ElasticWatcher:
         env["NNODES"] = str(self.training_nnodes)
         env["WORLD_SIZE"] = str(self.training_nnodes * self.nproc_per_node)
         env["PYTHONUNBUFFERED"] = "1"
+        env["DISTRIBUTED_TIMEOUT_MINUTES"] = os.environ.get(
+            "DISTRIBUTED_TIMEOUT_MINUTES",
+            os.environ.get("ELASTIC_REBUILD_TIMEOUT_MINUTES", "10"),
+        )
+        env["ELASTIC_REBUILD_TIMEOUT_MINUTES"] = os.environ.get(
+            "ELASTIC_REBUILD_TIMEOUT_MINUTES",
+            env["DISTRIBUTED_TIMEOUT_MINUTES"],
+        )
+        env["ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS"] = os.environ.get(
+            "ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS",
+            "1",
+        )
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
         return env
@@ -1018,6 +1031,9 @@ class ElasticWatcher:
                 "NNODES",
                 "WORLD_SIZE",
                 "PYTHONUNBUFFERED",
+                "DISTRIBUTED_TIMEOUT_MINUTES",
+                "ELASTIC_REBUILD_TIMEOUT_MINUTES",
+                "ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS",
                 "CUDA_VISIBLE_DEVICES",
             }
         }

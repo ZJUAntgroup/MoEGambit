@@ -122,6 +122,7 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export TORCH_CUDA_ARCH_LIST="9.0"
 
 export TRAIN_ITERS="${TRAIN_ITERS:-100}"
+export DISTRIBUTED_TIMEOUT_MINUTES="${DISTRIBUTED_TIMEOUT_MINUTES:-10}"
 
 mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 
@@ -142,7 +143,7 @@ echo "[test-replace] Training nodes:  ${TRAINING_NNODES} (${TRAINING_WORLD_SIZE}
 echo "[test-replace] Fault inject:    kill node ${FAULT_INJECT_NODE} local_rank ${FAULT_INJECT_LOCAL_RANK} at step ${FAULT_INJECT_STEP}"
 echo "[test-replace] Save interval:   ${SAVE_INTERVAL}"
 echo "[test-replace] Train iters:     ${TRAIN_ITERS}"
-echo "[test-replace] NCCL timeout:    60s (dynamic, after init)"
+echo "[test-replace] Dist timeout:    ${DISTRIBUTED_TIMEOUT_MINUTES}min (60s after init)"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
 
@@ -266,7 +267,7 @@ python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --moe-router-load-balancing-type aux_loss \
   --moe-aux-loss-coeff 1e-3 \
   --moe-token-dispatcher-type alltoall \
-  --distributed-timeout-minutes 10 \
+  --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
   "${BSR_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \

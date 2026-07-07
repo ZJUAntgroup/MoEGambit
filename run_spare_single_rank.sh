@@ -78,10 +78,11 @@ TRAINING_NNODES="${NNODES:-8}"
 TRAINING_WORLD_SIZE=$((TRAINING_NNODES * NPROC_PER_NODE))
 DP_SIZE=$((TRAINING_WORLD_SIZE / (TP_SIZE * PP_SIZE)))
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-$((8 * DP_SIZE))}"
+DISTRIBUTED_TIMEOUT_MINUTES="${DISTRIBUTED_TIMEOUT_MINUTES:-10}"
 
 CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/test_replace_ckpt}"
 TRAIN_ITERS="${TRAIN_ITERS:-100}"
-ELASTIC_REBUILD_TIMEOUT_MINUTES="${ELASTIC_REBUILD_TIMEOUT_MINUTES:-30}"
+ELASTIC_REBUILD_TIMEOUT_MINUTES="${ELASTIC_REBUILD_TIMEOUT_MINUTES:-${DISTRIBUTED_TIMEOUT_MINUTES}}"
 
 # Elastic watcher connection
 export ELASTIC_WATCHER_ADDR="${ELASTIC_WATCHER_ADDR:-${MASTER_ADDR}}"
@@ -92,6 +93,7 @@ echo "[spare-rank] Starting replacement: RANK=${RANK}, LOCAL_RANK=${LOCAL_RANK},
 echo "[spare-rank] MASTER=${MASTER_ADDR}:${MASTER_PORT}, WORLD_SIZE=${WORLD_SIZE}"
 echo "[spare-rank] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[spare-rank] ELASTIC_REBUILD_MODE=${ELASTIC_REBUILD_MODE}"
+echo "[spare-rank] distributed timeout=${DISTRIBUTED_TIMEOUT_MINUTES}min"
 
 BSR_ARGS=(
   --moe-bsr-enable
@@ -176,7 +178,7 @@ exec python3 ./Megatron-LM/pretrain_gpt.py \
   --moe-router-load-balancing-type aux_loss \
   --moe-aux-loss-coeff 1e-3 \
   --moe-token-dispatcher-type alltoall \
-  --distributed-timeout-minutes "${ELASTIC_REBUILD_TIMEOUT_MINUTES}" \
+  --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
   "${BSR_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \

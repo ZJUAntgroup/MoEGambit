@@ -260,6 +260,15 @@ def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc):
         return
 
     representative_rank = 0 if ranks_list is None else min(ranks_list)
+    replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
+    trace_replacement_group_members = os.environ.get(
+        "ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS", "0"
+    ).lower() in ("1", "true", "yes", "on")
+    report_all_replacement_group_members = (
+        trace_replacement_group_members
+        and ranks_list is not None
+        and replacement_rank in ranks_list
+    )
     verbose = os.environ.get("ELASTIC_TRACE_MPU_GROUPS_VERBOSE", "0").lower() in (
         "1",
         "true",
@@ -277,8 +286,10 @@ def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc):
             "ALL" if ranks_list is None else ranks_list,
         )
 
-    # Report only one representative per group to avoid flooding the watcher.
-    if rank != representative_rank:
+    # By default report only one representative per group.  During elastic
+    # replacement, report all members of groups that include the replacement
+    # rank so the watcher can identify the exact rank stuck in new_group().
+    if rank != representative_rank and not report_all_replacement_group_members:
         return
 
     try:
@@ -290,6 +301,7 @@ def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc):
             "group_backend": "default" if backend is None else str(backend),
             "group_size": group_size,
             "group_representative_rank": representative_rank,
+            "group_report_rank": rank,
         }
         if timeout is not None:
             extra["group_timeout_seconds"] = float(timeout.total_seconds())
