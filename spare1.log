@@ -14,8 +14,8 @@ nohup: ignoring input
 + NPROC_PER_NODE=8
 + export NODE_RANK=7
 + NODE_RANK=7
-+ export MASTER_ADDR=33.181.102.93
-+ MASTER_ADDR=33.181.102.93
++ export MASTER_ADDR=33.181.97.192
++ MASTER_ADDR=33.181.97.192
 + export MASTER_PORT=20116
 + MASTER_PORT=20116
 + export ELASTIC_WATCHER_PORT=20200
@@ -25,8 +25,8 @@ nohup: ignoring input
 + IS_SPARE=0
 + export NNODES=8
 + NNODES=8
-+ export ELASTIC_WATCHER_ADDR=33.181.109.125
-+ ELASTIC_WATCHER_ADDR=33.181.109.125
++ export ELASTIC_WATCHER_ADDR=33.215.192.220
++ ELASTIC_WATCHER_ADDR=33.215.192.220
 + export ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + rm -rf /tmp/elastic_faults
@@ -97,8 +97,6 @@ nohup: ignoring input
 + ELASTIC_POST_REBUILD_COMM_WARMUP=0
 + export ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER=1
 + ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER=1
-+ export ELASTIC_PIPELINE_FIRST_P2P_BARRIER=1
-+ ELASTIC_PIPELINE_FIRST_P2P_BARRIER=1
 + mkdir -p /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt /mnt/ais-c1/dataset/zds/log/test_replace
 + TRAINING_WORLD_SIZE=64
 + DP_SIZE=8
@@ -134,8 +132,6 @@ nohup: ignoring input
 [test-replace] Post warmup:     0
 + echo '[test-replace] MoE first gate:  1'
 [test-replace] MoE first gate:  1
-+ echo '[test-replace] P2P first gate:  1'
-[test-replace] P2P first gate:  1
 + echo '[test-replace] CKPT_DIR:        /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt'
 [test-replace] CKPT_DIR:        /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
 + echo '[test-replace] =============================================='
@@ -147,19 +143,19 @@ nohup: ignoring input
 + BSR_ARGS=(--moe-bsr-enable --moe-bsr-health-mask --moe-bsr-rank-quarantine --moe-bsr-dispatch-quarantine-assert --moe-bsr-dispatch-sanitize --moe-bsr-expert-directory --moe-bsr-replacement-protocol --moe-bsr-group-rebuild --moe-bsr-dispatch-topology-refresh --moe-bsr-dense-param-sync --moe-bsr-stale-expert-restore --moe-bsr-recovery-controller --moe-bsr-deferred-optimizer-load --no-moe-bsr-weights-first-recovery --moe-bsr-degraded-mode-policy --moe-bsr-reintegration-barrier --moe-bsr-hot-spare-pool --moe-bsr-num-hot-spares "${NPROC_PER_NODE}" --moe-bsr-degraded-tau-c 0.5 --moe-bsr-degraded-t-max 1000 --moe-bsr-degraded-s-max 500)
 + '[' 1 = 1 ']'
 + BSR_ARGS+=(--moe-bsr-gap-aware-recovery --moe-bsr-recovery-policy-type "${BSR_RECOVERY_POLICY_TYPE}" --moe-bsr-gap-threshold "${BSR_GAP_THRESHOLD}")
-+ python3 /root/workdir/antllm/bsr2/elastic_launcher.py --nproc-per-node 8 --nnodes 8 --node-rank 7 --master-addr 33.181.102.93 --master-port 20116 -- python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-bsr-enable --moe-bsr-health-mask --moe-bsr-rank-quarantine --moe-bsr-dispatch-quarantine-assert --moe-bsr-dispatch-sanitize --moe-bsr-expert-directory --moe-bsr-replacement-protocol --moe-bsr-group-rebuild --moe-bsr-dispatch-topology-refresh --moe-bsr-dense-param-sync --moe-bsr-stale-expert-restore --moe-bsr-recovery-controller --moe-bsr-deferred-optimizer-load --no-moe-bsr-weights-first-recovery --moe-bsr-degraded-mode-policy --moe-bsr-reintegration-barrier --moe-bsr-hot-spare-pool --moe-bsr-num-hot-spares 8 --moe-bsr-degraded-tau-c 0.5 --moe-bsr-degraded-t-max 1000 --moe-bsr-degraded-s-max 500 --moe-bsr-gap-aware-recovery --moe-bsr-recovery-policy-type rank_exposure_guarded_hybrid --moe-bsr-gap-threshold 100 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
++ python3 /root/workdir/antllm/bsr2/elastic_launcher.py --nproc-per-node 8 --nnodes 8 --node-rank 7 --master-addr 33.181.97.192 --master-port 20116 -- python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-bsr-enable --moe-bsr-health-mask --moe-bsr-rank-quarantine --moe-bsr-dispatch-quarantine-assert --moe-bsr-dispatch-sanitize --moe-bsr-expert-directory --moe-bsr-replacement-protocol --moe-bsr-group-rebuild --moe-bsr-dispatch-topology-refresh --moe-bsr-dense-param-sync --moe-bsr-stale-expert-restore --moe-bsr-recovery-controller --moe-bsr-deferred-optimizer-load --no-moe-bsr-weights-first-recovery --moe-bsr-degraded-mode-policy --moe-bsr-reintegration-barrier --moe-bsr-hot-spare-pool --moe-bsr-num-hot-spares 8 --moe-bsr-degraded-tau-c 0.5 --moe-bsr-degraded-t-max 1000 --moe-bsr-degraded-s-max 500 --moe-bsr-gap-aware-recovery --moe-bsr-recovery-policy-type rank_exposure_guarded_hybrid --moe-bsr-gap-threshold 100 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
 [launcher] Starting 8 workers on node 7/8 (world_size=64)
-[launcher] Master: 33.181.102.93:20116
-[launcher] PID=329, PGID=329
+[launcher] Master: 33.181.97.192:20116
+[launcher] PID=324, PGID=324
 [launcher] Command: python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-bsr-enable --moe-bsr-health-mask --moe-bsr-rank-quarantine --moe-bsr-dispatch-quarantine-assert --moe-bsr-dispatch-sanitize --moe-bsr-expert-directory --moe-bsr-replacement-protocol --moe-bsr-group-rebuild --moe-bsr-dispatch-topology-refresh --moe-bsr-dense-param-sync --moe-bsr-stale-expert-restore --moe-bsr-recovery-controller --moe-bsr-deferred-optimizer-load --no-moe-bsr-weights-first-recovery --moe-bsr-degraded-mode-policy --moe-bsr-reintegration-barrier --moe-bsr-hot-spare-pool --moe-bsr-num-hot-spares 8 --moe-bsr-degraded-tau-c 0.5 --moe-bsr-degraded-t-max 1000 --moe-bsr-degraded-s-max 500 --moe-bsr-gap-aware-recovery --moe-bsr-recovery-policy-type rank_exposure_guarded_hybrid --moe-bsr-gap-threshold 100 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
-[launcher] Started worker local_rank=0 global_rank=56 pid=330
-[launcher] Started worker local_rank=1 global_rank=57 pid=331
-[launcher] Started worker local_rank=2 global_rank=58 pid=332
-[launcher] Started worker local_rank=3 global_rank=59 pid=333
-[launcher] Started worker local_rank=4 global_rank=60 pid=334
-[launcher] Started worker local_rank=5 global_rank=61 pid=335
-[launcher] Started worker local_rank=6 global_rank=62 pid=336
-[launcher] Started worker local_rank=7 global_rank=63 pid=337
+[launcher] Started worker local_rank=0 global_rank=56 pid=325
+[launcher] Started worker local_rank=1 global_rank=57 pid=326
+[launcher] Started worker local_rank=2 global_rank=58 pid=327
+[launcher] Started worker local_rank=3 global_rank=59 pid=328
+[launcher] Started worker local_rank=4 global_rank=60 pid=329
+[launcher] Started worker local_rank=5 global_rank=61 pid=330
+[launcher] Started worker local_rank=6 global_rank=62 pid=331
+[launcher] Started worker local_rank=7 global_rank=63 pid=332
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
@@ -168,102 +164,159 @@ fused_indices_to_multihot has reached end of life. Please migrate to a non-exper
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[rank59]:[W707 20:22:23.476441669 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 59]  using GPU 3 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank63]:[W707 20:22:23.476500389 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 63]  using GPU 7 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank61]:[W707 20:22:23.476506268 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 61]  using GPU 5 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank62]:[W707 20:22:23.478301004 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 62]  using GPU 6 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank60]:[W707 20:22:23.478463106 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 60]  using GPU 4 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank58]:[W707 20:22:23.479916955 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 58]  using GPU 2 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank57]:[W707 20:22:23.480148619 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 57]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank56]:[W707 20:22:23.532395266 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 56]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank60]:[W707 19:34:46.686070852 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 60]  using GPU 4 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank61]:[W707 19:34:46.686160103 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 61]  using GPU 5 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank62]:[W707 19:34:46.686215953 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 62]  using GPU 6 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank59]:[W707 19:34:46.686245643 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 59]  using GPU 3 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank57]:[W707 19:34:46.686387152 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 57]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank58]:[W707 19:34:46.686457081 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 58]  using GPU 2 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank63]:[W707 19:34:46.688283965 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 63]  using GPU 7 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank56]:[W707 19:34:46.746822711 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 56]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
 INFO:megatron.training.elastic_client:[elastic] Client started on node 7
-INFO:megatron.training.elastic_client:[elastic] Connected to watcher at 33.181.109.125:20200
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
  > number of parameters on (tensor, pipeline) model parallel rank (0, 7): 878472704
 INFO:megatron.core.distributed.param_and_grad_buffer:Number of buckets for gradient all-reduce / reduce-scatter: 1
 Params for bucket 1 (425487872 elements, 425487872 padded size):
-	module.decoder.layers.4.self_attention.linear_proj.weight
-	module.decoder.layers.3.self_attention.linear_proj.weight
-	module.decoder.layers.2.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.0.self_attention.linear_qkv.weight
-	module.decoder.layers.5.mlp.router.weight
-	module.decoder.layers.5.self_attention.linear_qkv.weight
-	module.decoder.layers.4.self_attention.k_layernorm.weight
-	module.decoder.layers.3.self_attention.q_layernorm.weight
-	module.decoder.layers.3.self_attention.linear_qkv.weight
-	module.decoder.layers.1.mlp.router.weight
-	module.decoder.layers.1.self_attention.linear_qkv.weight
-	module.decoder.layers.0.self_attention.k_layernorm.weight
-	module.decoder.layers.5.pre_mlp_layernorm.weight
-	module.decoder.final_layernorm.weight
-	module.decoder.layers.5.self_attention.q_layernorm.weight
-	module.decoder.layers.3.pre_mlp_layernorm.weight
-	module.decoder.layers.2.mlp.router.weight
-	module.decoder.layers.2.self_attention.linear_qkv.weight
-	module.decoder.layers.1.pre_mlp_layernorm.weight
-	module.decoder.layers.1.self_attention.q_layernorm.weight
-	module.decoder.layers.0.pre_mlp_layernorm.weight
-	module.decoder.layers.5.self_attention.linear_proj.weight
-	module.decoder.layers.2.pre_mlp_layernorm.weight
-	module.decoder.layers.2.self_attention.q_layernorm.weight
-	module.decoder.layers.1.self_attention.linear_proj.weight
-	module.decoder.layers.5.self_attention.k_layernorm.weight
-	module.decoder.layers.4.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.3.self_attention.k_layernorm.weight
-	module.decoder.layers.3.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.2.self_attention.linear_proj.weight
-	module.decoder.layers.1.self_attention.k_layernorm.weight
-	module.decoder.layers.0.mlp.router.weight
-	module.decoder.layers.2.self_attention.k_layernorm.weight
 	module.output_layer.weight
+	module.decoder.layers.5.self_attention.q_layernorm.weight
 	module.decoder.layers.4.mlp.router.weight
 	module.decoder.layers.4.self_attention.linear_qkv.weight
 	module.decoder.layers.3.mlp.router.weight
-	module.decoder.layers.0.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.5.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.0.self_attention.q_layernorm.weight
+	module.decoder.layers.5.self_attention.linear_proj.weight
 	module.decoder.layers.4.pre_mlp_layernorm.weight
 	module.decoder.layers.4.self_attention.q_layernorm.weight
+	module.decoder.layers.2.mlp.router.weight
+	module.decoder.layers.2.self_attention.linear_qkv.weight
 	module.decoder.layers.1.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.0.self_attention.q_layernorm.weight
+	module.decoder.layers.0.mlp.router.weight
+	module.decoder.layers.5.self_attention.k_layernorm.weight
+	module.decoder.layers.4.self_attention.linear_proj.weight
+	module.decoder.layers.2.pre_mlp_layernorm.weight
+	module.decoder.layers.2.self_attention.q_layernorm.weight
+	module.decoder.layers.5.mlp.router.weight
+	module.decoder.layers.4.self_attention.k_layernorm.weight
+	module.decoder.layers.3.self_attention.k_layernorm.weight
+	module.decoder.layers.3.self_attention.linear_qkv.weight
+	module.decoder.layers.3.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.2.self_attention.linear_proj.weight
+	module.decoder.layers.1.mlp.router.weight
+	module.decoder.layers.1.self_attention.linear_qkv.weight
+	module.decoder.layers.5.pre_mlp_layernorm.weight
+	module.decoder.final_layernorm.weight
+	module.decoder.layers.2.self_attention.k_layernorm.weight
+	module.decoder.layers.1.pre_mlp_layernorm.weight
+	module.decoder.layers.1.self_attention.q_layernorm.weight
+	module.decoder.layers.0.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.5.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.3.self_attention.q_layernorm.weight
+	module.decoder.layers.1.self_attention.linear_proj.weight
+	module.decoder.layers.0.self_attention.k_layernorm.weight
+	module.decoder.layers.0.self_attention.linear_qkv.weight
+	module.decoder.layers.4.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.3.pre_mlp_layernorm.weight
+	module.decoder.layers.3.self_attention.linear_proj.weight
+	module.decoder.layers.1.self_attention.k_layernorm.weight
+	module.decoder.layers.0.pre_mlp_layernorm.weight
 	module.decoder.layers.0.self_attention.linear_proj.weight
+	module.decoder.layers.5.self_attention.linear_qkv.weight
+	module.decoder.layers.2.self_attention.linear_qkv.layer_norm_weight
 INFO:megatron.core.distributed.param_and_grad_buffer:Number of buckets for gradient all-reduce / reduce-scatter: 1
 Params for bucket 1 (452984832 elements, 452984832 padded size):
+	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.4.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.5.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc2.weight
 	module.decoder.layers.1.mlp.experts.local_experts.15.linear_fc1.weight
 	module.decoder.layers.1.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.15.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.10.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.11.linear_fc2.weight
 	module.decoder.layers.3.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc1.weight
 	module.decoder.layers.1.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.5.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.0.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.6.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc1.weight
 	module.decoder.layers.1.mlp.experts.local_experts.11.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.11.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc1.weight
 	module.decoder.layers.1.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.6.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.7.linear_fc1.weight
@@ -272,153 +325,96 @@ Params for bucket 1 (452984832 elements, 452984832 padded size):
 	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc2.weight
 	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc1.weight
 	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc1.weight
 	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc2.weight
 	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc2.weight
 	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc2.weight
 	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc2.weight
 	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc1.weight
 	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc2.weight
 	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.4.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.0.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc2.weight
 	module.decoder.layers.1.mlp.experts.local_experts.15.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.15.linear_fc2.weight
 	module.decoder.layers.3.mlp.experts.local_experts.14.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc2.weight
 	module.decoder.layers.1.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.10.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.5.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.11.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc1.weight
 	module.decoder.layers.1.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc2.weight
 	module.decoder.layers.1.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc2.weight
 	module.decoder.layers.5.mlp.experts.local_experts.11.linear_fc1.weight
 	module.decoder.layers.5.mlp.experts.local_experts.6.linear_fc2.weight
 	module.decoder.layers.4.mlp.experts.local_experts.12.linear_fc1.weight
 	module.decoder.layers.4.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc1.weight
 	module.decoder.layers.1.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc2.weight
 /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
   state_dict = torch.load(checkpoint_name, map_location='cpu')
 /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
@@ -435,20 +431,26 @@ Params for bucket 1 (452984832 elements, 452984832 padded size):
   state_dict = torch.load(checkpoint_name, map_location='cpu')
 /root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
   state_dict = torch.load(checkpoint_name, map_location='cpu')
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
 WARNING: one_logger package is required to enable e2e metrics tracking. please go to https://confluence.nvidia.com/display/MLWFO/Package+Repositories for details to install it
 (min, max) time across ranks (ms):
-    load-checkpoint ................................: (31267.49, 31269.74)
+    load-checkpoint ................................: (30274.56, 30275.44)
 (min, max) time across ranks (ms):
-    model-and-optimizer-setup ......................: (33609.31, 33609.74)
-    train/valid/test-data-iterators-setup ..........: (74.69, 198.56)
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initializing on rank 56 ...
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initializing on rank 58 ...
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initializing on rank 61 ...
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initializing on rank 57 ...
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initializing on rank 60 ...
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initializing on rank 63 ...
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initializing on rank 59 ...
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initializing on rank 62 ...
+    model-and-optimizer-setup ......................: (33062.00, 33062.86)
+    train/valid/test-data-iterators-setup ..........: (76.84, 214.39)
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initializing on rank 56 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initializing on rank 62 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initializing on rank 60 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initializing on rank 61 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initializing on rank 63 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initializing on rank 58 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initializing on rank 59 ...
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initializing on rank 57 ...
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
@@ -458,41 +460,41 @@ WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, 
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
 INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
 INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
 INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
 INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
 INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
 INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
 INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
 INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
@@ -503,12 +505,12 @@ INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyMan
 INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
 INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: expert directory initialized
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: reintegration barrier wired to recovery controller
 INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: dispatch topology manager initialized
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: recovery controller initialized and callbacks wired
@@ -517,41 +519,41 @@ WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-gua
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
 WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
 WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
 WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
 WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
 WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
 WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 32, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.02}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=32, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.0200)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:BSR-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hard failure detector and iteration invalidator initialized
@@ -589,6 +591,8 @@ INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWo
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
 INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
 INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
 INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
@@ -596,57 +600,527 @@ WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery wo
 INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
 INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
-INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
 INFO:megatron.core.transformer.moe.async_recovery_worker:BSR-MoE AsyncRecoveryWorker: started 2 worker threads
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: async recovery worker initialized (workers=2, CUDA stream created)
 INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initialization complete on rank 57
-INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initialization complete on rank 59
-INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initialization complete on rank 61
-INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initialization complete on rank 58
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initialization complete on rank 56
 INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
 INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initialization complete on rank 63
-WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initialization complete on rank 60
-INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initialization complete on rank 62
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
 INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initialization complete on rank 59
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initialization complete on rank 62
 WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 20:23:09] BSR-MoE: initialization complete on rank 56
-[rank56]:[W707 20:23:10.348397596 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[rank59]:[W707 20:23:10.857756364 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[rank62]:[W707 20:23:10.959504085 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[rank57]:[W707 20:23:10.961213768 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[rank60]:[W707 20:23:10.967879255 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[rank58]:[W707 20:23:10.143656433 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[rank63]:[W707 20:23:10.155702461 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[rank61]:[W707 20:23:10.161404890 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[launcher] Worker local_rank=3 (global_rank=59) exited normally
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initialization complete on rank 61
+INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initialization complete on rank 58
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initialization complete on rank 57
+INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initialization complete on rank 60
+INFO:megatron.core.transformer.moe.hot_spare_pool:BSR-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.bsr_integration:BSR-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.bsr_integration:[2026-07-07 19:35:38] BSR-MoE: initialization complete on rank 63
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:37:46] iteration       11/     100 | consumed samples:          704 | elapsed time per iteration (ms): 127512.0 | learning rate: 9.911710E-05 | global batch size:    64 | lm loss: 9.202971E+00 | load_balancing_loss: 2.059341E+00 | loss scale: 1.0 | grad norm: 2.058 | number of skipped iterations:   0 | number of nan iterations:   0 |
+[Rank 56] (after 11 iterations) memory (MB) | allocated: 16203.49267578125 | max allocated: 70261.67724609375 | reserved: 80018.0 | max reserved: 80018.0
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:38:01] iteration       12/     100 | consumed samples:          768 | elapsed time per iteration (ms): 14847.6 | learning rate: 9.879970E-05 | global batch size:    64 | lm loss: 9.037853E+00 | load_balancing_loss: 1.930024E+00 | loss scale: 1.0 | grad norm: 3.270 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:38:15] iteration       13/     100 | consumed samples:          832 | elapsed time per iteration (ms): 13899.3 | learning rate: 9.843440E-05 | global batch size:    64 | lm loss: 8.912396E+00 | load_balancing_loss: 1.811281E+00 | loss scale: 1.0 | grad norm: 3.264 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:38:30] iteration       14/     100 | consumed samples:          896 | elapsed time per iteration (ms): 15085.2 | learning rate: 9.802161E-05 | global batch size:    64 | lm loss: 8.796534E+00 | load_balancing_loss: 1.727231E+00 | loss scale: 1.0 | grad norm: 2.556 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:38:43] iteration       15/     100 | consumed samples:          960 | elapsed time per iteration (ms): 13766.6 | learning rate: 9.756177E-05 | global batch size:    64 | lm loss: 8.595017E+00 | load_balancing_loss: 1.643170E+00 | loss scale: 1.0 | grad norm: 2.170 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:38:57] iteration       16/     100 | consumed samples:         1024 | elapsed time per iteration (ms): 13123.3 | learning rate: 9.705540E-05 | global batch size:    64 | lm loss: 8.461470E+00 | load_balancing_loss: 1.577704E+00 | loss scale: 1.0 | grad norm: 1.168 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:39:10] iteration       17/     100 | consumed samples:         1088 | elapsed time per iteration (ms): 13068.2 | learning rate: 9.650304E-05 | global batch size:    64 | lm loss: 8.395325E+00 | load_balancing_loss: 1.506204E+00 | loss scale: 1.0 | grad norm: 1.253 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:39:23] iteration       18/     100 | consumed samples:         1152 | elapsed time per iteration (ms): 13023.2 | learning rate: 9.590529E-05 | global batch size:    64 | lm loss: 8.256722E+00 | load_balancing_loss: 1.452598E+00 | loss scale: 1.0 | grad norm: 1.308 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:39:36] iteration       19/     100 | consumed samples:         1216 | elapsed time per iteration (ms): 12991.4 | learning rate: 9.526282E-05 | global batch size:    64 | lm loss: 8.169178E+00 | load_balancing_loss: 1.417048E+00 | loss scale: 1.0 | grad norm: 1.055 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:39:51] iteration       20/     100 | consumed samples:         1280 | elapsed time per iteration (ms): 15050.0 | learning rate: 9.457632E-05 | global batch size:    64 | lm loss: 8.106455E+00 | load_balancing_loss: 1.391642E+00 | loss scale: 1.0 | grad norm: 0.748 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (34359.79, 34360.58)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:40:38] iteration       21/     100 | consumed samples:         1344 | elapsed time per iteration (ms): 13046.4 | learning rate: 9.384654E-05 | global batch size:    64 | lm loss: 7.999040E+00 | load_balancing_loss: 1.363429E+00 | loss scale: 1.0 | grad norm: 0.813 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:40:51] iteration       22/     100 | consumed samples:         1408 | elapsed time per iteration (ms): 12817.3 | learning rate: 9.307429E-05 | global batch size:    64 | lm loss: 7.966622E+00 | load_balancing_loss: 1.335186E+00 | loss scale: 1.0 | grad norm: 0.787 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:41:04] iteration       23/     100 | consumed samples:         1472 | elapsed time per iteration (ms): 12605.7 | learning rate: 9.226039E-05 | global batch size:    64 | lm loss: 7.921763E+00 | load_balancing_loss: 1.317066E+00 | loss scale: 1.0 | grad norm: 0.628 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:41:17] iteration       24/     100 | consumed samples:         1536 | elapsed time per iteration (ms): 12982.8 | learning rate: 9.140577E-05 | global batch size:    64 | lm loss: 7.896382E+00 | load_balancing_loss: 1.301310E+00 | loss scale: 1.0 | grad norm: 0.595 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:41:29] iteration       25/     100 | consumed samples:         1600 | elapsed time per iteration (ms): 12957.8 | learning rate: 9.051132E-05 | global batch size:    64 | lm loss: 7.865466E+00 | load_balancing_loss: 1.285531E+00 | loss scale: 1.0 | grad norm: 0.564 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:41:42] iteration       26/     100 | consumed samples:         1664 | elapsed time per iteration (ms): 12633.9 | learning rate: 8.957805E-05 | global batch size:    64 | lm loss: 7.874075E+00 | load_balancing_loss: 1.276533E+00 | loss scale: 1.0 | grad norm: 0.531 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:41:54] iteration       27/     100 | consumed samples:         1728 | elapsed time per iteration (ms): 12265.3 | learning rate: 8.860697E-05 | global batch size:    64 | lm loss: 7.862116E+00 | load_balancing_loss: 1.260545E+00 | loss scale: 1.0 | grad norm: 0.529 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:42:07] iteration       28/     100 | consumed samples:         1792 | elapsed time per iteration (ms): 12363.1 | learning rate: 8.759913E-05 | global batch size:    64 | lm loss: 7.799747E+00 | load_balancing_loss: 1.246773E+00 | loss scale: 1.0 | grad norm: 0.443 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:42:19] iteration       29/     100 | consumed samples:         1856 | elapsed time per iteration (ms): 11973.3 | learning rate: 8.655566E-05 | global batch size:    64 | lm loss: 7.790526E+00 | load_balancing_loss: 1.237219E+00 | loss scale: 1.0 | grad norm: 0.409 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:42:31] iteration       30/     100 | consumed samples:         1920 | elapsed time per iteration (ms): 11995.7 | learning rate: 8.547767E-05 | global batch size:    64 | lm loss: 7.788337E+00 | load_balancing_loss: 1.223535E+00 | loss scale: 1.0 | grad norm: 0.390 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (38610.03, 38610.73)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:43:21] iteration       31/     100 | consumed samples:         1984 | elapsed time per iteration (ms): 11979.7 | learning rate: 8.436636E-05 | global batch size:    64 | lm loss: 7.798724E+00 | load_balancing_loss: 1.211900E+00 | loss scale: 1.0 | grad norm: 0.364 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:43:34] iteration       32/     100 | consumed samples:         2048 | elapsed time per iteration (ms): 12247.1 | learning rate: 8.322293E-05 | global batch size:    64 | lm loss: 7.825202E+00 | load_balancing_loss: 1.199438E+00 | loss scale: 1.0 | grad norm: 0.438 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:43:45] iteration       33/     100 | consumed samples:         2112 | elapsed time per iteration (ms): 11926.3 | learning rate: 8.204865E-05 | global batch size:    64 | lm loss: 7.745373E+00 | load_balancing_loss: 1.186238E+00 | loss scale: 1.0 | grad norm: 0.433 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:43:57] iteration       34/     100 | consumed samples:         2176 | elapsed time per iteration (ms): 11808.0 | learning rate: 8.084479E-05 | global batch size:    64 | lm loss: 7.789082E+00 | load_balancing_loss: 1.176795E+00 | loss scale: 1.0 | grad norm: 0.369 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:44:09] iteration       35/     100 | consumed samples:         2240 | elapsed time per iteration (ms): 12003.0 | learning rate: 7.961267E-05 | global batch size:    64 | lm loss: 7.775726E+00 | load_balancing_loss: 1.167626E+00 | loss scale: 1.0 | grad norm: 0.361 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:44:21] iteration       36/     100 | consumed samples:         2304 | elapsed time per iteration (ms): 12173.8 | learning rate: 7.835363E-05 | global batch size:    64 | lm loss: 7.766252E+00 | load_balancing_loss: 1.162273E+00 | loss scale: 1.0 | grad norm: 0.371 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:44:33] iteration       37/     100 | consumed samples:         2368 | elapsed time per iteration (ms): 11805.6 | learning rate: 7.706906E-05 | global batch size:    64 | lm loss: 7.796592E+00 | load_balancing_loss: 1.153248E+00 | loss scale: 1.0 | grad norm: 0.349 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:44:45] iteration       38/     100 | consumed samples:         2432 | elapsed time per iteration (ms): 11572.2 | learning rate: 7.576036E-05 | global batch size:    64 | lm loss: 7.709467E+00 | load_balancing_loss: 1.143996E+00 | loss scale: 1.0 | grad norm: 0.404 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:44:57] iteration       39/     100 | consumed samples:         2496 | elapsed time per iteration (ms): 11670.0 | learning rate: 7.442894E-05 | global batch size:    64 | lm loss: 7.692010E+00 | load_balancing_loss: 1.140048E+00 | loss scale: 1.0 | grad norm: 0.296 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:45:08] iteration       40/     100 | consumed samples:         2560 | elapsed time per iteration (ms): 11739.8 | learning rate: 7.307629E-05 | global batch size:    64 | lm loss: 7.754811E+00 | load_balancing_loss: 1.135499E+00 | loss scale: 1.0 | grad norm: 0.312 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (33607.25, 33608.01)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:45:53] iteration       41/     100 | consumed samples:         2624 | elapsed time per iteration (ms): 11443.6 | learning rate: 7.170388E-05 | global batch size:    64 | lm loss: 7.699578E+00 | load_balancing_loss: 1.139285E+00 | loss scale: 1.0 | grad norm: 0.340 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:46:05] iteration       42/     100 | consumed samples:         2688 | elapsed time per iteration (ms): 11408.5 | learning rate: 7.031320E-05 | global batch size:    64 | lm loss: 7.740552E+00 | load_balancing_loss: 1.131391E+00 | loss scale: 1.0 | grad norm: 0.342 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:46:16] iteration       43/     100 | consumed samples:         2752 | elapsed time per iteration (ms): 11348.5 | learning rate: 6.890576E-05 | global batch size:    64 | lm loss: 7.755278E+00 | load_balancing_loss: 1.121548E+00 | loss scale: 1.0 | grad norm: 0.397 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:46:27] iteration       44/     100 | consumed samples:         2816 | elapsed time per iteration (ms): 11371.2 | learning rate: 6.748313E-05 | global batch size:    64 | lm loss: 7.717997E+00 | load_balancing_loss: 1.118681E+00 | loss scale: 1.0 | grad norm: 0.282 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:46:39] iteration       45/     100 | consumed samples:         2880 | elapsed time per iteration (ms): 11270.4 | learning rate: 6.604685E-05 | global batch size:    64 | lm loss: 7.719445E+00 | load_balancing_loss: 1.116084E+00 | loss scale: 1.0 | grad norm: 0.344 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:46:50] iteration       46/     100 | consumed samples:         2944 | elapsed time per iteration (ms): 11256.2 | learning rate: 6.459848E-05 | global batch size:    64 | lm loss: 7.700637E+00 | load_balancing_loss: 1.122034E+00 | loss scale: 1.0 | grad norm: 0.354 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:47:01] iteration       47/     100 | consumed samples:         3008 | elapsed time per iteration (ms): 11197.2 | learning rate: 6.313963E-05 | global batch size:    64 | lm loss: 7.695070E+00 | load_balancing_loss: 1.130662E+00 | loss scale: 1.0 | grad norm: 0.434 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:47:12] iteration       48/     100 | consumed samples:         3072 | elapsed time per iteration (ms): 11064.3 | learning rate: 6.167186E-05 | global batch size:    64 | lm loss: 7.661546E+00 | load_balancing_loss: 1.123231E+00 | loss scale: 1.0 | grad norm: 0.440 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:47:23] iteration       49/     100 | consumed samples:         3136 | elapsed time per iteration (ms): 11111.0 | learning rate: 6.019681E-05 | global batch size:    64 | lm loss: 7.661064E+00 | load_balancing_loss: 1.114962E+00 | loss scale: 1.0 | grad norm: 0.319 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:47:34] iteration       50/     100 | consumed samples:         3200 | elapsed time per iteration (ms): 11127.7 | learning rate: 5.871607E-05 | global batch size:    64 | lm loss: 7.670511E+00 | load_balancing_loss: 1.126074E+00 | loss scale: 1.0 | grad norm: 0.438 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (33095.59, 33096.52)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:48:19] iteration       51/     100 | consumed samples:         3264 | elapsed time per iteration (ms): 11207.0 | learning rate: 5.723127E-05 | global batch size:    64 | lm loss: 7.618322E+00 | load_balancing_loss: 1.159854E+00 | loss scale: 1.0 | grad norm: 1.253 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:48:30] iteration       52/     100 | consumed samples:         3328 | elapsed time per iteration (ms): 11610.0 | learning rate: 5.574403E-05 | global batch size:    64 | lm loss: 7.660351E+00 | load_balancing_loss: 1.140938E+00 | loss scale: 1.0 | grad norm: 1.436 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:48:42] iteration       53/     100 | consumed samples:         3392 | elapsed time per iteration (ms): 11369.5 | learning rate: 5.425597E-05 | global batch size:    64 | lm loss: 7.601372E+00 | load_balancing_loss: 1.120190E+00 | loss scale: 1.0 | grad norm: 0.700 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:48:53] iteration       54/     100 | consumed samples:         3456 | elapsed time per iteration (ms): 11210.0 | learning rate: 5.276873E-05 | global batch size:    64 | lm loss: 7.634107E+00 | load_balancing_loss: 1.116963E+00 | loss scale: 1.0 | grad norm: 0.933 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:49:04] iteration       55/     100 | consumed samples:         3520 | elapsed time per iteration (ms): 11146.2 | learning rate: 5.128393E-05 | global batch size:    64 | lm loss: 7.564558E+00 | load_balancing_loss: 1.107401E+00 | loss scale: 1.0 | grad norm: 0.610 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:49:16] iteration       56/     100 | consumed samples:         3584 | elapsed time per iteration (ms): 11404.3 | learning rate: 4.980319E-05 | global batch size:    64 | lm loss: 7.574219E+00 | load_balancing_loss: 1.111404E+00 | loss scale: 1.0 | grad norm: 0.826 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:49:27] iteration       57/     100 | consumed samples:         3648 | elapsed time per iteration (ms): 11224.0 | learning rate: 4.832814E-05 | global batch size:    64 | lm loss: 7.548097E+00 | load_balancing_loss: 1.108297E+00 | loss scale: 1.0 | grad norm: 0.580 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:49:38] iteration       58/     100 | consumed samples:         3712 | elapsed time per iteration (ms): 11150.9 | learning rate: 4.686038E-05 | global batch size:    64 | lm loss: 7.542813E+00 | load_balancing_loss: 1.125909E+00 | loss scale: 1.0 | grad norm: 0.705 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:49:49] iteration       59/     100 | consumed samples:         3776 | elapsed time per iteration (ms): 10892.0 | learning rate: 4.540152E-05 | global batch size:    64 | lm loss: 7.493439E+00 | load_balancing_loss: 1.114746E+00 | loss scale: 1.0 | grad norm: 0.510 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:50:00] iteration       60/     100 | consumed samples:         3840 | elapsed time per iteration (ms): 10879.5 | learning rate: 4.395315E-05 | global batch size:    64 | lm loss: 7.514522E+00 | load_balancing_loss: 1.104438E+00 | loss scale: 1.0 | grad norm: 1.426 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (34145.98, 34146.80)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:50:45] iteration       61/     100 | consumed samples:         3904 | elapsed time per iteration (ms): 10890.9 | learning rate: 4.251687E-05 | global batch size:    64 | lm loss: 7.558565E+00 | load_balancing_loss: 1.101081E+00 | loss scale: 1.0 | grad norm: 0.626 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:50:56] iteration       62/     100 | consumed samples:         3968 | elapsed time per iteration (ms): 11131.4 | learning rate: 4.109423E-05 | global batch size:    64 | lm loss: 7.479437E+00 | load_balancing_loss: 1.125889E+00 | loss scale: 1.0 | grad norm: 1.036 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:51:07] iteration       63/     100 | consumed samples:         4032 | elapsed time per iteration (ms): 10867.1 | learning rate: 3.968681E-05 | global batch size:    64 | lm loss: 7.479666E+00 | load_balancing_loss: 1.105546E+00 | loss scale: 1.0 | grad norm: 0.640 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:51:18] iteration       64/     100 | consumed samples:         4096 | elapsed time per iteration (ms): 10951.4 | learning rate: 3.829612E-05 | global batch size:    64 | lm loss: 7.501348E+00 | load_balancing_loss: 1.087106E+00 | loss scale: 1.0 | grad norm: 0.764 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:51:28] iteration       65/     100 | consumed samples:         4160 | elapsed time per iteration (ms): 10816.1 | learning rate: 3.692371E-05 | global batch size:    64 | lm loss: 7.406165E+00 | load_balancing_loss: 1.087049E+00 | loss scale: 1.0 | grad norm: 0.490 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:51:39] iteration       66/     100 | consumed samples:         4224 | elapsed time per iteration (ms): 10833.2 | learning rate: 3.557105E-05 | global batch size:    64 | lm loss: 7.431568E+00 | load_balancing_loss: 1.095283E+00 | loss scale: 1.0 | grad norm: 0.703 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:51:50] iteration       67/     100 | consumed samples:         4288 | elapsed time per iteration (ms): 10820.3 | learning rate: 3.423965E-05 | global batch size:    64 | lm loss: 7.493110E+00 | load_balancing_loss: 1.094589E+00 | loss scale: 1.0 | grad norm: 0.562 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:52:01] iteration       68/     100 | consumed samples:         4352 | elapsed time per iteration (ms): 10699.1 | learning rate: 3.293094E-05 | global batch size:    64 | lm loss: 7.509532E+00 | load_balancing_loss: 1.082355E+00 | loss scale: 1.0 | grad norm: 0.544 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:52:12] iteration       69/     100 | consumed samples:         4416 | elapsed time per iteration (ms): 10697.5 | learning rate: 3.164637E-05 | global batch size:    64 | lm loss: 7.418118E+00 | load_balancing_loss: 1.077105E+00 | loss scale: 1.0 | grad norm: 0.456 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:52:22] iteration       70/     100 | consumed samples:         4480 | elapsed time per iteration (ms): 10645.9 | learning rate: 3.038733E-05 | global batch size:    64 | lm loss: 7.454648E+00 | load_balancing_loss: 1.074795E+00 | loss scale: 1.0 | grad norm: 1.370 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (32864.61, 32865.48)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:53:06] iteration       71/     100 | consumed samples:         4544 | elapsed time per iteration (ms): 10644.0 | learning rate: 2.915521E-05 | global batch size:    64 | lm loss: 7.419505E+00 | load_balancing_loss: 1.079834E+00 | loss scale: 1.0 | grad norm: 0.800 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:53:16] iteration       72/     100 | consumed samples:         4608 | elapsed time per iteration (ms): 10666.3 | learning rate: 2.795135E-05 | global batch size:    64 | lm loss: 7.403764E+00 | load_balancing_loss: 1.073011E+00 | loss scale: 1.0 | grad norm: 0.286 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:53:27] iteration       73/     100 | consumed samples:         4672 | elapsed time per iteration (ms): 10644.5 | learning rate: 2.677706E-05 | global batch size:    64 | lm loss: 7.402906E+00 | load_balancing_loss: 1.069675E+00 | loss scale: 1.0 | grad norm: 0.555 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:53:38] iteration       74/     100 | consumed samples:         4736 | elapsed time per iteration (ms): 10606.4 | learning rate: 2.563364E-05 | global batch size:    64 | lm loss: 7.378785E+00 | load_balancing_loss: 1.069165E+00 | loss scale: 1.0 | grad norm: 0.614 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:53:48] iteration       75/     100 | consumed samples:         4800 | elapsed time per iteration (ms): 10575.5 | learning rate: 2.452233E-05 | global batch size:    64 | lm loss: 7.369109E+00 | load_balancing_loss: 1.062760E+00 | loss scale: 1.0 | grad norm: 0.431 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:53:59] iteration       76/     100 | consumed samples:         4864 | elapsed time per iteration (ms): 10552.6 | learning rate: 2.344435E-05 | global batch size:    64 | lm loss: 7.436039E+00 | load_balancing_loss: 1.059797E+00 | loss scale: 1.0 | grad norm: 0.494 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:54:09] iteration       77/     100 | consumed samples:         4928 | elapsed time per iteration (ms): 10537.3 | learning rate: 2.240087E-05 | global batch size:    64 | lm loss: 7.333203E+00 | load_balancing_loss: 1.057511E+00 | loss scale: 1.0 | grad norm: 0.637 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:54:20] iteration       78/     100 | consumed samples:         4992 | elapsed time per iteration (ms): 10488.0 | learning rate: 2.139303E-05 | global batch size:    64 | lm loss: 7.364989E+00 | load_balancing_loss: 1.056277E+00 | loss scale: 1.0 | grad norm: 0.539 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:54:30] iteration       79/     100 | consumed samples:         5056 | elapsed time per iteration (ms): 10494.8 | learning rate: 2.042195E-05 | global batch size:    64 | lm loss: 7.331550E+00 | load_balancing_loss: 1.058970E+00 | loss scale: 1.0 | grad norm: 0.367 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:54:41] iteration       80/     100 | consumed samples:         5120 | elapsed time per iteration (ms): 10462.2 | learning rate: 1.948868E-05 | global batch size:    64 | lm loss: 7.467484E+00 | load_balancing_loss: 1.057637E+00 | loss scale: 1.0 | grad norm: 0.507 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (31720.71, 31721.82)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:55:23] iteration       81/     100 | consumed samples:         5184 | elapsed time per iteration (ms): 10406.0 | learning rate: 1.859424E-05 | global batch size:    64 | lm loss: 7.355507E+00 | load_balancing_loss: 1.055101E+00 | loss scale: 1.0 | grad norm: 0.516 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:55:33] iteration       82/     100 | consumed samples:         5248 | elapsed time per iteration (ms): 10398.5 | learning rate: 1.773960E-05 | global batch size:    64 | lm loss: 7.389879E+00 | load_balancing_loss: 1.051595E+00 | loss scale: 1.0 | grad norm: 0.406 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:55:44] iteration       83/     100 | consumed samples:         5312 | elapsed time per iteration (ms): 10385.3 | learning rate: 1.692571E-05 | global batch size:    64 | lm loss: 7.381964E+00 | load_balancing_loss: 1.046436E+00 | loss scale: 1.0 | grad norm: 0.376 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:55:54] iteration       84/     100 | consumed samples:         5376 | elapsed time per iteration (ms): 10378.5 | learning rate: 1.615346E-05 | global batch size:    64 | lm loss: 7.316331E+00 | load_balancing_loss: 1.043468E+00 | loss scale: 1.0 | grad norm: 0.622 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:56:04] iteration       85/     100 | consumed samples:         5440 | elapsed time per iteration (ms): 10353.5 | learning rate: 1.542368E-05 | global batch size:    64 | lm loss: 7.343607E+00 | load_balancing_loss: 1.041462E+00 | loss scale: 1.0 | grad norm: 0.464 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:56:15] iteration       86/     100 | consumed samples:         5504 | elapsed time per iteration (ms): 10319.4 | learning rate: 1.473718E-05 | global batch size:    64 | lm loss: 7.394086E+00 | load_balancing_loss: 1.042034E+00 | loss scale: 1.0 | grad norm: 0.329 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:56:25] iteration       87/     100 | consumed samples:         5568 | elapsed time per iteration (ms): 10281.6 | learning rate: 1.409471E-05 | global batch size:    64 | lm loss: 7.259817E+00 | load_balancing_loss: 1.044561E+00 | loss scale: 1.0 | grad norm: 0.423 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:56:35] iteration       88/     100 | consumed samples:         5632 | elapsed time per iteration (ms): 10282.8 | learning rate: 1.349696E-05 | global batch size:    64 | lm loss: 7.375147E+00 | load_balancing_loss: 1.045952E+00 | loss scale: 1.0 | grad norm: 0.429 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:56:46] iteration       89/     100 | consumed samples:         5696 | elapsed time per iteration (ms): 10445.1 | learning rate: 1.294460E-05 | global batch size:    64 | lm loss: 7.345742E+00 | load_balancing_loss: 1.045006E+00 | loss scale: 1.0 | grad norm: 0.477 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:56:56] iteration       90/     100 | consumed samples:         5760 | elapsed time per iteration (ms): 10271.7 | learning rate: 1.243822E-05 | global batch size:    64 | lm loss: 7.343092E+00 | load_balancing_loss: 1.044956E+00 | loss scale: 1.0 | grad norm: 0.362 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (33839.02, 33840.66)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:57:40] iteration       91/     100 | consumed samples:         5824 | elapsed time per iteration (ms): 10253.0 | learning rate: 1.197839E-05 | global batch size:    64 | lm loss: 7.378510E+00 | load_balancing_loss: 1.043776E+00 | loss scale: 1.0 | grad norm: 0.356 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:57:51] iteration       92/     100 | consumed samples:         5888 | elapsed time per iteration (ms): 10430.4 | learning rate: 1.156560E-05 | global batch size:    64 | lm loss: 7.375529E+00 | load_balancing_loss: 1.042230E+00 | loss scale: 1.0 | grad norm: 0.491 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:58:01] iteration       93/     100 | consumed samples:         5952 | elapsed time per iteration (ms): 10238.3 | learning rate: 1.120030E-05 | global batch size:    64 | lm loss: 7.324769E+00 | load_balancing_loss: 1.038631E+00 | loss scale: 1.0 | grad norm: 0.370 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:58:11] iteration       94/     100 | consumed samples:         6016 | elapsed time per iteration (ms): 10450.6 | learning rate: 1.088290E-05 | global batch size:    64 | lm loss: 7.296186E+00 | load_balancing_loss: 1.036117E+00 | loss scale: 1.0 | grad norm: 0.292 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:58:22] iteration       95/     100 | consumed samples:         6080 | elapsed time per iteration (ms): 10281.9 | learning rate: 1.061374E-05 | global batch size:    64 | lm loss: 7.319636E+00 | load_balancing_loss: 1.035343E+00 | loss scale: 1.0 | grad norm: 0.396 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:58:32] iteration       96/     100 | consumed samples:         6144 | elapsed time per iteration (ms): 10635.2 | learning rate: 1.039312E-05 | global batch size:    64 | lm loss: 7.375286E+00 | load_balancing_loss: 1.036709E+00 | loss scale: 1.0 | grad norm: 0.411 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:58:42] iteration       97/     100 | consumed samples:         6208 | elapsed time per iteration (ms): 10314.3 | learning rate: 1.022127E-05 | global batch size:    64 | lm loss: 7.374033E+00 | load_balancing_loss: 1.035826E+00 | loss scale: 1.0 | grad norm: 0.337 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:58:54] iteration       98/     100 | consumed samples:         6272 | elapsed time per iteration (ms): 11731.4 | learning rate: 1.009839E-05 | global batch size:    64 | lm loss: 7.302831E+00 | load_balancing_loss: 1.036817E+00 | loss scale: 1.0 | grad norm: 0.352 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:59:05] iteration       99/     100 | consumed samples:         6336 | elapsed time per iteration (ms): 10498.9 | learning rate: 1.002460E-05 | global batch size:    64 | lm loss: 7.294482E+00 | load_balancing_loss: 1.033824E+00 | loss scale: 1.0 | grad norm: 0.353 | number of skipped iterations:   0 | number of nan iterations:   0 |
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+ [2026-07-07 19:59:15] iteration      100/     100 | consumed samples:         6400 | elapsed time per iteration (ms): 10372.4 | learning rate: 1.000000E-05 | global batch size:    64 | lm loss: 7.340893E+00 | load_balancing_loss: 1.032291E+00 | loss scale: 1.0 | grad norm: 0.342 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.bsr_integration:BSR-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+WARNING:megatron.training.elastic_client:[elastic] Cannot connect to watcher: [Errno 111] Connection refused, retrying in 5s...
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (35134.25, 35136.36)
+[rank56]:[W707 19:59:51.801853516 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[launcher] Worker local_rank=6 (global_rank=62) exited normally
+[launcher] Worker local_rank=4 (global_rank=60) exited normally
+[launcher] Worker local_rank=0 (global_rank=56) exited normally
 [launcher] Worker local_rank=1 (global_rank=57) exited normally
 [launcher] Worker local_rank=2 (global_rank=58) exited normally
-[launcher] Worker local_rank=4 (global_rank=60) exited normally
-[launcher] Worker local_rank=6 (global_rank=62) exited normally
-[launcher] Worker local_rank=7 (global_rank=63) exited normally
-[launcher] Worker local_rank=0 (global_rank=56) exited normally
+[launcher] Worker local_rank=3 (global_rank=59) exited normally
 [launcher] Worker local_rank=5 (global_rank=61) exited normally
+[launcher] Worker local_rank=7 (global_rank=63) exited normally
 [launcher] All 8 workers completed successfully

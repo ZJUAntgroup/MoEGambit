@@ -14,8 +14,8 @@ nohup: ignoring input
 + NPROC_PER_NODE=8
 + export NODE_RANK=8
 + NODE_RANK=8
-+ export MASTER_ADDR=33.181.102.93
-+ MASTER_ADDR=33.181.102.93
++ export MASTER_ADDR=33.181.97.192
++ MASTER_ADDR=33.181.97.192
 + export MASTER_PORT=20116
 + MASTER_PORT=20116
 + export ELASTIC_WATCHER_PORT=20200
@@ -25,8 +25,8 @@ nohup: ignoring input
 + IS_SPARE=1
 + export NNODES=8
 + NNODES=8
-+ export ELASTIC_WATCHER_ADDR=33.181.109.125
-+ ELASTIC_WATCHER_ADDR=33.181.109.125
++ export ELASTIC_WATCHER_ADDR=33.215.192.220
++ ELASTIC_WATCHER_ADDR=33.215.192.220
 + export ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + ELASTIC_FAULT_DIR=/tmp/elastic_faults
 + rm -rf /tmp/elastic_faults
@@ -97,8 +97,6 @@ nohup: ignoring input
 + ELASTIC_POST_REBUILD_COMM_WARMUP=0
 + export ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER=1
 + ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER=1
-+ export ELASTIC_PIPELINE_FIRST_P2P_BARRIER=1
-+ ELASTIC_PIPELINE_FIRST_P2P_BARRIER=1
 + mkdir -p /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt /mnt/ais-c1/dataset/zds/log/test_replace
 + TRAINING_WORLD_SIZE=64
 + DP_SIZE=8
@@ -134,8 +132,6 @@ nohup: ignoring input
 [test-replace] Post warmup:     0
 + echo '[test-replace] MoE first gate:  1'
 [test-replace] MoE first gate:  1
-+ echo '[test-replace] P2P first gate:  1'
-[test-replace] P2P first gate:  1
 + echo '[test-replace] CKPT_DIR:        /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt'
 [test-replace] CKPT_DIR:        /mnt/ais-c1/dataset/zds/621hotspare/test_replace_ckpt
 + echo '[test-replace] =============================================='
@@ -145,28 +141,16 @@ nohup: ignoring input
 [test-replace] Starting elastic watcher on spare node...
 + echo '[test-replace] Fault injection: kill node 0 local_rank 1 at step 17'
 [test-replace] Fault injection: kill node 0 local_rank 1 at step 17
-+ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.181.102.93 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
-[watcher 20:20:20] INFO: Starting watcher on port 20200
-[watcher 20:20:20] INFO: Monitoring 8 training nodes
-[watcher 20:20:20] INFO: Heartbeat timeout: 30.0s
-[watcher 20:20:20] INFO: Startup heartbeat timeout: 600.0s
-[watcher 20:20:20] INFO: Forward/backward heartbeat timeout: 180.0s
-[watcher 20:20:20] INFO: Checkpoint heartbeat timeout: 900.0s
-[watcher 20:20:20] INFO: Disconnect grace timeout: 15.0s
-[watcher 20:20:20] INFO: Fault injection: kill node 0 local_rank 1 at step 17
-[watcher 20:20:20] INFO: Warm standby worker pid=998 started; waiting on /tmp/elastic_faults/spare_assignment.json
-[watcher 20:20:21] INFO: [spare-standby] [spare-rank] Warm standby pid=998 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
-[watcher 20:22:20] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[watcher 20:22:20] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
-[watcher 20:22:35] INFO: Heartbeat checker active
-[watcher 20:23:11] WARNING: Node 2 disconnected; allowing 15.0s reconnect grace
-[watcher 20:23:11] WARNING: Node 3 disconnected; allowing 15.0s reconnect grace
-[watcher 20:23:11] WARNING: Node 6 disconnected; allowing 15.0s reconnect grace
-[watcher 20:23:11] WARNING: Node 1 disconnected; allowing 15.0s reconnect grace
-[watcher 20:23:11] WARNING: Node 5 disconnected; allowing 15.0s reconnect grace
-[watcher 20:23:11] WARNING: Node 4 disconnected; allowing 15.0s reconnect grace
-[watcher 20:23:11] WARNING: Node 0 disconnected; allowing 15.0s reconnect grace
-[watcher 20:23:11] WARNING: Node 7 disconnected; allowing 15.0s reconnect grace
-[watcher 20:23:27] ERROR: FAULT DETECTED: Node 0 disconnected (16.3s > 15.0s grace, phase=startup, step=-1, training_started=False)
-[watcher 20:23:27] WARNING: Recovery phase summary (node-disconnected node=0 elapsed=16.3s timeout=15.0s phase=startup step=-1 training_started=False): no phase reports
-[watcher 20:23:27] INFO: Sending PAUSE signal to ALL 8 nodes (target_node=0)
++ python3 /root/workdir/antllm/bsr2/elastic_watcher.py --port 20200 --training-nnodes 8 --nproc-per-node 8 --master-addr 33.181.97.192 --master-port 20116 --fault-dir /tmp/elastic_faults --fault-inject-step 17 --fault-inject-node 0 --fault-inject-local-rank 1
+[watcher 19:32:54] INFO: Starting watcher on port 20200
+[watcher 19:32:54] INFO: Monitoring 8 training nodes
+[watcher 19:32:54] INFO: Heartbeat timeout: 30.0s
+[watcher 19:32:54] INFO: Startup heartbeat timeout: 600.0s
+[watcher 19:32:54] INFO: Forward/backward heartbeat timeout: 180.0s
+[watcher 19:32:54] INFO: Checkpoint heartbeat timeout: 900.0s
+[watcher 19:32:54] INFO: Disconnect grace timeout: 15.0s
+[watcher 19:32:54] INFO: Fault injection: kill node 0 local_rank 1 at step 17
+[watcher 19:32:54] INFO: Warm standby worker pid=378 started; waiting on /tmp/elastic_faults/spare_assignment.json
+[watcher 19:32:55] INFO: [spare-standby] [spare-rank] Warm standby pid=378 waiting for assignment: /tmp/elastic_faults/spare_assignment.json
+[watcher 19:35:00] INFO: [spare-standby] fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[watcher 19:35:00] INFO: [spare-standby] [spare-rank] Warm standby preload complete: torch/megatron imported
