@@ -36,6 +36,8 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 
 logger = logging.getLogger(__name__)
 
+_ELASTIC_MOE_FIRST_COLLECTIVE_BARRIERS = set()
+
 """ We use the following notation throughout this file:
      H: hidden size
      B: micro batch size
@@ -212,6 +214,86 @@ class MoETokenDispatcher:
             return list(torch.distributed.get_process_group_ranks(group))
         except Exception:
             return None
+
+    @staticmethod
+    def _elastic_wait_first_collective_barrier(name: str, group):
+        """Align replacement-facing MoE collectives on the first post-rebuild step."""
+        if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+            return
+        if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER", "1") == "0":
+            return
+        if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+            return
+
+        ranks = MoETokenDispatcher._elastic_group_ranks(group)
+        if not ranks:
+            return
+        try:
+            rank = torch.distributed.get_rank()
+            replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
+        except (TypeError, ValueError):
+            return
+        if rank not in ranks or replacement_rank not in ranks:
+            return
+
+        barrier_key = (name, tuple(ranks), replacement_rank)
+        if barrier_key in _ELASTIC_MOE_FIRST_COLLECTIVE_BARRIERS:
+            return
+
+        timeout = float(
+            os.environ.get(
+                "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
+                os.environ.get(
+                    "ELASTIC_PHASE_TIMEOUT_SECONDS",
+                    os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "720"),
+                ),
+            )
+        )
+        resume_iteration = os.environ.get("ELASTIC_RESUME_ITERATION", "-1")
+        token = os.environ.get(
+            "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN",
+            f"iter{resume_iteration}:replacement{replacement_rank}",
+        )
+        ranks_token = "-".join(str(r) for r in ranks)
+        barrier_id = f"moe_first_collective:{token}:{name}:{ranks_token}"
+
+        logger.warning(
+            "[elastic] Rank %d: waiting before first MoE %s collective ranks=%s",
+            rank,
+            name,
+            ranks,
+        )
+        try:
+            from megatron.training.elastic_client import elastic_wait_for_ordinal_barrier
+
+            ok = elastic_wait_for_ordinal_barrier(
+                barrier_id,
+                rank,
+                len(ranks),
+                timeout,
+                group_desc=f"MOE_{name}",
+                group_backend="default",
+                group_size=len(ranks),
+                group_ranks=ranks,
+                barrier_stage="first_collective",
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"[elastic] failed waiting before first MoE {name} collective "
+                f"rank={rank} ranks={ranks}: {exc}"
+            ) from exc
+        if not ok:
+            raise RuntimeError(
+                f"[elastic] timed out before first MoE {name} collective "
+                f"rank={rank} ranks={ranks}"
+            )
+        _ELASTIC_MOE_FIRST_COLLECTIVE_BARRIERS.add(barrier_key)
+        logger.warning(
+            "[elastic] Rank %d: aligned before first MoE %s collective ranks=%s",
+            rank,
+            name,
+            ranks,
+        )
 
 
 class MoEAllGatherTokenDispatcher(MoETokenDispatcher):
@@ -519,6 +601,9 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
                 "tp_ep_metadata_start",
                 "MoE dispatcher entering TPxEP metadata gather ranks=%s",
                 self._elastic_group_ranks(self.tp_ep_group),
+            )
+            self._elastic_wait_first_collective_barrier(
+                "tp_ep_metadata_gather", self.tp_ep_group
             )
             num_global_tokens_per_expert = (
                 gather_from_sequence_parallel_region(

@@ -550,7 +550,12 @@ class ElasticWatcher:
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     arrived = sorted(state["arrived"])
-                    missing = [r for r in range(min_count) if r not in state["arrived"]]
+                    group_ranks = msg.get("group_ranks")
+                    if isinstance(group_ranks, list) and len(group_ranks) == min_count:
+                        expected = [int(r) for r in group_ranks]
+                    else:
+                        expected = list(range(min_count))
+                    missing = [r for r in expected if r not in state["arrived"]]
                     sample = [
                         state["meta_by_rank"].get(r)
                         for r in arrived[:8]
@@ -1111,6 +1116,14 @@ class ElasticWatcher:
             "ELASTIC_POST_REBUILD_COMM_WARMUP",
             "0",
         )
+        env["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER"] = os.environ.get(
+            "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
+            "1",
+        )
+        env["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT"] = os.environ.get(
+            "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
+            env["ELASTIC_PHASE_TIMEOUT_SECONDS"],
+        )
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
         return env
@@ -1200,6 +1213,8 @@ class ElasticWatcher:
                 "ELASTIC_INIT_PG_DEVICE_ID",
                 "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
                 "ELASTIC_POST_REBUILD_COMM_WARMUP",
+                "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
+                "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
                 "CUDA_VISIBLE_DEVICES",
             }
         }
