@@ -198,8 +198,17 @@ class MoETokenDispatcher:
         assert self.config.moe_shared_expert_overlap
         self.shared_experts = shared_experts
 
+    @staticmethod
+    def _elastic_post_rebuild_trace_active():
+        try:
+            from megatron.training.elastic_client import elastic_is_post_rebuild_trace_active
+
+            return elastic_is_post_rebuild_trace_active()
+        except Exception:
+            return False
+
     def _elastic_trace_once(self, key: str, message: str, *args):
-        if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+        if not self._elastic_post_rebuild_trace_active():
             return
         attr_name = f"_elastic_trace_{key}"
         if getattr(self, attr_name, False):
@@ -218,7 +227,7 @@ class MoETokenDispatcher:
     @staticmethod
     def _elastic_wait_first_collective_barrier(name: str, group):
         """Align replacement-facing MoE collectives on the first post-rebuild step."""
-        if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+        if not MoETokenDispatcher._elastic_post_rebuild_trace_active():
             return
         if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER", "1") == "0":
             return

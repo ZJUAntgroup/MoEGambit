@@ -102,6 +102,7 @@ from megatron.training.elastic_client import (
     elastic_warmup_post_rebuild_communicators,
     elastic_trace_post_rebuild_phase,
     elastic_clear_post_rebuild_trace,
+    elastic_sanitize_recovery_env_for_startup,
     is_rebuild_mode,
 )
 from megatron.core.full_cuda_graph import FullCudaGraphWrapper
@@ -734,6 +735,7 @@ def pretrain(
     args = get_args()
     timers = get_timers()
     _elastic_rebuild = is_rebuild_mode()
+    elastic_sanitize_recovery_env_for_startup()
 
     if args.log_progress:
         append_to_progress_log("Starting job")

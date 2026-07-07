@@ -55,6 +55,58 @@ _REBUILD_INFO: Optional[dict] = None
 _REBUILD_STORE = None
 _LOCK = threading.Lock()
 
+_POST_REBUILD_STATE_ENV = (
+    "ELASTIC_RECOVERY_STATE",
+    "ELASTIC_POST_REBUILD_PENDING",
+    "ELASTIC_POST_REBUILD_TRACE_ACTIVE",
+    "ELASTIC_POST_REBUILD_TRACE_TOKEN",
+    "ELASTIC_POST_REBUILD_TRACE_ITERATION",
+    "ELASTIC_POST_REBUILD_COMM_WARMUP_DONE",
+    "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN",
+)
+
+
+def elastic_sanitize_recovery_env_for_startup():
+    """Clear one-shot recovery state for a fresh, non-rebuild training process."""
+    if is_rebuild_mode():
+        return
+    removed = []
+    for key in _POST_REBUILD_STATE_ENV + (
+        "ELASTIC_REPLACEMENT_RANK",
+        "ELASTIC_RESUME_ITERATION",
+    ):
+        if key in os.environ:
+            removed.append(key)
+            os.environ.pop(key, None)
+    if removed:
+        logger.warning(
+            "[elastic] Cleared stale recovery env for fresh startup: %s",
+            ",".join(sorted(removed)),
+        )
+
+
+def _elastic_post_rebuild_token(iteration: Optional[int] = None) -> str:
+    if iteration is None:
+        iteration = os.environ.get("ELASTIC_RESUME_ITERATION", "-1")
+    replacement_rank = os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1")
+    return f"iter{iteration}:replacement{replacement_rank}"
+
+
+def elastic_is_post_rebuild_trace_active(iteration: Optional[int] = None) -> bool:
+    """Return True only inside the explicit first-step post-rebuild window."""
+    if os.environ.get("ELASTIC_RECOVERY_STATE") != "post_rebuild_trace":
+        return False
+    if os.environ.get("ELASTIC_POST_REBUILD_PENDING") != "0":
+        return False
+    if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+        return False
+    if not os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN"):
+        return False
+    trace_iteration = os.environ.get("ELASTIC_POST_REBUILD_TRACE_ITERATION")
+    if iteration is not None and trace_iteration != str(iteration):
+        return False
+    return True
+
 
 class ElasticClient:
     """Background heartbeat client that communicates with the watcher."""
@@ -346,8 +398,10 @@ def elastic_mark_post_rebuild_pending(iteration: Optional[int] = None):
     NCCL communicators.  Keep the alignment on the watcher/TCP control plane so
     replacement-only setup cannot race survivor ranks into MoE/P2P collectives.
     """
+    for key in _POST_REBUILD_STATE_ENV:
+        os.environ.pop(key, None)
+    os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_pending"
     os.environ["ELASTIC_POST_REBUILD_PENDING"] = "1"
-    os.environ.pop("ELASTIC_POST_REBUILD_COMM_WARMUP_DONE", None)
     if iteration is not None and iteration >= 0:
         os.environ["ELASTIC_RESUME_ITERATION"] = str(iteration)
 
@@ -355,6 +409,14 @@ def elastic_mark_post_rebuild_pending(iteration: Optional[int] = None):
 def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
     """Control-plane barrier immediately before the first post-rebuild train step."""
     if os.environ.get("ELASTIC_POST_REBUILD_PENDING") != "1":
+        return False
+    if os.environ.get("ELASTIC_RECOVERY_STATE") != "post_rebuild_pending":
+        logger.warning(
+            "[elastic] Ignoring stale post-rebuild pending flag without recovery state "
+            "(state=%s)",
+            os.environ.get("ELASTIC_RECOVERY_STATE"),
+        )
+        elastic_clear_post_rebuild_trace()
         return False
     if not dist.is_available() or not dist.is_initialized():
         return False
@@ -372,11 +434,17 @@ def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
 
     os.environ["ELASTIC_POST_REBUILD_PENDING"] = "0"
     os.environ["ELASTIC_POST_REBUILD_TRACE_ACTIVE"] = "1"
+    os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_trace"
+    os.environ["ELASTIC_POST_REBUILD_TRACE_ITERATION"] = str(iteration)
+    trace_token = _elastic_post_rebuild_token(iteration)
+    os.environ["ELASTIC_POST_REBUILD_TRACE_TOKEN"] = trace_token
+    os.environ["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN"] = trace_token
     logger.warning(
         "[elastic] Rank %d: all ranks aligned before first post-rebuild train step "
-        "(iteration=%d)",
+        "(iteration=%d token=%s)",
         dist.get_rank(),
         iteration,
+        trace_token,
     )
     return True
 
@@ -470,7 +538,7 @@ def elastic_warmup_post_rebuild_communicators(iteration: int) -> bool:
     (for example pipeline P2P vs embedding/model collectives), so the default
     is to rely on the aligned first train step to initialize them naturally.
     """
-    if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+    if not elastic_is_post_rebuild_trace_active(iteration):
         return False
     if os.environ.get("ELASTIC_POST_REBUILD_COMM_WARMUP_DONE") == "1":
         return False
@@ -550,7 +618,7 @@ def elastic_warmup_post_rebuild_communicators(iteration: int) -> bool:
 
 def elastic_trace_post_rebuild_phase(phase: str, iteration: Optional[int] = None):
     """Report a diagnostic phase for the first post-rebuild train step."""
-    if os.environ.get("ELASTIC_POST_REBUILD_TRACE_ACTIVE") != "1":
+    if not elastic_is_post_rebuild_trace_active(iteration):
         return
     extra = {}
     if iteration is not None:
@@ -559,8 +627,8 @@ def elastic_trace_post_rebuild_phase(phase: str, iteration: Optional[int] = None
 
 
 def elastic_clear_post_rebuild_trace():
-    os.environ.pop("ELASTIC_POST_REBUILD_TRACE_ACTIVE", None)
-    os.environ.pop("ELASTIC_POST_REBUILD_COMM_WARMUP_DONE", None)
+    for key in _POST_REBUILD_STATE_ENV:
+        os.environ.pop(key, None)
 
 
 def _send_one_shot_to_watcher(msg: dict) -> bool:

@@ -1124,14 +1124,6 @@ class ElasticWatcher:
             "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
             env["ELASTIC_PHASE_TIMEOUT_SECONDS"],
         )
-        env["ELASTIC_PIPELINE_FIRST_P2P_BARRIER"] = os.environ.get(
-            "ELASTIC_PIPELINE_FIRST_P2P_BARRIER",
-            "1",
-        )
-        env["ELASTIC_PIPELINE_FIRST_P2P_BARRIER_TIMEOUT"] = os.environ.get(
-            "ELASTIC_PIPELINE_FIRST_P2P_BARRIER_TIMEOUT",
-            env["ELASTIC_PHASE_TIMEOUT_SECONDS"],
-        )
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
         return env
@@ -1223,8 +1215,6 @@ class ElasticWatcher:
                 "ELASTIC_POST_REBUILD_COMM_WARMUP",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
-                "ELASTIC_PIPELINE_FIRST_P2P_BARRIER",
-                "ELASTIC_PIPELINE_FIRST_P2P_BARRIER_TIMEOUT",
                 "CUDA_VISIBLE_DEVICES",
             }
         }
