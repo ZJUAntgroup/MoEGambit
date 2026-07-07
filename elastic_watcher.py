@@ -1053,10 +1053,15 @@ class ElasticWatcher:
 
     def _build_spare_env(self, failed_node, killed_local_rank, resume_iteration=-1):
         killed_global_rank = failed_node * self.nproc_per_node + killed_local_rank
+        physical_node_rank = os.environ.get("NODE_RANK", str(self.training_nnodes))
 
         env = os.environ.copy()
+        env["ELASTIC_LOGICAL_NODE_RANK"] = str(failed_node)
+        env["ELASTIC_PHYSICAL_NODE_RANK"] = str(physical_node_rank)
         env["NODE_RANK"] = str(failed_node)
         env["LOCAL_RANK"] = "0"  # Only 1 GPU visible, so local device is always 0
+        env["LOCAL_WORLD_SIZE"] = "1"
+        env["GROUP_RANK"] = str(physical_node_rank)
         env["RANK"] = str(killed_global_rank)
         env["ELASTIC_REPLACEMENT_RANK"] = str(killed_global_rank)
         env["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
@@ -1068,6 +1073,7 @@ class ElasticWatcher:
         env["ELASTIC_WATCHER_PORT"] = str(self.port)
         env["ELASTIC_REBUILD_MODE"] = "1"
         env["NNODES"] = str(self.training_nnodes)
+        env["ELASTIC_TRAINING_NPROC_PER_NODE"] = str(self.nproc_per_node)
         env["WORLD_SIZE"] = str(self.training_nnodes * self.nproc_per_node)
         env["PYTHONUNBUFFERED"] = "1"
         env["DISTRIBUTED_TIMEOUT_MINUTES"] = os.environ.get(
@@ -1195,7 +1201,11 @@ class ElasticWatcher:
             if key
             in {
                 "NODE_RANK",
+                "ELASTIC_LOGICAL_NODE_RANK",
+                "ELASTIC_PHYSICAL_NODE_RANK",
                 "LOCAL_RANK",
+                "LOCAL_WORLD_SIZE",
+                "GROUP_RANK",
                 "RANK",
                 "ELASTIC_REPLACEMENT_RANK",
                 "ELASTIC_RESUME_ITERATION",
@@ -1205,6 +1215,7 @@ class ElasticWatcher:
                 "ELASTIC_WATCHER_PORT",
                 "ELASTIC_REBUILD_MODE",
                 "NNODES",
+                "ELASTIC_TRAINING_NPROC_PER_NODE",
                 "WORLD_SIZE",
                 "PYTHONUNBUFFERED",
                 "DISTRIBUTED_TIMEOUT_MINUTES",
