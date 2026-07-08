@@ -416,7 +416,20 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             'rank': args.rank,
             'timeout': timedelta(minutes=args.distributed_timeout_minutes),
         }
-        use_init_pg_device_id = os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "0") == "1"
+        if _is_elastic_rebuild_mode():
+            # Replacement workers enter through Megatron's normal initialization
+            # path, while survivors enter through elastic_do_rebuild().  Use the
+            # rebuild knob here so both sides construct the replacement-inclusive
+            # default NCCL process group the same way before Megatron subgroups.
+            use_init_pg_device_id = (
+                os.environ.get(
+                    "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
+                    os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "1"),
+                )
+                == "1"
+            )
+        else:
+            use_init_pg_device_id = os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "0") == "1"
         if device_id is not None and args.distributed_backend == "nccl" and use_init_pg_device_id:
             try:
                 if "device_id" in signature(torch.distributed.init_process_group).parameters:
@@ -429,6 +442,8 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             master_addr=os.environ.get("MASTER_ADDR"),
             master_port=os.environ.get("MASTER_PORT"),
             world_size=args.world_size,
+            pg_device_id_enabled=use_init_pg_device_id,
+            pg_device_id=str(device_id) if device_id is not None else None,
         )
         torch.distributed.init_process_group(**init_process_group_kwargs)
         inprocess_restart.maybe_force_nccl_backend_init(device_id)
