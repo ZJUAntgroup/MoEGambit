@@ -2256,11 +2256,11 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         "rank": rank,
         "timeout": rebuild_timeout,
     }
-    # Do not bind the rebuilt default NCCL process group to device_id by
-    # default.  A bound default group makes PyTorch create subgroups via
-    # ncclCommSplit (perform_nocolor_split), which is fragile after hot
-    # replacement and can diverge from the replacement worker's cold path.
-    use_rebuild_device_id = os.environ.get("ELASTIC_REBUILD_INIT_PG_DEVICE_ID", "0") == "1"
+    # Bind only the rebuilt default NCCL group by default.  This eagerly
+    # establishes the replacement-inclusive world communicator and lets later
+    # Megatron subgroups derive from a known device mapping instead of lazily
+    # rendezvousing their first NCCL IDs deep inside the first forward pass.
+    use_rebuild_device_id = os.environ.get("ELASTIC_REBUILD_INIT_PG_DEVICE_ID", "1") == "1"
     if device_id is not None and use_rebuild_device_id:
         try:
             if "device_id" in signature(dist.init_process_group).parameters:

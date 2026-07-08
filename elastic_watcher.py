@@ -76,6 +76,10 @@ _PHASE_ORDER = {
     "post_rebuild_moe_comm_warmup_start": 112,
     "post_rebuild_moe_comm_warmup_done": 114,
     "forward_backward_start": 120,
+    "moe_first_collective_start": 122,
+    "moe_first_collective_done": 124,
+    "moe_first_collective_error": 126,
+    "moe_first_collective_timeout": 128,
     "forward_backward_done": 130,
     "optimizer_step_start": 140,
     "optimizer_step_done": 150,
@@ -1116,7 +1120,7 @@ class ElasticWatcher:
         )
         env["ELASTIC_REBUILD_INIT_PG_DEVICE_ID"] = os.environ.get(
             "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
-            "0",
+            "1",
         )
         env["ELASTIC_POST_REBUILD_COMM_WARMUP"] = os.environ.get(
             "ELASTIC_POST_REBUILD_COMM_WARMUP",
@@ -1129,6 +1133,14 @@ class ElasticWatcher:
         env["ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",
             "0",
+        )
+        env["ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST"] = os.environ.get(
+            "ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST",
+            "1",
+        )
+        env["ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT"] = os.environ.get(
+            "ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT",
+            "180",
         )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
@@ -1230,6 +1242,8 @@ class ElasticWatcher:
                 "ELASTIC_POST_REBUILD_COMM_WARMUP",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",
+                "ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST",
+                "ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
                 "CUDA_VISIBLE_DEVICES",
             }

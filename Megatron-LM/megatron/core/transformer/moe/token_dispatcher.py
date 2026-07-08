@@ -2,7 +2,9 @@
 
 import logging
 import os
+import time
 from abc import ABC, abstractmethod
+from datetime import timedelta
 from typing import List, Optional, Tuple
 
 import torch
@@ -413,6 +415,142 @@ class MoETokenDispatcher:
             ranks,
         )
 
+    @staticmethod
+    def _elastic_first_collective_timeout() -> float:
+        timeout = os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT")
+        if timeout:
+            return float(timeout)
+        phase_timeout = float(
+            os.environ.get(
+                "ELASTIC_PHASE_TIMEOUT_SECONDS",
+                os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT", "180"),
+            )
+        )
+        return min(phase_timeout, 180.0)
+
+    @staticmethod
+    def _elastic_report_recovery_phase(phase: str, **extra):
+        try:
+            from megatron.training.elastic_client import elastic_report_recovery_phase
+
+            elastic_report_recovery_phase(phase, **extra)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _elastic_gather_first_dim_fail_fast(input_: torch.Tensor, group, name: str):
+        """All-gather along dim 0 with a recovery-only timeout.
+
+        This mirrors gather_from_sequence_parallel_region for metadata tensors
+        that do not need autograd, but uses async_op so a broken rebuilt NCCL
+        communicator fails at the recovery boundary instead of hanging forever
+        inside the first post-rebuild forward pass.
+        """
+        assert group is not None, "group should not be None"
+        world_size = group.size()
+        if world_size == 1:
+            return input_
+
+        dim_size = list(input_.size())
+        dim_size[0] = dim_size[0] * world_size
+        output = torch.empty(dim_size, dtype=input_.dtype, device=torch.cuda.current_device())
+
+        ranks = MoETokenDispatcher._elastic_group_ranks(group)
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
+        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "")
+        timeout = MoETokenDispatcher._elastic_first_collective_timeout()
+        MoETokenDispatcher._elastic_report_recovery_phase(
+            "moe_first_collective_start",
+            collective=name,
+            group_ranks=ranks,
+            timeout=timeout,
+        )
+        logger.warning(
+            "[elastic] Rank %d: launching first MoE %s collective with timeout %.1fs ranks=%s",
+            rank,
+            name,
+            timeout,
+            ranks,
+        )
+
+        try:
+            gather_fn = (
+                torch.distributed.all_gather_into_tensor
+                if hasattr(torch.distributed, "all_gather_into_tensor")
+                else torch.distributed._all_gather_base
+            )
+            work = gather_fn(output, input_.contiguous(), group=group, async_op=True)
+        except Exception as exc:
+            MoETokenDispatcher._elastic_report_recovery_phase(
+                "moe_first_collective_error",
+                collective=name,
+                group_ranks=ranks,
+                error=str(exc),
+            )
+            raise RuntimeError(
+                f"[elastic] failed launching first MoE {name} collective "
+                f"rank={rank} ranks={ranks} token={token}: {exc}"
+            ) from exc
+
+        deadline = time.monotonic() + max(timeout, 0.0)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                MoETokenDispatcher._elastic_report_recovery_phase(
+                    "moe_first_collective_timeout",
+                    collective=name,
+                    group_ranks=ranks,
+                    timeout=timeout,
+                )
+                raise RuntimeError(
+                    f"[elastic] first MoE {name} collective timed out after {timeout:.1f}s "
+                    f"rank={rank} ranks={ranks} token={token}. "
+                    "The rebuilt replacement-facing NCCL communicator is not usable; "
+                    "fall back to checkpoint/relaunch or node-level replacement."
+                )
+
+            try:
+                if work.is_completed():
+                    break
+            except Exception:
+                try:
+                    wait_result = work.wait(timeout=timedelta(seconds=max(remaining, 0.0)))
+                except TypeError:
+                    wait_result = work.wait()
+                if wait_result is not False:
+                    break
+                continue
+
+            time.sleep(0.05)
+
+        try:
+            work.wait()
+        except Exception as exc:
+            MoETokenDispatcher._elastic_report_recovery_phase(
+                "moe_first_collective_error",
+                collective=name,
+                group_ranks=ranks,
+                error=str(exc),
+            )
+            raise RuntimeError(
+                f"[elastic] first MoE {name} collective failed "
+                f"rank={rank} ranks={ranks} token={token}: {exc}"
+            ) from exc
+
+        MoETokenDispatcher._elastic_report_recovery_phase(
+            "moe_first_collective_done",
+            collective=name,
+            group_ranks=ranks,
+            timeout=timeout,
+        )
+        logger.warning(
+            "[elastic] Rank %d: first MoE %s collective completed ranks=%s",
+            rank,
+            name,
+            ranks,
+        )
+        return output
+
 
 class MoEAllGatherTokenDispatcher(MoETokenDispatcher):
     """
@@ -729,11 +867,21 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
                 "tp_ep_metadata_real_start",
                 "MoE dispatcher starting TPxEP metadata gather",
             )
-            num_global_tokens_per_expert = (
-                gather_from_sequence_parallel_region(
+            if (
+                self._elastic_post_rebuild_trace_active()
+                and os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST", "1") != "0"
+            ):
+                gathered_num_tokens = self._elastic_gather_first_dim_fail_fast(
+                    num_local_tokens_per_expert,
+                    self.tp_ep_group,
+                    "tp_ep_metadata_gather",
+                )
+            else:
+                gathered_num_tokens = gather_from_sequence_parallel_region(
                     num_local_tokens_per_expert, group=self.tp_ep_group
                 )
-                .reshape(self.ep_size, self.tp_size, self.num_experts)
+            num_global_tokens_per_expert = (
+                gathered_num_tokens.reshape(self.ep_size, self.tp_size, self.num_experts)
                 .transpose(0, 1)
             )
             self._elastic_trace_once(
