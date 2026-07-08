@@ -41,6 +41,28 @@ import sys
 import time
 
 
+_TORCHELASTIC_ENV_VARS = (
+    "TORCHELASTIC_USE_AGENT_STORE",
+    "TORCHELASTIC_RUN_ID",
+    "TORCHELASTIC_RESTART_COUNT",
+    "TORCHELASTIC_MAX_RESTARTS",
+    "TORCHELASTIC_ERROR_FILE",
+    "TORCHELASTIC_ROLE",
+    "TORCHELASTIC_ROLE_RANK",
+    "TORCHELASTIC_ROLE_WORLD_SIZE",
+)
+
+
+def _clean_worker_env(env):
+    """Remove torchrun rendezvous state inherited by this standalone launcher."""
+    removed = []
+    for key in _TORCHELASTIC_ENV_VARS:
+        if key in env:
+            removed.append(key)
+            env.pop(key, None)
+    return removed
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Lightweight launcher for elastic hot-spare training",
@@ -89,6 +111,13 @@ def main():
     print(f"[launcher] Master: {args.master_addr}:{args.master_port}", flush=True)
     print(f"[launcher] PID={os.getpid()}, PGID={os.getpgrp()}", flush=True)
     print(f"[launcher] Command: {' '.join(cmd_args)}", flush=True)
+    inherited_torchelastic = [key for key in _TORCHELASTIC_ENV_VARS if key in os.environ]
+    if inherited_torchelastic:
+        print(
+            "[launcher] Clearing inherited torchrun rendezvous env: "
+            + ",".join(inherited_torchelastic),
+            flush=True,
+        )
 
     # Fork worker processes
     processes = []
@@ -99,6 +128,7 @@ def main():
         global_rank = node_rank * nproc + local_rank
 
         env = os.environ.copy()
+        _clean_worker_env(env)
         env["RANK"] = str(global_rank)
         env["LOCAL_RANK"] = str(local_rank)
         env["WORLD_SIZE"] = str(world_size)
