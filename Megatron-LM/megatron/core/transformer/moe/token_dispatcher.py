@@ -309,7 +309,7 @@ class MoETokenDispatcher:
     @staticmethod
     def _elastic_warm_first_collective(name: str, group, ranks, replacement_rank: int):
         """Run one tiny same-order collective before the first real MoE collective."""
-        if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP", "1") == "0":
+        if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP", "0") == "0":
             return
         warmup_key = (name, tuple(ranks), replacement_rank)
         if warmup_key in _ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS:

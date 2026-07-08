@@ -1128,7 +1128,7 @@ class ElasticWatcher:
         )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",
-            "1",
+            "0",
         )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
