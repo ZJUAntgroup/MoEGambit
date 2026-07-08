@@ -77,6 +77,75 @@ class MoETokenDispatcher:
         self.tp_rank = utils.get_pg_rank(self.tp_group)
         self.ep_size = utils.get_pg_size(self.ep_group)
 
+    def _elastic_refresh_post_rebuild_groups(self) -> bool:
+        """Refresh MoE process groups on the first real post-rebuild forward.
+
+        The elastic rebuild path reinitializes Megatron's global parallel_state
+        before resuming training. Existing module instances may still hold old
+        ProcessGroup handles, so refresh the dispatcher itself immediately
+        before its first replacement-facing collective.
+        """
+        if not self._elastic_post_rebuild_trace_active():
+            return False
+
+        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "")
+        if getattr(self, "_elastic_post_rebuild_group_refresh_token", None) == token:
+            return False
+
+        old_tp_ep_group = getattr(self, "tp_ep_group", None)
+        old_tp_ep_ranks = self._elastic_group_ranks(old_tp_ep_group)
+        changed = []
+        try:
+            from megatron.core import parallel_state as mpu
+
+            new_groups = (
+                ("ep_group", mpu.get_expert_model_parallel_group(check_initialized=False)),
+                ("tp_group", mpu.get_expert_tensor_parallel_group(check_initialized=False)),
+                (
+                    "tp_ep_group",
+                    mpu.get_expert_tensor_and_model_parallel_group(check_initialized=False),
+                ),
+            )
+            for attr_name, new_group in new_groups:
+                if new_group is None:
+                    continue
+                if getattr(self, attr_name, None) is not new_group:
+                    setattr(self, attr_name, new_group)
+                    changed.append(attr_name)
+
+            self.ep_size = utils.get_pg_size(self.ep_group)
+            self.tp_size = utils.get_pg_size(self.tp_group)
+            self.tp_rank = utils.get_pg_rank(self.tp_group)
+        except Exception as exc:
+            rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
+            logger.warning(
+                "[elastic] Rank %d: failed refreshing MoE dispatcher groups "
+                "before post-rebuild collective: %s",
+                rank,
+                exc,
+            )
+            return False
+
+        self._elastic_post_rebuild_group_refresh_token = token
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
+        trace = os.environ.get("ELASTIC_TRACE_MOE_GROUP_REBIND", "1").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if changed or trace:
+            logger.warning(
+                "[elastic] Rank %d: refreshed MoE dispatcher groups before "
+                "post-rebuild collective token=%s changed=%s tp_ep_old=%s tp_ep_new=%s",
+                rank,
+                token,
+                changed or [],
+                old_tp_ep_ranks,
+                self._elastic_group_ranks(self.tp_ep_group),
+            )
+        return bool(changed)
+
     @abstractmethod
     def dispatch_preprocess(
         self, tokens: torch.Tensor, routing_map: torch.Tensor, probs: torch.Tensor
@@ -391,6 +460,7 @@ class MoEAllGatherTokenDispatcher(MoETokenDispatcher):
 
     def token_dispatch(self, hidden_states, probs):
         """Gathers tokens from all TP*EP ranks using AllGather."""
+        self._elastic_refresh_post_rebuild_groups()
 
         # Permute the tokens across the expert parallel devices.
         if self.tp_size > 1 or self.ep_size > 1:
@@ -593,6 +663,7 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
         Returns:
             A tensor with the number of tokens for each local expert.
         """
+        self._elastic_refresh_post_rebuild_groups()
         if self.drop_and_pad:
             # Drop and pad the input to capacity.
             num_tokens = routing_map.size(0) * self.config.moe_router_topk
@@ -1415,6 +1486,14 @@ class MoEFlexTokenDispatcher(MoETokenDispatcher):
         Returns:
             A tuple of reshaped hidden states and token probabilities.
         """
+        if self._elastic_refresh_post_rebuild_groups():
+            self._comm_manager = _DeepepManager(
+                group=self.tp_ep_group,
+                num_local_experts=self.num_local_experts,
+                router_topk=self.tp_size * self.config.moe_router_topk,
+                num_experts=self.tp_size * self.config.num_moe_experts,
+                config=self.config,
+            )
         self.hidden_shape = hidden_states.shape
         hidden_states = hidden_states.view(-1, self.hidden_shape[-1])
 
