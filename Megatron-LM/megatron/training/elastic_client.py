@@ -2256,17 +2256,23 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         "rank": rank,
         "timeout": rebuild_timeout,
     }
-    # Bind only the rebuilt default NCCL group by default.  This eagerly
-    # establishes the replacement-inclusive world communicator and lets later
-    # Megatron subgroups derive from a known device mapping instead of lazily
-    # rendezvousing their first NCCL IDs deep inside the first forward pass.
-    use_rebuild_device_id = os.environ.get("ELASTIC_REBUILD_INIT_PG_DEVICE_ID", "1") == "1"
+    # Keep rebuilt default NCCL PG lazy by default. Eager device_id init has
+    # repeatedly failed when a replacement rank joins from a different physical
+    # node because it requires rank 0 to publish the world ncclUniqueId before
+    # all ranks have converged on the rebuilt store.
+    use_rebuild_device_id = os.environ.get("ELASTIC_REBUILD_INIT_PG_DEVICE_ID", "0") == "1"
     if device_id is not None and use_rebuild_device_id:
         try:
             if "device_id" in signature(dist.init_process_group).parameters:
                 init_process_group_kwargs["device_id"] = device_id
         except (TypeError, ValueError):
             pass
+    logger.warning(
+        "[elastic] Rank %d: rebuild init_process_group device_id enabled=%s device=%s",
+        rank,
+        use_rebuild_device_id,
+        device_id,
+    )
     dist.init_process_group(**init_process_group_kwargs)
     try:
         from megatron.training import inprocess_restart
@@ -2274,7 +2280,11 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         inprocess_restart.maybe_force_nccl_backend_init(device_id)
     except Exception as exc:
         logger.debug("[elastic] force NCCL backend init skipped/failed: %s", exc)
-    elastic_report_recovery_phase("pg_ready")
+    elastic_report_recovery_phase(
+        "pg_ready",
+        pg_device_id_enabled=use_rebuild_device_id,
+        pg_device_id=str(device_id) if device_id is not None else None,
+    )
 
     # Step 3: Re-initialize model parallel groups
     logger.info(f"[elastic] Rank {rank}: re-initializing model parallel")

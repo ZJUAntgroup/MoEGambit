@@ -1120,7 +1120,7 @@ class ElasticWatcher:
         )
         env["ELASTIC_REBUILD_INIT_PG_DEVICE_ID"] = os.environ.get(
             "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
-            "1",
+            "0",
         )
         env["ELASTIC_POST_REBUILD_COMM_WARMUP"] = os.environ.get(
             "ELASTIC_POST_REBUILD_COMM_WARMUP",

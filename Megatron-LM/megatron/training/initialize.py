@@ -418,13 +418,13 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
         }
         if _is_elastic_rebuild_mode():
             # Replacement workers enter through Megatron's normal initialization
-            # path, while survivors enter through elastic_do_rebuild().  Use the
-            # rebuild knob here so both sides construct the replacement-inclusive
-            # default NCCL process group the same way before Megatron subgroups.
+            # path, while survivors enter through elastic_do_rebuild().  Use
+            # the same rebuild knob here so both sides keep default NCCL PG
+            # initialization lazy unless explicitly enabled for diagnostics.
             use_init_pg_device_id = (
                 os.environ.get(
                     "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
-                    os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "1"),
+                    os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "0"),
                 )
                 == "1"
             )
