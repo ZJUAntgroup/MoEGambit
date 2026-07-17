@@ -4,7 +4,7 @@
 #
 # Drives a fault-injection micro-benchmark on the 128-GPU MoE configuration:
 #   Phase 1 (MODE=moegambit): N in-process hybrid recoveries
-#                             (BSR_FAULT_INJECT_STEP, BSR_FAULT_INJECT_INTERVAL)
+#                             (MOEGAMBIT_FAULT_INJECT_STEP, MOEGAMBIT_FAULT_INJECT_INTERVAL)
 #   Phase 2 (MODE=baseline) : N crash + ckpt-restart events
 #                             (CRASH_AT_STEP, CRASH_INTERVAL)
 #
@@ -89,17 +89,17 @@ run_phase() {
 
   if [ "${mode}" = "moegambit" ]; then
     # In-process hybrid recovery: the python process never exits, so a single
-    # torchrun absorbs all N injections driven by BSR_FAULT_INJECT_INTERVAL.
+    # torchrun absorbs all N injections driven by MOEGAMBIT_FAULT_INJECT_INTERVAL.
     export MODE=moegambit
-    export BSR_FAULT_INJECT_TYPE=restart_in_place
-    export BSR_FAULT_INJECT_RANK=-1
-    export BSR_FAULT_INJECT_STEP="${BENCH_FIRST_INJECT_STEP}"
-    export BSR_FAULT_INJECT_INTERVAL="${BENCH_INJECT_INTERVAL}"
-    export BSR_FAULT_INJECT_SEED=42
-    export BSR_FAULT_REPLACEMENT_STEP="${BENCH_FIRST_INJECT_STEP}"
-    export BSR_FAULT_REPLACEMENT_RANK=-1
-    export BSR_FAULT_ZERO_MEMORY=1
-    export BSR_FAULT_MEMORY_FILL=zero
+    export MOEGAMBIT_FAULT_INJECT_TYPE=restart_in_place
+    export MOEGAMBIT_FAULT_INJECT_RANK=-1
+    export MOEGAMBIT_FAULT_INJECT_STEP="${BENCH_FIRST_INJECT_STEP}"
+    export MOEGAMBIT_FAULT_INJECT_INTERVAL="${BENCH_INJECT_INTERVAL}"
+    export MOEGAMBIT_FAULT_INJECT_SEED=42
+    export MOEGAMBIT_FAULT_REPLACEMENT_STEP="${BENCH_FIRST_INJECT_STEP}"
+    export MOEGAMBIT_FAULT_REPLACEMENT_RANK=-1
+    export MOEGAMBIT_FAULT_ZERO_MEMORY=1
+    export MOEGAMBIT_FAULT_MEMORY_FILL=zero
     # MAX_RETRIES=1 -> outer retry loop in run_moe128.sh does not relaunch.
     export MAX_RETRIES=1
   else

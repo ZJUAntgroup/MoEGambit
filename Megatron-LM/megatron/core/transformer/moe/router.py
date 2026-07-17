@@ -488,10 +488,10 @@ class TopKRouter(Router):
         if self.routing_type == "sinkhorn":
             probs, routing_map = self.sinkhorn_load_balancing(logits)
         else:
-            # BSR-MoE: obtain recovery_bias for preferential routing
+            # MOEGAMBIT-MoE: obtain recovery_bias for preferential routing
             recovery_bias = None
             if (
-                self.config.moe_bsr_preferential_routing
+                self.config.moe_moegambit_preferential_routing
                 and self.layer_number is not None
             ):
                 _managers = get_all_preferential_routing_managers()

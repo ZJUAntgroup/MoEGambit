@@ -2,11 +2,11 @@ set -uo pipefail
 set -x
 
 # =============================================================================
-# 64-GPU parallelism-sensitivity runner: unifies MoEGambit (BSR-MoE recovery)
+# 64-GPU parallelism-sensitivity runner: unifies MoEGambit (MOEGAMBIT-MoE recovery)
 # and Restart (baseline) into a single script with configurable parallelism.
 #
 # Select mode via the MODE environment variable:
-#   MODE=moegambit (default)  -> BSR-MoE hybrid recovery stack
+#   MODE=moegambit (default)  -> MOEGAMBIT-MoE hybrid recovery stack
 #   MODE=baseline             -> plain checkpoint-restart loop
 #
 # Parallelism is configured via environment variables:
@@ -16,7 +16,7 @@ set -x
 #   EDP is derived: EDP = world_size / (TP_SIZE * PP_SIZE * EP_SIZE)
 #
 # When EDP > 1, expert parameters can be pulled from a healthy DP peer
-# instead of loading from checkpoint.  Set BSR_FULL_PEER_RECOVERY=1 to
+# instead of loading from checkpoint.  Set MOEGAMBIT_FULL_PEER_RECOVERY=1 to
 # enable the FULL_PEER_RECOVERY path (all params from peer, no checkpoint).
 #
 # For the parallelism-sensitivity benchmark, see bench_moe64_tp*.sh which
@@ -76,7 +76,7 @@ export GLOBAL_BATCH_SIZE
 
 # Full peer recovery: when EDP > 1, all params (dense + expert) can be
 # pulled from a healthy DP peer, avoiding checkpoint I/O entirely.
-BSR_FULL_PEER_RECOVERY="${BSR_FULL_PEER_RECOVERY:-0}"
+MOEGAMBIT_FULL_PEER_RECOVERY="${MOEGAMBIT_FULL_PEER_RECOVERY:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -84,16 +84,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Mode-specific configuration
 # =============================================================================
 if [ "${MODE}" = "moegambit" ]; then
-  # ---------- MoEGambit (BSR-MoE hybrid recovery) ----------
-  export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
-  export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
-  export BSR_FAULT_INJECT_STEP="${BSR_FAULT_INJECT_STEP:-70}"
-  export BSR_FAULT_INJECT_INTERVAL="${BSR_FAULT_INJECT_INTERVAL:-40}"
-  export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
-  export BSR_FAULT_REPLACEMENT_STEP="${BSR_FAULT_REPLACEMENT_STEP:-70}"
-  export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
-  export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
-  export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
+  # ---------- MoEGambit (MOEGAMBIT-MoE hybrid recovery) ----------
+  export MOEGAMBIT_FAULT_INJECT_TYPE="${MOEGAMBIT_FAULT_INJECT_TYPE:-restart_in_place}"
+  export MOEGAMBIT_FAULT_INJECT_RANK="${MOEGAMBIT_FAULT_INJECT_RANK:--1}"
+  export MOEGAMBIT_FAULT_INJECT_STEP="${MOEGAMBIT_FAULT_INJECT_STEP:-70}"
+  export MOEGAMBIT_FAULT_INJECT_INTERVAL="${MOEGAMBIT_FAULT_INJECT_INTERVAL:-40}"
+  export MOEGAMBIT_FAULT_INJECT_SEED="${MOEGAMBIT_FAULT_INJECT_SEED:-42}"
+  export MOEGAMBIT_FAULT_REPLACEMENT_STEP="${MOEGAMBIT_FAULT_REPLACEMENT_STEP:-70}"
+  export MOEGAMBIT_FAULT_REPLACEMENT_RANK="${MOEGAMBIT_FAULT_REPLACEMENT_RANK:--1}"
+  export MOEGAMBIT_FAULT_ZERO_MEMORY="${MOEGAMBIT_FAULT_ZERO_MEMORY:-1}"
+  export MOEGAMBIT_FAULT_MEMORY_FILL="${MOEGAMBIT_FAULT_MEMORY_FILL:-zero}"
 
   export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/64gpu_par/moegambit}"
   export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/64gpu_par/moegambit}"
@@ -108,16 +108,16 @@ else
   NEXT_CRASH_STEP="${CRASH_AT_STEP}"
   CRASH_INJECT_INDEX=0
 
-  # Isolate baseline from BSR-MoE recovery stack
-  unset BSR_FAULT_INJECT_TYPE
-  unset BSR_FAULT_INJECT_RANK
-  unset BSR_FAULT_INJECT_STEP
-  unset BSR_FAULT_INJECT_INTERVAL
-  unset BSR_FAULT_INJECT_SEED
-  unset BSR_FAULT_REPLACEMENT_STEP
-  unset BSR_FAULT_REPLACEMENT_RANK
-  unset BSR_FAULT_ZERO_MEMORY
-  unset BSR_FAULT_MEMORY_FILL
+  # Isolate baseline from MOEGAMBIT-MoE recovery stack
+  unset MOEGAMBIT_FAULT_INJECT_TYPE
+  unset MOEGAMBIT_FAULT_INJECT_RANK
+  unset MOEGAMBIT_FAULT_INJECT_STEP
+  unset MOEGAMBIT_FAULT_INJECT_INTERVAL
+  unset MOEGAMBIT_FAULT_INJECT_SEED
+  unset MOEGAMBIT_FAULT_REPLACEMENT_STEP
+  unset MOEGAMBIT_FAULT_REPLACEMENT_RANK
+  unset MOEGAMBIT_FAULT_ZERO_MEMORY
+  unset MOEGAMBIT_FAULT_MEMORY_FILL
 
   export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/64gpu_par/baseline}"
   export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/64gpu_par/baseline}"
@@ -225,57 +225,57 @@ run_training() {
     LOAD_ARGS=(--load "${CKPT_DIR}")
   fi
 
-  BSR_ARGS=()
+  MOEGAMBIT_ARGS=()
   if [ "${MODE}" = "moegambit" ]; then
-    BSR_ARGS=(
-      --moe-bsr-enable
-      --moe-bsr-health-mask
-      --moe-bsr-rank-quarantine
-      --moe-bsr-dispatch-quarantine-assert
-      --moe-bsr-dispatch-sanitize
-      --moe-bsr-expert-directory
-      --moe-bsr-replacement-protocol
-      --moe-bsr-group-rebuild
-      --moe-bsr-dispatch-topology-refresh
-      --moe-bsr-dense-param-sync
-      --moe-bsr-stale-expert-restore
-      --moe-bsr-recovery-controller
-      --moe-bsr-deferred-optimizer-load
-      --moe-bsr-degraded-mode-policy
-      --moe-bsr-reintegration-barrier
-      --moe-bsr-fault-injection
-      --moe-bsr-restart-in-place
-      --moe-bsr-degraded-tau-c 0.5
-      --moe-bsr-degraded-t-max 1000
-      --moe-bsr-degraded-s-max 500
+    MOEGAMBIT_ARGS=(
+      --moe-moegambit-enable
+      --moe-moegambit-health-mask
+      --moe-moegambit-rank-quarantine
+      --moe-moegambit-dispatch-quarantine-assert
+      --moe-moegambit-dispatch-sanitize
+      --moe-moegambit-expert-directory
+      --moe-moegambit-replacement-protocol
+      --moe-moegambit-group-rebuild
+      --moe-moegambit-dispatch-topology-refresh
+      --moe-moegambit-dense-param-sync
+      --moe-moegambit-stale-expert-restore
+      --moe-moegambit-recovery-controller
+      --moe-moegambit-deferred-optimizer-load
+      --moe-moegambit-degraded-mode-policy
+      --moe-moegambit-reintegration-barrier
+      --moe-moegambit-fault-injection
+      --moe-moegambit-restart-in-place
+      --moe-moegambit-degraded-tau-c 0.5
+      --moe-moegambit-degraded-t-max 1000
+      --moe-moegambit-degraded-s-max 500
     )
 
     # When EDP > 1 and full peer recovery is requested, all params
     # (dense + expert weights + optimizer state) are pulled from a
     # healthy DP peer instead of loading from checkpoint.
-    if [ "${BSR_FULL_PEER_RECOVERY}" = "1" ]; then
-      BSR_ARGS+=(
-        --moe-bsr-full-peer-recovery
+    if [ "${MOEGAMBIT_FULL_PEER_RECOVERY}" = "1" ]; then
+      MOEGAMBIT_ARGS+=(
+        --moe-moegambit-full-peer-recovery
       )
     fi
 
     # Gap-aware hybrid recovery policy: uses Φ'(t) staleness guard
     # to choose between hybrid recovery and checkpoint restart.
-    if [ "${BSR_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
-      BSR_ARGS+=(
-        --moe-bsr-gap-aware-recovery
-        --moe-bsr-recovery-policy-type "${BSR_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
-        --moe-bsr-gap-threshold "${BSR_GAP_THRESHOLD:-100}"
+    if [ "${MOEGAMBIT_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
+      MOEGAMBIT_ARGS+=(
+        --moe-moegambit-gap-aware-recovery
+        --moe-moegambit-recovery-policy-type "${MOEGAMBIT_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
+        --moe-moegambit-gap-threshold "${MOEGAMBIT_GAP_THRESHOLD:-100}"
       )
     fi
 
     # Hot-spare node pool: pre-launched spare GPU ranks for instant
     # fault replacement. Spares do NOT join training NCCL groups
     # until activated at a safe-point.
-    if [ "${BSR_HOT_SPARE_POOL:-0}" = "1" ]; then
-      BSR_ARGS+=(
-        --moe-bsr-hot-spare-pool
-        --moe-bsr-num-hot-spares "${BSR_NUM_HOT_SPARES:-8}"
+    if [ "${MOEGAMBIT_HOT_SPARE_POOL:-0}" = "1" ]; then
+      MOEGAMBIT_ARGS+=(
+        --moe-moegambit-hot-spare-pool
+        --moe-moegambit-num-hot-spares "${MOEGAMBIT_NUM_HOT_SPARES:-8}"
       )
     fi
   fi
@@ -337,7 +337,7 @@ run_training() {
     --moe-router-load-balancing-type aux_loss \
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
-    "${BSR_ARGS[@]}" \
+    "${MOEGAMBIT_ARGS[@]}" \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 100,0,0 \
     --ckpt-format torch \

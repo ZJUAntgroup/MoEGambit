@@ -588,226 +588,226 @@ class TransformerConfig(ModelParallelConfig):
     moe_apply_probs_on_input: bool = False
     """Apply probs on input of experts instead of applying after activation and glu."""
 
-    # --- BSR-MoE (Bypass-Stale-Reintegrate) ---
-    moe_bsr_enable: bool = False
-    """Master switch for BSR-MoE fault-recovery features.  When ``False`` all
-    BSR-MoE code paths are completely disabled and behaviour is identical to
+    # --- MOEGAMBIT-MoE (Bypass-Stale-Reintegrate) ---
+    moe_moegambit_enable: bool = False
+    """Master switch for MOEGAMBIT-MoE fault-recovery features.  When ``False`` all
+    MOEGAMBIT-MoE code paths are completely disabled and behaviour is identical to
     upstream Megatron."""
 
-    moe_bsr_health_mask: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), the MoE router
+    moe_moegambit_health_mask: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), the MoE router
     consults a per-layer health mask to exclude unavailable experts
-    from the top-k candidate set.  Requires ``moe_bsr_enable = True``."""
+    from the top-k candidate set.  Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_rank_quarantine: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_rank_quarantine: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     rank-level quarantine mechanism.  A quarantined rank's experts are
     automatically marked UNAVAILABLE and excluded from routing.
-    Requires ``moe_bsr_enable = True`` and ``moe_bsr_health_mask = True``."""
+    Requires ``moe_moegambit_enable = True`` and ``moe_moegambit_health_mask = True``."""
 
-    moe_bsr_dispatch_quarantine_assert: bool = False
+    moe_moegambit_dispatch_quarantine_assert: bool = False
     """When ``True``, the token dispatcher asserts that dispatch splits for
     quarantined EP ranks are zero.  This is a consistency check — the primary
     isolation is done by the router.  Raises ``AssertionError`` on violation.
-    Requires ``moe_bsr_rank_quarantine = True``."""
+    Requires ``moe_moegambit_rank_quarantine = True``."""
 
-    moe_bsr_dispatch_sanitize: bool = False
+    moe_moegambit_dispatch_sanitize: bool = False
     """When ``True``, the token dispatcher silently zeros out any non-zero
     dispatch splits for quarantined EP ranks and logs a warning.  This is a
     defensive safety net and should NOT be relied upon as the primary isolation
-    mechanism.  Requires ``moe_bsr_rank_quarantine = True``."""
+    mechanism.  Requires ``moe_moegambit_rank_quarantine = True``."""
 
-    moe_bsr_expert_directory: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_expert_directory: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     expert directory and recovery manifest.  The directory maintains a live
     mapping from (layer, expert) to host rank and recovery state.  The
     manifest is saved as a side-car JSON file alongside each checkpoint.
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_replacement_protocol: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_replacement_protocol: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     replacement rank registration protocol.  A spare worker that takes over
     a failed rank must register via ``announce_replacement()`` and wait for
     safe-point integration before joining training collectives.
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_group_rebuild: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_group_rebuild: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     safe-point group rebuild protocol.  After a replacement rank is integrated,
     affected NCCL process groups are torn down and rebuilt at the next safe
     point (iteration boundary).  MoE modules are rebound to new group handles.
-    Requires ``moe_bsr_enable = True`` and ``moe_bsr_replacement_protocol = True``."""
+    Requires ``moe_moegambit_enable = True`` and ``moe_moegambit_replacement_protocol = True``."""
 
-    moe_bsr_dispatch_topology_refresh: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_dispatch_topology_refresh: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     post-rebuild dispatch topology refresh.  After a safe-point group rebuild,
     the expert directory, health masks, quarantine placement, and replacement
     registry are refreshed so that the router and dispatcher use the updated
     rank↔expert mapping.  Quarantined ranks receive zero dispatch traffic;
     integrated replacement ranks become dispatchable.
-    Requires ``moe_bsr_enable = True`` and ``moe_bsr_group_rebuild = True``."""
+    Requires ``moe_moegambit_enable = True`` and ``moe_moegambit_group_rebuild = True``."""
 
-    moe_bsr_dense_param_sync: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_dense_param_sync: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     dense / shared / router parameter fast-pull from healthy DP peers.
     After a replacement rank comes online, non-expert parameters are
     broadcast from a healthy DP peer rather than loaded from a (potentially
     stale) checkpoint.  Expert parameters are left for checkpoint-based
     recovery in a later step.
-    Requires ``moe_bsr_enable = True`` and ``moe_bsr_replacement_protocol = True``."""
+    Requires ``moe_moegambit_enable = True`` and ``moe_moegambit_replacement_protocol = True``."""
 
-    moe_bsr_stale_expert_restore: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables
+    moe_moegambit_stale_expert_restore: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables
     selective expert weight restore from the most recent distributed
     checkpoint.  After restore, experts enter STALE_RUNNABLE state and
     can participate in forward/backward, but optimizer updates are blocked
     until deferred optimizer state loading completes.
-    Requires ``moe_bsr_enable = True`` and ``moe_bsr_expert_directory = True``."""
+    Requires ``moe_moegambit_enable = True`` and ``moe_moegambit_expert_directory = True``."""
 
-    moe_bsr_recovery_controller: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
-    end-to-end recovery controller that orchestrates the full BSR-MoE fault
+    moe_moegambit_recovery_controller: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
+    end-to-end recovery controller that orchestrates the full MOEGAMBIT-MoE fault
     recovery pipeline.  The controller coordinates degraded-mode entry/exit,
     replacement rank registration, safe-point group rebuild, dispatch topology
     refresh, dense parameter sync, and expert weight restore through a single
     state machine with minimal training-loop hooks.
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_deferred_optimizer_load: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables
+    moe_moegambit_deferred_optimizer_load: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables
     deferred optimizer-state loading for stale experts.  After expert weights
     are restored from checkpoint (STALE_RUNNABLE), the optimizer state
     (momentum, variance) is loaded asynchronously.  Once loaded, the
     optimizer update barrier is lifted and the expert transitions to
     FULLY_RECOVERED.
-    Requires ``moe_bsr_enable = True`` and ``moe_bsr_stale_expert_restore = True``."""
+    Requires ``moe_moegambit_enable = True`` and ``moe_moegambit_stale_expert_restore = True``."""
 
-    moe_bsr_degraded_mode_policy: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_degraded_mode_policy: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     degraded-mode continuation policy.  Three thresholds control whether
     training may continue after a fault: capacity ratio (tau_c), degraded
     iteration budget (T_max), and expert staleness (S_max).  The policy
     engine is decision-only and does not perform recovery actions.
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_degraded_tau_c: float = 0.5
+    moe_moegambit_degraded_tau_c: float = 0.5
     """Capacity threshold for degraded-mode continuation.  If the ratio of
     healthy experts to total experts drops below this value, degraded
     continuation is not permitted.  Default 0.5 (50%)."""
 
-    moe_bsr_degraded_t_max: int = 1000
+    moe_moegambit_degraded_t_max: int = 1000
     """Maximum number of training iterations allowed in degraded mode.
     After this budget is exhausted, the system must stop and wait for
     recovery.  Default 1000."""
 
-    moe_bsr_degraded_s_max: int = 500
+    moe_moegambit_degraded_s_max: int = 500
     """Maximum staleness (in training steps) for any restored expert.
     If any expert's staleness exceeds this value, a protective action
     is triggered.  Default 500."""
 
-    moe_bsr_reintegration_barrier: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_reintegration_barrier: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     safe reintegration barrier.  A recovered node only re-joins training
     when ALL preconditions are satisfied (replacement ready, groups
     repaired, directory refreshed, topology refreshed, experts restorable)
     and the system is at a safe point (iteration boundary).
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_gap_aware_recovery: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_gap_aware_recovery: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     gap-aware recovery policy.  On hard failure, the system computes
     ``gap = current_iteration - latest_checkpoint_iteration`` and delegates
-    to the configured policy (see ``moe_bsr_recovery_policy_type``) to
+    to the configured policy (see ``moe_moegambit_recovery_policy_type``) to
     select between checkpoint restart and hybrid recovery.
 
     When ``False``, the system always uses hybrid recovery (existing
     behaviour).
-    Requires ``moe_bsr_enable = True`` and ``moe_bsr_recovery_controller = True``."""
+    Requires ``moe_moegambit_enable = True`` and ``moe_moegambit_recovery_controller = True``."""
 
-    moe_bsr_gap_threshold: int = 100
+    moe_moegambit_gap_threshold: int = 100
     """Gap threshold for the gap-aware recovery policy.
     Used as ``fixed_gap_threshold`` for ``fixed_gap_threshold`` and
     ``threshold`` policy types.
-    Only effective when ``moe_bsr_gap_aware_recovery = True``.
+    Only effective when ``moe_moegambit_gap_aware_recovery = True``.
     Default 100."""
 
-    moe_bsr_recovery_policy_type: str = "threshold"
+    moe_moegambit_recovery_policy_type: str = "threshold"
     """Recovery policy type for gap-aware recovery.  One of:
     ``"restart_and_spare"``: always checkpoint restart (most conservative).
     ``"always_hybrid"``: always hybrid recovery (most aggressive).
-    ``"fixed_gap_threshold"``: single gap threshold (``moe_bsr_gap_threshold``).
+    ``"fixed_gap_threshold"``: single gap threshold (``moe_moegambit_gap_threshold``).
     ``"threshold"``: alias for ``fixed_gap_threshold`` (backward compatible).
     ``"two_threshold"``: gap lower bound + upper bound
-        (``moe_bsr_delta_time_min_gap``, ``moe_bsr_max_single_gap``).
-    ``"rank_exposure_guarded"``: gap bounds + per-rank stale exposure tracking
-        (uses ``moe_bsr_delta_time_min_gap``, ``moe_bsr_max_single_gap``,
-        ``moe_bsr_exposure_window_steps``, ``moe_bsr_max_rank_stale_exposure``).
+        (``moe_moegambit_delta_time_min_gap``, ``moe_moegambit_max_single_gap``).
+    ``"rank_exposure_guarded"``: gap bounds + expert-weighted staleness tracking
+        (uses ``moe_moegambit_delta_time_min_gap``, ``moe_moegambit_max_single_gap``,
+        ``moe_moegambit_exposure_window_steps``, ``moe_moegambit_max_rank_stale_exposure``).
     ``"rank_exposure_guarded_hybrid"``: alias for ``rank_exposure_guarded``
         (backward compatible).
-    Only effective when ``moe_bsr_gap_aware_recovery = True``."""
+    Only effective when ``moe_moegambit_gap_aware_recovery = True``."""
 
-    moe_bsr_delta_time_min_gap: int = 32
+    moe_moegambit_delta_time_min_gap: int = 32
     """[two_threshold / rank_exposure_guarded] Gap below this → checkpoint
     restart (hybrid not cost-effective).  Default 32.
-    Effective when ``moe_bsr_recovery_policy_type`` is ``two_threshold`` or
+    Effective when ``moe_moegambit_recovery_policy_type`` is ``two_threshold`` or
     ``rank_exposure_guarded``."""
 
-    moe_bsr_max_single_gap: int = 192
+    moe_moegambit_max_single_gap: int = 192
     """[two_threshold / rank_exposure_guarded] Gap above this → checkpoint
     restart (stale state too far behind).  Default 192.
-    Must be >= ``moe_bsr_delta_time_min_gap``.
-    Effective when ``moe_bsr_recovery_policy_type`` is ``two_threshold`` or
+    Must be >= ``moe_moegambit_delta_time_min_gap``.
+    Effective when ``moe_moegambit_recovery_policy_type`` is ``two_threshold`` or
     ``rank_exposure_guarded``."""
 
-    moe_bsr_exposure_window_steps: int = 20000
+    moe_moegambit_exposure_window_steps: int = 20000
     """[rank_exposure_guarded] Sliding window (in training steps) for
     tracking rank stale exposure.  Default 20000.
-    Effective when ``moe_bsr_recovery_policy_type`` is ``rank_exposure_guarded``."""
+    Effective when ``moe_moegambit_recovery_policy_type`` is ``rank_exposure_guarded``."""
 
-    moe_bsr_max_rank_stale_exposure: float = 0.02
-    """[rank_exposure_guarded] Maximum stale exposure ratio per rank within
-    the window (e.g. 0.02 = 2%).  Default 0.02.
-    Effective when ``moe_bsr_recovery_policy_type`` is ``rank_exposure_guarded``."""
+    moe_moegambit_max_rank_stale_exposure: float = 0.1
+    """[rank_exposure_guarded] Maximum expert staleness density Phi within
+    the window. The field name is retained for compatibility. Default 0.1.
+    Effective when ``moe_moegambit_recovery_policy_type`` is ``rank_exposure_guarded``."""
 
-    moe_bsr_policy_margin: float = 0.10
+    moe_moegambit_policy_margin: float = 0.10
     """[DEPRECATED] Kept for backward compatibility but no longer used by
     any policy.  Will be removed in a future release.
     Previously: hybrid must be at least this fraction faster than restart."""
 
-    moe_bsr_hybrid_dense_sync: bool = True
+    moe_moegambit_hybrid_dense_sync: bool = True
     """When ``True`` (default), the hybrid recovery path pulls
     dense/shared/router parameters from a healthy DP peer instead of
     loading them from checkpoint.  This is the recommended setting for
     non-ZeRO configurations where all DP peers hold identical dense
     parameter copies.
-    Only effective when ``moe_bsr_enable = True``."""
+    Only effective when ``moe_moegambit_enable = True``."""
 
-    moe_bsr_dense_opt_state_sync: bool = True
+    moe_moegambit_dense_opt_state_sync: bool = True
     """When ``True`` (default), the hybrid recovery path also syncs
     optimizer states (momentum, variance) for dense/shared/router
     parameters from the healthy DP peer.  In non-ZeRO mode, all DP
     peers hold identical optimizer states for dense parameters, so
     broadcast is sufficient.
-    Only effective when ``moe_bsr_hybrid_dense_sync = True``."""
+    Only effective when ``moe_moegambit_hybrid_dense_sync = True``."""
 
-    moe_bsr_hybrid_expert_restore: bool = True
+    moe_moegambit_hybrid_expert_restore: bool = True
     """When ``True`` (default), the hybrid recovery path restores expert
     weights from the most recent checkpoint.  When ``False``, expert weight
     loading is skipped and experts remain in their current state (useful for
     debugging or when expert weights are not needed).
-    Only effective when ``moe_bsr_enable = True`` and
-    ``moe_bsr_stale_expert_restore = True``."""
+    Only effective when ``moe_moegambit_enable = True`` and
+    ``moe_moegambit_stale_expert_restore = True``."""
 
-    moe_bsr_expert_opt_restore: bool = True
+    moe_moegambit_expert_opt_restore: bool = True
     """When ``True`` (default), after expert weights are restored from
     checkpoint, the corresponding optimizer states (momentum, variance) are
     also loaded via the deferred optimizer loader.  When ``False``, optimizer
     state loading is skipped and experts remain in STALE_RUNNABLE state
     (optimizer updates stay blocked until manually unblocked).
-    Only effective when ``moe_bsr_hybrid_expert_restore = True`` and
-    ``moe_bsr_deferred_optimizer_load = True``."""
+    Only effective when ``moe_moegambit_hybrid_expert_restore = True`` and
+    ``moe_moegambit_deferred_optimizer_load = True``."""
 
-    moe_bsr_weights_first_recovery: bool = True
+    moe_moegambit_weights_first_recovery: bool = True
     """When ``True`` (default), uses the two-phase weights-first recovery
     protocol.  Phase 1 restores expert weights from checkpoint and
     immediately re-enables forward/backward (WEIGHTS_READY).  Phase 2
@@ -817,9 +817,9 @@ class TransformerConfig(ModelParallelConfig):
 
     When ``False``, the legacy single-phase path is used: weights and
     optimizer state are loaded together before the expert is re-enabled.
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_defer_optimizer_load: bool = True
+    moe_moegambit_defer_optimizer_load: bool = True
     """When ``True`` (default), expert optimizer state (momentum, variance)
     is loaded asynchronously *after* expert weights have been restored and
     the expert has re-joined training.  During the deferred window the
@@ -832,68 +832,68 @@ class TransformerConfig(ModelParallelConfig):
 
     When ``False``, optimizer state loading is not deferred — it must
     complete before the expert transitions to FULLY_RECOVERED.
-    Requires ``moe_bsr_weights_first_recovery = True``."""
+    Requires ``moe_moegambit_weights_first_recovery = True``."""
 
-    moe_bsr_force_checkpoint_restart: bool = False
-    """When ``True``, force BSR-MoE recovery to take the full
+    moe_moegambit_force_checkpoint_restart: bool = False
+    """When ``True``, force MOEGAMBIT-MoE recovery to take the full
     CHECKPOINT_RESTART path even when selective hybrid recovery is possible.
     This is intended for ablation studies that compare full checkpoint load
     against selective stale-expert restore under the same fault-injection
     schedule."""
 
-    moe_bsr_preferential_routing: bool = False
+    moe_moegambit_preferential_routing: bool = False
     """When ``True``, recovered experts (STALE_RUNNABLE / FULLY_RECOVERED)
     receive a small positive routing bias to accelerate reintegration into
     the training workload.  The bias is time-windowed and linearly decayed
     so it does not permanently distort load balance.
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_preferential_routing_window: int = 100
+    moe_moegambit_preferential_routing_window: int = 100
     """Number of training steps for which the preferential routing bias is
     active after an expert transitions to STALE_RUNNABLE.  After this
     window the bias decays to zero and the expert competes on equal
     footing with healthy experts.
-    Only effective when ``moe_bsr_preferential_routing = True``."""
+    Only effective when ``moe_moegambit_preferential_routing = True``."""
 
-    moe_bsr_preferential_routing_bias: float = 0.1
+    moe_moegambit_preferential_routing_bias: float = 0.1
     """Initial magnitude of the additive routing bias applied to recovered
     experts' sigmoid scores.  The bias is linearly decayed from this value
     to zero over the preferential routing window.  Typical range: 0.01–0.3.
-    Only effective when ``moe_bsr_preferential_routing = True``."""
+    Only effective when ``moe_moegambit_preferential_routing = True``."""
 
-    moe_bsr_fault_injection: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_fault_injection: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     fault-injection and end-to-end test framework.  Provides controllable
     fault primitives (expert unavailable, rank quarantine, hard rank
     failure, replacement ready, safe point) and two minimal E2E test
     scenarios (live-but-quarantined, hard-failed rank) with recovery
     metrics tracking.
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_restart_in_place: bool = False
-    """When ``True`` (and ``moe_bsr_fault_injection`` is also ``True``),
+    moe_moegambit_restart_in_place: bool = False
+    """When ``True`` (and ``moe_moegambit_fault_injection`` is also ``True``),
     enables restart-in-place recovery simulation.  Faults use
     ``restart_in_place=True`` (replacement_rank == failed_rank), which:
     1. Fills all tensors with NaN sentinels (simulates GPU memory loss)
     2. Skips group rebuild and topology refresh (rank unchanged)
     3. Applies fail-closed verification gate before reintegration
-    Requires ``moe_bsr_enable = True`` and ``moe_bsr_fault_injection = True``."""
+    Requires ``moe_moegambit_enable = True`` and ``moe_moegambit_fault_injection = True``."""
 
-    moe_bsr_hot_spare_pool: bool = False
-    """When ``True`` (and ``moe_bsr_enable`` is also ``True``), enables the
+    moe_moegambit_hot_spare_pool: bool = False
+    """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
     hot-spare node pool.  Pre-launched spare GPU ranks stand by without
     joining any training NCCL group.  On a rank failure, the pool allocates
     a spare for instant replacement, avoiding external orchestration latency.
     Spare ranks communicate with the coordinator only via Gloo/TCPStore
     (never NCCL) to prevent collective hangs.
-    Requires ``moe_bsr_enable = True``."""
+    Requires ``moe_moegambit_enable = True``."""
 
-    moe_bsr_num_hot_spares: int = 0
+    moe_moegambit_num_hot_spares: int = 0
     """Number of hot-spare GPU ranks to reserve from the total world size.
     These ranks are the last N ranks in the ``torchrun`` world (e.g., with
     64 training ranks and 2 spares, ranks 64-65 are spares).  Set to 0 to
-    disable the hot-spare pool even if ``moe_bsr_hot_spare_pool = True``.
-    Requires ``moe_bsr_hot_spare_pool = True``."""
+    disable the hot-spare pool even if ``moe_moegambit_hot_spare_pool = True``.
+    Requires ``moe_moegambit_hot_spare_pool = True``."""
 
     ##################
     # Context Parallel

@@ -1,5 +1,5 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-# Tests for BSR-MoE Stage-Safe Recovery Protocol (Step 10).
+# Tests for MOEGAMBIT-MoE Stage-Safe Recovery Protocol (Step 10).
 
 """Unit tests for the stage-safe recovery protocol for PP > 1.
 
@@ -12,7 +12,7 @@ Covers:
     6. Dual-path semantics (HYBRID_RECOVERY vs CHECKPOINT_RESTART)
     7. Error handling and partial failure
     8. RecoveryController PP-aware integration
-    9. bsr_integration wiring (bsr_execute_stage_safe_recovery)
+    9. moegambit_integration wiring (moegambit_execute_stage_safe_recovery)
 """
 
 import os

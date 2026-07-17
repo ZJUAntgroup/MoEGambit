@@ -22,7 +22,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 #   - save every 200 iterations  (--save-interval 200)
 #   - eval every 1000 iterations (--eval-interval 1000)
 #   - no fault injection / no restart-in-place
-#   - ALL --moe-bsr-* switches are disabled (vanilla Megatron-LM training)
+#   - ALL --moe-moegambit-* switches are disabled (vanilla Megatron-LM training)
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,25 +48,25 @@ run_training() {
   export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
   # Guard against inherited fault-injection environment from previous runs.
-  unset BSR_FAULT_INJECT_TYPE
-  unset BSR_FAULT_INJECT_RANK
-  unset BSR_FAULT_INJECT_STEP
-  unset BSR_FAULT_INJECT_INTERVAL
-  unset BSR_FAULT_INJECT_SEED
-  unset BSR_FAULT_INJECT_PLAN
-  unset BSR_FAULT_INJECT_PLAN_MODE
-  unset BSR_FAULT_REPLACEMENT_STEP
-  unset BSR_FAULT_REPLACEMENT_RANK
-  unset BSR_FAULT_ZERO_MEMORY
-  unset BSR_FAULT_MEMORY_FILL
-  unset BSR_REQUIRE_OLD_PARAM_RESTORE
+  unset MOEGAMBIT_FAULT_INJECT_TYPE
+  unset MOEGAMBIT_FAULT_INJECT_RANK
+  unset MOEGAMBIT_FAULT_INJECT_STEP
+  unset MOEGAMBIT_FAULT_INJECT_INTERVAL
+  unset MOEGAMBIT_FAULT_INJECT_SEED
+  unset MOEGAMBIT_FAULT_INJECT_PLAN
+  unset MOEGAMBIT_FAULT_INJECT_PLAN_MODE
+  unset MOEGAMBIT_FAULT_REPLACEMENT_STEP
+  unset MOEGAMBIT_FAULT_REPLACEMENT_RANK
+  unset MOEGAMBIT_FAULT_ZERO_MEMORY
+  unset MOEGAMBIT_FAULT_MEMORY_FILL
+  unset MOEGAMBIT_REQUIRE_OLD_PARAM_RESTORE
 
   echo "============================================================"
   echo "[findmax_baseline_long] Starting long baseline run=${RUN_ID}"
   echo "[findmax_baseline_long] CKPT_DIR=${CKPT_DIR}"
   echo "[findmax_baseline_long] TRAIN_LOG_DIR=${TRAIN_LOG_DIR}"
   echo "[findmax_baseline_long] train-iters=10000  save-interval=200  eval-interval=1000"
-  echo "[findmax_baseline_long] BSR runtime: DISABLED (vanilla baseline)"
+  echo "[findmax_baseline_long] MOEGAMBIT runtime: DISABLED (vanilla baseline)"
   echo "============================================================"
 
   LOAD_ARGS=()

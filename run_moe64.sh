@@ -13,7 +13,7 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export TORCH_CUDA_ARCH_LIST="9.0"
 
 # ============================================================
-# BSR-MoE Fault Injection Configuration (via environment variables)
+# MOEGAMBIT-MoE Fault Injection Configuration (via environment variables)
 # ============================================================
 # Fault injection type: "quarantine", "hard_failure", or "restart_in_place"
 #   - quarantine:         soft fault (rank still alive but isolated)
@@ -21,24 +21,24 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 #   - restart_in_place:   in-place restart simulation (replacement=self);
 #                         with dense-param-sync + stale-expert-restore below,
 #                         recovery follows the HYBRID_RECOVERY path.
-export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
+export MOEGAMBIT_FAULT_INJECT_TYPE="${MOEGAMBIT_FAULT_INJECT_TYPE:-restart_in_place}"
 # Which rank to inject the fault on (0-based global rank)
 # Set to -1 to enable random rank selection per fault (seeded)
-export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
+export MOEGAMBIT_FAULT_INJECT_RANK="${MOEGAMBIT_FAULT_INJECT_RANK:--1}"
 # First training step to inject the fault
-export BSR_FAULT_INJECT_STEP="${BSR_FAULT_INJECT_STEP:-70}"
+export MOEGAMBIT_FAULT_INJECT_STEP="${MOEGAMBIT_FAULT_INJECT_STEP:-70}"
 # Interval between repeated fault injections (0 = single injection only)
-export BSR_FAULT_INJECT_INTERVAL="${BSR_FAULT_INJECT_INTERVAL:-40}"
+export MOEGAMBIT_FAULT_INJECT_INTERVAL="${MOEGAMBIT_FAULT_INJECT_INTERVAL:-40}"
 # Random seed for fault rank selection (ensures reproducible fault sequence)
-export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
+export MOEGAMBIT_FAULT_INJECT_SEED="${MOEGAMBIT_FAULT_INJECT_SEED:-42}"
 # At which training step the replacement rank becomes ready
 # (ignored for restart_in_place mode — replacement is immediate)
-export BSR_FAULT_REPLACEMENT_STEP="${BSR_FAULT_REPLACEMENT_STEP:-70}"
+export MOEGAMBIT_FAULT_REPLACEMENT_STEP="${MOEGAMBIT_FAULT_REPLACEMENT_STEP:-70}"
 # Replacement rank ID (-1 = auto-assign; for restart_in_place, always = failed_rank)
-export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
+export MOEGAMBIT_FAULT_REPLACEMENT_RANK="${MOEGAMBIT_FAULT_REPLACEMENT_RANK:--1}"
 # Simulate a device whose model/optimizer memory comes back zeroed.
-export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
-export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
+export MOEGAMBIT_FAULT_ZERO_MEMORY="${MOEGAMBIT_FAULT_ZERO_MEMORY:-1}"
+export MOEGAMBIT_FAULT_MEMORY_FILL="${MOEGAMBIT_FAULT_MEMORY_FILL:-zero}"
 
 # ============================================================
 # Log & Analysis Configuration
@@ -128,26 +128,26 @@ run_training() {
     --moe-router-load-balancing-type aux_loss \
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
-    --moe-bsr-enable \
-    --moe-bsr-health-mask \
-    --moe-bsr-rank-quarantine \
-    --moe-bsr-dispatch-quarantine-assert \
-    --moe-bsr-dispatch-sanitize \
-    --moe-bsr-expert-directory \
-    --moe-bsr-replacement-protocol \
-    --moe-bsr-group-rebuild \
-    --moe-bsr-dispatch-topology-refresh \
-    --moe-bsr-dense-param-sync \
-    --moe-bsr-stale-expert-restore \
-    --moe-bsr-recovery-controller \
-    --moe-bsr-deferred-optimizer-load \
-    --moe-bsr-degraded-mode-policy \
-    --moe-bsr-reintegration-barrier \
-    --moe-bsr-fault-injection \
-    --moe-bsr-restart-in-place \
-    --moe-bsr-degraded-tau-c 0.5 \
-    --moe-bsr-degraded-t-max 1000 \
-    --moe-bsr-degraded-s-max 500 \
+    --moe-moegambit-enable \
+    --moe-moegambit-health-mask \
+    --moe-moegambit-rank-quarantine \
+    --moe-moegambit-dispatch-quarantine-assert \
+    --moe-moegambit-dispatch-sanitize \
+    --moe-moegambit-expert-directory \
+    --moe-moegambit-replacement-protocol \
+    --moe-moegambit-group-rebuild \
+    --moe-moegambit-dispatch-topology-refresh \
+    --moe-moegambit-dense-param-sync \
+    --moe-moegambit-stale-expert-restore \
+    --moe-moegambit-recovery-controller \
+    --moe-moegambit-deferred-optimizer-load \
+    --moe-moegambit-degraded-mode-policy \
+    --moe-moegambit-reintegration-barrier \
+    --moe-moegambit-fault-injection \
+    --moe-moegambit-restart-in-place \
+    --moe-moegambit-degraded-tau-c 0.5 \
+    --moe-moegambit-degraded-t-max 1000 \
+    --moe-moegambit-degraded-s-max 500 \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 100,0,0 \
     --ckpt-format torch \

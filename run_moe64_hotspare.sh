@@ -73,22 +73,22 @@ rm -rf "${ELASTIC_FAULT_DIR}"
 mkdir -p "${ELASTIC_FAULT_DIR}"
 
 # Recovery policy
-export BSR_HOT_SPARE_POOL=1
-export BSR_NUM_HOT_SPARES="${NPROC_PER_NODE}"
-export BSR_GAP_AWARE_RECOVERY=1
-export BSR_RECOVERY_POLICY_TYPE="${BSR_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
-export BSR_GAP_THRESHOLD="${BSR_GAP_THRESHOLD:-100}"
+export MOEGAMBIT_HOT_SPARE_POOL=1
+export MOEGAMBIT_NUM_HOT_SPARES="${NPROC_PER_NODE}"
+export MOEGAMBIT_GAP_AWARE_RECOVERY=1
+export MOEGAMBIT_RECOVERY_POLICY_TYPE="${MOEGAMBIT_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
+export MOEGAMBIT_GAP_THRESHOLD="${MOEGAMBIT_GAP_THRESHOLD:-100}"
 
 # Fault injection
-export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
-export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:--1}"
-export BSR_FAULT_INJECT_STEP="${BSR_FAULT_INJECT_STEP:-70}"
-export BSR_FAULT_INJECT_INTERVAL="${BSR_FAULT_INJECT_INTERVAL:-40}"
-export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
-export BSR_FAULT_REPLACEMENT_STEP="${BSR_FAULT_REPLACEMENT_STEP:-70}"
-export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
-export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
-export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
+export MOEGAMBIT_FAULT_INJECT_TYPE="${MOEGAMBIT_FAULT_INJECT_TYPE:-restart_in_place}"
+export MOEGAMBIT_FAULT_INJECT_RANK="${MOEGAMBIT_FAULT_INJECT_RANK:--1}"
+export MOEGAMBIT_FAULT_INJECT_STEP="${MOEGAMBIT_FAULT_INJECT_STEP:-70}"
+export MOEGAMBIT_FAULT_INJECT_INTERVAL="${MOEGAMBIT_FAULT_INJECT_INTERVAL:-40}"
+export MOEGAMBIT_FAULT_INJECT_SEED="${MOEGAMBIT_FAULT_INJECT_SEED:-42}"
+export MOEGAMBIT_FAULT_REPLACEMENT_STEP="${MOEGAMBIT_FAULT_REPLACEMENT_STEP:-70}"
+export MOEGAMBIT_FAULT_REPLACEMENT_RANK="${MOEGAMBIT_FAULT_REPLACEMENT_RANK:--1}"
+export MOEGAMBIT_FAULT_ZERO_MEMORY="${MOEGAMBIT_FAULT_ZERO_MEMORY:-1}"
+export MOEGAMBIT_FAULT_MEMORY_FILL="${MOEGAMBIT_FAULT_MEMORY_FILL:-zero}"
 
 # Checkpoint & logging
 export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/615ckpt}"
@@ -156,36 +156,36 @@ if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ] || ls "${CKPT_DIR}"/it
   LOAD_ARGS=(--load "${CKPT_DIR}")
 fi
 
-BSR_ARGS=(
-  --moe-bsr-enable
-  --moe-bsr-health-mask
-  --moe-bsr-rank-quarantine
-  --moe-bsr-dispatch-quarantine-assert
-  --moe-bsr-dispatch-sanitize
-  --moe-bsr-expert-directory
-  --moe-bsr-replacement-protocol
-  --moe-bsr-group-rebuild
-  --moe-bsr-dispatch-topology-refresh
-  --moe-bsr-dense-param-sync
-  --moe-bsr-stale-expert-restore
-  --moe-bsr-recovery-controller
-  --moe-bsr-deferred-optimizer-load
-  --moe-bsr-degraded-mode-policy
-  --moe-bsr-reintegration-barrier
-  --moe-bsr-fault-injection
-  --moe-bsr-restart-in-place
-  --moe-bsr-degraded-tau-c 0.5
-  --moe-bsr-degraded-t-max 1000
-  --moe-bsr-degraded-s-max 500
-  --moe-bsr-hot-spare-pool
-  --moe-bsr-num-hot-spares "${NPROC_PER_NODE}"
+MOEGAMBIT_ARGS=(
+  --moe-moegambit-enable
+  --moe-moegambit-health-mask
+  --moe-moegambit-rank-quarantine
+  --moe-moegambit-dispatch-quarantine-assert
+  --moe-moegambit-dispatch-sanitize
+  --moe-moegambit-expert-directory
+  --moe-moegambit-replacement-protocol
+  --moe-moegambit-group-rebuild
+  --moe-moegambit-dispatch-topology-refresh
+  --moe-moegambit-dense-param-sync
+  --moe-moegambit-stale-expert-restore
+  --moe-moegambit-recovery-controller
+  --moe-moegambit-deferred-optimizer-load
+  --moe-moegambit-degraded-mode-policy
+  --moe-moegambit-reintegration-barrier
+  --moe-moegambit-fault-injection
+  --moe-moegambit-restart-in-place
+  --moe-moegambit-degraded-tau-c 0.5
+  --moe-moegambit-degraded-t-max 1000
+  --moe-moegambit-degraded-s-max 500
+  --moe-moegambit-hot-spare-pool
+  --moe-moegambit-num-hot-spares "${NPROC_PER_NODE}"
 )
 
-if [ "${BSR_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
-  BSR_ARGS+=(
-    --moe-bsr-gap-aware-recovery
-    --moe-bsr-recovery-policy-type "${BSR_RECOVERY_POLICY_TYPE}"
-    --moe-bsr-gap-threshold "${BSR_GAP_THRESHOLD}"
+if [ "${MOEGAMBIT_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
+  MOEGAMBIT_ARGS+=(
+    --moe-moegambit-gap-aware-recovery
+    --moe-moegambit-recovery-policy-type "${MOEGAMBIT_RECOVERY_POLICY_TYPE}"
+    --moe-moegambit-gap-threshold "${MOEGAMBIT_GAP_THRESHOLD}"
   )
 fi
 
@@ -247,7 +247,7 @@ python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --moe-router-load-balancing-type aux_loss \
   --moe-aux-loss-coeff 1e-3 \
   --moe-token-dispatcher-type alltoall \
-  "${BSR_ARGS[@]}" \
+  "${MOEGAMBIT_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
   --split 100,0,0 \
   --ckpt-format torch \

@@ -2,7 +2,7 @@
 
 This module implements a *single-flag* emulation of MoC-System's Partial
 Experts Checkpointing (PEC) on top of MoEGuard. It is enabled by the
-environment variable ``BSR_MOC_PEC_EMULATE=1`` (no MoEGuard code path
+environment variable ``MOEGAMBIT_MOC_PEC_EMULATE=1`` (no MoEGuard code path
 changes guarded behind anything else). When disabled, this module is
 inert — both ``write_pec_metadata`` and ``apply_pec_to_plan`` short-circuit
 to no-ops, so MoEGuard's runtime semantics are untouched.
@@ -34,11 +34,11 @@ advantage and discloses this in §Threats to Validity.
 
 Environment knobs (read once at module init):
 
-    BSR_MOC_PEC_EMULATE      -- '1' to enable (default '0')
-    BSR_MOC_PEC_K            -- number of fresh experts per save (default 16)
-    BSR_MOC_PEC_N_EXPERT     -- total experts in the model (default 128)
-    BSR_MOC_PEC_SCHEDULE     -- 'round_robin' (default; only option for now)
-    BSR_MOC_PEC_LOG_LEVEL    -- python logging level (default 'INFO')
+    MOEGAMBIT_MOC_PEC_EMULATE      -- '1' to enable (default '0')
+    MOEGAMBIT_MOC_PEC_K            -- number of fresh experts per save (default 16)
+    MOEGAMBIT_MOC_PEC_N_EXPERT     -- total experts in the model (default 128)
+    MOEGAMBIT_MOC_PEC_SCHEDULE     -- 'round_robin' (default; only option for now)
+    MOEGAMBIT_MOC_PEC_LOG_LEVEL    -- python logging level (default 'INFO')
 """
 from __future__ import annotations
 
@@ -67,15 +67,15 @@ def _int(name: str, default: int) -> int:
 
 def is_enabled() -> bool:
     """Single source of truth: emulation only runs when this returns True."""
-    return _flag("BSR_MOC_PEC_EMULATE", "0")
+    return _flag("MOEGAMBIT_MOC_PEC_EMULATE", "0")
 
 
 def _k_pec() -> int:
-    return _int("BSR_MOC_PEC_K", 16)
+    return _int("MOEGAMBIT_MOC_PEC_K", 16)
 
 
 def _n_expert() -> int:
-    return _int("BSR_MOC_PEC_N_EXPERT", 128)
+    return _int("MOEGAMBIT_MOC_PEC_N_EXPERT", 128)
 
 
 def fresh_experts_for_round(save_idx: int,
@@ -128,7 +128,7 @@ def _save_root_from_iter_dir(iter_dir: str) -> str:
 def write_pec_metadata(iter_dir: str, iteration: int) -> None:
     """Write moc_pec_metadata.json into ``iter_dir``.
 
-    Idempotent and rank-0-only by convention; caller (bsr_save_manifest)
+    Idempotent and rank-0-only by convention; caller (moegambit_save_manifest)
     already checks ``torch.distributed.get_rank() == 0`` before calling
     us. Safe to call when ``is_enabled()`` is False — it short-circuits.
     """
@@ -294,5 +294,5 @@ def snapshot_config() -> Dict[str, Any]:
         "enabled": is_enabled(),
         "k_pec": _k_pec(),
         "n_expert": _n_expert(),
-        "schedule": os.environ.get("BSR_MOC_PEC_SCHEDULE", "round_robin"),
+        "schedule": os.environ.get("MOEGAMBIT_MOC_PEC_SCHEDULE", "round_robin"),
     }

@@ -93,7 +93,7 @@ class TestFaultInjectionSelection(unittest.TestCase):
     def test_random_rank_selection_uses_global_world(self):
         """rank=-1 should pick one global rank, not one rank per EP group."""
         import random
-        from megatron.core.transformer.moe.bsr_integration import (
+        from megatron.core.transformer.moe.moegambit_integration import (
             _select_fault_inject_rank,
         )
 
@@ -109,7 +109,7 @@ class TestFaultInjectionSelection(unittest.TestCase):
 
     def test_expert_ids_use_failed_rank_ep_group(self):
         """Expert IDs should be computed from the failed rank's own EP group."""
-        from megatron.core.transformer.moe.bsr_integration import (
+        from megatron.core.transformer.moe.moegambit_integration import (
             _expert_ids_for_rank,
         )
 

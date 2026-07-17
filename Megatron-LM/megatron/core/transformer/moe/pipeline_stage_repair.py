@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Pipeline Stage Repair for BSR-MoE (PP > 1).
+"""Pipeline Stage Repair for MOEGAMBIT-MoE (PP > 1).
 
 When a hard failure occurs on a pipeline stage and a replacement rank
 takes over, the PP-related process groups and P2P communicator must be
@@ -169,7 +169,7 @@ class PipelineStageRepairer:
             new_pp_ranks[failed_stage] = replacement_rank
 
             logger.warning(
-                "BSR-MoE pipeline repair: stage=%d, failed=%d, "
+                "MOEGAMBIT-MoE pipeline repair: stage=%d, failed=%d, "
                 "replacement=%d, old_ranks=%s, new_ranks=%s",
                 failed_stage, failed_rank, replacement_rank,
                 pp_group_ranks, new_pp_ranks,
@@ -210,7 +210,7 @@ class PipelineStageRepairer:
         except Exception as e:
             result.error = str(e)
             logger.error(
-                "BSR-MoE pipeline repair FAILED: %s", e,
+                "MOEGAMBIT-MoE pipeline repair FAILED: %s", e,
             )
 
         result.elapsed_seconds = time.monotonic() - t0
@@ -219,7 +219,7 @@ class PipelineStageRepairer:
             self._total_repairs += 1
 
         logger.warning(
-            "BSR-MoE pipeline repair %s — "
+            "MOEGAMBIT-MoE pipeline repair %s — "
             "stage=%d, pp_rebuilt=%s, prev_next=%s, p2p=%s, "
             "compound=%d, verified=%s, elapsed=%.2fs",
             "SUCCEEDED" if result.success else "FAILED",
@@ -249,14 +249,14 @@ class PipelineStageRepairer:
                     torch.distributed.destroy_process_group(current)
                 except Exception as e:
                     logger.warning(
-                        "BSR-MoE pipeline repair: failed to destroy old "
+                        "MOEGAMBIT-MoE pipeline repair: failed to destroy old "
                         "PP group: %s", e,
                     )
                 ps._PIPELINE_MODEL_PARALLEL_GROUP = None
-                logger.debug("BSR-MoE pipeline repair: old PP group invalidated")
+                logger.debug("MOEGAMBIT-MoE pipeline repair: old PP group invalidated")
         except ImportError:
             logger.warning(
-                "BSR-MoE pipeline repair: cannot import parallel_state"
+                "MOEGAMBIT-MoE pipeline repair: cannot import parallel_state"
             )
 
     # -----------------------------------------------------------------
@@ -289,7 +289,7 @@ class PipelineStageRepairer:
             invalid_ranks = [r for r in new_pp_ranks if r >= world_size]
             if invalid_ranks:
                 logger.warning(
-                    "BSR-MoE pipeline repair: ranks %s exceed world_size=%d "
+                    "MOEGAMBIT-MoE pipeline repair: ranks %s exceed world_size=%d "
                     "in PP group.  Using identity inheritance — the "
                     "replacement process must have joined with the failed "
                     "rank's identity.",
@@ -310,7 +310,7 @@ class PipelineStageRepairer:
                         for r in new_pp_ranks
                     ]
                     logger.warning(
-                        "BSR-MoE pipeline repair: remapped PP ranks to %s",
+                        "MOEGAMBIT-MoE pipeline repair: remapped PP ranks to %s",
                         new_pp_ranks,
                     )
 
@@ -325,7 +325,7 @@ class PipelineStageRepairer:
                 # Also update the global ranks list
                 ps._PIPELINE_GLOBAL_RANKS = new_pp_ranks
                 logger.debug(
-                    "BSR-MoE pipeline repair: PP group rebuilt with "
+                    "MOEGAMBIT-MoE pipeline repair: PP group rebuilt with "
                     "ranks %s", new_pp_ranks,
                 )
                 return True
@@ -333,7 +333,7 @@ class PipelineStageRepairer:
 
         except Exception as e:
             logger.error(
-                "BSR-MoE pipeline repair: failed to rebuild PP group: %s", e,
+                "MOEGAMBIT-MoE pipeline repair: failed to rebuild PP group: %s", e,
             )
             return False
 
@@ -373,7 +373,7 @@ class PipelineStageRepairer:
                 ps._NEXT_PIPELINE_MODEL_PARALLEL_RANK = next_rank
 
             logger.debug(
-                "BSR-MoE pipeline repair: prev/next updated — "
+                "MOEGAMBIT-MoE pipeline repair: prev/next updated — "
                 "rank=%d, prev=%d, next=%d",
                 rank, prev_rank, next_rank,
             )
@@ -381,7 +381,7 @@ class PipelineStageRepairer:
 
         except Exception as e:
             logger.error(
-                "BSR-MoE pipeline repair: failed to update prev/next: %s", e,
+                "MOEGAMBIT-MoE pipeline repair: failed to update prev/next: %s", e,
             )
             return False
 
@@ -405,7 +405,7 @@ class PipelineStageRepairer:
                     # The communicator will be lazily recreated on next use
                     p2p_communication._P2P_COMMUNICATOR = None
                     logger.debug(
-                        "BSR-MoE pipeline repair: P2P communicator cleared "
+                        "MOEGAMBIT-MoE pipeline repair: P2P communicator cleared "
                         "(will be recreated on next use)"
                     )
                     return True
@@ -414,19 +414,19 @@ class PipelineStageRepairer:
             # In some versions, the communicator is created per-call
             # and doesn't need explicit reset
             logger.debug(
-                "BSR-MoE pipeline repair: no P2P communicator singleton "
+                "MOEGAMBIT-MoE pipeline repair: no P2P communicator singleton "
                 "found (per-call creation mode)"
             )
             return True
 
         except ImportError:
             logger.warning(
-                "BSR-MoE pipeline repair: cannot import p2p_communication"
+                "MOEGAMBIT-MoE pipeline repair: cannot import p2p_communication"
             )
             return False
         except Exception as e:
             logger.error(
-                "BSR-MoE pipeline repair: failed to rebind P2P: %s", e,
+                "MOEGAMBIT-MoE pipeline repair: failed to rebind P2P: %s", e,
             )
             return False
 
@@ -502,7 +502,7 @@ class PipelineStageRepairer:
                 invalid_ranks = [r for r in new_ranks if r >= world_size]
                 if invalid_ranks:
                     logger.warning(
-                        "BSR-MoE pipeline repair: compound group %s has "
+                        "MOEGAMBIT-MoE pipeline repair: compound group %s has "
                         "ranks %s exceeding world_size=%d, using original "
                         "ranks instead",
                         group_name, invalid_ranks, world_size,
@@ -514,7 +514,7 @@ class PipelineStageRepairer:
                     torch.distributed.destroy_process_group(current_group)
                 except Exception as e:
                     logger.warning(
-                        "BSR-MoE pipeline repair: failed to destroy "
+                        "MOEGAMBIT-MoE pipeline repair: failed to destroy "
                         "compound group %s: %s", group_name, e,
                     )
 
@@ -529,28 +529,28 @@ class PipelineStageRepairer:
                         setattr(ps, var_name, new_group)
                         count += 1
                         logger.debug(
-                            "BSR-MoE pipeline repair: rebuilt compound "
+                            "MOEGAMBIT-MoE pipeline repair: rebuilt compound "
                             "group %s with ranks %s",
                             group_name, new_ranks,
                         )
                 except Exception as e:
                     logger.error(
-                        "BSR-MoE pipeline repair: failed to rebuild "
+                        "MOEGAMBIT-MoE pipeline repair: failed to rebuild "
                         "compound group %s: %s", group_name, e,
                     )
 
         except ImportError:
             logger.warning(
-                "BSR-MoE pipeline repair: cannot import parallel_state"
+                "MOEGAMBIT-MoE pipeline repair: cannot import parallel_state"
             )
         except Exception as e:
             logger.error(
-                "BSR-MoE pipeline repair: compound group rebuild failed: %s",
+                "MOEGAMBIT-MoE pipeline repair: compound group rebuild failed: %s",
                 e,
             )
 
         logger.info(
-            "BSR-MoE pipeline repair: rebuilt %d compound groups", count,
+            "MOEGAMBIT-MoE pipeline repair: rebuilt %d compound groups", count,
         )
         return count
 
@@ -569,12 +569,12 @@ class PipelineStageRepairer:
                 return False
 
             torch.distributed.barrier(group=pp_group)
-            logger.debug("BSR-MoE pipeline repair: verification passed")
+            logger.debug("MOEGAMBIT-MoE pipeline repair: verification passed")
             return True
 
         except Exception as e:
             logger.error(
-                "BSR-MoE pipeline repair: verification FAILED: %s", e,
+                "MOEGAMBIT-MoE pipeline repair: verification FAILED: %s", e,
             )
             return False
 
@@ -706,7 +706,7 @@ def execute_pipeline_stage_repair(
 ) -> PipelineStageRepairResult:
     """Execute a pipeline stage repair using the global repairer.
 
-    This is the primary entry point for ``bsr_integration.py``.
+    This is the primary entry point for ``moegambit_integration.py``.
     """
     repairer = get_pipeline_stage_repairer()
     return repairer.execute(

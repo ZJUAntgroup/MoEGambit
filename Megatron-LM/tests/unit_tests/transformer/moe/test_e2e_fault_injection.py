@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""End-to-end fault injection tests for BSR-MoE (Phase 14).
+"""End-to-end fault injection tests for MOEGAMBIT-MoE (Phase 14).
 
 Tests validate the complete recovery pipeline under PP=1 and PP>1
 using the fault injection framework.  All tests run without torch

@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE Recovery Policy Framework.
+"""Unit tests for MOEGAMBIT-MoE Recovery Policy Framework.
 
 Tests cover all 5 policies:
 1. RestartAndSparePolicy — always CHECKPOINT_RESTART (except no ckpt)
@@ -413,9 +413,38 @@ class TestRankExposureGuardedPolicy(unittest.TestCase):
         self.assertEqual(d.path, RecoveryPath.HYBRID_RECOVERY)
         self.assertEqual(d.reason, "within_rank_exposure_safe_region")
 
-    def test_no_checkpoint_forced_hybrid(self):
+    def test_no_checkpoint_rejects_mixed_version_recovery(self):
         d = self.policy.choose(current_step=50, latest_checkpoint_step=-1, failed_rank=3)
-        self.assertEqual(d.path, RecoveryPath.HYBRID_RECOVERY)
+        self.assertEqual(d.path, RecoveryPath.CHECKPOINT_RESTART)
+
+    def test_expert_weighted_global_density_contract(self):
+        policy = RankExposureGuardedPolicy(
+            config=RankExposureGuardedConfig(
+                delta_time_min_gap=0,
+                max_single_gap=200,
+                exposure_window_steps=1000,
+                max_rank_stale_exposure=0.01,
+            ),
+            tracker=self.tracker,
+        )
+        self.tracker.record_hybrid_recovery(
+            step=100,
+            rank=1,
+            gap=100,
+            num_affected_experts=8,
+        )
+        decision = policy.choose(
+            current_step=200,
+            latest_checkpoint_step=100,
+            failed_rank=7,
+            num_affected_experts=8,
+            num_total_experts=128,
+            dense_peer_available=True,
+        )
+        self.assertEqual(decision.path, RecoveryPath.CHECKPOINT_RESTART)
+        self.assertEqual(decision.window_expert_iteration_debt_before, 800)
+        self.assertEqual(decision.window_expert_iteration_debt_after, 1600)
+        self.assertAlmostEqual(decision.expert_staleness_density_after, 0.0125)
 
     # --- Rank exposure tests ---
 
@@ -434,6 +463,11 @@ class TestRankExposureGuardedPolicy(unittest.TestCase):
         self.assertEqual(d1.gap, 100)
         # 500/10000 = 0.05, not > 0.05, so hybrid
         self.assertEqual(d1.path, RecoveryPath.HYBRID_RECOVERY)
+        self.tracker.record_hybrid_recovery(
+            step=d1.current_step,
+            rank=d1.failed_rank,
+            gap=d1.gap,
+        )
 
         # Now stale_iters = 400 + 100 (from d1) = 500
         # gap=100: stale_after=600, exposure_after=0.06 > 0.05 → restart
@@ -482,8 +516,8 @@ class TestRankExposureGuardedPolicy(unittest.TestCase):
         self.assertEqual(d.path, RecoveryPath.CHECKPOINT_RESTART)
         self.assertEqual(self.tracker.get_event_count(), 0)
 
-    def test_different_ranks_independent(self):
-        """High exposure on rank 3 doesn't affect rank 5."""
+    def test_different_ranks_share_global_exposure_budget(self):
+        """Debt from one failed rank contributes to the next R2 decision."""
         # Make rank 3 high exposure
         self.tracker.record_hybrid_recovery(step=100, rank=3, gap=300)
         self.tracker.record_hybrid_recovery(step=300, rank=3, gap=300)
@@ -493,9 +527,9 @@ class TestRankExposureGuardedPolicy(unittest.TestCase):
         d3 = self.policy.choose(current_step=500, latest_checkpoint_step=400, failed_rank=3)
         self.assertEqual(d3.path, RecoveryPath.CHECKPOINT_RESTART)
 
-        # gap=100 on rank 5 → hybrid (no prior events)
+        # Phi is global across restored expert sets, so rank 5 also restarts.
         d5 = self.policy.choose(current_step=500, latest_checkpoint_step=400, failed_rank=5)
-        self.assertEqual(d5.path, RecoveryPath.HYBRID_RECOVERY)
+        self.assertEqual(d5.path, RecoveryPath.CHECKPOINT_RESTART)
 
     def test_backward_compat_alias(self):
         """RankExposureGuardedHybridPolicy is an alias."""

@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""BSR-MoE Iteration Invalidator.
+"""MOEGAMBIT-MoE Iteration Invalidator.
 
 When a hard failure is detected **inside** an ongoing forward/backward pass
 or optimizer step, the current iteration's intermediate state (gradients,
@@ -183,7 +183,7 @@ class IterationInvalidator:
         )
 
         logger.warning(
-            "BSR-MoE IterationInvalidator: step %d INVALIDATED "
+            "MOEGAMBIT-MoE IterationInvalidator: step %d INVALIDATED "
             "(failed_rank=%d, reason=%r)",
             effective_step, failed_rank, reason,
         )

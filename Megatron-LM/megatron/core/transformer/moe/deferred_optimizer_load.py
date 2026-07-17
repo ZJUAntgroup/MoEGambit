@@ -286,7 +286,7 @@ class DeferredOptimizerLoader:
                 existing.submit_step = step
                 existing.error_message = ""
                 logger.info(
-                    "BSR-MoE deferred loader: resubmitted load for "
+                    "MOEGAMBIT-MoE deferred loader: resubmitted load for "
                     "expert (layer=%d, id=%d) at step %d",
                     layer_id, expert_id, step,
                 )
@@ -297,7 +297,7 @@ class DeferredOptimizerLoader:
             ):
                 # Already pending — no-op
                 logger.debug(
-                    "BSR-MoE deferred loader: load already pending for "
+                    "MOEGAMBIT-MoE deferred loader: load already pending for "
                     "expert (layer=%d, id=%d), state=%s",
                     layer_id, expert_id, existing.state.name,
                 )
@@ -322,7 +322,7 @@ class DeferredOptimizerLoader:
         self._requests[key] = req
 
         logger.info(
-            "BSR-MoE deferred loader: submitted load for expert "
+            "MOEGAMBIT-MoE deferred loader: submitted load for expert "
             "(layer=%d, id=%d) at step %d (location=%s)",
             layer_id, expert_id, step, optimizer_location,
         )
@@ -423,7 +423,7 @@ class DeferredOptimizerLoader:
                 req.error_message = f"async:{req_id}"  # reuse field for tracking
                 executed += 1
                 logger.info(
-                    "BSR-MoE deferred loader: submitted async optimizer load "
+                    "MOEGAMBIT-MoE deferred loader: submitted async optimizer load "
                     "for expert (layer=%d, id=%d) at step %d (req_id=%s)",
                     req.layer_id, req.expert_id, step, req_id,
                 )
@@ -444,7 +444,7 @@ class DeferredOptimizerLoader:
                     req.elapsed_seconds = time.monotonic() - start_time
                     executed += 1
                     logger.info(
-                        "BSR-MoE deferred loader: loaded optimizer state for "
+                        "MOEGAMBIT-MoE deferred loader: loaded optimizer state for "
                         "expert (layer=%d, id=%d) at step %d (%.2fs)",
                         req.layer_id, req.expert_id, step, req.elapsed_seconds,
                     )
@@ -453,7 +453,7 @@ class DeferredOptimizerLoader:
                     req.error_message = "load_fn returned False"
                     req.elapsed_seconds = time.monotonic() - start_time
                     logger.warning(
-                        "BSR-MoE deferred loader: load failed for expert "
+                        "MOEGAMBIT-MoE deferred loader: load failed for expert "
                         "(layer=%d, id=%d): load_fn returned False",
                         req.layer_id, req.expert_id,
                     )
@@ -462,7 +462,7 @@ class DeferredOptimizerLoader:
                 req.error_message = str(e)
                 req.elapsed_seconds = time.monotonic() - start_time
                 logger.warning(
-                    "BSR-MoE deferred loader: load exception for expert "
+                    "MOEGAMBIT-MoE deferred loader: load exception for expert "
                     "(layer=%d, id=%d): %s",
                     req.layer_id, req.expert_id, e,
                 )
@@ -524,7 +524,7 @@ class DeferredOptimizerLoader:
                 req.error_message = ""
                 loaded_count += 1
                 logger.info(
-                    "BSR-MoE deferred loader: async optimizer load completed "
+                    "MOEGAMBIT-MoE deferred loader: async optimizer load completed "
                     "for expert (layer=%d, id=%d) at step %d (%.3fs)",
                     req.layer_id, req.expert_id, step, result.elapsed_seconds,
                 )
@@ -532,7 +532,7 @@ class DeferredOptimizerLoader:
                 req.transition_to(OptimizerLoadState.FAILED)
                 req.error_message = result.error or "async load failed"
                 logger.warning(
-                    "BSR-MoE deferred loader: async optimizer load failed "
+                    "MOEGAMBIT-MoE deferred loader: async optimizer load failed "
                     "for expert (layer=%d, id=%d): %s",
                     req.layer_id, req.expert_id, result.error,
                 )
@@ -582,7 +582,7 @@ class DeferredOptimizerLoader:
         if barrier is not None and all_expert_ids:
             barrier.unblock_expert_params(all_expert_ids)
             logger.info(
-                "BSR-MoE deferred loader: unblocked optimizer barrier for "
+                "MOEGAMBIT-MoE deferred loader: unblocked optimizer barrier for "
                 "expert_ids=%s at step %d",
                 sorted(set(all_expert_ids)), step,
             )
@@ -598,7 +598,7 @@ class DeferredOptimizerLoader:
                     mgr.mark_fully_recovered(expert_ids, step=step)
                 except Exception as e:
                     logger.warning(
-                        "BSR-MoE deferred loader: health transition failed "
+                        "MOEGAMBIT-MoE deferred loader: health transition failed "
                         "for layer %d, experts %s: %s",
                         layer_id, expert_ids, e,
                     )
@@ -612,7 +612,7 @@ class DeferredOptimizerLoader:
                 self._finalized_history.append(req)
 
         logger.warning(
-            "BSR-MoE deferred loader: finalized %d expert optimizer loads "
+            "MOEGAMBIT-MoE deferred loader: finalized %d expert optimizer loads "
             "at step %d",
             finalized, step,
         )
@@ -662,7 +662,7 @@ class DeferredOptimizerLoader:
             )
             if num_async_loaded > 0:
                 logger.info(
-                    "BSR-MoE deferred loader: %d async loads completed at step %d",
+                    "MOEGAMBIT-MoE deferred loader: %d async loads completed at step %d",
                     num_async_loaded, step,
                 )
 
@@ -711,7 +711,7 @@ class DeferredOptimizerLoader:
                     mgr.mark_fully_recovered([expert_id], step=step)
                 except Exception as e:
                     logger.warning(
-                        "BSR-MoE deferred loader: health transition failed "
+                        "MOEGAMBIT-MoE deferred loader: health transition failed "
                         "for expert (layer=%d, id=%d): %s",
                         layer_id, expert_id, e,
                     )

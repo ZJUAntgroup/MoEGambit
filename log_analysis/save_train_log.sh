@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# save_train_log.sh — Megatron + BSR-MoE 训练日志保存与增量分析
+# save_train_log.sh — Megatron + MOEGAMBIT-MoE 训练日志保存与增量分析
 #
 # 功能:
 #   1. 只保留最后一次运行的日志 (固定文件名 train_latest.log)
@@ -353,23 +353,23 @@ run_final_analysis() {
 
     local final_report="${ANALYSIS_DIR}/analysis_final.txt"
     local final_csv="${ANALYSIS_DIR}/analysis_final.csv"
-    local bsr_report="${ANALYSIS_DIR}/analysis_bsr_only.txt"
+    local moegambit_report="${ANALYSIS_DIR}/analysis_moegambit_only.txt"
 
     run_atomic_analysis "final" "${LOG_FILE_LATEST}" "${final_report}" "${final_csv}"
-    run_atomic_analysis "bsr-only" "${LOG_FILE_LATEST}" "${bsr_report}" "" --bsr-only
+    run_atomic_analysis "moegambit-only" "${LOG_FILE_LATEST}" "${moegambit_report}" "" --moegambit-only
 
     emit_control "[save_train_log] 分析报告:"
     emit_control "  完整报告: ${final_report}"
-    emit_control "  BSR 报告: ${bsr_report}"
+    emit_control "  MOEGAMBIT 报告: ${moegambit_report}"
     emit_control "  CSV 数据: ${final_csv}"
     emit_control ""
 
-    # 打印 BSR 摘要到终端。正式报告只在 analyzer 完成后才会被 atomic mv 出来。
-    if [ -s "${bsr_report}" ]; then
+    # 打印 MOEGAMBIT 摘要到终端。正式报告只在 analyzer 完成后才会被 atomic mv 出来。
+    if [ -s "${moegambit_report}" ]; then
         echo "============================================================"
-        echo " BSR-MoE 故障恢复分析摘要"
+        echo " MOEGAMBIT-MoE 故障恢复分析摘要"
         echo "============================================================"
-        cat "${bsr_report}"
+        cat "${moegambit_report}"
     fi
 }
 

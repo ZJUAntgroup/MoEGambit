@@ -1,5 +1,5 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-# BSR-MoE: Tests for Preferential Routing (Step 7)
+# MOEGAMBIT-MoE: Tests for Preferential Routing (Step 7)
 
 import math
 import sys
@@ -403,38 +403,38 @@ class TestFeatureToggle(unittest.TestCase):
     """Verify that the feature is opt-in and doesn't affect defaults."""
 
     def test_config_default_is_false(self):
-        """moe_bsr_preferential_routing defaults to False."""
+        """moe_moegambit_preferential_routing defaults to False."""
         from megatron.core.transformer.transformer_config import TransformerConfig
         cfg = TransformerConfig(
             num_layers=2, hidden_size=64, num_attention_heads=4,
         )
-        self.assertFalse(cfg.moe_bsr_preferential_routing)
+        self.assertFalse(cfg.moe_moegambit_preferential_routing)
 
     def test_config_window_default(self):
         from megatron.core.transformer.transformer_config import TransformerConfig
         cfg = TransformerConfig(
             num_layers=2, hidden_size=64, num_attention_heads=4,
         )
-        self.assertEqual(cfg.moe_bsr_preferential_routing_window, 100)
+        self.assertEqual(cfg.moe_moegambit_preferential_routing_window, 100)
 
     def test_config_bias_default(self):
         from megatron.core.transformer.transformer_config import TransformerConfig
         cfg = TransformerConfig(
             num_layers=2, hidden_size=64, num_attention_heads=4,
         )
-        self.assertAlmostEqual(cfg.moe_bsr_preferential_routing_bias, 0.1)
+        self.assertAlmostEqual(cfg.moe_moegambit_preferential_routing_bias, 0.1)
 
     def test_config_can_enable(self):
         from megatron.core.transformer.transformer_config import TransformerConfig
         cfg = TransformerConfig(
             num_layers=2, hidden_size=64, num_attention_heads=4,
-            moe_bsr_preferential_routing=True,
-            moe_bsr_preferential_routing_window=200,
-            moe_bsr_preferential_routing_bias=0.05,
+            moe_moegambit_preferential_routing=True,
+            moe_moegambit_preferential_routing_window=200,
+            moe_moegambit_preferential_routing_bias=0.05,
         )
-        self.assertTrue(cfg.moe_bsr_preferential_routing)
-        self.assertEqual(cfg.moe_bsr_preferential_routing_window, 200)
-        self.assertAlmostEqual(cfg.moe_bsr_preferential_routing_bias, 0.05)
+        self.assertTrue(cfg.moe_moegambit_preferential_routing)
+        self.assertEqual(cfg.moe_moegambit_preferential_routing_window, 200)
+        self.assertAlmostEqual(cfg.moe_moegambit_preferential_routing_bias, 0.05)
 
 
 # ===================================================================

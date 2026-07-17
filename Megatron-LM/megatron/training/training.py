@@ -56,35 +56,35 @@ from megatron.core.utils import (
     StragglerDetector,
 )
 from megatron.core.fp8_utils import correct_amax_history_if_needed
-from megatron.core.transformer.moe.bsr_integration import (
-    maybe_initialize_bsr_moe,
-    bsr_before_iteration,
-    bsr_after_iteration,
-    bsr_is_current_iteration_invalid,
-    bsr_report_hard_failure,
-    bsr_snapshot_iteration,
-    bsr_rollback_iteration,
-    bsr_is_replay_pending,
-    bsr_complete_replay,
-    bsr_advance_iteration,
-    bsr_exceeded_max_replays,
-    bsr_should_commit_optimizer,
-    bsr_mark_optimizer_committed,
-    bsr_mark_optimizer_skipped,
-    bsr_announce_replacement_ready,
-    bsr_is_waiting_for_replacement,
-    bsr_has_pending_replacements,
-    bsr_query_replacement_status,
-    bsr_is_reintegration_pending,
-    bsr_get_reintegration_summary,
-    bsr_pipeline_begin_iteration,
-    bsr_pipeline_on_failure,
-    bsr_pipeline_initiate_rollback,
-    bsr_pipeline_is_in_rollback,
-    bsr_pipeline_complete_replay,
-    bsr_is_checkpoint_restart_requested,
-    bsr_clear_checkpoint_restart,
-    bsr_get_checkpoint_restart_decision,
+from megatron.core.transformer.moe.moegambit_integration import (
+    maybe_initialize_moegambit_moe,
+    moegambit_before_iteration,
+    moegambit_after_iteration,
+    moegambit_is_current_iteration_invalid,
+    moegambit_report_hard_failure,
+    moegambit_snapshot_iteration,
+    moegambit_rollback_iteration,
+    moegambit_is_replay_pending,
+    moegambit_complete_replay,
+    moegambit_advance_iteration,
+    moegambit_exceeded_max_replays,
+    moegambit_should_commit_optimizer,
+    moegambit_mark_optimizer_committed,
+    moegambit_mark_optimizer_skipped,
+    moegambit_announce_replacement_ready,
+    moegambit_is_waiting_for_replacement,
+    moegambit_has_pending_replacements,
+    moegambit_query_replacement_status,
+    moegambit_is_reintegration_pending,
+    moegambit_get_reintegration_summary,
+    moegambit_pipeline_begin_iteration,
+    moegambit_pipeline_on_failure,
+    moegambit_pipeline_initiate_rollback,
+    moegambit_pipeline_is_in_rollback,
+    moegambit_pipeline_complete_replay,
+    moegambit_is_checkpoint_restart_requested,
+    moegambit_clear_checkpoint_restart,
+    moegambit_get_checkpoint_restart_decision,
 )
 from megatron.training.checkpointing import load_checkpoint
 from megatron.training.checkpointing import save_checkpoint
@@ -161,13 +161,13 @@ _CRASH_RNG = _crash_random.Random(_CRASH_INJECT_SEED)
 def _maybe_crash_inject(step: int) -> None:
     """Crash the process at the configured step for checkpoint-restart baseline.
 
-    This provides a simple, BSR-independent fault injection mechanism.
+    This provides a simple, MOEGAMBIT-independent fault injection mechanism.
     When triggered, the process exits with code 1, causing the outer
     retry loop to restart training from the latest checkpoint.
 
     When CRASH_RANK=-1, a random rank is selected for each crash using
     a seeded RNG (CRASH_SEED), so the fault sequence is reproducible
-    across runs and matches the BSR script's fault pattern.
+    across runs and matches the MOEGAMBIT script's fault pattern.
     """
     global _CRASH_INJECT_NEXT_STEP, _CRASH_INJECT_COUNT
 
@@ -183,7 +183,7 @@ def _maybe_crash_inject(step: int) -> None:
     # Determine which rank should crash this time
     if _CRASH_INJECT_RANK < 0:
         # Random rank mode: pick from [0, world_size) using seeded RNG.
-        # Uses choice() (not randint) to match BSR's fault_rng.choice(ep_group_ranks)
+        # Uses choice() (not randint) to match MOEGAMBIT's fault_rng.choice(ep_group_ranks)
         # — both produce identical sequences when the candidate list is [0..N-1].
         target_rank = _CRASH_RNG.choice(range(world_size))
     else:
@@ -778,12 +778,14 @@ def pretrain(
         args.no_load_optim = True
         args.no_load_rng = True
         args.enable_gloo_process_groups = False
-        args.moe_bsr_weights_first_recovery = False
-        args.moe_bsr_async_recovery = False
-        logger.warning("[elastic] REBUILD MODE: loading checkpoint model "
-                       "weights and optimizer metadata only; expert optimizer "
-                       "tensors will be restored locally and dense/non-expert "
-                       "state will be refreshed from DP peer")
+        args.moe_moegambit_weights_first_recovery = False
+        args.moe_moegambit_async_recovery = False
+        logger.warning(
+            "[elastic] REBUILD MODE: loading checkpoint model weights; the "
+            "ordinary optimizer loads its complete local checkpoint shard, "
+            "while distributed optimizer expert tensors use the local-only "
+            "loader; dense/non-expert state is then overwritten from a DP peer"
+        )
 
     app_metrics = {}
     app_metrics['app_start_time'] = round(_TRAIN_START_TIME * 1000.0)
@@ -849,9 +851,7 @@ def pretrain(
         args.load = _elastic_saved_load  # Restore for future checkpoint saves
         args.no_load_optim = _elastic_saved_no_load_optim
         args.no_load_rng = _elastic_saved_no_load_rng
-        elastic_replacement_sync_params(model, optimizer)
-        _elastic_apply_resume_state(args, opt_param_scheduler)
-        elastic_report_recovery_phase("resume_state_applied")
+        elastic_replacement_sync_params(model, optimizer, opt_param_scheduler)
         logger.warning("[elastic] REBUILD MODE: param sync complete, joining training loop")
 
     # Data stuff.
@@ -1500,12 +1500,12 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
         unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
 
     # Update parameters.
-    # BSR-MoE: check commit guard before optimizer.step().
+    # MOEGAMBIT-MoE: check commit guard before optimizer.step().
     # If the iteration was invalidated (e.g. by a hard failure detected
     # during forward/backward), skip the optimizer step entirely to
     # prevent partial parameter updates.
-    if not bsr_should_commit_optimizer():
-        bsr_mark_optimizer_skipped(reason="iteration_invalidated")
+    if not moegambit_should_commit_optimizer():
+        moegambit_mark_optimizer_skipped(reason="iteration_invalidated")
         elastic_trace_post_rebuild_phase("optimizer_skipped", args.curr_iteration)
         elastic_clear_post_rebuild_trace()
         return {}, 1, should_checkpoint, should_exit, exit_code, None, None
@@ -1529,8 +1529,8 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             step_tag=args.curr_iteration,
         )
 
-    # BSR-MoE: mark optimizer as committed after successful step.
-    bsr_mark_optimizer_committed()
+    # MOEGAMBIT-MoE: mark optimizer as committed after successful step.
+    moegambit_mark_optimizer_committed()
 
     # when freezing sub-models we may have a mixture of successful and unsucessful ranks,
     # so we must gather across mp ranks
@@ -2453,8 +2453,8 @@ def train(
         )
 
     # Run training iterations till done.
-    # BSR-MoE: initialize fault-tolerant MoE system if enabled.
-    maybe_initialize_bsr_moe(model, args, optimizer=optimizer, opt_param_scheduler=opt_param_scheduler)
+    # MOEGAMBIT-MoE: initialize fault-tolerant MoE system if enabled.
+    maybe_initialize_moegambit_moe(model, args, optimizer=optimizer, opt_param_scheduler=opt_param_scheduler)
 
     buffered_rollouts = None
     while iteration < args.train_iters:
@@ -2559,7 +2559,7 @@ def train(
                 )
                 buffered_rollouts = train_data_iterator
 
-        # Crash injection for checkpoint-restart baseline (BSR-independent).
+        # Crash injection for checkpoint-restart baseline (MOEGAMBIT-independent).
         _maybe_crash_inject(iteration)
 
         # Elastic hot-spare: check if watcher requested a pause for group rebuild.
@@ -2580,12 +2580,12 @@ def train(
                 args.curr_iteration = iteration
             logger.warning("[elastic] Rebuild complete, resuming at iteration %d", iteration)
 
-        # BSR-MoE: safe-point hook (before forward pass).
-        bsr_before_iteration(iteration)
+        # MOEGAMBIT-MoE: safe-point hook (before forward pass).
+        moegambit_before_iteration(iteration)
         elastic_post_rebuild_iteration_barrier(iteration)
         elastic_warmup_post_rebuild_communicators(iteration)
 
-        # BSR-MoE: if a checkpoint restart was executed during safe-point
+        # MOEGAMBIT-MoE: if a checkpoint restart was executed during safe-point
         # repair, the failed rank's weights have been restored from the
         # latest checkpoint.  The iteration counter is NOT rolled back —
         # only the failed rank (minority) lost progress; the majority of
@@ -2596,46 +2596,46 @@ def train(
         # consumed_train_samples and lr scheduler state with checkpoint
         # values.  The checkpoint_restart_fn saves and restores these
         # around the load_checkpoint() call so they are preserved.
-        if bsr_is_checkpoint_restart_requested():
-            _bsr_decision = bsr_get_checkpoint_restart_decision()
-            _bsr_ckpt_iter = (
-                _bsr_decision.latest_checkpoint_step
-                if _bsr_decision is not None and _bsr_decision.latest_checkpoint_step >= 0
+        if moegambit_is_checkpoint_restart_requested():
+            _moegambit_decision = moegambit_get_checkpoint_restart_decision()
+            _moegambit_ckpt_iter = (
+                _moegambit_decision.latest_checkpoint_step
+                if _moegambit_decision is not None and _moegambit_decision.latest_checkpoint_step >= 0
                 else -1
             )
             logger.warning(
-                "BSR-MoE: checkpoint restart completed at iteration %d "
+                "MOEGAMBIT-MoE: checkpoint restart completed at iteration %d "
                 "(ckpt_iter=%d, gap=%d). Experts restored with stale "
                 "weights — training continues from current iteration.",
-                iteration, _bsr_ckpt_iter,
-                iteration - _bsr_ckpt_iter if _bsr_ckpt_iter >= 0 else -1,
+                iteration, _moegambit_ckpt_iter,
+                iteration - _moegambit_ckpt_iter if _moegambit_ckpt_iter >= 0 else -1,
             )
-            bsr_clear_checkpoint_restart()
+            moegambit_clear_checkpoint_restart()
 
-        # BSR-MoE: snapshot iteration boundary state for rollback/replay.
+        # MOEGAMBIT-MoE: snapshot iteration boundary state for rollback/replay.
         # This captures consumed_train_samples, iteration, and FP ops
         # BEFORE train_step, so we can restore them if the iteration fails.
-        bsr_snapshot_iteration(
+        moegambit_snapshot_iteration(
             iteration=iteration,
             consumed_train_samples=args.consumed_train_samples,
             consumed_valid_samples=getattr(args, 'consumed_valid_samples', 0),
             num_floating_point_operations_so_far=num_floating_point_operations_so_far,
         )
 
-        # BSR-MoE: begin pipeline iteration tracking for PP>1.
-        _bsr_pp_size = mpu.get_pipeline_model_parallel_world_size()
-        if _bsr_pp_size > 1:
-            bsr_pipeline_begin_iteration(
+        # MOEGAMBIT-MoE: begin pipeline iteration tracking for PP>1.
+        _moegambit_pp_size = mpu.get_pipeline_model_parallel_world_size()
+        if _moegambit_pp_size > 1:
+            moegambit_pipeline_begin_iteration(
                 step=iteration,
                 pp_rank=mpu.get_pipeline_model_parallel_rank(),
-                pp_size=_bsr_pp_size,
+                pp_size=_moegambit_pp_size,
                 num_microbatches=get_num_microbatches(),
             )
 
         ft_integration.on_training_step_start()
 
-        # BSR-MoE: wrap train_step to catch hard failures (NCCL errors, etc.)
-        _bsr_hard_failure_caught = False
+        # MOEGAMBIT-MoE: wrap train_step to catch hard failures (NCCL errors, etc.)
+        _moegambit_hard_failure_caught = False
         try:
             (
                 loss_dict,
@@ -2648,35 +2648,35 @@ def train(
             ) = train_step(
                 forward_step_func, train_data_iterator, model, optimizer, opt_param_scheduler, config, forward_backward_func
             )
-        except RuntimeError as _bsr_exc:
-            # Check if this is a communication failure that BSR can handle.
+        except RuntimeError as _moegambit_exc:
+            # Check if this is a communication failure that MOEGAMBIT can handle.
             # NCCL errors typically manifest as RuntimeError with specific messages.
-            _bsr_exc_msg = str(_bsr_exc).lower()
-            _bsr_is_comm_error = any(kw in _bsr_exc_msg for kw in (
+            _moegambit_exc_msg = str(_moegambit_exc).lower()
+            _moegambit_is_comm_error = any(kw in _moegambit_exc_msg for kw in (
                 'nccl', 'ncclsystemerror', 'ncclremoteerror',
                 'ncclinternalerror', 'unhandled system error',
                 'connection reset', 'broken pipe', 'timed out',
                 'peer failure', 'remote process exited',
             ))
-            if _bsr_is_comm_error and getattr(args, 'moe_bsr_enable', False):
+            if _moegambit_is_comm_error and getattr(args, 'moe_moegambit_enable', False):
                 import traceback
                 logger.error(
-                    "BSR-MoE: caught communication error in train_step at "
+                    "MOEGAMBIT-MoE: caught communication error in train_step at "
                     "iteration %d: %s\n%s",
-                    iteration, _bsr_exc, traceback.format_exc(),
+                    iteration, _moegambit_exc, traceback.format_exc(),
                 )
 
                 # Notify elastic watcher about the NCCL error (non-blocking,
                 # best-effort).  This triggers the pause/rebuild flow.
-                elastic_on_nccl_error(_bsr_exc)
+                elastic_on_nccl_error(_moegambit_exc)
 
                 # If elastic recovery is active (pause signal already received),
-                # skip BSR logic and go directly to rebuild.  The process group
-                # is corrupted — any further NCCL calls (even in BSR) would hang.
+                # skip MOEGAMBIT logic and go directly to rebuild.  The process group
+                # is corrupted — any further NCCL calls (even in MOEGAMBIT) would hang.
                 if elastic_check_pause():
                     logger.warning(
                         "[elastic] NCCL error caught + pause signal present. "
-                        "Skipping BSR logic, entering rebuild immediately."
+                        "Skipping MOEGAMBIT logic, entering rebuild immediately."
                     )
                     elastic_resume_iteration = elastic_do_rebuild(
                         model, optimizer, opt_param_scheduler
@@ -2686,7 +2686,7 @@ def train(
                         args.curr_iteration = iteration
                     logger.warning("[elastic] Rebuild complete after NCCL error recovery.")
                     # Reset iteration state and continue training
-                    _bsr_hard_failure_caught = False
+                    _moegambit_hard_failure_caught = False
                     loss_dict = {}
                     skipped_iter = 1
                     should_checkpoint = False
@@ -2700,23 +2700,23 @@ def train(
                 # We use rank -1 as a placeholder; in a real deployment the
                 # failed rank would be identified from the exception or via
                 # a Gloo probe.  The detector is idempotent.
-                bsr_report_hard_failure(
+                moegambit_report_hard_failure(
                     failed_rank=-1,
-                    reason=str(_bsr_exc),
+                    reason=str(_moegambit_exc),
                     step=iteration,
                     mid_iteration=True,
-                    exception=_bsr_exc,
+                    exception=_moegambit_exc,
                 )
                 # PP>1: report pipeline-specific failure for coordinated rollback
-                if _bsr_pp_size > 1:
-                    bsr_pipeline_on_failure(
+                if _moegambit_pp_size > 1:
+                    moegambit_pipeline_on_failure(
                         failed_stage=mpu.get_pipeline_model_parallel_rank(),
                         failed_rank=torch.distributed.get_rank(),
                         step=iteration,
-                        reason=str(_bsr_exc),
+                        reason=str(_moegambit_exc),
                         nccl_healthy=False,
                     )
-                _bsr_hard_failure_caught = True
+                _moegambit_hard_failure_caught = True
                 # Set default values so the loop can continue to the
                 # invalidation check below.
                 loss_dict = {}
@@ -2731,37 +2731,37 @@ def train(
 
         ft_integration.on_training_step_end()
 
-        # BSR-MoE: check if the current iteration was invalidated by a
+        # MOEGAMBIT-MoE: check if the current iteration was invalidated by a
         # hard failure (either caught above or reported by another path).
-        if bsr_is_current_iteration_invalid():
+        if moegambit_is_current_iteration_invalid():
             logger.warning(
-                "BSR-MoE: iteration %d INVALIDATED — rolling back and "
+                "MOEGAMBIT-MoE: iteration %d INVALIDATED — rolling back and "
                 "preparing for replay.",
                 iteration,
             )
             # Rollback: restore consumed_train_samples, rewind data iterator
-            _bsr_fp_ops_ref = [num_floating_point_operations_so_far]
-            bsr_rollback_iteration(
+            _moegambit_fp_ops_ref = [num_floating_point_operations_so_far]
+            moegambit_rollback_iteration(
                 args=args,
                 data_iterators=train_data_iterator,
-                num_fp_ops_ref=_bsr_fp_ops_ref,
+                num_fp_ops_ref=_moegambit_fp_ops_ref,
             )
-            num_floating_point_operations_so_far = _bsr_fp_ops_ref[0]
+            num_floating_point_operations_so_far = _moegambit_fp_ops_ref[0]
 
             # PP>1: initiate pipeline-safe rollback (sync all stages,
             # clear grad buffers, drain any in-flight P2P ops)
-            if _bsr_pp_size > 1:
+            if _moegambit_pp_size > 1:
                 def _pp_clear_grad():
                     for model_chunk in model:
                         model_chunk.zero_grad_buffer()
                     optimizer.zero_grad()
 
-                _pp_rollback_result = bsr_pipeline_initiate_rollback(
+                _pp_rollback_result = moegambit_pipeline_initiate_rollback(
                     clear_grad_fn=_pp_clear_grad,
                 )
                 if _pp_rollback_result is not None:
                     logger.warning(
-                        "BSR-MoE: PP>1 pipeline rollback at iteration %d — "
+                        "MOEGAMBIT-MoE: PP>1 pipeline rollback at iteration %d — "
                         "sync=%s, grad_cleared=%s, nccl_reset=%s",
                         iteration,
                         _pp_rollback_result.all_stages_synced,
@@ -2770,61 +2770,61 @@ def train(
                     )
 
             # Check if we've exceeded max replay attempts
-            if bsr_exceeded_max_replays():
+            if moegambit_exceeded_max_replays():
                 logger.error(
-                    "BSR-MoE: iteration %d exceeded max replay attempts. "
+                    "MOEGAMBIT-MoE: iteration %d exceeded max replay attempts. "
                     "Falling back to waiting for replacement at next safe point.",
                     iteration,
                 )
 
             # Log replacement status for observability.
             # The actual safe-point repair (group rebuild, param sync, etc.)
-            # is triggered by bsr_before_iteration() at the top of the next
+            # is triggered by moegambit_before_iteration() at the top of the next
             # loop iteration — replacement ranks must NOT participate in
             # normal training collectives until then.
-            if bsr_is_waiting_for_replacement():
+            if moegambit_is_waiting_for_replacement():
                 logger.warning(
-                    "BSR-MoE: iteration %d — system is waiting for "
+                    "MOEGAMBIT-MoE: iteration %d — system is waiting for "
                     "replacement rank integration at next safe point.",
                     iteration,
                 )
-            elif bsr_has_pending_replacements():
+            elif moegambit_has_pending_replacements():
                 logger.warning(
-                    "BSR-MoE: iteration %d — pending replacement(s) exist "
+                    "MOEGAMBIT-MoE: iteration %d — pending replacement(s) exist "
                     "but recovery controller has not yet reached "
                     "SAFE_POINT_REPAIR phase.",
                     iteration,
                 )
 
             # Log reintegration barrier status
-            if bsr_is_reintegration_pending():
-                _reint_summary = bsr_get_reintegration_summary()
+            if moegambit_is_reintegration_pending():
+                _reint_summary = moegambit_get_reintegration_summary()
                 logger.warning(
-                    "BSR-MoE: iteration %d — reintegration pending: %s",
+                    "MOEGAMBIT-MoE: iteration %d — reintegration pending: %s",
                     iteration,
                     _reint_summary,
                 )
 
             # Post-step hook still runs (to archive the invalidation record)
-            bsr_after_iteration(iteration)
+            moegambit_after_iteration(iteration)
             # Do NOT increment iteration or consumed_train_samples.
-            # The next loop iteration will call bsr_before_iteration which
+            # The next loop iteration will call moegambit_before_iteration which
             # clears the invalidation flag and may execute safe-point repair.
             continue
 
-        # BSR-MoE: if this was a successful replay, complete it.
-        if bsr_is_replay_pending():
+        # MOEGAMBIT-MoE: if this was a successful replay, complete it.
+        if moegambit_is_replay_pending():
             logger.warning(
-                "BSR-MoE: iteration %d replay SUCCEEDED.",
+                "MOEGAMBIT-MoE: iteration %d replay SUCCEEDED.",
                 iteration,
             )
-            bsr_complete_replay(train_data_iterator)
+            moegambit_complete_replay(train_data_iterator)
             # PP>1: complete pipeline replay tracking
-            if _bsr_pp_size > 1:
-                bsr_pipeline_complete_replay(success=True)
+            if _moegambit_pp_size > 1:
+                moegambit_pipeline_complete_replay(success=True)
 
-        # BSR-MoE: post-step hook (after optimizer.step()).
-        bsr_after_iteration(iteration)
+        # MOEGAMBIT-MoE: post-step hook (after optimizer.step()).
+        moegambit_after_iteration(iteration)
         if should_checkpoint:
             save_checkpoint_and_time(
                 iteration,

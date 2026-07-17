@@ -3,8 +3,8 @@
 #
 # This file is sourced by:
 #   run_main_exp_moeguard.sh   (MoEGuard — full hybrid + two-phase)
-#   run_main_exp_mocsystem.sh  (MoC-System emulated via BSR_MOC_PEC_EMULATE=1)
-#   run_main_exp_baseline.sh   (Megatron full-ckpt restart, BSR fully disabled)
+#   run_main_exp_mocsystem.sh  (MoC-System emulated via MOEGAMBIT_MOC_PEC_EMULATE=1)
+#   run_main_exp_baseline.sh   (Megatron full-ckpt restart, MOEGAMBIT fully disabled)
 #
 # Defines:
 #   build_main_plan          -- emits the canonical 10-fault plan string on stdout
@@ -160,7 +160,7 @@ PY
 # CHECKPOINT_RESTART regardless of which / how many ranks fail: every
 # fault simply reloads the latest ckpt. Stage-width / DP-safety
 # constraints therefore have no semantic effect on this system and are
-# omitted; the PEC accuracy overlay (BSR_MOC_PEC_EMULATE=1) still
+# omitted; the PEC accuracy overlay (MOEGAMBIT_MOC_PEC_EMULATE=1) still
 # rewrites the per-expert load paths to match MoC-System's byte-level
 # checkpoint state.
 build_mocsystem_plan() {

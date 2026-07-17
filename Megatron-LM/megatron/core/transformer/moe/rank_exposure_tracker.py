@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""BSR-MoE Rank Exposure Tracker.
+"""MOEGAMBIT-MoE expert staleness exposure tracker.
 
 Tracks hybrid-recovery-induced stale iterations per logical rank within a
 sliding window.  This module is used by the ``RankExposureGuardedHybridPolicy``
@@ -64,6 +64,12 @@ class HybridRecoveryEvent:
     rank: int
     gap: int
     recovery_path: str = "hybrid_recovery"
+    num_affected_experts: int = 1
+
+    @property
+    def expert_iteration_debt(self) -> int:
+        """Return this event's contribution to the paper's S(t)."""
+        return self.gap * self.num_affected_experts
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to a JSON-friendly dict."""
@@ -72,6 +78,8 @@ class HybridRecoveryEvent:
             "rank": self.rank,
             "gap": self.gap,
             "recovery_path": self.recovery_path,
+            "num_affected_experts": self.num_affected_experts,
+            "expert_iteration_debt": self.expert_iteration_debt,
         }
 
     @classmethod
@@ -82,6 +90,10 @@ class HybridRecoveryEvent:
             rank=d["rank"],
             gap=d["gap"],
             recovery_path=d.get("recovery_path", "hybrid_recovery"),
+            # Version-1 tracker checkpoints did not persist the number of
+            # affected experts.  Treat each old event as one expert so that
+            # restoring the tracker is conservative and backward compatible.
+            num_affected_experts=max(1, int(d.get("num_affected_experts", 1))),
         )
 
 
@@ -133,6 +145,7 @@ class RankExposureTracker:
         step: int,
         rank: int,
         gap: int,
+        num_affected_experts: int = 1,
     ) -> None:
         """Record a hybrid recovery event.
 
@@ -150,7 +163,18 @@ class RankExposureTracker:
             )
             return
 
-        event = HybridRecoveryEvent(step=step, rank=rank, gap=gap)
+        if num_affected_experts <= 0:
+            raise ValueError(
+                "num_affected_experts must be positive, "
+                f"got {num_affected_experts}"
+            )
+
+        event = HybridRecoveryEvent(
+            step=step,
+            rank=rank,
+            gap=gap,
+            num_affected_experts=num_affected_experts,
+        )
         with self._lock:
             self._events.append(event)
             # Enforce max_events limit
@@ -159,8 +183,10 @@ class RankExposureTracker:
 
         logger.info(
             "RankExposureTracker: recorded hybrid recovery "
-            "(step=%d, rank=%d, gap=%d, total_events=%d)",
-            step, rank, gap, len(self._events),
+            "(step=%d, rank=%d, gap=%d, affected_experts=%d, "
+            "expert_iteration_debt=%d, total_events=%d)",
+            step, rank, gap, num_affected_experts,
+            event.expert_iteration_debt, len(self._events),
         )
 
     # ------------------------------------------------------------------
@@ -247,6 +273,35 @@ class RankExposureTracker:
                 for rank, stale in stale_by_rank.items()
             }
 
+    def get_window_expert_iteration_debt(
+        self,
+        current_step: int,
+        window_steps: int,
+    ) -> int:
+        """Return S(t), summed across all hybrid recoveries in the window."""
+        if window_steps <= 0:
+            return 0
+        with self._lock:
+            self._prune_unlocked(current_step, window_steps)
+            window_start = max(0, current_step - window_steps)
+            return sum(
+                ev.expert_iteration_debt
+                for ev in self._events
+                if ev.step >= window_start
+            )
+
+    def get_expert_staleness_density(
+        self,
+        current_step: int,
+        window_steps: int,
+        num_experts: int,
+    ) -> float:
+        """Return Phi(t) = S(t) / (N_expert * W_exp)."""
+        if window_steps <= 0 or num_experts <= 0:
+            return 0.0
+        debt = self.get_window_expert_iteration_debt(current_step, window_steps)
+        return debt / (num_experts * window_steps)
+
     def get_event_count(self) -> int:
         """Return the total number of recorded events."""
         with self._lock:
@@ -309,7 +364,7 @@ class RankExposureTracker:
         """
         with self._lock:
             return {
-                "version": 1,
+                "version": 2,
                 "max_events": self._max_events,
                 "events": [ev.to_dict() for ev in self._events],
             }

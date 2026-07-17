@@ -1,8 +1,8 @@
-# BSR-MoE Restart-in-Place Recovery
+# MOEGAMBIT-MoE Restart-in-Place Recovery
 
 ## 概述
 
-Restart-in-Place（原地重启）是 BSR-MoE 容错恢复栈的扩展模块，用于模拟 GPU 进程原地重启后的状态恢复。核心思路：**不替换物理节点，而是在同一 rank 上用 NaN 哨兵值填充所有张量来模拟内存丢失，然后走完整的恢复流程验证系统能否正确恢复**。
+Restart-in-Place（原地重启）是 MOEGAMBIT-MoE 容错恢复栈的扩展模块，用于模拟 GPU 进程原地重启后的状态恢复。核心思路：**不替换物理节点，而是在同一 rank 上用 NaN 哨兵值填充所有张量来模拟内存丢失，然后走完整的恢复流程验证系统能否正确恢复**。
 
 ### 与传统 hard_failure 模式的区别
 
@@ -78,9 +78,9 @@ HEALTHY → INVALIDATED → WEIGHTS_RESTORING → WEIGHTS_READY
 | `dense_param_sync.py` | 3 处 | fail-closed 语义 + `verify_synced_params()` |
 | `recovery_controller.py` | 8 处 | `restart_in_place=True` 快速路径，跳过 A2-A5 |
 | `stale_expert_restore.py` | 1 处 | dry-run 检测 NaN 哨兵并报告失败 |
-| `bsr_integration.py` | 3 处 | 注入类型支持、invalidate_tensor_fn 回调注册 |
-| `arguments.py` | 1 处 | `--moe-bsr-restart-in-place` 参数 |
-| `transformer_config.py` | 1 处 | `moe_bsr_restart_in_place` 配置字段 |
+| `moegambit_integration.py` | 3 处 | 注入类型支持、invalidate_tensor_fn 回调注册 |
+| `arguments.py` | 1 处 | `--moe-moegambit-restart-in-place` 参数 |
+| `transformer_config.py` | 1 处 | `moe_moegambit_restart_in_place` 配置字段 |
 
 ## 使用方法
 
@@ -89,21 +89,21 @@ HEALTHY → INVALIDATED → WEIGHTS_RESTORING → WEIGHTS_READY
 在 `torchrun` 命令中添加：
 
 ```bash
---moe-bsr-fault-injection \
---moe-bsr-restart-in-place \
+--moe-moegambit-fault-injection \
+--moe-moegambit-restart-in-place \
 ```
 
 ### 2. 环境变量
 
 ```bash
-# 注入类型（设置 --moe-bsr-restart-in-place 后自动覆盖为 restart_in_place）
-export BSR_FAULT_INJECT_TYPE=restart_in_place
+# 注入类型（设置 --moe-moegambit-restart-in-place 后自动覆盖为 restart_in_place）
+export MOEGAMBIT_FAULT_INJECT_TYPE=restart_in_place
 
 # 在哪个 rank 注入故障
-export BSR_FAULT_INJECT_RANK=0
+export MOEGAMBIT_FAULT_INJECT_RANK=0
 
 # 在第几步注入故障
-export BSR_FAULT_INJECT_STEP=50
+export MOEGAMBIT_FAULT_INJECT_STEP=50
 ```
 
 ### 3. 启动脚本
@@ -113,7 +113,7 @@ export BSR_FAULT_INJECT_STEP=50
 bash run_moe.sh
 
 # 或切换回传统 hard_failure 模式
-BSR_FAULT_INJECT_TYPE=hard_failure bash run_moe.sh
+MOEGAMBIT_FAULT_INJECT_TYPE=hard_failure bash run_moe.sh
 ```
 
 ### 4. 运行单元测试

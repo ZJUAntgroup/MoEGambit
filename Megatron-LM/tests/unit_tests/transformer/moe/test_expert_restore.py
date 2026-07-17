@@ -840,7 +840,7 @@ class TestBuildExpertLoadFn(unittest.TestCase):
 
     def test_load_fn_returns_none_when_no_checkpoint(self):
         """When checkpoint_dir is None, load_fn should be None."""
-        # Import the function — need to load bsr_integration module
+        # Import the function — need to load moegambit_integration module
         # We test the logic directly by simulating what _build_expert_load_fn does
         self.assertIsNone(None)  # Trivially: no checkpoint → None
 
@@ -1180,7 +1180,7 @@ class TestConfigFlagBehavior(unittest.TestCase):
     """Test that config flags correctly control expert restore behavior."""
 
     def test_hybrid_expert_restore_false_skips_weight_loading(self):
-        """When moe_bsr_hybrid_expert_restore=False, load_fn should be None."""
+        """When moe_moegambit_hybrid_expert_restore=False, load_fn should be None."""
         # Simulate the config check logic from expert_restore_fn
         hybrid_expert_restore = False
         if hybrid_expert_restore:
@@ -1204,7 +1204,7 @@ class TestConfigFlagBehavior(unittest.TestCase):
         self.assertEqual(result.num_restored, 2)
 
     def test_expert_opt_restore_false_skips_optimizer_submit(self):
-        """When moe_bsr_expert_opt_restore=False, no optimizer loads submitted."""
+        """When moe_moegambit_expert_opt_restore=False, no optimizer loads submitted."""
         expert_opt_restore = False
         loader = DeferredOptimizerLoader()
 
@@ -1222,7 +1222,7 @@ class TestConfigFlagBehavior(unittest.TestCase):
         self.assertEqual(loader.num_submitted, 0)
 
     def test_expert_opt_restore_true_submits_optimizer_loads(self):
-        """When moe_bsr_expert_opt_restore=True, optimizer loads are submitted."""
+        """When moe_moegambit_expert_opt_restore=True, optimizer loads are submitted."""
         expert_opt_restore = True
         loader = DeferredOptimizerLoader()
 

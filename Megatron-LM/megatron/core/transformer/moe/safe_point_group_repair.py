@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Safe-point Process Group Repair for BSR-MoE.
+"""Safe-point Process Group Repair for MOEGAMBIT-MoE.
 
 This module implements the actual process group rebuild and rebind logic
 that is called at safe points (iteration boundaries) after a hard failure
@@ -45,7 +45,7 @@ Scope (v1)
 
 Integration
 -----------
-Called from ``bsr_integration.py`` via the ``group_rebuild_execute_fn``
+Called from ``moegambit_integration.py`` via the ``group_rebuild_execute_fn``
 and ``group_rebuild_finish_fn`` callbacks, which are invoked by
 ``RecoveryController._execute_safe_point_repair()`` at step 3 and 4.
 """
@@ -266,7 +266,7 @@ class SafePointGroupRepairer:
                     # only if the replacement process has already joined
                     # with the failed rank's identity.
                     logger.warning(
-                        "BSR-MoE repair: identity inheritance mode — "
+                        "MOEGAMBIT-MoE repair: identity inheritance mode — "
                         "invalidated=%d groups but rebuilt=0 (replacement "
                         "rank %d >= world_size %d).  Groups must be "
                         "recreated with original membership.",
@@ -303,7 +303,7 @@ class SafePointGroupRepairer:
             result.error = str(e)
             result.phase_reached = RepairPhase.FAILED
             logger.error(
-                "BSR-MoE safe-point repair FAILED at phase %s: %s",
+                "MOEGAMBIT-MoE safe-point repair FAILED at phase %s: %s",
                 result.phase_reached.name, e,
             )
 
@@ -313,7 +313,7 @@ class SafePointGroupRepairer:
             self._total_repairs += 1
 
         logger.warning(
-            "BSR-MoE safe-point repair %s — "
+            "MOEGAMBIT-MoE safe-point repair %s — "
             "invalidated=%d, rebuilt=%d, rebound=%d, verified=%s, "
             "elapsed=%.2fs",
             "SUCCEEDED" if result.success else "FAILED",
@@ -332,7 +332,7 @@ class SafePointGroupRepairer:
         """Validate repair preconditions."""
         if pp_size > 1:
             logger.warning(
-                "BSR-MoE safe-point repair: PP>1 (%d) — v1 support is "
+                "MOEGAMBIT-MoE safe-point repair: PP>1 (%d) — v1 support is "
                 "limited.  Proceeding with best-effort repair.",
                 pp_size,
             )
@@ -344,7 +344,7 @@ class SafePointGroupRepairer:
             # (the membership doesn't change, but the underlying
             # NCCL communicators need to be refreshed).
             logger.info(
-                "BSR-MoE repair: identity inheritance mode — "
+                "MOEGAMBIT-MoE repair: identity inheritance mode — "
                 "failed_rank == replacement_rank == %d.  "
                 "Groups will be recreated with original membership.",
                 plan.failed_rank,
@@ -354,7 +354,7 @@ class SafePointGroupRepairer:
             raise ValueError("No affected groups specified in repair plan")
 
         logger.info(
-            "BSR-MoE repair validation passed: failed=%d, replacement=%d, "
+            "MOEGAMBIT-MoE repair validation passed: failed=%d, replacement=%d, "
             "groups=%s",
             plan.failed_rank, plan.replacement_rank, plan.affected_groups,
         )
@@ -380,7 +380,7 @@ class SafePointGroupRepairer:
             from megatron.core import parallel_state as ps
         except ImportError:
             logger.warning(
-                "BSR-MoE repair: cannot import parallel_state, "
+                "MOEGAMBIT-MoE repair: cannot import parallel_state, "
                 "skipping group invalidation"
             )
             return 0
@@ -427,7 +427,7 @@ class SafePointGroupRepairer:
             logger.debug("Invalidated %s (%s)", group_name, var_name)
 
         logger.info(
-            "BSR-MoE repair: invalidated %d groups", count,
+            "MOEGAMBIT-MoE repair: invalidated %d groups", count,
         )
         return count
 
@@ -463,7 +463,7 @@ class SafePointGroupRepairer:
             import torch.distributed
         except ImportError:
             logger.warning(
-                "BSR-MoE repair: cannot import parallel_state or "
+                "MOEGAMBIT-MoE repair: cannot import parallel_state or "
                 "torch.distributed, skipping group rebuild"
             )
             return 0
@@ -482,7 +482,7 @@ class SafePointGroupRepairer:
 
         if needs_rank_remap:
             logger.warning(
-                "BSR-MoE repair: replacement_rank=%d >= world_size=%d, "
+                "MOEGAMBIT-MoE repair: replacement_rank=%d >= world_size=%d, "
                 "using identity inheritance (replacement inherits failed "
                 "rank %d's slot in all groups)",
                 replacement_rank, world_size, failed_rank,
@@ -500,7 +500,7 @@ class SafePointGroupRepairer:
 
             if new_ranks is None:
                 logger.warning(
-                    "BSR-MoE repair: cannot compute new ranks for %s, "
+                    "MOEGAMBIT-MoE repair: cannot compute new ranks for %s, "
                     "skipping",
                     group_name,
                 )
@@ -521,7 +521,7 @@ class SafePointGroupRepairer:
             invalid_ranks = [r for r in new_ranks if r >= world_size]
             if invalid_ranks:
                 logger.error(
-                    "BSR-MoE repair: ranks %s in group %s exceed "
+                    "MOEGAMBIT-MoE repair: ranks %s in group %s exceed "
                     "world_size=%d, skipping rebuild",
                     invalid_ranks, group_name, world_size,
                 )
@@ -550,11 +550,11 @@ class SafePointGroupRepairer:
 
             except Exception as e:
                 logger.error(
-                    "BSR-MoE repair: failed to rebuild %s: %s",
+                    "MOEGAMBIT-MoE repair: failed to rebuild %s: %s",
                     group_name, e,
                 )
 
-        logger.info("BSR-MoE repair: rebuilt %d groups", count)
+        logger.info("MOEGAMBIT-MoE repair: rebuilt %d groups", count)
         return count
 
     def _compute_new_ranks_for_group(
@@ -726,7 +726,7 @@ class SafePointGroupRepairer:
 
             if original_ranks is None:
                 logger.warning(
-                    "BSR-MoE repair: cannot compute original ranks for "
+                    "MOEGAMBIT-MoE repair: cannot compute original ranks for "
                     "%s, skipping restore", group_name,
                 )
                 continue
@@ -751,11 +751,11 @@ class SafePointGroupRepairer:
                     )
             except Exception as e:
                 logger.error(
-                    "BSR-MoE repair: failed to restore %s: %s",
+                    "MOEGAMBIT-MoE repair: failed to restore %s: %s",
                     group_name, e,
                 )
 
-        logger.info("BSR-MoE repair: restored %d invalidated groups", count)
+        logger.info("MOEGAMBIT-MoE repair: restored %d invalidated groups", count)
         return count
 
     def _compute_original_ranks_for_group(
@@ -875,7 +875,7 @@ class SafePointGroupRepairer:
             }
         except Exception as e:
             logger.warning(
-                "BSR-MoE repair: cannot build pg_dict from parallel_state: %s",
+                "MOEGAMBIT-MoE repair: cannot build pg_dict from parallel_state: %s",
                 e,
             )
             return 0
@@ -887,7 +887,7 @@ class SafePointGroupRepairer:
                 model_chunk, pg_dict, coordinator,
             )
 
-        logger.info("BSR-MoE repair: rebound %d module attributes", count)
+        logger.info("MOEGAMBIT-MoE repair: rebound %d module attributes", count)
         return count
 
     def _rebind_model_chunk(
@@ -985,12 +985,12 @@ class SafePointGroupRepairer:
             try:
                 torch.distributed.barrier(group=group)
                 logger.debug(
-                    "BSR-MoE repair: verification passed for %s",
+                    "MOEGAMBIT-MoE repair: verification passed for %s",
                     group_name,
                 )
             except Exception as e:
                 logger.error(
-                    "BSR-MoE repair: verification FAILED for %s: %s",
+                    "MOEGAMBIT-MoE repair: verification FAILED for %s: %s",
                     group_name, e,
                 )
                 all_passed = False
@@ -1041,7 +1041,7 @@ class SafePointGroupRepairer:
 
         if pp_group_ranks is None:
             logger.warning(
-                "BSR-MoE repair: cannot determine PP group ranks, "
+                "MOEGAMBIT-MoE repair: cannot determine PP group ranks, "
                 "skipping pipeline stage repair"
             )
             return 0
@@ -1050,7 +1050,7 @@ class SafePointGroupRepairer:
         # This PP group is unaffected by the failure.
         if plan.failed_rank not in pp_group_ranks:
             logger.debug(
-                "BSR-MoE repair: failed_rank %d not in this rank's "
+                "MOEGAMBIT-MoE repair: failed_rank %d not in this rank's "
                 "PP group %s — skipping pipeline stage repair "
                 "(this PP group is unaffected)",
                 plan.failed_rank, pp_group_ranks,
@@ -1066,7 +1066,7 @@ class SafePointGroupRepairer:
 
         if result.success:
             logger.warning(
-                "BSR-MoE repair: pipeline stage repair SUCCEEDED — "
+                "MOEGAMBIT-MoE repair: pipeline stage repair SUCCEEDED — "
                 "pp_group_rebuilt=%s, prev_next_updated=%s, "
                 "p2p_rebound=%s, elapsed=%.2fs",
                 result.pp_group_rebuilt, result.prev_next_updated,
@@ -1074,7 +1074,7 @@ class SafePointGroupRepairer:
             )
         else:
             logger.error(
-                "BSR-MoE repair: pipeline stage repair FAILED: %s",
+                "MOEGAMBIT-MoE repair: pipeline stage repair FAILED: %s",
                 result.error,
             )
 
@@ -1164,7 +1164,7 @@ def execute_safe_point_repair(
 ) -> RepairResult:
     """Execute a safe-point group repair using the global repairer.
 
-    This is the primary entry point for ``bsr_integration.py``.
+    This is the primary entry point for ``moegambit_integration.py``.
     """
     repairer = get_safe_point_group_repairer()
     return repairer.execute(

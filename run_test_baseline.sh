@@ -13,9 +13,9 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export TORCH_CUDA_ARCH_LIST="9.0"
 
 # ============================================================
-# Normal Training — all BSR-MoE features DISABLED
+# Normal Training — all MOEGAMBIT-MoE features DISABLED
 # ============================================================
-# No fault injection, no BSR recovery, no retry loop.
+# No fault injection, no MOEGAMBIT recovery, no retry loop.
 # Training runs to completion or exits on first error.
 
 # ============================================================

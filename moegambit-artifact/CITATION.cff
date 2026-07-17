@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this artifact, please cite the accompanying MoEGambit paper."
+title: "MoEGambit: Contract-Based Hybrid Recovery for Mixture-of-Experts Training"
+type: software
+authors:
+  - name: "MoEGambit Authors"
+version: "0.1.0"
+date-released: "2026-07-17"
+repository-code: "https://github.com/OWNER/moegambit-artifact"
+license: "Apache-2.0"

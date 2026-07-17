@@ -1,10 +1,9 @@
 """
 elastic_client.py — Training-side client for hot-spare elastic recovery.
 
-Each training node's rank 0 (local_rank=0) runs a background heartbeat thread
-that connects to the elastic_watcher on the spare node. When the watcher
-detects a fault and sends a "pause" signal, all ranks on the node pause at
-the next safe point, then coordinate a group rebuild.
+In launcher-controlled mode, every rank publishes local state tags over a Unix
+socket and the node launcher owns the watcher connection.  The legacy mode,
+where local_rank 0 owns that connection, remains available for compatibility.
 
 Architecture (single-rank replacement):
   - Watcher sends PAUSE to ALL nodes (including target)
@@ -30,6 +29,7 @@ Usage in training code:
 """
 
 import json
+import hashlib
 import logging
 import os
 import io
@@ -52,8 +52,13 @@ logger = logging.getLogger(__name__)
 _CLIENT: Optional["ElasticClient"] = None
 _PAUSE_REQUESTED = False
 _REBUILD_INFO: Optional[dict] = None
+_FALLBACK_RELAUNCH_INFO: Optional[dict] = None
 _REBUILD_STORE = None
 _LOCK = threading.Lock()
+_CURRENT_STEP = -1
+_CURRENT_STEP_TAG = -1
+_CURRENT_TRAIN_PHASE = "startup"
+_LAUNCHER_STATUS_SOCKET = None
 
 _POST_REBUILD_STATE_ENV = (
     "ELASTIC_RECOVERY_STATE",
@@ -74,6 +79,14 @@ def elastic_sanitize_recovery_env_for_startup():
     for key in _POST_REBUILD_STATE_ENV + (
         "ELASTIC_REPLACEMENT_RANK",
         "ELASTIC_RESUME_ITERATION",
+        "ELASTIC_RECOVERY_EPOCH",
+        "ELASTIC_RECOVERY_DESCRIPTOR",
+        "ELASTIC_RECOVERY_DESCRIPTOR_SHA256",
+        "ELASTIC_PG_GENERATION",
+        "ELASTIC_CHECKPOINT_STEP",
+        "ELASTIC_EXPERT_STALENESS_DELTA",
+        "ELASTIC_MOEGAMBIT_RECOVERY_MODE",
+        "ELASTIC_TWO_PHASE_RECOVERY",
     ):
         if key in os.environ:
             removed.append(key)
@@ -90,6 +103,59 @@ def _elastic_post_rebuild_token(iteration: Optional[int] = None) -> str:
         iteration = os.environ.get("ELASTIC_RESUME_ITERATION", "-1")
     replacement_rank = os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1")
     return f"iter{iteration}:replacement{replacement_rank}"
+
+
+def _elastic_recovery_epoch_payload() -> dict:
+    epoch = os.environ.get("ELASTIC_RECOVERY_EPOCH")
+    if epoch is None:
+        return {}
+    payload = {"recovery_epoch": epoch}
+    descriptor = os.environ.get("ELASTIC_RECOVERY_DESCRIPTOR")
+    if descriptor:
+        payload["descriptor"] = descriptor
+    return payload
+
+
+def _launcher_control_enabled() -> bool:
+    return (
+        os.environ.get("ELASTIC_LAUNCHER_CONTROL_PLANE", "0") == "1"
+        and bool(os.environ.get("ELASTIC_LAUNCHER_CONTROL_SOCKET"))
+    )
+
+
+def _launcher_control_send(event: str, **extra) -> bool:
+    """Publish rank state to the fault-isolated node launcher."""
+    global _LAUNCHER_STATUS_SOCKET
+
+    if not _launcher_control_enabled():
+        return False
+    socket_path = os.environ.get("ELASTIC_LAUNCHER_CONTROL_SOCKET")
+    try:
+        recovery_epoch = int(os.environ.get("ELASTIC_RECOVERY_EPOCH", "0") or 0)
+    except ValueError:
+        recovery_epoch = 0
+    payload = {
+        "event": event,
+        "rank": int(os.environ.get("RANK", "-1")),
+        "local_rank": int(os.environ.get("LOCAL_RANK", "-1")),
+        "pid": os.getpid(),
+        "step": _CURRENT_STEP,
+        "step_tag": _CURRENT_STEP_TAG,
+        "train_phase": _CURRENT_TRAIN_PHASE,
+        "recovery_epoch": recovery_epoch,
+        **extra,
+    }
+    try:
+        if _LAUNCHER_STATUS_SOCKET is None:
+            _LAUNCHER_STATUS_SOCKET = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            _LAUNCHER_STATUS_SOCKET.setblocking(False)
+        _LAUNCHER_STATUS_SOCKET.sendto(
+            json.dumps(payload, sort_keys=True).encode(), socket_path
+        )
+        return True
+    except (BlockingIOError, FileNotFoundError, OSError, ValueError) as exc:
+        logger.debug("[elastic] launcher control status send failed: %s", exc)
+        return False
 
 
 def elastic_is_post_rebuild_trace_active(iteration: Optional[int] = None) -> bool:
@@ -197,7 +263,7 @@ class ElasticClient:
 
     def _run(self):
         """Main heartbeat loop."""
-        global _PAUSE_REQUESTED, _REBUILD_INFO
+        global _PAUSE_REQUESTED, _REBUILD_INFO, _FALLBACK_RELAUNCH_INFO
 
         if not self._connect():
             return
@@ -210,6 +276,7 @@ class ElasticClient:
                 "step": self.step,
                 "step_tag": self.step_tag,
                 "train_phase": self.train_phase,
+                **_elastic_recovery_epoch_payload(),
             })
 
             # Check for incoming messages
@@ -227,6 +294,12 @@ class ElasticClient:
                     with _LOCK:
                         _REBUILD_INFO = msg
                     logger.info(f"[elastic] REBUILD signal received: {msg}")
+                elif msg_type == "fallback_relaunch":
+                    with _LOCK:
+                        _FALLBACK_RELAUNCH_INFO = msg
+                    logger.error("[elastic] FALLBACK_RELAUNCH received: %s", msg)
+                    _request_fallback_relaunch(msg)
+                    return
                 elif msg_type == "kill_rank":
                     # Watcher tells us to kill a specific local_rank worker.
                     # This happens AFTER all nodes have paused and destroyed
@@ -262,6 +335,7 @@ class ElasticClient:
             "step": self.step,
             "step_tag": self.step_tag,
             "train_phase": self.train_phase,
+            **_elastic_recovery_epoch_payload(),
         })
 
 
@@ -279,6 +353,77 @@ def _write_pause_signal(msg=None):
         logger.warning("[elastic] Failed to write pause file: %s", e)
 
 
+def _fallback_relaunch_signal_path() -> str:
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    return os.path.join(fault_dir, "fallback_relaunch_signal.json")
+
+
+def _write_fallback_relaunch_signal(msg=None):
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    signal_file = _fallback_relaunch_signal_path()
+    try:
+        os.makedirs(fault_dir, exist_ok=True)
+        tmp_file = signal_file + ".tmp"
+        with open(tmp_file, "w") as f:
+            json.dump(msg if isinstance(msg, dict) else {}, f)
+        os.replace(tmp_file, signal_file)
+        logger.error("[elastic] Wrote fallback relaunch signal: %s", signal_file)
+    except OSError as e:
+        logger.warning("[elastic] Failed to write fallback relaunch signal: %s", e)
+
+
+def _read_fallback_relaunch_signal() -> Optional[dict]:
+    signal_file = _fallback_relaunch_signal_path()
+    if not os.path.exists(signal_file):
+        return None
+    try:
+        with open(signal_file, "r") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _fallback_exit_code(info=None) -> int:
+    if isinstance(info, dict):
+        try:
+            return int(info.get("exit_code", os.environ.get("ELASTIC_FALLBACK_EXIT_CODE", "75")))
+        except (TypeError, ValueError):
+            pass
+    try:
+        return int(os.environ.get("ELASTIC_FALLBACK_EXIT_CODE", "75"))
+    except ValueError:
+        return 75
+
+
+def _exit_if_fallback_relaunch_requested():
+    info = _read_fallback_relaunch_signal()
+    if info is None:
+        return
+    exit_code = _fallback_exit_code(info)
+    logger.error("[elastic] Exiting for fallback relaunch: %s", info)
+    os._exit(exit_code)
+
+
+def _request_fallback_relaunch(msg):
+    _write_fallback_relaunch_signal(msg)
+    exit_code = _fallback_exit_code(msg)
+    ppid = os.getppid()
+    try:
+        pgid = os.getpgid(ppid)
+        logger.error(
+            "[elastic] Requesting checkpoint relaunch: sending SIGTERM to launcher "
+            "process group pgid=%s exit_code=%s",
+            pgid,
+            exit_code,
+        )
+        os.killpg(pgid, signal_module.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError) as exc:
+        logger.error("[elastic] Failed to signal launcher process group: %s", exc)
+    time.sleep(1.0)
+    os._exit(exit_code)
+
+
 def _read_pause_signal_info(pause_file: str) -> dict:
     """Read pause metadata while tolerating legacy flag-only files."""
     try:
@@ -287,6 +432,96 @@ def _read_pause_signal_info(pause_file: str) -> dict:
     except (OSError, json.JSONDecodeError, ValueError):
         return {}
     return pause_info if isinstance(pause_info, dict) else {}
+
+
+def _validate_recovery_descriptor(rebuild_info: dict, world_size: int) -> dict:
+    """Fail closed if a recovery epoch is not backed by one state contract."""
+    descriptor = rebuild_info.get("descriptor_data")
+    if not isinstance(descriptor, dict):
+        descriptor_path = rebuild_info.get("descriptor")
+        try:
+            with open(descriptor_path, "r") as f:
+                descriptor = json.load(f)
+        except (OSError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"[elastic] recovery descriptor is unavailable: {descriptor_path}: {exc}"
+            ) from exc
+
+    errors = []
+    expected_epoch = int(rebuild_info.get("recovery_epoch", -1))
+    expected_rank = int(rebuild_info.get("killed_global_rank", -1))
+    expected_iteration = int(rebuild_info.get("resume_iteration", -1))
+    if int(descriptor.get("recovery_epoch", -1)) != expected_epoch:
+        errors.append("recovery_epoch")
+    if int(descriptor.get("killed_global_rank", -1)) != expected_rank:
+        errors.append("killed_global_rank")
+    if int(descriptor.get("resume_iteration", -1)) != expected_iteration:
+        errors.append("resume_iteration")
+
+    topology = descriptor.get("topology", {})
+    if int(topology.get("world_size", -1)) != int(world_size):
+        errors.append("world_size")
+    if str(topology.get("rebuild_master_port")) != str(rebuild_info.get("new_master_port")):
+        errors.append("rebuild_master_port")
+
+    rank_table = descriptor.get("rank_table", [])
+    try:
+        logical_ranks = [
+            int(entry.get("logical_rank"))
+            for entry in rank_table
+            if isinstance(entry, dict)
+        ]
+    except (TypeError, ValueError):
+        logical_ranks = []
+    replacements = [
+        entry for entry in rank_table
+        if isinstance(entry, dict) and entry.get("role") == "replacement"
+    ]
+    if len(rank_table) != world_size or sorted(logical_ranks) != list(range(world_size)):
+        errors.append("rank_table")
+    try:
+        replacement_rank = (
+            int(replacements[0].get("logical_rank", -1))
+            if len(replacements) == 1
+            else -1
+        )
+    except (TypeError, ValueError):
+        replacement_rank = -1
+    if len(replacements) != 1 or replacement_rank != expected_rank:
+        errors.append("replacement_ownership")
+
+    quiescence = descriptor.get("safe_point", {}).get("rank_quiescence", {})
+    if quiescence.get("required") and quiescence.get("status") != "verified":
+        errors.append("rank_quiescence")
+    if quiescence.get("status") == "verified":
+        if int(quiescence.get("resume_iteration", -1)) != expected_iteration:
+            errors.append("quiescence_iteration")
+        if int(quiescence.get("observed_survivors", -1)) != world_size - 1:
+            errors.append("survivor_quorum")
+
+    state_sources = descriptor.get("state_sources", {})
+    for state_name in ("non_expert_parameters", "non_expert_optimizer"):
+        if int(state_sources.get(state_name, {}).get("version_step", -1)) != expected_iteration:
+            errors.append(f"{state_name}_version")
+    checkpoint_step = int(descriptor.get("checkpoint_step", -1))
+    for state_name in ("expert_parameters", "expert_optimizer"):
+        if int(state_sources.get(state_name, {}).get("version_step", -1)) != checkpoint_step:
+            errors.append(f"{state_name}_version")
+
+    expected_digest = rebuild_info.get("descriptor_sha256")
+    actual_digest = hashlib.sha256(
+        json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if expected_digest and actual_digest != expected_digest:
+        errors.append("descriptor_sha256")
+
+    if errors:
+        raise RuntimeError(
+            "[elastic] recovery descriptor validation failed: "
+            + ",".join(sorted(set(errors)))
+        )
+    os.environ["ELASTIC_RECOVERY_DESCRIPTOR_SHA256"] = actual_digest
+    return descriptor
 
 
 def _kill_single_worker(target_local_rank: int):
@@ -352,6 +587,15 @@ def elastic_client_start():
     """
     global _CLIENT
 
+    if _launcher_control_enabled() and not is_rebuild_mode():
+        _launcher_control_send("rank_state")
+        logger.info(
+            "[elastic] Watcher control is owned by the fault-isolated launcher "
+            "(local_rank=%s)",
+            os.environ.get("LOCAL_RANK", "?"),
+        )
+        return
+
     if is_rebuild_mode():
         logger.info(
             "[elastic] Replacement worker: watcher heartbeat disabled to avoid "
@@ -387,8 +631,14 @@ def elastic_client_update_step(
     that convention: i during forward/backward, -1 while optimizer step is in
     flight, and i+1 after a committed optimizer step.
     """
+    global _CURRENT_STEP, _CURRENT_STEP_TAG, _CURRENT_TRAIN_PHASE
+
+    _CURRENT_STEP = int(step)
+    _CURRENT_STEP_TAG = int(step if step_tag is None else step_tag)
+    _CURRENT_TRAIN_PHASE = phase
     if _CLIENT is not None:
         _CLIENT.update_step(step, phase=phase, step_tag=step_tag)
+    _launcher_control_send("rank_state")
 
 
 def elastic_mark_post_rebuild_pending(iteration: Optional[int] = None):
@@ -668,6 +918,7 @@ def elastic_report_recovery_phase(phase: str, **extra):
         "phase": phase,
         "step": step,
     }
+    msg.update(_elastic_recovery_epoch_payload())
     msg.update(extra)
 
     if _CLIENT is not None and _CLIENT.sock is not None:
@@ -692,6 +943,7 @@ def elastic_wait_for_recovery_phase(role: str, rank: int, phase: str, timeout: f
         "phase": phase,
         "timeout": timeout,
     }
+    msg.update(_elastic_recovery_epoch_payload())
     deadline = time.time() + timeout
     last_error = None
     attempt = 0
@@ -755,6 +1007,7 @@ def elastic_wait_for_recovery_phase_count(
         "min_count": min_count,
         "timeout": timeout,
     }
+    msg.update(_elastic_recovery_epoch_payload())
     deadline = time.time() + timeout
     last_error = None
     attempt = 0
@@ -833,6 +1086,7 @@ def elastic_wait_for_ordinal_barrier(
         "min_count": int(min_count),
         "timeout": float(timeout),
     }
+    msg.update(_elastic_recovery_epoch_payload())
     msg.update(extra)
     deadline = time.time() + timeout
     last_error = None
@@ -897,6 +1151,7 @@ def _elastic_wait_for_peer_sync_endpoint(peer_id: str, timeout: float = 300.0) -
         "peer_id": peer_id,
         "timeout": timeout,
     }
+    msg.update(_elastic_recovery_epoch_payload())
     try:
         with socket.create_connection((watcher_addr, int(watcher_port)), timeout=5.0) as sock:
             sock.settimeout(timeout + 5.0)
@@ -1994,6 +2249,8 @@ def elastic_check_pause() -> bool:
     if not os.environ.get("ELASTIC_WATCHER_ADDR"):
         return False
 
+    _exit_if_fallback_relaunch_requested()
+
     fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
     pause_file = os.path.join(fault_dir, "pause_signal")
 
@@ -2023,6 +2280,7 @@ def elastic_on_nccl_error(exception: Exception):
 
     # Write pause signal file for all local ranks
     _write_pause_signal()
+    _launcher_control_send("nccl_error", error=str(exception)[:200])
 
     # Notify watcher (best-effort — the watcher may already know via
     # heartbeat timeout, but sending explicit notification is faster)
@@ -2044,13 +2302,17 @@ def elastic_wait_for_rebuild_signal() -> dict:
     Returns the rebuild info dict with new_master_addr, new_master_port, etc.
 
     NOTE: This is called AFTER destroy_process_group, so we cannot use
-    dist.broadcast. Only local_rank 0 has the TCP connection; other local
-    ranks on the same node get the info via shared memory / file.
+    dist.broadcast. Launcher-controlled ranks receive the rebuild contract via
+    an atomic local file; the legacy path still proxies through local_rank 0.
     """
     global _REBUILD_INFO
 
-    # Notify watcher that we're ready
-    if _CLIENT is not None:
+    launcher_owned = _launcher_control_enabled()
+    _launcher_control_send("rebuild_ready")
+    next_ready_report = time.time() + 1.0
+
+    # Legacy path: local_rank 0 owns the watcher connection.
+    if _CLIENT is not None and not launcher_owned:
         _CLIENT.send_ready_to_rebuild()
 
     # Wait for rebuild signal (only local_rank 0 gets it via TCP)
@@ -2059,9 +2321,13 @@ def elastic_wait_for_rebuild_signal() -> dict:
     fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
     rebuild_file = os.path.join(fault_dir, "rebuild_signal.json")
 
-    if local_rank == 0:
+    if local_rank == 0 and not launcher_owned:
         while True:
+            _exit_if_fallback_relaunch_requested()
             with _LOCK:
+                if _FALLBACK_RELAUNCH_INFO is not None:
+                    _write_fallback_relaunch_signal(_FALLBACK_RELAUNCH_INFO)
+                    _exit_if_fallback_relaunch_requested()
                 if _REBUILD_INFO is not None:
                     info = _REBUILD_INFO
                     _REBUILD_INFO = None
@@ -2072,8 +2338,12 @@ def elastic_wait_for_rebuild_signal() -> dict:
         with open(rebuild_file, "w") as f:
             json.dump(info, f)
     else:
-        # Other local ranks wait for the file
+        # Launcher-controlled ranks and legacy nonzero local ranks wait for the file.
         while True:
+            _exit_if_fallback_relaunch_requested()
+            if launcher_owned and time.time() >= next_ready_report:
+                _launcher_control_send("rebuild_ready")
+                next_ready_report = time.time() + 1.0
             if os.path.exists(rebuild_file):
                 try:
                     with open(rebuild_file, "r") as f:
@@ -2083,6 +2353,8 @@ def elastic_wait_for_rebuild_signal() -> dict:
                     pass
             time.sleep(0.5)
 
+    for _ in range(3):
+        _launcher_control_send("rebuild_consumed")
     return info
 
 
@@ -2182,10 +2454,17 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     node_rank = int(os.environ.get("NODE_RANK", "0"))
     fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
     pause_file = os.path.join(fault_dir, "pause_signal")
+    pause_info = _read_pause_signal_info(pause_file)
+    recovery_epoch = pause_info.get("recovery_epoch")
+    if recovery_epoch is not None:
+        os.environ["ELASTIC_RECOVERY_EPOCH"] = str(recovery_epoch)
+        os.environ["ELASTIC_PG_GENERATION"] = str(recovery_epoch)
+    descriptor = pause_info.get("descriptor")
+    if descriptor:
+        os.environ["ELASTIC_RECOVERY_DESCRIPTOR"] = str(descriptor)
 
-    if local_rank == 0:
+    if local_rank == 0 and not _launcher_control_enabled():
         # Read pause signal to get target info
-        pause_info = _read_pause_signal_info(pause_file)
         killed_local_rank = pause_info.get("killed_local_rank", -1)
         failed_node_from_pause = pause_info.get("failed_node", -1)
 
@@ -2205,7 +2484,31 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     killed_global_rank = rebuild_info.get("killed_global_rank", -1)
     new_master_addr = rebuild_info.get("new_master_addr", os.environ.get("MASTER_ADDR"))
     new_master_port = rebuild_info.get("new_master_port", os.environ.get("MASTER_PORT"))
+    recovery_epoch = rebuild_info.get("recovery_epoch", recovery_epoch)
+    if recovery_epoch is not None:
+        os.environ["ELASTIC_RECOVERY_EPOCH"] = str(recovery_epoch)
+        os.environ["ELASTIC_PG_GENERATION"] = str(recovery_epoch)
+    descriptor = rebuild_info.get("descriptor", descriptor)
+    if descriptor:
+        os.environ["ELASTIC_RECOVERY_DESCRIPTOR"] = str(descriptor)
+    os.environ["ELASTIC_CHECKPOINT_STEP"] = str(
+        rebuild_info.get("checkpoint_step", -1)
+    )
+    os.environ["ELASTIC_EXPERT_STALENESS_DELTA"] = str(
+        rebuild_info.get("expert_staleness_delta", -1)
+    )
+    os.environ["ELASTIC_MOEGAMBIT_RECOVERY_MODE"] = str(
+        rebuild_info.get("recovery_mode", "intentional_mixed_version")
+    )
+    os.environ["ELASTIC_TWO_PHASE_RECOVERY"] = (
+        "1" if rebuild_info.get("two_phase_enabled", False) else "0"
+    )
     resume_iteration = rebuild_info.get("resume_iteration")
+    try:
+        _validate_recovery_descriptor(rebuild_info, world_size)
+    except RuntimeError as exc:
+        elastic_report_recovery_phase("state_contract_error", error=str(exc))
+        raise
     resume_iteration = elastic_align_resume_state(args, opt_param_scheduler, resume_iteration)
     if resume_iteration is not None:
         os.environ["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
@@ -2338,7 +2641,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     # replacement DP group can finish immediately; keep them out of the NCCL
     # default-group barrier until the replacement has completed peer sync.
     _wait_for_replacement_phase_before_global_barrier(
-        killed_global_rank, "param_sync_done", phase_timeout
+        killed_global_rank, "state_contract_ready", phase_timeout
     )
     _elastic_warmup_rebuild_communicators(killed_global_rank, phase_timeout)
     _elastic_rebuild_final_barrier()
@@ -2353,8 +2656,8 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     # Clean up signal files
     fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
-    if int(os.environ.get("LOCAL_RANK", "0")) == 0:
-        for fname in ("rebuild_signal.json", "pause_signal"):
+    if int(os.environ.get("LOCAL_RANK", "0")) == 0 and not _launcher_control_enabled():
+        for fname in ("rebuild_signal.json", "pause_signal", "fallback_relaunch_signal.json"):
             fpath = os.path.join(fault_dir, fname)
             try:
                 os.remove(fpath)
@@ -2366,7 +2669,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     return resume_iteration
 
 
-def elastic_replacement_sync_params(model, optimizer):
+def elastic_replacement_sync_params(model, optimizer, opt_param_scheduler=None):
     """Called by the REPLACEMENT node after model setup to receive params from DP peers.
 
     The replacement node has just gone through normal Megatron initialization
@@ -2375,22 +2678,83 @@ def elastic_replacement_sync_params(model, optimizer):
     a surviving DP peer.
     """
     replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", os.environ.get("RANK", "0")))
+    replacement_descriptor_info = {
+        "descriptor": os.environ.get("ELASTIC_RECOVERY_DESCRIPTOR"),
+        "descriptor_sha256": os.environ.get("ELASTIC_RECOVERY_DESCRIPTOR_SHA256"),
+        "recovery_epoch": int(os.environ.get("ELASTIC_RECOVERY_EPOCH", "-1")),
+        "killed_global_rank": replacement_rank,
+        "resume_iteration": int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1")),
+        "new_master_port": os.environ.get("MASTER_PORT"),
+    }
+    try:
+        _validate_recovery_descriptor(
+            replacement_descriptor_info, dist.get_world_size()
+        )
+    except RuntimeError as exc:
+        elastic_report_recovery_phase("state_contract_error", error=str(exc))
+        raise
     model_param_to_name = _build_model_param_name_map(model)
-    _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
+    elastic_report_recovery_phase(
+        "state_contract_start",
+        recovery_mode=os.environ.get("ELASTIC_MOEGAMBIT_RECOVERY_MODE", "unknown"),
+        checkpoint_step=int(os.environ.get("ELASTIC_CHECKPOINT_STEP", "-1")),
+        expert_staleness_delta=int(
+            os.environ.get("ELASTIC_EXPERT_STALENESS_DELTA", "-1")
+        ),
+        pg_generation=int(os.environ.get("ELASTIC_PG_GENERATION", "-1")),
+    )
+    expert_optimizer_summary = _load_expert_optimizer_state_from_checkpoint(
+        optimizer, model_param_to_name
+    )
     elastic_report_recovery_phase("param_sync_start")
-    _sync_params_to_new_rank(
+    peer_sync_summary = _sync_params_to_new_rank(
         model,
         optimizer,
         replacement_rank=replacement_rank,
         model_param_to_name=model_param_to_name,
     )
+    if peer_sync_summary is None:
+        raise RuntimeError(
+            "[elastic] state contract failed: replacement did not execute "
+            "dense/non-expert peer synchronization"
+        )
+    if peer_sync_summary["dense_model_params"] <= 0:
+        raise RuntimeError(
+            "[elastic] state contract failed: no non-expert model params "
+            "were received from the current-step peer"
+        )
+    if peer_sync_summary["checkpoint_expert_model_params"] <= 0:
+        raise RuntimeError(
+            "[elastic] state contract failed: replacement model contains no "
+            "checkpoint-restored expert params"
+        )
     elastic_report_recovery_phase("param_sync_done")
+    from megatron.training import get_args
+
+    resume_iteration = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
+    aligned_iteration = elastic_align_resume_state(
+        get_args(), opt_param_scheduler, resume_iteration
+    )
+    if aligned_iteration is None or aligned_iteration < 0:
+        raise RuntimeError(
+            "[elastic] state contract failed: replacement resume state was not aligned"
+        )
+    elastic_report_recovery_phase(
+        "resume_state_applied",
+        aligned_iteration=aligned_iteration,
+    )
+    elastic_report_recovery_phase(
+        "state_contract_ready",
+        expert_optimizer=expert_optimizer_summary,
+        peer_sync=peer_sync_summary,
+        aligned_iteration=aligned_iteration,
+        two_phase_enabled=os.environ.get("ELASTIC_TWO_PHASE_RECOVERY", "0") == "1",
+    )
     phase_timeout = _elastic_phase_timeout_seconds()
     _elastic_warmup_rebuild_communicators(replacement_rank, phase_timeout)
     _elastic_rebuild_final_barrier()
     _elastic_report_and_wait_train_ready(phase_timeout)
     logger.warning("[elastic] Replacement node: param sync complete, joining training loop")
-    resume_iteration = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
     elastic_mark_post_rebuild_pending(resume_iteration)
 
 
@@ -2462,6 +2826,31 @@ def _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name):
                     param_to_name[param] = name
                     param_to_is_expert[param] = _is_expert_model_param(name, param)
 
+    # DistributedOptimizer replaces full model parameters with local shards in
+    # the inner Adam optimizer.  Map those shard objects through Megatron's
+    # model/shard group metadata so local-only checkpoint restore and peer
+    # overwrite can classify every shard by provenance.
+    distributed_group_pairs = (
+        ("model_float16_groups", "shard_fp32_from_float16_groups"),
+        ("model_float16_groups", "shard_float16_groups"),
+        ("model_fp32_groups", "shard_fp32_groups"),
+    )
+    for model_groups_name, shard_groups_name in distributed_group_pairs:
+        model_groups = getattr(megatron_optimizer, model_groups_name, None)
+        shard_groups = getattr(megatron_optimizer, shard_groups_name, None)
+        if model_groups is None or shard_groups is None:
+            continue
+        for model_group, shard_group in zip(model_groups, shard_groups):
+            for model_param, shard_param in zip(model_group, shard_group):
+                if shard_param is None:
+                    continue
+                name = model_param_to_name.get(model_param)
+                if name is not None:
+                    param_to_name[shard_param] = name
+                    param_to_is_expert[shard_param] = _is_expert_model_param(
+                        name, model_param
+                    )
+
     try:
         inner_optimizer = megatron_optimizer.optimizer
     except (AttributeError, AssertionError):
@@ -2477,6 +2866,70 @@ def _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name):
                         param_to_is_expert[param] = _is_expert_model_param(name, param)
 
     return inner_optimizer, param_to_name, param_to_is_expert
+
+
+def _optimizer_role_state_summary(optimizer, model_param_to_name, *, expert):
+    """Summarize optimizer coverage for one state provenance class."""
+    summary = {
+        "expected_params": 0,
+        "params_with_adam_state": 0,
+        "state_tensors": 0,
+        "unmapped_params": 0,
+    }
+    if optimizer is None:
+        return summary
+
+    for megatron_optimizer in _iter_megatron_optimizers(optimizer):
+        inner_optimizer, param_to_name, param_to_is_expert = (
+            _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name)
+        )
+        if inner_optimizer is None:
+            continue
+        for group in getattr(inner_optimizer, "param_groups", []):
+            for param in group.get("params", []):
+                name = param_to_name.get(param)
+                if name is None:
+                    summary["unmapped_params"] += 1
+                    continue
+                is_expert = param_to_is_expert.get(
+                    param, _is_expert_param_name(name)
+                )
+                if bool(is_expert) != bool(expert):
+                    continue
+                summary["expected_params"] += 1
+                state = inner_optimizer.state.get(param, {})
+                tensor_keys = {
+                    key
+                    for key, value in state.items()
+                    if isinstance(value, torch.Tensor)
+                }
+                summary["state_tensors"] += len(tensor_keys)
+                if {"exp_avg", "exp_avg_sq"}.issubset(tensor_keys):
+                    summary["params_with_adam_state"] += 1
+    return summary
+
+
+def _require_optimizer_role_ready(summary, role):
+    """Fail closed when the first post-recovery AdamW step would be partial."""
+    checkpoint_step = int(os.environ.get("ELASTIC_CHECKPOINT_STEP", "-1"))
+    if summary["expected_params"] <= 0:
+        raise RuntimeError(
+            f"[elastic] state contract failed: no mapped {role} optimizer params"
+        )
+    if summary["unmapped_params"]:
+        raise RuntimeError(
+            "[elastic] state contract failed: optimizer metadata mapping is "
+            f"incomplete ({summary['unmapped_params']} unmapped params)"
+        )
+    if (
+        checkpoint_step > 0
+        and summary["params_with_adam_state"] != summary["expected_params"]
+    ):
+        raise RuntimeError(
+            f"[elastic] state contract failed: {role} Adam state is partial "
+            f"({summary['params_with_adam_state']}/"
+            f"{summary['expected_params']} params ready)"
+        )
 
 
 def _get_local_distributed_optimizer_checkpoint_name():
@@ -2646,21 +3099,35 @@ def _copy_expert_state_from_dp_zero_world_tensors(
 
 def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name):
     if optimizer is None:
-        return
+        raise RuntimeError("[elastic] state contract failed: optimizer is missing")
+
+    from megatron.training import get_args
+
+    args = get_args()
+    if not getattr(args, "use_distributed_optimizer", False):
+        # checkpointing.py has already loaded the complete local optimizer
+        # shard.  Peer sync will overwrite only the non-expert half at step t.
+        summary = _optimizer_role_state_summary(
+            optimizer, model_param_to_name, expert=True
+        )
+        _require_optimizer_role_ready(summary, "expert")
+        summary["source"] = "checkpoint_full_local_shard"
+        return summary
 
     optim_checkpoint_name = _get_local_distributed_optimizer_checkpoint_name()
     if optim_checkpoint_name is None:
-        return
+        raise RuntimeError(
+            "[elastic] state contract failed: distributed expert optimizer "
+            "checkpoint is unavailable"
+        )
 
     try:
         all_states = torch.load(optim_checkpoint_name, map_location="cpu")
-    except Exception:
-        logger.exception(
-            "[elastic] Replacement node: failed to load distributed optimizer "
-            "checkpoint %s",
-            optim_checkpoint_name,
-        )
-        return
+    except Exception as exc:
+        raise RuntimeError(
+            "[elastic] failed to load distributed optimizer checkpoint "
+            f"{optim_checkpoint_name}"
+        ) from exc
 
     total_loaded_params = 0
     total_loaded_tensors = 0
@@ -2681,20 +3148,11 @@ def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
             unsupported += 1
             continue
 
-        try:
-            loaded_params, loaded_tensors, skipped_params = (
-                _copy_expert_state_from_dp_zero_world_tensors(
-                    megatron_optimizer, state_dict, model_param_to_name
-                )
+        loaded_params, loaded_tensors, skipped_params = (
+            _copy_expert_state_from_dp_zero_world_tensors(
+                megatron_optimizer, state_dict, model_param_to_name
             )
-        except Exception:
-            logger.exception(
-                "[elastic] Replacement node: local expert optimizer load "
-                "failed for optimizer %s; continuing with model-weight "
-                "checkpoint state and peer-synced non-expert optimizer state",
-                type(megatron_optimizer).__name__,
-            )
-            continue
+        )
         total_loaded_params += loaded_params
         total_loaded_tensors += loaded_tensors
         total_skipped_params += skipped_params
@@ -2708,6 +3166,30 @@ def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
         total_skipped_params,
         unsupported,
     )
+    if unsupported:
+        raise RuntimeError(
+            "[elastic] state contract failed: distributed expert optimizer "
+            f"loader does not support {unsupported} optimizer wrapper(s)"
+        )
+    summary = _optimizer_role_state_summary(
+        optimizer, model_param_to_name, expert=True
+    )
+    summary.update(
+        {
+            "source": "checkpoint_distributed_local_only",
+            "loaded_params": total_loaded_params,
+            "loaded_tensors": total_loaded_tensors,
+            "skipped_params": total_skipped_params,
+        }
+    )
+    _require_optimizer_role_ready(summary, "expert")
+    if total_loaded_params != summary["expected_params"]:
+        raise RuntimeError(
+            "[elastic] state contract failed: distributed expert optimizer "
+            f"coverage is partial ({total_loaded_params}/"
+            f"{summary['expected_params']} params loaded)"
+        )
+    return summary
 
 
 class _PeerSyncStream:
@@ -2759,17 +3241,17 @@ class _PeerSyncStream:
         self.server_sock.settimeout(self.timeout)
         _, port = self.server_sock.getsockname()
         peer_id = self._peer_id()
-        if not _send_one_shot_to_watcher(
-            {
-                "type": "peer_sync_endpoint",
-                "node_rank": int(os.environ.get("NODE_RANK", "-1")),
-                "rank": self.rank,
-                "peer_id": peer_id,
-                "port": int(port),
-                "src_rank": self.src_rank,
-                "dst_rank": self.dst_rank,
-            }
-        ):
+        endpoint_msg = {
+            "type": "peer_sync_endpoint",
+            "node_rank": int(os.environ.get("NODE_RANK", "-1")),
+            "rank": self.rank,
+            "peer_id": peer_id,
+            "port": int(port),
+            "src_rank": self.src_rank,
+            "dst_rank": self.dst_rank,
+        }
+        endpoint_msg.update(_elastic_recovery_epoch_payload())
+        if not _send_one_shot_to_watcher(endpoint_msg):
             raise RuntimeError(f"[elastic] failed publishing peer sync endpoint {peer_id}")
         logger.warning(
             "[elastic] Rank %d: peer TCP sync listening id=%s port=%d dst=%d",
@@ -3032,9 +3514,11 @@ def _sync_non_expert_optimizer_state_peer(
     state_tensor_count = 0
     skipped_state_count = 0
     unmapped_count = 0
+    params_with_adam_state = 0
+    unsupported_count = 0
 
     if rank not in (sync_src_rank, replacement_rank):
-        return
+        return None
     if peer_stream is None:
         raise RuntimeError("[elastic] non-expert optimizer sync requires a TCP peer stream")
 
@@ -3043,12 +3527,7 @@ def _sync_non_expert_optimizer_state_peer(
             _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name)
         )
         if inner_optimizer is None:
-            logger.warning(
-                "[elastic] Rank %d: skipping optimizer-state sync for unsupported "
-                "optimizer wrapper %s",
-                rank,
-                type(megatron_optimizer).__name__,
-            )
+            unsupported_count += 1
             continue
 
         for group in getattr(inner_optimizer, "param_groups", []):
@@ -3060,38 +3539,74 @@ def _sync_non_expert_optimizer_state_peer(
                 if optim_param_to_is_expert.get(param, _is_expert_param_name(name)):
                     continue
 
+                _validate_param_peer_manifest(
+                    f"optimizer:{name}",
+                    param.data,
+                    main_param_count + 1,
+                    sync_src_rank,
+                    replacement_rank,
+                    peer_stream=peer_stream,
+                )
                 _sync_optimizer_state_tensor_peer(
                     param.data, sync_src_rank, replacement_rank, param.device, peer_stream
                 )
                 main_param_count += 1
 
-                state = inner_optimizer.state.get(param, None)
-                has_tensor_state = int(
-                    state is not None and any(
-                        isinstance(val, torch.Tensor) for val in state.values()
-                    )
-                )
+                state = inner_optimizer.state.get(param, {})
+                tensor_state = [
+                    (str(key), value)
+                    for key, value in state.items()
+                    if isinstance(value, torch.Tensor)
+                ]
+                tensor_state.sort(key=lambda item: item[0])
+                scalar_state = {
+                    str(key): value
+                    for key, value in state.items()
+                    if isinstance(value, (bool, int, float, str))
+                }
+                local_state_manifest = [
+                    {
+                        "key": key,
+                        "shape": list(value.shape),
+                        "dtype": str(value.dtype),
+                    }
+                    for key, value in tensor_state
+                ]
                 if rank == sync_src_rank:
-                    peer_stream.send_json({"has_tensor_state": has_tensor_state})
+                    peer_stream.send_json(
+                        {
+                            "state_manifest": local_state_manifest,
+                            "scalar_state": scalar_state,
+                        }
+                    )
                     status_obj = peer_stream.recv_json()
-                    has_tensor_state = int(status_obj.get("has_tensor_state", 0))
+                    manifest_matches = bool(status_obj.get("manifest_matches", False))
                 else:
                     src_state_obj = peer_stream.recv_json()
-                    has_tensor_state = min(
-                        has_tensor_state,
-                        int(src_state_obj.get("has_tensor_state", 0)),
+                    manifest_matches = (
+                        local_state_manifest == src_state_obj.get("state_manifest", [])
                     )
-                    peer_stream.send_json({"has_tensor_state": has_tensor_state})
-                if has_tensor_state == 0:
+                    if manifest_matches:
+                        for key, value in src_state_obj.get("scalar_state", {}).items():
+                            state[key] = value
+                    peer_stream.send_json({"manifest_matches": manifest_matches})
+                if not manifest_matches:
+                    raise RuntimeError(
+                        "[elastic] non-expert optimizer state manifest mismatch "
+                        f"for {name}: local={local_state_manifest}"
+                    )
+                if not tensor_state:
                     skipped_state_count += 1
                     continue
 
-                for _, val in state.items():
-                    if isinstance(val, torch.Tensor):
-                        _sync_optimizer_state_tensor_peer(
-                            val, sync_src_rank, replacement_rank, param.device, peer_stream
-                        )
-                        state_tensor_count += 1
+                state_keys = {key for key, _ in tensor_state}
+                if {"exp_avg", "exp_avg_sq"}.issubset(state_keys):
+                    params_with_adam_state += 1
+                for key, val in tensor_state:
+                    _sync_optimizer_state_tensor_peer(
+                        val, sync_src_rank, replacement_rank, param.device, peer_stream
+                    )
+                    state_tensor_count += 1
 
     logger.warning(
         "[elastic] Rank %d: non-expert optimizer sync complete "
@@ -3102,6 +3617,22 @@ def _sync_non_expert_optimizer_state_peer(
         skipped_state_count,
         unmapped_count,
     )
+    summary = {
+        "source": "current_step_dense_dp_peer",
+        "expected_params": main_param_count,
+        "params_with_adam_state": params_with_adam_state,
+        "state_tensors": state_tensor_count,
+        "skipped_state_params": skipped_state_count,
+        "unmapped_params": unmapped_count,
+        "unsupported_wrappers": unsupported_count,
+    }
+    if unsupported_count:
+        raise RuntimeError(
+            "[elastic] state contract failed: non-expert optimizer peer sync "
+            f"does not support {unsupported_count} optimizer wrapper(s)"
+        )
+    _require_optimizer_role_ready(summary, "non-expert")
+    return summary
 
 
 def _sync_params_to_new_rank(
@@ -3130,7 +3661,7 @@ def _sync_params_to_new_rank(
             replacement_rank,
             sync_group_ranks,
         )
-        return
+        return None
 
     sync_src_rank = _select_dp_sync_src_rank(sync_group, replacement_rank)
 
@@ -3145,7 +3676,7 @@ def _sync_params_to_new_rank(
             sync_src_rank,
             replacement_rank,
         )
-        return
+        return None
 
     logger.info(
         f"[elastic] Rank {rank}: syncing dense params with peer transfer "
@@ -3197,11 +3728,18 @@ def _sync_params_to_new_rank(
             dense_count,
             expert_count,
         )
-        _sync_non_expert_optimizer_state_peer(
+        optimizer_summary = _sync_non_expert_optimizer_state_peer(
             optimizer, model_param_to_name, sync_src_rank, replacement_rank, peer_stream
         )
 
     logger.info(f"[elastic] Rank {rank}: param sync complete")
+    return {
+        "dense_model_params": dense_count,
+        "checkpoint_expert_model_params": expert_count,
+        "non_expert_optimizer": optimizer_summary,
+        "source_rank": sync_src_rank,
+        "replacement_rank": replacement_rank,
+    }
 
 
 def is_rebuild_mode() -> bool:

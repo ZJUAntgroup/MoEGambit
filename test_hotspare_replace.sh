@@ -7,11 +7,11 @@
 # 工作原理：
 #   1. 训练正常启动在 NODE_RANK=0-7 (64 GPU)
 #   2. 备用节点 (NODE_RANK=8) 运行 elastic_watcher
-#   3. 到达指定步数时，watcher 通过 TCP 发送 kill_node 命令杀死目标节点
-#   4. 目标节点所有 worker 进程被杀死 (SIGKILL)
-#   5. 存活节点检测到 NCCL 超时 → 捕获异常 → 进入 elastic 恢复路径
-#   6. 存活节点通知 watcher "ready_to_rebuild"
-#   7. watcher 在备用节点上用故障节点的 NODE_RANK 启动新 worker
+#   3. 到达指定步数时，watcher 让各节点在迭代边界暂停
+#   4. launcher 收齐本节点 survivor 状态后杀死目标 local_rank
+#   5. 每个 launcher 向 watcher 提交全 rank 状态版本证明
+#   6. watcher 验证 63 个 survivor 位于同一已提交版本
+#   7. watcher 在备用节点上用故障 rank 的逻辑身份启动新 worker
 #   8. 所有节点重新 init_process_group → sync params → 恢复训练
 #
 # 使用方式：
@@ -41,6 +41,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export TP_SIZE="${TP_SIZE:-1}"
 export PP_SIZE="${PP_SIZE:-8}"
 export EP_SIZE="${EP_SIZE:-8}"
+export CP_SIZE="${CP_SIZE:-1}"
+export MEGATRON_PARALLEL_ORDER="${MEGATRON_PARALLEL_ORDER:-tp-cp-ep-dp-pp}"
 export MODE=moegambit
 
 # Topology
@@ -65,7 +67,9 @@ export NNODES="${TRAINING_NNODES}"
 # Elastic watcher address (备用节点的 IP)
 export ELASTIC_WATCHER_ADDR="${ELASTIC_WATCHER_ADDR:-${MASTER_ADDR}}"
 export ELASTIC_FAULT_DIR="${ELASTIC_FAULT_DIR:-/tmp/elastic_faults}"
-rm -rf "${ELASTIC_FAULT_DIR}"
+if [ "${ELASTIC_RESET_FAULT_DIR:-1}" = "1" ]; then
+  rm -rf "${ELASTIC_FAULT_DIR}"
+fi
 mkdir -p "${ELASTIC_FAULT_DIR}"
 
 # ============================================================================
@@ -73,23 +77,28 @@ mkdir -p "${ELASTIC_FAULT_DIR}"
 # ============================================================================
 FAULT_INJECT_STEP="${FAULT_INJECT_STEP:-17}"
 FAULT_INJECT_NODE="${FAULT_INJECT_NODE:-0}"
-# NOTE: Must NOT be 0 — local_rank=0 holds the TCP connection to watcher.
-# If local_rank=0 is killed, other ranks on that node can't receive rebuild signal.
+# The launcher owns watcher control, so local_rank=0 is also replaceable.
 FAULT_INJECT_LOCAL_RANK="${FAULT_INJECT_LOCAL_RANK:-1}"
 
 # ============================================================================
-# BSR recovery settings (for surviving nodes during recovery)
+# MOEGAMBIT recovery settings (for surviving nodes during recovery)
 # ============================================================================
-export BSR_HOT_SPARE_POOL=1
-export BSR_NUM_HOT_SPARES="${NPROC_PER_NODE}"
-export BSR_GAP_AWARE_RECOVERY=1
-export BSR_RECOVERY_POLICY_TYPE="${BSR_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
-export BSR_GAP_THRESHOLD="${BSR_GAP_THRESHOLD:-100}"
+export MOEGAMBIT_HOT_SPARE_POOL=1
+export MOEGAMBIT_NUM_HOT_SPARES="${NPROC_PER_NODE}"
+export MOEGAMBIT_GAP_AWARE_RECOVERY=1
+export MOEGAMBIT_RECOVERY_POLICY_TYPE="${MOEGAMBIT_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
+export MOEGAMBIT_GAP_THRESHOLD="${MOEGAMBIT_GAP_THRESHOLD:-100}"
+export MOEGAMBIT_DELTA_TIME_MIN_GAP="${MOEGAMBIT_DELTA_TIME_MIN_GAP:-0}"
+export MOEGAMBIT_MAX_SINGLE_GAP="${MOEGAMBIT_MAX_SINGLE_GAP:-192}"
+export MOEGAMBIT_EXPOSURE_WINDOW_STEPS="${MOEGAMBIT_EXPOSURE_WINDOW_STEPS:-20000}"
+export MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY="${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY:-0.1}"
+export MOEGAMBIT_NUM_EXPERTS="${MOEGAMBIT_NUM_EXPERTS:-128}"
+export ELASTIC_TWO_PHASE_RECOVERY=0
 
-# NO BSR fault injection — we do real kills via the watcher
-# (BSR's hard_failure doesn't actually kill processes)
-unset BSR_FAULT_INJECT_TYPE 2>/dev/null || true
-unset BSR_FAULT_INJECT_STEP 2>/dev/null || true
+# NO MOEGAMBIT fault injection — we do real kills via the watcher
+# (MOEGAMBIT's hard_failure doesn't actually kill processes)
+unset MOEGAMBIT_FAULT_INJECT_TYPE 2>/dev/null || true
+unset MOEGAMBIT_FAULT_INJECT_STEP 2>/dev/null || true
 
 # Checkpoint: 每 10 步保存一次（确保故障时有近期 checkpoint）
 export SAVE_INTERVAL=10
@@ -136,6 +145,15 @@ export ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER="${ELASTIC_MOE_FIRST_COLLECTIVE_BARR
 export ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP="${ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP:-0}"
 export ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST="${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST:-1}"
 export ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT="${ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT:-180}"
+export ELASTIC_FALLBACK_RELAUNCH="${ELASTIC_FALLBACK_RELAUNCH:-1}"
+export ELASTIC_FALLBACK_EXIT_CODE="${ELASTIC_FALLBACK_EXIT_CODE:-75}"
+export ELASTIC_FALLBACK_RESTART_STANDBY="${ELASTIC_FALLBACK_RESTART_STANDBY:-1}"
+export ELASTIC_LAUNCHER_CONTROL_PLANE="${ELASTIC_LAUNCHER_CONTROL_PLANE:-1}"
+export ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL="${ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL:-1.0}"
+export ELASTIC_QUIESCENCE_TIMEOUT_SECONDS="${ELASTIC_QUIESCENCE_TIMEOUT_SECONDS:-300}"
+export ELASTIC_NCCL_CLASSIFICATION_GRACE_SECONDS="${ELASTIC_NCCL_CLASSIFICATION_GRACE_SECONDS:-5}"
+HOTSPARE_MAX_RETRIES="${HOTSPARE_MAX_RETRIES:-2}"
+HOTSPARE_RETRY_DELAY="${HOTSPARE_RETRY_DELAY:-30}"
 
 mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 
@@ -163,6 +181,10 @@ echo "[test-replace] PG device_id:    init=${ELASTIC_INIT_PG_DEVICE_ID}, rebuild
 echo "[test-replace] Post warmup:     ${ELASTIC_POST_REBUILD_COMM_WARMUP}"
 echo "[test-replace] MoE first:       barrier=${ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER}, warmup=${ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP}"
 echo "[test-replace] MoE fail-fast:   enabled=${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST}, timeout=${ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT}s"
+echo "[test-replace] Fallback:        relaunch=${ELASTIC_FALLBACK_RELAUNCH}, exit=${ELASTIC_FALLBACK_EXIT_CODE}, retries=${HOTSPARE_MAX_RETRIES} (fallback exit only)"
+echo "[test-replace] Control plane:   launcher=${ELASTIC_LAUNCHER_CONTROL_PLANE}, heartbeat=${ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL}s"
+echo "[test-replace] Quiescence:      timeout=${ELASTIC_QUIESCENCE_TIMEOUT_SECONDS}s"
+echo "[test-replace] R2 contract:      gap=[${MOEGAMBIT_DELTA_TIME_MIN_GAP},${MOEGAMBIT_MAX_SINGLE_GAP}], window=${MOEGAMBIT_EXPOSURE_WINDOW_STEPS}, phi_max=${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY}, experts=${MOEGAMBIT_NUM_EXPERTS}"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
 
@@ -180,6 +202,9 @@ if [ "${IS_SPARE}" = "1" ]; then
     --master-addr "${MASTER_ADDR}" \
     --master-port "${MASTER_PORT}" \
     --fault-dir "${ELASTIC_FAULT_DIR}" \
+    --fallback-relaunch "${ELASTIC_FALLBACK_RELAUNCH}" \
+    --fallback-exit-code "${ELASTIC_FALLBACK_EXIT_CODE}" \
+    --fallback-restart-standby "${ELASTIC_FALLBACK_RESTART_STANDBY}" \
     --fault-inject-step "${FAULT_INJECT_STEP}" \
     --fault-inject-node "${FAULT_INJECT_NODE}" \
     --fault-inject-local-rank "${FAULT_INJECT_LOCAL_RANK}"
@@ -190,45 +215,62 @@ fi
 # TRAINING NODE: custom launcher (no torchrun)
 # =============================================================================
 
-LOAD_ARGS=()
-if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ] || ls "${CKPT_DIR}"/iter_* >/dev/null 2>&1; then
-  LOAD_ARGS=(--load "${CKPT_DIR}")
-fi
-
-BSR_ARGS=(
-  --moe-bsr-enable
-  --moe-bsr-health-mask
-  --moe-bsr-rank-quarantine
-  --moe-bsr-dispatch-quarantine-assert
-  --moe-bsr-dispatch-sanitize
-  --moe-bsr-expert-directory
-  --moe-bsr-replacement-protocol
-  --moe-bsr-group-rebuild
-  --moe-bsr-dispatch-topology-refresh
-  --moe-bsr-dense-param-sync
-  --moe-bsr-stale-expert-restore
-  --moe-bsr-recovery-controller
-  --moe-bsr-deferred-optimizer-load
-  --no-moe-bsr-weights-first-recovery
-  --moe-bsr-degraded-mode-policy
-  --moe-bsr-reintegration-barrier
-  # NOTE: no --moe-bsr-fault-injection — we do real kills via watcher
-  --moe-bsr-hot-spare-pool
-  --moe-bsr-num-hot-spares "${NPROC_PER_NODE}"
-  --moe-bsr-degraded-tau-c 0.5
-  --moe-bsr-degraded-t-max 1000
-  --moe-bsr-degraded-s-max 500
+MOEGAMBIT_ARGS=(
+  --moe-moegambit-enable
+  --moe-moegambit-health-mask
+  --moe-moegambit-rank-quarantine
+  --moe-moegambit-dispatch-quarantine-assert
+  --moe-moegambit-dispatch-sanitize
+  --moe-moegambit-expert-directory
+  --moe-moegambit-replacement-protocol
+  --moe-moegambit-group-rebuild
+  --moe-moegambit-dispatch-topology-refresh
+  --moe-moegambit-dense-param-sync
+  --moe-moegambit-stale-expert-restore
+  --moe-moegambit-recovery-controller
+  --moe-moegambit-deferred-optimizer-load
+  --no-moe-moegambit-weights-first-recovery
+  --moe-moegambit-degraded-mode-policy
+  --moe-moegambit-reintegration-barrier
+  # NOTE: no --moe-moegambit-fault-injection — we do real kills via watcher
+  --moe-moegambit-hot-spare-pool
+  --moe-moegambit-num-hot-spares "${NPROC_PER_NODE}"
+  --moe-moegambit-degraded-tau-c 0.5
+  --moe-moegambit-degraded-t-max 1000
+  --moe-moegambit-degraded-s-max 500
 )
 
-if [ "${BSR_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
-  BSR_ARGS+=(
-    --moe-bsr-gap-aware-recovery
-    --moe-bsr-recovery-policy-type "${BSR_RECOVERY_POLICY_TYPE}"
-    --moe-bsr-gap-threshold "${BSR_GAP_THRESHOLD}"
+if [ "${MOEGAMBIT_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
+  MOEGAMBIT_ARGS+=(
+    --moe-moegambit-gap-aware-recovery
+    --moe-moegambit-recovery-policy-type "${MOEGAMBIT_RECOVERY_POLICY_TYPE}"
+    --moe-moegambit-gap-threshold "${MOEGAMBIT_GAP_THRESHOLD}"
+    --moe-moegambit-delta-time-min-gap "${MOEGAMBIT_DELTA_TIME_MIN_GAP}"
+    --moe-moegambit-max-single-gap "${MOEGAMBIT_MAX_SINGLE_GAP}"
+    --moe-moegambit-exposure-window-steps "${MOEGAMBIT_EXPOSURE_WINDOW_STEPS}"
+    --moe-moegambit-max-expert-staleness-density "${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY}"
   )
 fi
 
-python3 "${SCRIPT_DIR}/elastic_launcher.py" \
+cleanup_elastic_attempt_files() {
+  rm -f "${ELASTIC_FAULT_DIR}/pause_signal" \
+        "${ELASTIC_FAULT_DIR}/rebuild_signal.json" \
+        "${ELASTIC_FAULT_DIR}/fallback_relaunch_signal.json"
+  rm -f "${ELASTIC_FAULT_DIR}"/worker_pid_* 2>/dev/null || true
+}
+
+run_training() {
+  cleanup_elastic_attempt_files
+
+  LOAD_ARGS=()
+  if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ] || ls "${CKPT_DIR}"/iter_* >/dev/null 2>&1; then
+    LOAD_ARGS=(--load "${CKPT_DIR}")
+    echo "[test-replace] Restart/relaunch attempt will load checkpoint from ${CKPT_DIR}"
+  else
+    echo "[test-replace] No checkpoint found; starting without --load"
+  fi
+
+  python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --nproc-per-node "${NPROC_PER_NODE}" \
   --nnodes "${NNODES}" \
   --node-rank "${NODE_RANK}" \
@@ -279,7 +321,7 @@ python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --no-bias-swiglu-fusion \
   --untie-embeddings-and-output-weights \
   --bf16 \
-  --num-experts 128 \
+  --num-experts "${MOEGAMBIT_NUM_EXPERTS}" \
   --moe-ffn-hidden-size 768 \
   --moe-router-topk 8 \
   --moe-router-dtype fp32 \
@@ -288,7 +330,7 @@ python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --moe-token-dispatcher-type alltoall \
   --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
-  "${BSR_ARGS[@]}" \
+  "${MOEGAMBIT_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
   --split 100,0,0 \
   --ckpt-format torch \
@@ -298,3 +340,35 @@ python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --eval-iters 0 \
   --log-interval 1 \
   "${LOAD_ARGS[@]}"
+}
+
+retry=0
+while true; do
+  run_training
+  rc=$?
+  if [ "${rc}" -eq 0 ]; then
+    echo "[test-replace] training finished normally"
+    exit 0
+  fi
+
+  retry=$((retry + 1))
+  echo "[test-replace] training launcher exited rc=${rc}; retry=${retry}/${HOTSPARE_MAX_RETRIES}"
+  if [ "${rc}" -ne "${ELASTIC_FALLBACK_EXIT_CODE}" ]; then
+    echo "[test-replace] rc=${rc} is not fallback exit code ${ELASTIC_FALLBACK_EXIT_CODE}; not relaunching"
+    exit "${rc}"
+  fi
+
+  if [ "${retry}" -gt "${HOTSPARE_MAX_RETRIES}" ]; then
+    echo "[test-replace] reached max relaunch retries; exiting rc=${rc}"
+    exit "${rc}"
+  fi
+
+  if [ ! -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ] \
+      && ! ls "${CKPT_DIR}"/iter_* >/dev/null 2>&1; then
+    echo "[test-replace] fallback requested but no checkpoint exists; refusing fresh restart"
+    exit "${rc}"
+  fi
+
+  echo "[test-replace] relaunching from checkpoint after ${HOTSPARE_RETRY_DELAY}s..."
+  sleep "${HOTSPARE_RETRY_DELAY}"
+done

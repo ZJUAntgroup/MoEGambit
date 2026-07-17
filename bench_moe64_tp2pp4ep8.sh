@@ -43,7 +43,7 @@ export TP_SIZE=2
 export PP_SIZE=4
 export EP_SIZE=8
 # EDP = 64 / (2*4*8) = 1  -> no expert DP peer; dense from peer, experts from ckpt
-export BSR_FULL_PEER_RECOVERY=0
+export MOEGAMBIT_FULL_PEER_RECOVERY=0
 
 BENCH_PHASES="${BENCH_PHASES:-moegambit baseline}"
 BENCH_NUM_INJECTIONS="${BENCH_NUM_INJECTIONS:-10}"
@@ -97,15 +97,15 @@ run_phase() {
 
   if [ "${mode}" = "moegambit" ]; then
     export MODE=moegambit
-    export BSR_FAULT_INJECT_TYPE=restart_in_place
-    export BSR_FAULT_INJECT_RANK=-1
-    export BSR_FAULT_INJECT_STEP="${BENCH_FIRST_INJECT_STEP}"
-    export BSR_FAULT_INJECT_INTERVAL="${BENCH_INJECT_INTERVAL}"
-    export BSR_FAULT_INJECT_SEED=42
-    export BSR_FAULT_REPLACEMENT_STEP="${BENCH_FIRST_INJECT_STEP}"
-    export BSR_FAULT_REPLACEMENT_RANK=-1
-    export BSR_FAULT_ZERO_MEMORY=1
-    export BSR_FAULT_MEMORY_FILL=zero
+    export MOEGAMBIT_FAULT_INJECT_TYPE=restart_in_place
+    export MOEGAMBIT_FAULT_INJECT_RANK=-1
+    export MOEGAMBIT_FAULT_INJECT_STEP="${BENCH_FIRST_INJECT_STEP}"
+    export MOEGAMBIT_FAULT_INJECT_INTERVAL="${BENCH_INJECT_INTERVAL}"
+    export MOEGAMBIT_FAULT_INJECT_SEED=42
+    export MOEGAMBIT_FAULT_REPLACEMENT_STEP="${BENCH_FIRST_INJECT_STEP}"
+    export MOEGAMBIT_FAULT_REPLACEMENT_RANK=-1
+    export MOEGAMBIT_FAULT_ZERO_MEMORY=1
+    export MOEGAMBIT_FAULT_MEMORY_FILL=zero
     export MAX_RETRIES=1
   else
     export MODE=baseline

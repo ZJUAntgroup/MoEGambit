@@ -357,7 +357,7 @@ class TwoPhaseRecoveryCoordinator:
             existing = self._sessions.get(key)
             if existing is not None and existing.state != TwoPhaseState.COMPLETED:
                 logger.warning(
-                    "BSR-MoE two-phase: aborting existing session for "
+                    "MOEGAMBIT-MoE two-phase: aborting existing session for "
                     "expert (layer=%d, id=%d) in state %s",
                     layer_id, expert_id, existing.state.name,
                 )
@@ -375,7 +375,7 @@ class TwoPhaseRecoveryCoordinator:
             sessions.append(session)
 
         logger.info(
-            "BSR-MoE two-phase: began recovery for %d experts "
+            "MOEGAMBIT-MoE two-phase: began recovery for %d experts "
             "(failed_rank=%d, replacement=%d, step=%d)",
             len(sessions), failed_rank, replacement_rank, step,
         )
@@ -403,7 +403,7 @@ class TwoPhaseRecoveryCoordinator:
                 continue
             if session.state != TwoPhaseState.WEIGHTS_LOADING:
                 logger.debug(
-                    "BSR-MoE two-phase: skipping on_weights_restored for "
+                    "MOEGAMBIT-MoE two-phase: skipping on_weights_restored for "
                     "expert %s (state=%s)", key, session.state.name,
                 )
                 continue
@@ -414,7 +414,7 @@ class TwoPhaseRecoveryCoordinator:
 
         if count > 0:
             logger.warning(
-                "BSR-MoE two-phase: %d experts → WEIGHTS_READY at step %d "
+                "MOEGAMBIT-MoE two-phase: %d experts → WEIGHTS_READY at step %d "
                 "(forward/backward ALLOWED, optimizer step BLOCKED)",
                 count, step,
             )
@@ -450,7 +450,7 @@ class TwoPhaseRecoveryCoordinator:
 
         if count > 0:
             logger.info(
-                "BSR-MoE two-phase: %d experts → OPTIMIZER_PENDING at step %d",
+                "MOEGAMBIT-MoE two-phase: %d experts → OPTIMIZER_PENDING at step %d",
                 count, step,
             )
         return count
@@ -492,7 +492,7 @@ class TwoPhaseRecoveryCoordinator:
             avg_ttt = sum(s.time_to_trainable for s in sessions) / max(len(sessions), 1)
             avg_opt = sum(s.optimizer_load_elapsed for s in sessions) / max(len(sessions), 1)
             logger.warning(
-                "BSR-MoE two-phase: %d experts → FULLY_RECOVERED at step %d "
+                "MOEGAMBIT-MoE two-phase: %d experts → FULLY_RECOVERED at step %d "
                 "(avg time-to-trainable=%.3fs, avg optimizer-load=%.3fs, "
                 "optimizer step now ALLOWED)",
                 count, step, avg_ttt, avg_opt,
@@ -526,7 +526,7 @@ class TwoPhaseRecoveryCoordinator:
 
         if count > 0:
             logger.info(
-                "BSR-MoE two-phase: %d experts → COMPLETED at step %d",
+                "MOEGAMBIT-MoE two-phase: %d experts → COMPLETED at step %d",
                 count, step,
             )
         return count
@@ -543,7 +543,7 @@ class TwoPhaseRecoveryCoordinator:
     ) -> int:
         """Skip the optimizer loading phase (WEIGHTS_READY → FULLY_RECOVERED).
 
-        Used when ``moe_bsr_defer_optimizer_load = False`` or when
+        Used when ``moe_moegambit_defer_optimizer_load = False`` or when
         optimizer state is not available.  The expert transitions directly
         from WEIGHTS_READY to FULLY_RECOVERED.
 
@@ -565,7 +565,7 @@ class TwoPhaseRecoveryCoordinator:
 
         if count > 0:
             logger.info(
-                "BSR-MoE two-phase: %d experts skipped optimizer phase "
+                "MOEGAMBIT-MoE two-phase: %d experts skipped optimizer phase "
                 "→ FULLY_RECOVERED at step %d",
                 count, step,
             )

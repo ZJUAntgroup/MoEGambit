@@ -3160,142 +3160,146 @@ def _add_moe_args(parser):
                        help="some MoE routers have a D2H sync that will break cuda graphs.  If this flag is set the router will switch" \
                        " to dropping and padding during decode time which does not have a D2H sync. The capacity factor is set to the" \
                        " max that an expert could see during inference so no tokens are actually dropped.")
-    # BSR-MoE (Bypass-Stale-Reintegrate) fault-tolerance arguments
-    group.add_argument('--moe-bsr-enable', action='store_true',
-                       help='Master switch for BSR-MoE fault-recovery features.')
-    group.add_argument('--moe-bsr-health-mask', action='store_true',
+    # MOEGAMBIT-MoE (Bypass-Stale-Reintegrate) fault-tolerance arguments
+    group.add_argument('--moe-moegambit-enable', action='store_true',
+                       help='Master switch for MOEGAMBIT-MoE fault-recovery features.')
+    group.add_argument('--moe-moegambit-health-mask', action='store_true',
                        help='Enable per-layer expert health mask injected into the router.')
-    group.add_argument('--moe-bsr-rank-quarantine', action='store_true',
+    group.add_argument('--moe-moegambit-rank-quarantine', action='store_true',
                        help='Enable rank-level quarantine registry.')
-    group.add_argument('--moe-bsr-dispatch-quarantine-assert', action='store_true',
+    group.add_argument('--moe-moegambit-dispatch-quarantine-assert', action='store_true',
                        help='Assert that dispatch splits for quarantined EP ranks are zero.')
-    group.add_argument('--moe-bsr-dispatch-sanitize', action='store_true',
+    group.add_argument('--moe-moegambit-dispatch-sanitize', action='store_true',
                        help='Silently zero out dispatch splits for quarantined EP ranks.')
-    group.add_argument('--moe-bsr-expert-directory', action='store_true',
+    group.add_argument('--moe-moegambit-expert-directory', action='store_true',
                        help='Enable active expert directory and recovery manifest.')
-    group.add_argument('--moe-bsr-replacement-protocol', action='store_true',
+    group.add_argument('--moe-moegambit-replacement-protocol', action='store_true',
                        help='Enable replacement rank lifecycle protocol.')
-    group.add_argument('--moe-bsr-group-rebuild', action='store_true',
+    group.add_argument('--moe-moegambit-group-rebuild', action='store_true',
                        help='Enable safe-point NCCL process group rebuild.')
-    group.add_argument('--moe-bsr-dispatch-topology-refresh', action='store_true',
+    group.add_argument('--moe-moegambit-dispatch-topology-refresh', action='store_true',
                        help='Enable post-rebuild dispatch topology refresh.')
-    group.add_argument('--moe-bsr-dense-param-sync', action='store_true',
+    group.add_argument('--moe-moegambit-dense-param-sync', action='store_true',
                        help='Enable dense parameter broadcast from healthy DP peer.')
-    group.add_argument('--moe-bsr-stale-expert-restore', action='store_true',
+    group.add_argument('--moe-moegambit-stale-expert-restore', action='store_true',
                        help='Enable selective expert weight restore from checkpoint.')
-    group.add_argument('--moe-bsr-recovery-controller', action='store_true',
+    group.add_argument('--moe-moegambit-recovery-controller', action='store_true',
                        help='Enable end-to-end recovery controller.')
-    group.add_argument('--moe-bsr-deferred-optimizer-load', action='store_true',
+    group.add_argument('--moe-moegambit-deferred-optimizer-load', action='store_true',
                        help='Enable deferred async optimizer state loading.')
-    group.add_argument('--moe-bsr-hybrid-expert-restore',
-                       dest='moe_bsr_hybrid_expert_restore',
+    group.add_argument('--moe-moegambit-hybrid-expert-restore',
+                       dest='moe_moegambit_hybrid_expert_restore',
                        action='store_true', default=True,
                        help='Enable selective expert weight restore from checkpoint '
                        'on the hybrid recovery path. Default: enabled.')
-    group.add_argument('--no-moe-bsr-hybrid-expert-restore',
-                       dest='moe_bsr_hybrid_expert_restore',
+    group.add_argument('--no-moe-moegambit-hybrid-expert-restore',
+                       dest='moe_moegambit_hybrid_expert_restore',
                        action='store_false',
                        help='Disable selective expert weight restore; useful for '
                        'dry-run state-machine experiments only.')
-    group.add_argument('--moe-bsr-expert-opt-restore',
-                       dest='moe_bsr_expert_opt_restore',
+    group.add_argument('--moe-moegambit-expert-opt-restore',
+                       dest='moe_moegambit_expert_opt_restore',
                        action='store_true', default=True,
                        help='Enable expert optimizer state restore after expert '
                        'weights are restored. Default: enabled.')
-    group.add_argument('--no-moe-bsr-expert-opt-restore',
-                       dest='moe_bsr_expert_opt_restore',
+    group.add_argument('--no-moe-moegambit-expert-opt-restore',
+                       dest='moe_moegambit_expert_opt_restore',
                        action='store_false',
                        help='Disable expert optimizer state restore after expert '
                        'weight restore.')
-    group.add_argument('--moe-bsr-weights-first-recovery',
-                       dest='moe_bsr_weights_first_recovery',
+    group.add_argument('--moe-moegambit-weights-first-recovery',
+                       dest='moe_moegambit_weights_first_recovery',
                        action='store_true', default=True,
                        help='Enable weights-first recovery: restore expert weights '
                        'before optimizer state. Default: enabled.')
-    group.add_argument('--no-moe-bsr-weights-first-recovery',
-                       dest='moe_bsr_weights_first_recovery',
+    group.add_argument('--no-moe-moegambit-weights-first-recovery',
+                       dest='moe_moegambit_weights_first_recovery',
                        action='store_false',
                        help='Disable weights-first recovery state-machine handling.')
-    group.add_argument('--moe-bsr-defer-optimizer-load',
-                       dest='moe_bsr_defer_optimizer_load',
+    group.add_argument('--moe-moegambit-defer-optimizer-load',
+                       dest='moe_moegambit_defer_optimizer_load',
                        action='store_true', default=True,
                        help='Defer expert optimizer state loading after expert '
                        'weights are trainable. Default: enabled.')
-    group.add_argument('--no-moe-bsr-defer-optimizer-load',
-                       dest='moe_bsr_defer_optimizer_load',
+    group.add_argument('--no-moe-moegambit-defer-optimizer-load',
+                       dest='moe_moegambit_defer_optimizer_load',
                        action='store_false',
                        help='Load expert optimizer state synchronously in the '
                        'safe-point recovery critical path.')
-    group.add_argument('--moe-bsr-force-checkpoint-restart', action='store_true',
+    group.add_argument('--moe-moegambit-force-checkpoint-restart', action='store_true',
                        help='Force the recovery controller to use the full '
                        'CHECKPOINT_RESTART path even when selective hybrid '
                        'recovery is available. Intended for ablation studies.')
-    group.add_argument('--moe-bsr-degraded-mode-policy', action='store_true',
+    group.add_argument('--moe-moegambit-degraded-mode-policy', action='store_true',
                        help='Enable degraded-mode continuation policy.')
-    group.add_argument('--moe-bsr-reintegration-barrier', action='store_true',
+    group.add_argument('--moe-moegambit-reintegration-barrier', action='store_true',
                        help='Enable precondition-gated reintegration barrier.')
-    group.add_argument('--moe-bsr-gap-aware-recovery', action='store_true',
+    group.add_argument('--moe-moegambit-gap-aware-recovery', action='store_true',
                        help='Enable gap-aware recovery path selection. '
                        'When a hard failure occurs, the system computes '
                        'gap = current_iteration - latest_checkpoint_iteration '
                        'and selects checkpoint restart (small gap) or hybrid '
                        'recovery (large gap).')
-    group.add_argument('--moe-bsr-gap-threshold', type=int, default=100,
+    group.add_argument('--moe-moegambit-gap-threshold', type=int, default=100,
                        help='Gap threshold for gap-aware recovery. '
                        'If gap <= threshold, use checkpoint restart; '
                        'if gap > threshold, use hybrid recovery. Default 100. '
                        'Also used as fixed_gap_threshold when '
-                       '--moe-bsr-recovery-policy-type=rank_exposure_guarded_hybrid.')
-    group.add_argument('--moe-bsr-recovery-policy-type', type=str, default='threshold',
-                       choices=['threshold', 'rank_exposure_guarded_hybrid'],
+                       '--moe-moegambit-recovery-policy-type=rank_exposure_guarded_hybrid.')
+    group.add_argument('--moe-moegambit-recovery-policy-type', type=str, default='threshold',
+                       choices=['threshold', 'rank_exposure_guarded_hybrid',
+                                'expert_staleness_guarded'],
                        help='Recovery policy type. "threshold" uses a single gap '
                        'threshold (default, backward compatible). '
                        '"rank_exposure_guarded_hybrid" uses multi-boundary gaps '
                        'and rank stale exposure tracking. Default: threshold.')
-    group.add_argument('--moe-bsr-delta-time-min-gap', type=int, default=32,
+    group.add_argument('--moe-moegambit-delta-time-min-gap', type=int, default=32,
                        help='[rank_exposure_guarded_hybrid] Gap below this value '
                        'triggers checkpoint restart (hybrid not cost-effective). '
                        'Default 32.')
-    group.add_argument('--moe-bsr-max-single-gap', type=int, default=192,
+    group.add_argument('--moe-moegambit-max-single-gap', type=int, default=192,
                        help='[rank_exposure_guarded_hybrid] Single hybrid recovery '
                        'max allowed gap. Gap above this triggers checkpoint restart. '
                        'Default 192.')
-    group.add_argument('--moe-bsr-exposure-window-steps', type=int, default=20000,
+    group.add_argument('--moe-moegambit-exposure-window-steps', type=int, default=20000,
                        help='[rank_exposure_guarded_hybrid] Sliding window (in '
                        'training steps) for tracking rank stale exposure. Default 20000.')
-    group.add_argument('--moe-bsr-max-rank-stale-exposure', type=float, default=0.02,
-                       help='[rank_exposure_guarded_hybrid] Maximum stale exposure '
-                       'ratio per rank within the window (e.g. 0.02 = 2%%). '
-                       'Default 0.02.')
-    group.add_argument('--moe-bsr-policy-margin', type=float, default=0.10,
+    group.add_argument('--moe-moegambit-max-expert-staleness-density',
+                       '--moe-moegambit-max-rank-stale-exposure',
+                       dest='moe_moegambit_max_rank_stale_exposure',
+                       type=float, default=0.1,
+                       help='Maximum projected expert staleness density Phi within '
+                       'the exposure window. The old rank-exposure option name is '
+                       'accepted as an alias. Default 0.1.')
+    group.add_argument('--moe-moegambit-policy-margin', type=float, default=0.10,
                        help='[rank_exposure_guarded_hybrid] Hybrid must be at '
                        'least this fraction faster than restart to be selected. '
                        'Default 0.10 (10%%).')
-    group.add_argument('--moe-bsr-fault-injection', action='store_true',
+    group.add_argument('--moe-moegambit-fault-injection', action='store_true',
                        help='Enable fault-injection and E2E test framework.')
-    group.add_argument('--moe-bsr-restart-in-place', action='store_true',
+    group.add_argument('--moe-moegambit-restart-in-place', action='store_true',
                        help='Enable restart-in-place recovery simulation. '
-                       'When combined with --moe-bsr-fault-injection, '
+                       'When combined with --moe-moegambit-fault-injection, '
                        'faults use restart_in_place=True (replacement_rank==failed_rank), '
                        'triggering NaN sentinel invalidation, fail-closed dense sync, '
                        'and tensor-level verification gates.')
-    group.add_argument('--moe-bsr-degraded-tau-c', type=float, default=0.5,
+    group.add_argument('--moe-moegambit-degraded-tau-c', type=float, default=0.5,
                        help='Minimum healthy expert capacity ratio for degraded mode. Default 0.5.')
-    group.add_argument('--moe-bsr-degraded-t-max', type=int, default=1000,
+    group.add_argument('--moe-moegambit-degraded-t-max', type=int, default=1000,
                        help='Maximum iterations allowed in degraded mode. Default 1000.')
-    group.add_argument('--moe-bsr-degraded-s-max', type=int, default=500,
+    group.add_argument('--moe-moegambit-degraded-s-max', type=int, default=500,
                        help='Maximum staleness (steps) for stale-runnable experts. Default 500.')
-    group.add_argument('--moe-bsr-full-peer-recovery', action='store_true',
+    group.add_argument('--moe-moegambit-full-peer-recovery', action='store_true',
                        help='Enable FULL_PEER_RECOVERY path: when EDP > 1, pull '
                        'ALL parameters (dense + expert weights + optimizer state) '
                        'from a healthy DP peer instead of loading experts from '
                        'checkpoint.  Requires expert data-parallel degree >= 2.')
-    group.add_argument('--moe-bsr-hot-spare-pool', action='store_true',
+    group.add_argument('--moe-moegambit-hot-spare-pool', action='store_true',
                        help='Enable hot-spare node pool.  Hot-spare nodes run as '
                        'independent daemon processes (not part of the training '
                        'torchrun world) and join NCCL groups only after a fault '
                        'triggers activation via the RecoveryController.')
-    group.add_argument('--moe-bsr-num-hot-spares', type=int, default=0,
+    group.add_argument('--moe-moegambit-num-hot-spares', type=int, default=0,
                        help='Number of hot-spare GPU ranks available as daemons.  '
                        'Used by the RecoveryController to decide if instant '
                        'replacement is possible.  Does NOT affect torchrun world size.')

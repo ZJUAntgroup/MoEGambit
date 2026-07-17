@@ -1,5 +1,5 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-# BSR-MoE: Tests for Unified Reintegration (Step 8)
+# MOEGAMBIT-MoE: Tests for Unified Reintegration (Step 8)
 
 import sys
 import time
@@ -92,10 +92,10 @@ class TestPostRecoveryConvergenceWithMocks(unittest.TestCase):
         mock_two = MagicMock(return_value=True)
 
         cfg = MagicMock()
-        cfg.moe_bsr_preferential_routing = True
-        cfg.moe_bsr_expert_opt_restore = True
-        cfg.moe_bsr_defer_optimizer_load = True
-        cfg.moe_bsr_weights_first_recovery = True
+        cfg.moe_moegambit_preferential_routing = True
+        cfg.moe_moegambit_expert_opt_restore = True
+        cfg.moe_moegambit_defer_optimizer_load = True
+        cfg.moe_moegambit_weights_first_recovery = True
 
         conv = self._make_convergence(config=cfg)
         result = conv.execute(
@@ -133,10 +133,10 @@ class TestPostRecoveryConvergenceWithMocks(unittest.TestCase):
         mock_two = MagicMock(return_value=True)
 
         cfg = MagicMock()
-        cfg.moe_bsr_preferential_routing = True
-        cfg.moe_bsr_expert_opt_restore = True
-        cfg.moe_bsr_defer_optimizer_load = True
-        cfg.moe_bsr_weights_first_recovery = True
+        cfg.moe_moegambit_preferential_routing = True
+        cfg.moe_moegambit_expert_opt_restore = True
+        cfg.moe_moegambit_defer_optimizer_load = True
+        cfg.moe_moegambit_weights_first_recovery = True
 
         conv = self._make_convergence(config=cfg)
         result = conv.execute(
@@ -164,9 +164,9 @@ class TestPostRecoveryConvergenceWithMocks(unittest.TestCase):
         mock_two = MagicMock(return_value=True)
 
         cfg = MagicMock()
-        cfg.moe_bsr_preferential_routing = False
-        cfg.moe_bsr_expert_opt_restore = False
-        cfg.moe_bsr_weights_first_recovery = False
+        cfg.moe_moegambit_preferential_routing = False
+        cfg.moe_moegambit_expert_opt_restore = False
+        cfg.moe_moegambit_weights_first_recovery = False
 
         conv = self._make_convergence(config=cfg)
         result = conv.execute(
@@ -391,9 +391,9 @@ class TestTwoPhaseDriving(unittest.TestCase):
             return True
 
         cfg = MagicMock()
-        cfg.moe_bsr_weights_first_recovery = True
-        cfg.moe_bsr_preferential_routing = False
-        cfg.moe_bsr_expert_opt_restore = False
+        cfg.moe_moegambit_weights_first_recovery = True
+        cfg.moe_moegambit_preferential_routing = False
+        cfg.moe_moegambit_expert_opt_restore = False
 
         conv = PostRecoveryConvergence(config=cfg)
         result = conv.execute(
@@ -411,9 +411,9 @@ class TestTwoPhaseDriving(unittest.TestCase):
 
     def test_two_phase_disabled_skipped(self):
         cfg = MagicMock()
-        cfg.moe_bsr_weights_first_recovery = False
-        cfg.moe_bsr_preferential_routing = False
-        cfg.moe_bsr_expert_opt_restore = False
+        cfg.moe_moegambit_weights_first_recovery = False
+        cfg.moe_moegambit_preferential_routing = False
+        cfg.moe_moegambit_expert_opt_restore = False
 
         mock_two = MagicMock(return_value=True)
         conv = PostRecoveryConvergence(config=cfg)
@@ -511,9 +511,9 @@ class TestEndToEndBothPaths(unittest.TestCase):
             return []
 
         cfg = MagicMock()
-        cfg.moe_bsr_preferential_routing = False
-        cfg.moe_bsr_expert_opt_restore = False
-        cfg.moe_bsr_weights_first_recovery = False
+        cfg.moe_moegambit_preferential_routing = False
+        cfg.moe_moegambit_expert_opt_restore = False
+        cfg.moe_moegambit_weights_first_recovery = False
 
         conv = PostRecoveryConvergence(config=cfg)
 
@@ -558,9 +558,9 @@ class TestEndToEndBothPaths(unittest.TestCase):
             return []
 
         cfg = MagicMock()
-        cfg.moe_bsr_preferential_routing = False
-        cfg.moe_bsr_expert_opt_restore = False
-        cfg.moe_bsr_weights_first_recovery = False
+        cfg.moe_moegambit_preferential_routing = False
+        cfg.moe_moegambit_expert_opt_restore = False
+        cfg.moe_moegambit_weights_first_recovery = False
 
         conv = PostRecoveryConvergence(config=cfg)
 
@@ -580,9 +580,9 @@ class TestEndToEndBothPaths(unittest.TestCase):
     def test_training_can_continue(self):
         """After convergence, no errors → training can continue."""
         cfg = MagicMock()
-        cfg.moe_bsr_preferential_routing = False
-        cfg.moe_bsr_expert_opt_restore = False
-        cfg.moe_bsr_weights_first_recovery = False
+        cfg.moe_moegambit_preferential_routing = False
+        cfg.moe_moegambit_expert_opt_restore = False
+        cfg.moe_moegambit_weights_first_recovery = False
 
         conv = PostRecoveryConvergence(config=cfg)
 

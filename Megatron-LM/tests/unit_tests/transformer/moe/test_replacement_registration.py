@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE Replacement Rank Registration.
+"""Unit tests for MOEGAMBIT-MoE Replacement Rank Registration.
 
 Tests cover:
 1. ReplacementRegistry state machine (NOT_PRESENT → BOOTSTRAPPING →
@@ -10,7 +10,7 @@ Tests cover:
 4. RecoveryController integration (on_replacement_assigned / on_replacement_ready)
 5. Safe-point gate: replacement rank must NOT participate before INTEGRATED
 6. End-to-end: hard failure → replacement announced → safe-point repair
-7. bsr_integration public API (bsr_announce_replacement_ready, etc.)
+7. moegambit_integration public API (moegambit_announce_replacement_ready, etc.)
 8. Multiple concurrent replacements
 9. Abort / cleanup paths
 """
@@ -475,7 +475,7 @@ class TestEndToEndReplacement(unittest.TestCase):
         1. Iteration 100: forward fails (NCCL error)
         2. Iteration invalidated, optimizer blocked, rollback
         3. Replacement rank 99 announced for failed rank 3
-        4. Iteration 100 (retry): bsr_before_iteration triggers safe-point repair
+        4. Iteration 100 (retry): moegambit_before_iteration triggers safe-point repair
         5. Iteration 100 (retry): forward succeeds, optimizer commits
         """
 
@@ -530,7 +530,7 @@ class TestEndToEndReplacement(unittest.TestCase):
         self.ctrl.on_replacement_ready(failed_rank=3, step=100)
         self.assertEqual(self.ctrl.phase, RecoveryPhase.SAFE_POINT_REPAIR)
 
-        # --- Iteration 100 retry: bsr_before_iteration triggers repair ---
+        # --- Iteration 100 retry: moegambit_before_iteration triggers repair ---
         self.inv.begin_iteration(100)
         repair_done = self.ctrl.before_iteration(step=100)
         self.assertTrue(repair_done)

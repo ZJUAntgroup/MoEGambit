@@ -75,7 +75,7 @@ Scope (v1)
 * ❌ ZeRO-2 / sharded optimizer (not in scope)
 * ❌ Automatic re-entry into training loop (not in scope)
 
-Integration with BSR-MoE stack
+Integration with MOEGAMBIT-MoE stack
 ------------------------------
 * ``ReplacementRegistry`` (Step 6) — replacement lifecycle.
 * ``GroupRebuildCoordinator`` (Step 7) — safe-point group rebuild.
@@ -491,7 +491,7 @@ def pull_dense_params_from_peer(
             result.elapsed_seconds = time.monotonic() - start_time
 
             logger.debug(
-                "BSR-MoE dense param sync: SUCCESS — synced %d params "
+                "MOEGAMBIT-MoE dense param sync: SUCCESS — synced %d params "
                 "(%d scalars) from rank %d (attempt %d, %.2fs, "
                 "skipped %d expert params)",
                 synced_count, synced_scalars, source_rank, attempt,
@@ -502,7 +502,7 @@ def pull_dense_params_from_peer(
         except Exception as e:
             last_error = str(e)
             logger.warning(
-                "BSR-MoE dense param sync: attempt %d FAILED — %s",
+                "MOEGAMBIT-MoE dense param sync: attempt %d FAILED — %s",
                 attempt, last_error,
             )
 
@@ -512,7 +512,7 @@ def pull_dense_params_from_peer(
     result.elapsed_seconds = time.monotonic() - start_time
 
     logger.error(
-        "BSR-MoE dense param sync: FAILED after %d attempts — %s",
+        "MOEGAMBIT-MoE dense param sync: FAILED after %d attempts — %s",
         max_retries, result.error,
     )
     return result
@@ -617,7 +617,7 @@ def _sync_optimizer_states_for_dense(
         raise  # Re-raise fail-closed errors
     except Exception as e:
         logger.warning(
-            "BSR-MoE: optimizer state sync encountered error: %s", e,
+            "MOEGAMBIT-MoE: optimizer state sync encountered error: %s", e,
         )
 
     return synced_scalars
@@ -823,7 +823,7 @@ def pull_expert_params_from_peer(
             result.elapsed_seconds = time.monotonic() - start_time
 
             logger.debug(
-                "BSR-MoE expert peer sync: SUCCESS — synced %d params "
+                "MOEGAMBIT-MoE expert peer sync: SUCCESS — synced %d params "
                 "(%d scalars) from Expert-DP peer rank %d (attempt %d, "
                 "%.2fs)",
                 synced_count, synced_scalars, source_rank, attempt,
@@ -834,7 +834,7 @@ def pull_expert_params_from_peer(
         except Exception as e:
             last_error = str(e)
             logger.warning(
-                "BSR-MoE expert peer sync: attempt %d FAILED — %s",
+                "MOEGAMBIT-MoE expert peer sync: attempt %d FAILED — %s",
                 attempt, last_error,
             )
 
@@ -844,7 +844,7 @@ def pull_expert_params_from_peer(
     result.elapsed_seconds = time.monotonic() - start_time
 
     logger.error(
-        "BSR-MoE expert peer sync: FAILED after %d attempts — %s",
+        "MOEGAMBIT-MoE expert peer sync: FAILED after %d attempts — %s",
         max_retries, result.error,
     )
     return result
@@ -907,7 +907,7 @@ def _sync_optimizer_states_for_experts(
                             synced_scalars += state_val.numel()
     except Exception as e:
         logger.warning(
-            "BSR-MoE: expert optimizer state sync encountered error: %s", e,
+            "MOEGAMBIT-MoE: expert optimizer state sync encountered error: %s", e,
         )
 
     return synced_scalars
@@ -950,11 +950,11 @@ def verify_synced_params(
         msg = "Dense param verification failed: " + "; ".join(errors[:5])
         if len(errors) > 5:
             msg += " ... and {} more".format(len(errors) - 5)
-        logger.error("BSR-MoE: %s", msg)
+        logger.error("MOEGAMBIT-MoE: %s", msg)
         return False, msg
 
     logger.info(
-        "BSR-MoE: dense param verification PASSED (%d params checked)",
+        "MOEGAMBIT-MoE: dense param verification PASSED (%d params checked)",
         classification.num_dense_like,
     )
     return True, ""
@@ -1058,7 +1058,7 @@ class DenseParamRecoveryCoordinator:
         self._plans.append(plan)
 
         logger.info(
-            "BSR-MoE dense recovery: planned — replacement=%d, failed=%d, "
+            "MOEGAMBIT-MoE dense recovery: planned — replacement=%d, failed=%d, "
             "source=%d, step=%d",
             replacement_rank, failed_rank,
             plan.source_rank, step,

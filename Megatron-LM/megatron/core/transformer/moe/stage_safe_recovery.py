@@ -1,5 +1,5 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-# BSR-MoE: Stage-Safe Recovery Protocol for PP > 1
+# MOEGAMBIT-MoE: Stage-Safe Recovery Protocol for PP > 1
 #
 # This module provides the minimal end-to-end protocol that ties together
 # the existing PP recovery building blocks into a single, testable
@@ -178,7 +178,7 @@ class StageSafeRecoveryProtocol:
         old = self._phase
         self._phase = new_phase
         logger.info(
-            "BSR-MoE stage-safe: %s → %s", old.name, new_phase.name,
+            "MOEGAMBIT-MoE stage-safe: %s → %s", old.name, new_phase.name,
         )
 
     @property
@@ -236,7 +236,7 @@ class StageSafeRecoveryProtocol:
         )
 
         logger.warning(
-            "[%s] BSR-MoE stage-safe: starting recovery "
+            "[%s] MOEGAMBIT-MoE stage-safe: starting recovery "
             "(failed_rank=%d, stage=%d, replacement=%d, "
             "path=%s, step=%d, pp_ranks=%s)",
             _ts(), failed_rank, failed_stage, replacement_rank,
@@ -445,7 +445,7 @@ class StageSafeRecoveryProtocol:
         except Exception as e:
             result.errors.append(f"protocol error: {e}")
             logger.error(
-                "BSR-MoE stage-safe: protocol error at phase %s: %s",
+                "MOEGAMBIT-MoE stage-safe: protocol error at phase %s: %s",
                 self._phase.name, e,
             )
 
@@ -456,7 +456,7 @@ class StageSafeRecoveryProtocol:
         self._history.append(result)
 
         logger.warning(
-            "[%s] BSR-MoE stage-safe: recovery %s "
+            "[%s] MOEGAMBIT-MoE stage-safe: recovery %s "
             "(phase=%s, path=%s, errors=%d, elapsed=%.3fs, step=%d)",
             _ts(),
             "SUCCEEDED" if result.success else "FAILED",

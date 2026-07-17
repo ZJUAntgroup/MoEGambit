@@ -290,3 +290,9 @@ python scripts/analyze_moegambit_log.py <new_log_file>
 - `max_rank_stale_exposure` is retained as a legacy flag name for `Phi_max`.
 - Full reproduction requires the same multi-node GPU setting and dataset paths used by the paper.  The package retains raw evaluation logs only; training and recovery log-analysis scripts should be run on regenerated logs.
 - `src/Megatron-LM/` is a complete Megatron-LM tree with MoEGambit patches applied.
+
+## License and Citation
+
+This artifact is distributed under multiple open-source licenses.  MoEGambit-specific files outside `src/Megatron-LM/` are released under Apache-2.0; the bundled Megatron-LM tree retains the upstream Megatron-LM and third-party licenses in `src/Megatron-LM/LICENSE`.
+
+If you use this artifact, please cite the accompanying MoEGambit paper.  A starter `CITATION.cff` is included and should be updated with the final publication metadata before archival release.

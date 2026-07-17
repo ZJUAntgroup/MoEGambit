@@ -1,9 +1,9 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""BSR-MoE Recovery Controller (Step 11).
+"""MOEGAMBIT-MoE Recovery Controller (Step 11).
 
 This module provides a **single orchestration controller** that coordinates
-the entire BSR-MoE fault recovery lifecycle.  It wires together all previous
+the entire MOEGAMBIT-MoE fault recovery lifecycle.  It wires together all previous
 steps (1–10) into a coherent state machine driven by training-loop hooks.
 
 The controller itself does **not** directly modify routers, dispatchers, or
@@ -113,7 +113,7 @@ def _ts() -> str:
 # =====================================================================
 
 class RecoveryPhase(enum.IntEnum):
-    """Phases of the BSR-MoE recovery lifecycle."""
+    """Phases of the MOEGAMBIT-MoE recovery lifecycle."""
 
     HEALTHY_TRAINING = 0
     """Normal training — no faults, no recovery in progress."""
@@ -201,6 +201,10 @@ class ExpertRecoveryTracker:
 
     def set_num_experts(self, num_experts: int) -> None:
         self._num_experts = num_experts
+
+    @property
+    def num_experts(self) -> int:
+        return self._num_experts
 
     # -- Mutation --
 
@@ -426,7 +430,7 @@ class FaultRecord:
 # =====================================================================
 
 class RecoveryController:
-    """Orchestrates the BSR-MoE fault recovery lifecycle.
+    """Orchestrates the MOEGAMBIT-MoE fault recovery lifecycle.
 
     The controller maintains a state machine and invokes registered
     callbacks at the appropriate times.  It does NOT directly modify
@@ -469,7 +473,7 @@ class RecoveryController:
         self._async_recovery_submitted_keys: Set[Tuple[int, int, int]] = set()
         self._async_recovery_completed_keys: Set[Tuple[int, int, int]] = set()
 
-        # Callbacks for async recovery (set by bsr_integration)
+        # Callbacks for async recovery (set by moegambit_integration)
         self._async_expert_restore_fn: Optional[Callable] = None
         self._poll_async_recovery_fn: Optional[Callable] = None
 
@@ -557,6 +561,10 @@ class RecoveryController:
             manager: A ``GapAwareRecoveryPolicyManager`` instance.
         """
         self._gap_aware_policy_manager = manager
+
+    def set_num_experts(self, num_experts: int) -> None:
+        """Set the global expert count used by the R2 density denominator."""
+        self._expert_tracker.set_num_experts(num_experts)
 
     @property
     def gap_aware_policy_manager(self):
@@ -691,14 +699,14 @@ class RecoveryController:
         return True
 
     def _should_use_full_peer_recovery(self) -> bool:
-        """Check whether the --moe-bsr-full-peer-recovery CLI flag is set
+        """Check whether the --moe-moegambit-full-peer-recovery CLI flag is set
         AND the runtime conditions allow full-peer recovery (EDP > 1 and
         expert_peer_sync_fn registered).
         """
         try:
             from megatron.training import get_args
             args = get_args()
-            if not getattr(args, 'moe_bsr_full_peer_recovery', False):
+            if not getattr(args, 'moe_moegambit_full_peer_recovery', False):
                 return False
         except Exception:
             return False
@@ -737,7 +745,7 @@ class RecoveryController:
         self._event_log.append(event)
 
         logger.warning(
-            "[%s] BSR-MoE controller: %s → %s (event=%s, step=%d)",
+            "[%s] MOEGAMBIT-MoE controller: %s → %s (event=%s, step=%d)",
             _ts(), old_phase.name, new_phase.name, event.event_type, step,
         )
 
@@ -784,7 +792,7 @@ class RecoveryController:
         if record is not None and record.fault_type == "hard":
             # Already tracked as hard fault — no-op
             logger.debug(
-                "BSR-MoE controller: rank %d already tracked as hard fault, "
+                "MOEGAMBIT-MoE controller: rank %d already tracked as hard fault, "
                 "skipping duplicate (step=%d)",
                 failed_rank, step,
             )
@@ -817,7 +825,7 @@ class RecoveryController:
                 record.dp_group_ranks = list(dp_group_ranks)
 
         logger.warning(
-            "[%s] BSR-MoE controller: rank %d HARD FAILURE (step=%d, reason=%s, "
+            "[%s] MOEGAMBIT-MoE controller: rank %d HARD FAILURE (step=%d, reason=%s, "
             "experts=%s, mid_iteration=%s)",
             _ts(), failed_rank, step, reason, expert_ids, mid_iteration,
         )
@@ -831,7 +839,7 @@ class RecoveryController:
             self._iteration_invalidated = True
             self._invalidated_step = step
             logger.warning(
-                "BSR-MoE controller: iteration %d INVALIDATED due to "
+                "MOEGAMBIT-MoE controller: iteration %d INVALIDATED due to "
                 "hard failure of rank %d (mid_iteration=True)",
                 step, failed_rank,
             )
@@ -842,7 +850,7 @@ class RecoveryController:
                 self._optimizer_commit_block_fn(step=step, failed_rank=failed_rank)
             except Exception as e:
                 logger.error(
-                    "BSR-MoE controller: optimizer_commit_block_fn failed: %s", e,
+                    "MOEGAMBIT-MoE controller: optimizer_commit_block_fn failed: %s", e,
                 )
 
         # Notify external system that we are entering waiting-for-replacement
@@ -855,7 +863,7 @@ class RecoveryController:
                 )
             except Exception as e:
                 logger.error(
-                    "BSR-MoE controller: enter_waiting_fn failed: %s", e,
+                    "MOEGAMBIT-MoE controller: enter_waiting_fn failed: %s", e,
                 )
 
         # Transition
@@ -881,7 +889,7 @@ class RecoveryController:
                     )
                 except Exception as e:
                     logger.error(
-                        "BSR-MoE controller: invalidate_tensor_fn failed: %s", e,
+                        "MOEGAMBIT-MoE controller: invalidate_tensor_fn failed: %s", e,
                     )
 
             # Auto-assign replacement_rank = failed_rank
@@ -897,7 +905,7 @@ class RecoveryController:
             )
 
             logger.warning(
-                "BSR-MoE controller: restart-in-place fast path for rank %d "
+                "MOEGAMBIT-MoE controller: restart-in-place fast path for rank %d "
                 "(replacement=self, step=%d)",
                 failed_rank, step,
             )
@@ -989,7 +997,7 @@ class RecoveryController:
                 self._optimizer_commit_block_fn(step=step, failed_rank=failed_rank)
             except Exception as e:
                 logger.error(
-                    "BSR-MoE controller: optimizer_commit_block_fn failed: %s", e,
+                    "MOEGAMBIT-MoE controller: optimizer_commit_block_fn failed: %s", e,
                 )
 
         # Notify external system that we are entering waiting-for-replacement
@@ -1002,7 +1010,7 @@ class RecoveryController:
                 )
             except Exception as e:
                 logger.error(
-                    "BSR-MoE controller: enter_waiting_fn failed: %s", e,
+                    "MOEGAMBIT-MoE controller: enter_waiting_fn failed: %s", e,
                 )
 
         # Invalidate in-flight microbatches
@@ -1033,7 +1041,7 @@ class RecoveryController:
                         )
                     except Exception as e:
                         logger.error(
-                            "BSR-MoE controller: pipeline_rollback_fn "
+                            "MOEGAMBIT-MoE controller: pipeline_rollback_fn "
                             "failed: %s", e,
                         )
                 self._pipeline_rollback_completed = True
@@ -1054,7 +1062,7 @@ class RecoveryController:
                 )
 
         logger.warning(
-            "BSR-MoE controller: pipeline stage failure — "
+            "MOEGAMBIT-MoE controller: pipeline stage failure — "
             "stage=%d, rank=%d, step=%d, pp_ranks=%s",
             failed_stage, failed_rank, step, pp_group_ranks,
         )
@@ -1083,12 +1091,12 @@ class RecoveryController:
                 )
             except Exception as e:
                 logger.error(
-                    "BSR-MoE controller: microbatch_invalidation_fn "
+                    "MOEGAMBIT-MoE controller: microbatch_invalidation_fn "
                     "failed: %s", e,
                 )
 
         logger.warning(
-            "BSR-MoE controller: in-flight microbatches invalidated "
+            "MOEGAMBIT-MoE controller: in-flight microbatches invalidated "
             "(step=%d, pp_size=%d)",
             step, pp_size,
         )
@@ -1147,7 +1155,7 @@ class RecoveryController:
         record.replacement_assigned_step = step
 
         logger.warning(
-            "[%s] BSR-MoE controller: replacement assigned — "
+            "[%s] MOEGAMBIT-MoE controller: replacement assigned — "
             "failed_rank=%d, replacement_rank=%d (step=%d)",
             _ts(), failed_rank, replacement_rank, step,
         )
@@ -1188,7 +1196,7 @@ class RecoveryController:
         record.replacement_ready_step = step
 
         logger.warning(
-            "[%s] BSR-MoE controller: replacement ready — "
+            "[%s] MOEGAMBIT-MoE controller: replacement ready — "
             "failed_rank=%d (step=%d)",
             _ts(), failed_rank, step,
         )
@@ -1275,7 +1283,7 @@ class RecoveryController:
                     if completed_key is not None:
                         self._async_recovery_completed_keys.add(completed_key)
                     logger.info(
-                        "BSR-MoE controller: async recovery completed at "
+                        "MOEGAMBIT-MoE controller: async recovery completed at "
                         "step %d (failed_rank=%d, replacement=%d)",
                         step, self._async_recovery_failed_rank,
                         self._async_recovery_replacement_rank,
@@ -1283,7 +1291,7 @@ class RecoveryController:
                     return True
             except Exception as e:
                 logger.error(
-                    "BSR-MoE controller: poll_async_recovery_fn failed: %s", e,
+                    "MOEGAMBIT-MoE controller: poll_async_recovery_fn failed: %s", e,
                 )
 
         return False
@@ -1350,7 +1358,7 @@ class RecoveryController:
 
         if ready_record is None:
             logger.warning(
-                "BSR-MoE controller: SAFE_POINT_REPAIR but no ready record"
+                "MOEGAMBIT-MoE controller: SAFE_POINT_REPAIR but no ready record"
             )
             return False
 
@@ -1362,7 +1370,7 @@ class RecoveryController:
 
         repair_start = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: ⏱️  START safe-point repair at step %d "
+            "[%s] MOEGAMBIT-MoE controller: ⏱️  START safe-point repair at step %d "
             "(failed=%d, replacement=%d)",
             _ts(), step, failed_rank, replacement_rank,
         )
@@ -1372,7 +1380,7 @@ class RecoveryController:
         # =============================================================
         phase_a_start = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: ⏱️  [Phase A] Starting infrastructure repair...",
+            "[%s] MOEGAMBIT-MoE controller: ⏱️  [Phase A] Starting infrastructure repair...",
             _ts(),
         )
 
@@ -1386,7 +1394,7 @@ class RecoveryController:
             )
         t1 = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: step1 replacement_integrate elapsed=%.3fs (step=%d)",
+            "[%s] MOEGAMBIT-MoE controller: step1 replacement_integrate elapsed=%.3fs (step=%d)",
             _ts(), t1 - t0, step,
         )
 
@@ -1407,7 +1415,7 @@ class RecoveryController:
             )
         t1 = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: step2 group_rebuild_request elapsed=%.3fs (step=%d)",
+            "[%s] MOEGAMBIT-MoE controller: step2 group_rebuild_request elapsed=%.3fs (step=%d)",
             _ts(), t1 - t0, step,
         )
 
@@ -1423,13 +1431,13 @@ class RecoveryController:
             except Exception as e:
                 t1 = time.time()
                 logger.error(
-                    "[%s] BSR-MoE controller: step3 group_rebuild_execute "
+                    "[%s] MOEGAMBIT-MoE controller: step3 group_rebuild_execute "
                     "FAILED (elapsed=%.3fs, step=%d): %s",
                     _ts(), t1 - t0, step, e,
                 )
                 ready_record.repair_step = -1
                 logger.error(
-                    "[%s] BSR-MoE controller: safe-point repair ABORTED — "
+                    "[%s] MOEGAMBIT-MoE controller: safe-point repair ABORTED — "
                     "group rebuild failed, training cannot continue safely. "
                     "(step=%d, failed=%d, replacement=%d)",
                     _ts(), step, failed_rank, replacement_rank,
@@ -1437,7 +1445,7 @@ class RecoveryController:
                 return False
         t1 = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: step3 group_rebuild_execute elapsed=%.3fs (step=%d)",
+            "[%s] MOEGAMBIT-MoE controller: step3 group_rebuild_execute elapsed=%.3fs (step=%d)",
             _ts(), t1 - t0, step,
         )
 
@@ -1451,7 +1459,7 @@ class RecoveryController:
             )
         t1 = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: step4 group_rebuild_finish elapsed=%.3fs (step=%d)",
+            "[%s] MOEGAMBIT-MoE controller: step4 group_rebuild_finish elapsed=%.3fs (step=%d)",
             _ts(), t1 - t0, step,
         )
 
@@ -1466,13 +1474,13 @@ class RecoveryController:
             )
         t1 = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: step5 topology_refresh elapsed=%.3fs (step=%d)",
+            "[%s] MOEGAMBIT-MoE controller: step5 topology_refresh elapsed=%.3fs (step=%d)",
             _ts(), t1 - t0, step,
         )
         
         phase_a_elapsed = time.time() - phase_a_start
         logger.warning(
-            "[%s] BSR-MoE controller: ⏱️  [Phase A] Infrastructure repair COMPLETED (elapsed=%.3fs)",
+            "[%s] MOEGAMBIT-MoE controller: ⏱️  [Phase A] Infrastructure repair COMPLETED (elapsed=%.3fs)",
             _ts(), phase_a_elapsed,
         )
 
@@ -1481,7 +1489,7 @@ class RecoveryController:
         # =============================================================
         phase_b_start = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: ⏱️  [Phase B] Starting parameter recovery...",
+            "[%s] MOEGAMBIT-MoE controller: ⏱️  [Phase B] Starting parameter recovery...",
             _ts(),
         )
         
@@ -1493,14 +1501,14 @@ class RecoveryController:
         recovery_path_name = "HYBRID_RECOVERY"  # default
         decision = None
 
-        # Highest-priority override: ``BSR_FORCE_CHECKPOINT_RESTART=1`` makes
+        # Highest-priority override: ``MOEGAMBIT_FORCE_CHECKPOINT_RESTART=1`` makes
         # every recovery event take the CHECKPOINT_RESTART path regardless of
-        # whether the gap-aware policy is enabled or which BSR fast-path
+        # whether the gap-aware policy is enabled or which MOEGAMBIT fast-path
         # switches happen to be on in argv. This is what the MoC-System
         # emulation script uses to faithfully reproduce MoC-System's
         # full-ckpt-reload recovery semantics (the PEC byte overlay still
         # rewrites which expert shard gets loaded).
-        if os.environ.get("BSR_FORCE_CHECKPOINT_RESTART", "0") == "1":
+        if os.environ.get("MOEGAMBIT_FORCE_CHECKPOINT_RESTART", "0") == "1":
             from megatron.core.transformer.moe.gap_aware_recovery_policy import (
                 RecoveryPath,
                 RecoveryDecision,
@@ -1514,7 +1522,7 @@ class RecoveryController:
                 failed_rank=failed_rank,
                 reason="forced_checkpoint_restart_env",
                 reason_detail=(
-                    "BSR_FORCE_CHECKPOINT_RESTART=1 — recovery path forced "
+                    "MOEGAMBIT_FORCE_CHECKPOINT_RESTART=1 — recovery path forced "
                     "to CHECKPOINT_RESTART (MoC-System emulation)"
                 ),
                 metadata={
@@ -1525,13 +1533,13 @@ class RecoveryController:
                 },
             )
             logger.warning(
-                "[%s] BSR-MoE controller: CHECKPOINT_RESTART forced by "
-                "BSR_FORCE_CHECKPOINT_RESTART=1 (step=%d, failed=%d, "
+                "[%s] MOEGAMBIT-MoE controller: CHECKPOINT_RESTART forced by "
+                "MOEGAMBIT_FORCE_CHECKPOINT_RESTART=1 (step=%d, failed=%d, "
                 "replacement=%d)",
                 _ts(), step, failed_rank, replacement_rank,
             )
         elif self._should_use_full_peer_recovery():
-            # --moe-bsr-full-peer-recovery flag is set AND EDP > 1 AND
+            # --moe-moegambit-full-peer-recovery flag is set AND EDP > 1 AND
             # expert_peer_sync_fn is registered.  Force FULL_PEER_RECOVERY
             # without requiring the gap-aware policy manager.
             from megatron.core.transformer.moe.gap_aware_recovery_policy import (
@@ -1547,7 +1555,7 @@ class RecoveryController:
                 failed_rank=failed_rank,
                 reason="full_peer_recovery_flag",
                 reason_detail=(
-                    "--moe-bsr-full-peer-recovery enabled and EDP > 1; "
+                    "--moe-moegambit-full-peer-recovery enabled and EDP > 1; "
                     "all params will be pulled from DP peer"
                 ),
                 metadata={
@@ -1559,8 +1567,8 @@ class RecoveryController:
                 },
             )
             logger.warning(
-                "[%s] BSR-MoE controller: FULL_PEER_RECOVERY forced by "
-                "--moe-bsr-full-peer-recovery (EDP=%d, step=%d, failed=%d, "
+                "[%s] MOEGAMBIT-MoE controller: FULL_PEER_RECOVERY forced by "
+                "--moe-moegambit-full-peer-recovery (EDP=%d, step=%d, failed=%d, "
                 "replacement=%d)",
                 _ts(), self._get_expert_data_parallel_size(),
                 step, failed_rank, replacement_rank,
@@ -1578,6 +1586,8 @@ class RecoveryController:
                     len(ready_record.expert_ids)
                     if ready_record.expert_ids else 0
                 ),
+                num_total_experts=max(1, self._expert_tracker.num_experts),
+                dense_peer_available=self._dense_sync_fn is not None,
                 expert_dp_peer_available=self._has_expert_dp_peer(
                     failed_rank=failed_rank,
                 ),
@@ -1585,7 +1595,7 @@ class RecoveryController:
             )
             recovery_path_name = decision.path.name
             logger.warning(
-                "[%s] BSR-MoE controller: gap-aware policy selected %s "
+                "[%s] MOEGAMBIT-MoE controller: gap-aware policy selected %s "
                 "(gap=%d, step=%d, failed=%d, replacement=%d, reason=%s)",
                 _ts(), recovery_path_name, decision.gap,
                 step, failed_rank, replacement_rank, decision.reason,
@@ -1633,7 +1643,7 @@ class RecoveryController:
                         },
                     )
                     logger.warning(
-                        "[%s] BSR-MoE controller: CHECKPOINT_RESTART forced "
+                        "[%s] MOEGAMBIT-MoE controller: CHECKPOINT_RESTART forced "
                         "by force_checkpoint_restart_fn: %s "
                         "(step=%d, ckpt_iter=%d, gap=%d)",
                         _ts(), _force_reason, step,
@@ -1642,7 +1652,7 @@ class RecoveryController:
                     )
             except Exception as e:
                 logger.error(
-                    "BSR-MoE controller: force_checkpoint_restart_fn "
+                    "MOEGAMBIT-MoE controller: force_checkpoint_restart_fn "
                     "failed: %s (continuing with %s)",
                     e, recovery_path_name,
                 )
@@ -1680,7 +1690,7 @@ class RecoveryController:
                 ))
             except Exception as e:
                 logger.debug(
-                    "BSR-MoE controller: failed to emit recovery_path_chosen "
+                    "MOEGAMBIT-MoE controller: failed to emit recovery_path_chosen "
                     "JSON log: %s",
                     e,
                 )
@@ -1706,7 +1716,7 @@ class RecoveryController:
 
         phase_b_elapsed = time.time() - phase_b_start
         logger.warning(
-            "[%s] BSR-MoE controller: ⏱️  [Phase B] Parameter recovery COMPLETED "
+            "[%s] MOEGAMBIT-MoE controller: ⏱️  [Phase B] Parameter recovery COMPLETED "
             "(path=%s, elapsed=%.3fs)",
             _ts(), recovery_path_name, phase_b_elapsed,
         )
@@ -1757,13 +1767,13 @@ class RecoveryController:
                     expert_ids=ready_record.expert_ids or [],
                 )
                 logger.warning(
-                    "[%s] BSR-MoE controller: ⏱️  [Phase B→C] Post-recovery convergence "
+                    "[%s] MOEGAMBIT-MoE controller: ⏱️  [Phase B→C] Post-recovery convergence "
                     "completed (path=%s, elapsed=%.3fs, step=%d)",
                     _ts(), self._last_recovery_path, time.time() - t0, step,
                 )
             except Exception as conv_e:
                 logger.error(
-                    "[%s] BSR-MoE controller: post-recovery convergence "
+                    "[%s] MOEGAMBIT-MoE controller: post-recovery convergence "
                     "failed (non-fatal): %s", _ts(), conv_e,
                 )
 
@@ -1772,7 +1782,7 @@ class RecoveryController:
         # =============================================================
         phase_c_start = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: ⏱️  [Phase C] Starting post-repair...",
+            "[%s] MOEGAMBIT-MoE controller: ⏱️  [Phase C] Starting post-repair...",
             _ts(),
         )
 
@@ -1799,13 +1809,13 @@ class RecoveryController:
                 )
                 ready_record.pipeline_repaired = True
                 logger.warning(
-                    "[%s] BSR-MoE controller: pipeline_stage_repair "
+                    "[%s] MOEGAMBIT-MoE controller: pipeline_stage_repair "
                     "completed for rank %d elapsed=%.3fs (step=%d)",
                     _ts(), failed_rank, time.time() - t0, step,
                 )
             except Exception as e:
                 logger.error(
-                    "[%s] BSR-MoE controller: pipeline_stage_repair_fn "
+                    "[%s] MOEGAMBIT-MoE controller: pipeline_stage_repair_fn "
                     "failed for rank %d: %s (elapsed=%.3fs)",
                     _ts(), failed_rank, e, time.time() - t0,
                 )
@@ -1825,7 +1835,7 @@ class RecoveryController:
             repair_elapsed = time.time() - repair_start
             phase_c_elapsed = time.time() - phase_c_start
             logger.warning(
-                "[%s] BSR-MoE controller: ⏱️  ✅ SAFE-POINT REPAIR COMPLETED "
+                "[%s] MOEGAMBIT-MoE controller: ⏱️  ✅ SAFE-POINT REPAIR COMPLETED "
                 "(PP>1, path=%s, step=%d) "
                 "| Total=%.3fs | Breakdown: PhaseA=%.3fs, PhaseB=%.3fs, PhaseC=%.3fs",
                 _ts(), recovery_path_name, step,
@@ -1858,13 +1868,13 @@ class RecoveryController:
                     failed_rank, "experts_restorable", step=step,
                 )
                 logger.warning(
-                    "[%s] BSR-MoE controller: reintegration barrier initialized "
+                    "[%s] MOEGAMBIT-MoE controller: reintegration barrier initialized "
                     "for rank %d (all preconditions marked, step=%d)",
                     _ts(), failed_rank, step,
                 )
             except Exception as e:
                 logger.error(
-                    "BSR-MoE controller: reintegration barrier setup "
+                    "MOEGAMBIT-MoE controller: reintegration barrier setup "
                     "failed for rank %d: %s", failed_rank, e,
                 )
 
@@ -1883,7 +1893,7 @@ class RecoveryController:
         repair_elapsed = time.time() - repair_start
         phase_c_elapsed = time.time() - phase_c_start
         logger.warning(
-            "[%s] BSR-MoE controller: ⏱️  ✅ SAFE-POINT REPAIR COMPLETED "
+            "[%s] MOEGAMBIT-MoE controller: ⏱️  ✅ SAFE-POINT REPAIR COMPLETED "
             "(path=%s, step=%d, failed=%d, replacement=%d) "
             "| Total=%.3fs | Breakdown: PhaseA=%.3fs, PhaseB=%.3fs, PhaseC=%.3fs",
             _ts(), recovery_path_name, step, failed_rank, replacement_rank,
@@ -1937,7 +1947,7 @@ class RecoveryController:
         )
 
         logger.warning(
-            "[%s] BSR-MoE controller: CHECKPOINT_RESTART path SELECTED — "
+            "[%s] MOEGAMBIT-MoE controller: CHECKPOINT_RESTART path SELECTED — "
             "loading all params from checkpoint "
             "(step=%d, failed=%d, replacement=%d, gap=%d, ckpt_iter=%d)",
             _ts(), step, failed_rank, replacement_rank, gap, ckpt_iter,
@@ -1954,7 +1964,7 @@ class RecoveryController:
                 )
                 elapsed = time.time() - t0
                 logger.warning(
-                    "[%s] BSR-MoE controller: CHECKPOINT_RESTART path "
+                    "[%s] MOEGAMBIT-MoE controller: CHECKPOINT_RESTART path "
                     "COMPLETED — checkpoint_restart_fn elapsed=%.3fs "
                     "(step=%d, ckpt_iter=%d, gap=%d)",
                     _ts(), elapsed, step, ckpt_iter, gap,
@@ -1977,7 +1987,7 @@ class RecoveryController:
                 self._last_recovery_path = "CHECKPOINT_RESTART"
             except Exception as e:
                 logger.error(
-                    "[%s] BSR-MoE controller: checkpoint_restart_fn "
+                    "[%s] MOEGAMBIT-MoE controller: checkpoint_restart_fn "
                     "FAILED: %s — falling back to hybrid recovery "
                     "(step=%d)",
                     _ts(), e, step,
@@ -2004,7 +2014,7 @@ class RecoveryController:
                 self._last_recovery_path = "HYBRID_RECOVERY"
         else:
             logger.warning(
-                "[%s] BSR-MoE controller: CHECKPOINT_RESTART selected "
+                "[%s] MOEGAMBIT-MoE controller: CHECKPOINT_RESTART selected "
                 "but no checkpoint_restart_fn registered — falling "
                 "back to hybrid recovery (step=%d)",
                 _ts(), step,
@@ -2050,7 +2060,7 @@ class RecoveryController:
         replacement_rank = ready_record.replacement_rank
 
         logger.warning(
-            "[%s] BSR-MoE controller: HYBRID_RECOVERY path — "
+            "[%s] MOEGAMBIT-MoE controller: HYBRID_RECOVERY path — "
             "dense from DP peer, experts from checkpoint (step=%d, "
             "failed=%d, replacement=%d)",
             _ts(), step, failed_rank, replacement_rank,
@@ -2073,7 +2083,7 @@ class RecoveryController:
             )
         t1 = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: dense_sync elapsed=%.3fs (step=%d)",
+            "[%s] MOEGAMBIT-MoE controller: dense_sync elapsed=%.3fs (step=%d)",
             _ts(), t1 - t0, step,
         )
 
@@ -2092,7 +2102,7 @@ class RecoveryController:
                 expert_ids=ready_record.expert_ids,
             )
             logger.warning(
-                "[%s] BSR-MoE controller: expert_restore (sync weights, "
+                "[%s] MOEGAMBIT-MoE controller: expert_restore (sync weights, "
                 "deferred optimizer) elapsed=%.3fs (step=%d)",
                 _ts(), time.time() - t0, step,
             )
@@ -2101,7 +2111,7 @@ class RecoveryController:
                 recovery_key = (failed_rank, replacement_rank, step)
                 if recovery_key in self._async_recovery_submitted_keys:
                     logger.info(
-                        "BSR-MoE controller: async expert restore already "
+                        "MOEGAMBIT-MoE controller: async expert restore already "
                         "submitted for failed=%d replacement=%d step=%d; "
                         "skipping duplicate submission",
                         failed_rank, replacement_rank, step,
@@ -2125,13 +2135,13 @@ class RecoveryController:
                     self._async_recovery_key = recovery_key
                     self._async_recovery_submitted_keys.add(recovery_key)
                     logger.warning(
-                        "[%s] BSR-MoE controller: async expert restore "
+                        "[%s] MOEGAMBIT-MoE controller: async expert restore "
                         "submitted (%d requests, elapsed=%.3fs, step=%d)",
                         _ts(), len(request_ids), time.time() - t0, step,
                     )
             except Exception as e:
                 logger.error(
-                    "[%s] BSR-MoE controller: async_expert_restore_fn "
+                    "[%s] MOEGAMBIT-MoE controller: async_expert_restore_fn "
                     "failed, falling back to sync: %s", _ts(), e,
                 )
                 if self._expert_restore_fn is not None:
@@ -2142,7 +2152,7 @@ class RecoveryController:
                         expert_ids=ready_record.expert_ids,
                     )
                     logger.warning(
-                        "[%s] BSR-MoE controller: expert_restore (sync "
+                        "[%s] MOEGAMBIT-MoE controller: expert_restore (sync "
                         "fallback) elapsed=%.3fs (step=%d)",
                         _ts(), time.time() - t0, step,
                     )
@@ -2187,7 +2197,7 @@ class RecoveryController:
         replacement_rank = ready_record.replacement_rank
 
         logger.warning(
-            "[%s] BSR-MoE controller: FULL_PEER_RECOVERY path — "
+            "[%s] MOEGAMBIT-MoE controller: FULL_PEER_RECOVERY path — "
             "dense from DP peer, experts from Expert-DP peer "
             "(step=%d, failed=%d, replacement=%d)",
             _ts(), step, failed_rank, replacement_rank,
@@ -2203,7 +2213,7 @@ class RecoveryController:
             )
         t1 = time.time()
         logger.warning(
-            "[%s] BSR-MoE controller: [FULL_PEER] dense_sync "
+            "[%s] MOEGAMBIT-MoE controller: [FULL_PEER] dense_sync "
             "elapsed=%.3fs (step=%d)",
             _ts(), t1 - t0, step,
         )
@@ -2218,7 +2228,7 @@ class RecoveryController:
                 expert_ids=ready_record.expert_ids,
             )
             logger.warning(
-                "[%s] BSR-MoE controller: [FULL_PEER] expert_peer_sync "
+                "[%s] MOEGAMBIT-MoE controller: [FULL_PEER] expert_peer_sync "
                 "elapsed=%.3fs (step=%d)",
                 _ts(), time.time() - t0, step,
             )
@@ -2227,7 +2237,7 @@ class RecoveryController:
             # FULL_PEER_RECOVERY was selected, fall back to hybrid
             # (expert from checkpoint).
             logger.warning(
-                "[%s] BSR-MoE controller: FULL_PEER_RECOVERY selected "
+                "[%s] MOEGAMBIT-MoE controller: FULL_PEER_RECOVERY selected "
                 "but no expert_peer_sync_fn registered — falling back "
                 "to expert_restore from checkpoint (step=%d)",
                 _ts(), step,
@@ -2240,7 +2250,7 @@ class RecoveryController:
                     expert_ids=ready_record.expert_ids,
                 )
                 logger.warning(
-                    "[%s] BSR-MoE controller: [FULL_PEER fallback] "
+                    "[%s] MOEGAMBIT-MoE controller: [FULL_PEER fallback] "
                     "expert_restore elapsed=%.3fs (step=%d)",
                     _ts(), time.time() - t0, step,
                 )
@@ -2262,13 +2272,13 @@ class RecoveryController:
                     expert_ids=ready_record.expert_ids,
                 )
                 logger.info(
-                    "[%s] BSR-MoE controller: [FULL_PEER] experts marked "
+                    "[%s] MOEGAMBIT-MoE controller: [FULL_PEER] experts marked "
                     "HEALTHY directly (zero staleness, step=%d)",
                     _ts(), step,
                 )
             except Exception as e:
                 logger.warning(
-                    "[%s] BSR-MoE controller: [FULL_PEER] "
+                    "[%s] MOEGAMBIT-MoE controller: [FULL_PEER] "
                     "health_mark_healthy_fn failed (non-fatal): %s",
                     _ts(), e,
                 )
@@ -2312,7 +2322,7 @@ class RecoveryController:
         """
         if decision is None:
             logger.debug(
-                "BSR-MoE controller: no recovery decision available, "
+                "MOEGAMBIT-MoE controller: no recovery decision available, "
                 "skipping stale-exposure recording (step=%d, rank=%d)",
                 step, failed_rank,
             )
@@ -2322,7 +2332,7 @@ class RecoveryController:
         gap = step - latest_checkpoint_step
         if gap < 0:
             logger.warning(
-                "BSR-MoE controller: invalid negative stale gap, skipping "
+                "MOEGAMBIT-MoE controller: invalid negative stale gap, skipping "
                 "rank exposure record (step=%d, rank=%d, ckpt_step=%d, gap=%d)",
                 step, failed_rank, latest_checkpoint_step, gap,
             )
@@ -2332,6 +2342,14 @@ class RecoveryController:
         max_rank_stale_exposure = getattr(
             decision, "max_rank_stale_exposure", -1.0
         )
+        num_affected_experts = max(
+            1, int(getattr(decision, "num_affected_experts", 1) or 1)
+        )
+        num_experts = max(
+            num_affected_experts,
+            int(getattr(decision, "num_experts", 0) or self._expert_tracker.num_experts or 0),
+            1,
+        )
 
         try:
             from megatron.core.transformer.moe.rank_exposure_tracker import (
@@ -2340,7 +2358,7 @@ class RecoveryController:
             tracker = get_rank_exposure_tracker()
         except (ImportError, ModuleNotFoundError):
             logger.debug(
-                "BSR-MoE controller: RankExposureTracker not available, "
+                "MOEGAMBIT-MoE controller: RankExposureTracker not available, "
                 "skipping stale-exposure recording (step=%d, rank=%d)",
                 step, failed_rank,
             )
@@ -2351,11 +2369,14 @@ class RecoveryController:
             step=step,
             rank=failed_rank,
             gap=gap,
+            num_affected_experts=num_affected_experts,
         )
 
         # Query post-recording stale metrics
         rank_stale_iters_after = 0
         rank_stale_exposure_after = 0.0
+        expert_iteration_debt_after = 0
+        expert_staleness_density_after = 0.0
         if exposure_window_steps > 0:
             rank_stale_iters_after = tracker.get_rank_stale_iters(
                 rank=failed_rank,
@@ -2367,6 +2388,15 @@ class RecoveryController:
                 current_step=step,
                 window_steps=exposure_window_steps,
             )
+            expert_iteration_debt_after = tracker.get_window_expert_iteration_debt(
+                current_step=step,
+                window_steps=exposure_window_steps,
+            )
+            expert_staleness_density_after = tracker.get_expert_staleness_density(
+                current_step=step,
+                window_steps=exposure_window_steps,
+                num_experts=num_experts,
+            )
 
         details = {
             "step": step,
@@ -2376,6 +2406,10 @@ class RecoveryController:
             "rank_stale_exposure_after": rank_stale_exposure_after,
             "exposure_window_steps": exposure_window_steps,
             "max_rank_stale_exposure": max_rank_stale_exposure,
+            "num_affected_experts": num_affected_experts,
+            "num_experts": num_experts,
+            "window_expert_iteration_debt_after": expert_iteration_debt_after,
+            "expert_staleness_density_after": expert_staleness_density_after,
         }
         self._event_log.append(RecoveryEvent(
             event_type="rank_stale_exposure_recorded",
@@ -2391,12 +2425,18 @@ class RecoveryController:
             "event=rank_stale_exposure_recorded | "
             "step=%d | failed_rank=%d | gap=%d | "
             "rank_stale_iters_after=%d | rank_stale_exposure_after=%.6f | "
-            "exposure_window_steps=%d | max_rank_stale_exposure=%.4f",
+            "affected_experts=%d/%d | expert_iteration_debt_after=%d | "
+            "expert_staleness_density_after=%.6f | "
+            "exposure_window_steps=%d | max_expert_staleness_density=%.4f",
             step,
             failed_rank,
             gap,
             rank_stale_iters_after,
             rank_stale_exposure_after,
+            num_affected_experts,
+            num_experts,
+            expert_iteration_debt_after,
+            expert_staleness_density_after,
             exposure_window_steps,
             max_rank_stale_exposure,
         )
@@ -2420,7 +2460,7 @@ class RecoveryController:
                 if self._reintegration_barrier is not None:
                     if not self._reintegration_barrier.can_reintegrate(rank):
                         logger.warning(
-                            "BSR-MoE controller: barrier blocks reintegration "
+                            "MOEGAMBIT-MoE controller: barrier blocks reintegration "
                             "for rank %d at step %d (missing preconditions: %s)",
                             rank, step,
                             sorted(self._reintegration_barrier.get_record(rank).missing_preconditions())
@@ -2443,13 +2483,13 @@ class RecoveryController:
                             re_enable_routing_fn=_re_enable_routing,
                         )
                         logger.info(
-                            "BSR-MoE controller: barrier reintegration "
+                            "MOEGAMBIT-MoE controller: barrier reintegration "
                             "executed for rank %d at step %d",
                             rank, step,
                         )
                     except Exception as e:
                         logger.error(
-                            "BSR-MoE controller: barrier reintegration "
+                            "MOEGAMBIT-MoE controller: barrier reintegration "
                             "failed for rank %d: %s", rank, e,
                         )
                         continue
@@ -2462,13 +2502,13 @@ class RecoveryController:
                                 step=step,
                             )
                             logger.info(
-                                "BSR-MoE controller: marked experts %s as HEALTHY "
+                                "MOEGAMBIT-MoE controller: marked experts %s as HEALTHY "
                                 "at step %d (failed_rank=%d)",
                                 record.expert_ids, step, rank,
                             )
                         except Exception as e:
                             logger.error(
-                                "BSR-MoE controller: failed to mark experts "
+                                "MOEGAMBIT-MoE controller: failed to mark experts "
                                 "healthy: %s", e,
                             )
 
@@ -2496,7 +2536,7 @@ class RecoveryController:
                     completed_ranks=completed,
                 )
                 logger.warning(
-                    "[%s] BSR-MoE controller: reintegration finalized at "
+                    "[%s] MOEGAMBIT-MoE controller: reintegration finalized at "
                     "step %d (%d recoveries completed, %d ready fault(s) "
                     "remaining: %s)",
                     _ts(), step, len(completed), len(ready_remaining),
@@ -2505,7 +2545,7 @@ class RecoveryController:
                 return
 
             logger.warning(
-                "[%s] BSR-MoE controller: reintegration finalized at step "
+                "[%s] MOEGAMBIT-MoE controller: reintegration finalized at step "
                 "%d (%d recoveries completed, %d active fault(s) remain "
                 "but none are ready for repair)",
                 _ts(), step, len(completed), len(self._active_faults),
@@ -2519,7 +2559,7 @@ class RecoveryController:
         )
 
         logger.warning(
-            "[%s] BSR-MoE controller: reintegration finalized at step %d "
+            "[%s] MOEGAMBIT-MoE controller: reintegration finalized at step %d "
             "(%d recoveries completed)",
             _ts(), step, len(completed),
         )
@@ -2592,11 +2632,11 @@ class RecoveryController:
 
         Called by the training loop after it has handled the invalidation
         (skipped optimizer commit, discarded loss, etc.).  Typically called
-        from ``bsr_before_iteration()`` at the start of the next iteration.
+        from ``moegambit_before_iteration()`` at the start of the next iteration.
         """
         if self._iteration_invalidated:
             logger.info(
-                "BSR-MoE controller: clearing iteration invalidation "
+                "MOEGAMBIT-MoE controller: clearing iteration invalidation "
                 "(was step %d)", self._invalidated_step,
             )
         self._iteration_invalidated = False

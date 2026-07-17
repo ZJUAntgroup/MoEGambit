@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# BSR-MoE recovery ablation runner.
+# MOEGAMBIT-MoE recovery ablation runner.
 #
 # Goal:
 #   Separate the recovery-time gains from:
@@ -13,7 +13,7 @@
 #   selective_sync_opt   : dense from peer + stale experts from checkpoint,
 #                          and expert optimizer state loaded synchronously in
 #                          the safe-point critical path.
-#   full_checkpoint      : baseline; BSR safe-point repair, but force full
+#   full_checkpoint      : baseline; MOEGAMBIT safe-point repair, but force full
 #                          checkpoint load for model + optimizer in the
 #                          critical path.  Run last by default.
 #
@@ -39,7 +39,7 @@ export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-9.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SAVE_LOG_SCRIPT="${SCRIPT_DIR}/log_analysis/save_train_log.sh"
-TIMING_REPORT_SCRIPT="${SCRIPT_DIR}/log_analysis/bsr_timing_report.py"
+TIMING_REPORT_SCRIPT="${SCRIPT_DIR}/log_analysis/moegambit_timing_report.py"
 
 # Keep all ablation outputs isolated from the main/baseline runs.
 export ABLATION_ROOT="${ABLATION_ROOT:-/mnt/ais-c1/dataset/zds/5.18/ablation}"
@@ -84,38 +84,38 @@ mode_args() {
   local mode="$1"
   case "${mode}" in
     full_checkpoint)
-      # Full model+optimizer checkpoint load in the BSR critical path.
+      # Full model+optimizer checkpoint load in the MOEGAMBIT critical path.
       printf '%s\n' \
-        --moe-bsr-force-checkpoint-restart \
-        --moe-bsr-hybrid-expert-restore \
-        --moe-bsr-expert-opt-restore \
-        --moe-bsr-weights-first-recovery \
-        --no-moe-bsr-defer-optimizer-load
+        --moe-moegambit-force-checkpoint-restart \
+        --moe-moegambit-hybrid-expert-restore \
+        --moe-moegambit-expert-opt-restore \
+        --moe-moegambit-weights-first-recovery \
+        --no-moe-moegambit-defer-optimizer-load
       ;;
     selective_sync_opt)
       # Selective stale-expert restore, but optimizer state is NOT deferred.
       printf '%s\n' \
-        --moe-bsr-hybrid-expert-restore \
-        --moe-bsr-expert-opt-restore \
-        --moe-bsr-weights-first-recovery \
-        --no-moe-bsr-defer-optimizer-load
+        --moe-moegambit-hybrid-expert-restore \
+        --moe-moegambit-expert-opt-restore \
+        --moe-moegambit-weights-first-recovery \
+        --no-moe-moegambit-defer-optimizer-load
       ;;
     selective_deferred)
-      # Production BSR path: weights first, optimizer state second/deferred.
+      # Production MOEGAMBIT path: weights first, optimizer state second/deferred.
       printf '%s\n' \
-        --moe-bsr-hybrid-expert-restore \
-        --moe-bsr-expert-opt-restore \
-        --moe-bsr-weights-first-recovery \
-        --moe-bsr-defer-optimizer-load
+        --moe-moegambit-hybrid-expert-restore \
+        --moe-moegambit-expert-opt-restore \
+        --moe-moegambit-weights-first-recovery \
+        --moe-moegambit-defer-optimizer-load
       ;;
     selective_weights_only)
       # Optional diagnostic: measures expert-weight restore without optimizer
       # state restoration.  Do not use as the main correctness result.
       printf '%s\n' \
-        --moe-bsr-hybrid-expert-restore \
-        --no-moe-bsr-expert-opt-restore \
-        --moe-bsr-weights-first-recovery \
-        --moe-bsr-defer-optimizer-load
+        --moe-moegambit-hybrid-expert-restore \
+        --no-moe-moegambit-expert-opt-restore \
+        --moe-moegambit-weights-first-recovery \
+        --moe-moegambit-defer-optimizer-load
       ;;
     *)
       echo "[ablation] unknown mode: ${mode}" >&2
@@ -191,26 +191,26 @@ run_training() {
     --moe-router-load-balancing-type aux_loss \
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
-    --moe-bsr-enable \
-    --moe-bsr-health-mask \
-    --moe-bsr-rank-quarantine \
-    --moe-bsr-dispatch-quarantine-assert \
-    --moe-bsr-dispatch-sanitize \
-    --moe-bsr-expert-directory \
-    --moe-bsr-replacement-protocol \
-    --moe-bsr-group-rebuild \
-    --moe-bsr-dispatch-topology-refresh \
-    --moe-bsr-dense-param-sync \
-    --moe-bsr-stale-expert-restore \
-    --moe-bsr-recovery-controller \
-    --moe-bsr-deferred-optimizer-load \
-    --moe-bsr-degraded-mode-policy \
-    --moe-bsr-reintegration-barrier \
-    --moe-bsr-fault-injection \
-    --moe-bsr-restart-in-place \
-    --moe-bsr-degraded-tau-c 0.5 \
-    --moe-bsr-degraded-t-max 1000 \
-    --moe-bsr-degraded-s-max 500 \
+    --moe-moegambit-enable \
+    --moe-moegambit-health-mask \
+    --moe-moegambit-rank-quarantine \
+    --moe-moegambit-dispatch-quarantine-assert \
+    --moe-moegambit-dispatch-sanitize \
+    --moe-moegambit-expert-directory \
+    --moe-moegambit-replacement-protocol \
+    --moe-moegambit-group-rebuild \
+    --moe-moegambit-dispatch-topology-refresh \
+    --moe-moegambit-dense-param-sync \
+    --moe-moegambit-stale-expert-restore \
+    --moe-moegambit-recovery-controller \
+    --moe-moegambit-deferred-optimizer-load \
+    --moe-moegambit-degraded-mode-policy \
+    --moe-moegambit-reintegration-barrier \
+    --moe-moegambit-fault-injection \
+    --moe-moegambit-restart-in-place \
+    --moe-moegambit-degraded-tau-c 0.5 \
+    --moe-moegambit-degraded-t-max 1000 \
+    --moe-moegambit-degraded-s-max 500 \
     "${mode_specific_args[@]}" \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 100,0,0 \
@@ -232,15 +232,15 @@ run_one_mode() {
   export TRAIN_LOG_DIR="${ABLATION_LOG_ROOT}/${mode}"
   export TRAIN_RUN_ID="${mode}_$(date +%Y%m%d_%H%M%S)_${NODE_RANK:-0}"
 
-  export BSR_FAULT_INJECT_TYPE="${ABLATION_FAULT_TYPE}"
-  export BSR_FAULT_INJECT_RANK="${ABLATION_FAULT_RANK}"
-  export BSR_FAULT_INJECT_STEP="${ABLATION_FAULT_STEP}"
-  export BSR_FAULT_INJECT_INTERVAL="${ABLATION_FAULT_INTERVAL}"
-  export BSR_FAULT_INJECT_SEED="${ABLATION_FAULT_SEED}"
-  export BSR_FAULT_REPLACEMENT_STEP="${ABLATION_FAULT_STEP}"
-  export BSR_FAULT_REPLACEMENT_RANK="-1"
-  export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
-  export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
+  export MOEGAMBIT_FAULT_INJECT_TYPE="${ABLATION_FAULT_TYPE}"
+  export MOEGAMBIT_FAULT_INJECT_RANK="${ABLATION_FAULT_RANK}"
+  export MOEGAMBIT_FAULT_INJECT_STEP="${ABLATION_FAULT_STEP}"
+  export MOEGAMBIT_FAULT_INJECT_INTERVAL="${ABLATION_FAULT_INTERVAL}"
+  export MOEGAMBIT_FAULT_INJECT_SEED="${ABLATION_FAULT_SEED}"
+  export MOEGAMBIT_FAULT_REPLACEMENT_STEP="${ABLATION_FAULT_STEP}"
+  export MOEGAMBIT_FAULT_REPLACEMENT_RANK="-1"
+  export MOEGAMBIT_FAULT_ZERO_MEMORY="${MOEGAMBIT_FAULT_ZERO_MEMORY:-1}"
+  export MOEGAMBIT_FAULT_MEMORY_FILL="${MOEGAMBIT_FAULT_MEMORY_FILL:-zero}"
 
   mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
   rm -f "${TRAIN_LOG_DIR}/train_latest.log" "${TRAIN_LOG_DIR}/train_full.log" \
@@ -291,8 +291,8 @@ for mode in ${ABLATION_MODES}; do
   run_one_mode "${mode}" || exit $?
 done
 
-if [ "${NODE_RANK:-0}" = "0" ] && [ -f "${SCRIPT_DIR}/log_analysis/bsr_ablation_report.py" ]; then
-  python3 "${SCRIPT_DIR}/log_analysis/bsr_ablation_report.py" "${ABLATION_LOG_ROOT}" \
+if [ "${NODE_RANK:-0}" = "0" ] && [ -f "${SCRIPT_DIR}/log_analysis/moegambit_ablation_report.py" ]; then
+  python3 "${SCRIPT_DIR}/log_analysis/moegambit_ablation_report.py" "${ABLATION_LOG_ROOT}" \
     --json "${ABLATION_LOG_ROOT}/ablation_report.json" \
     --csv "${ABLATION_LOG_ROOT}/ablation_report.csv" || true
 fi

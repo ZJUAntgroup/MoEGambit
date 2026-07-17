@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE RankExposureTracker.
+"""Unit tests for MOEGAMBIT-MoE RankExposureTracker.
 
 Tests cover:
 1. Same rank multiple records → stale_iters correctly accumulated
@@ -387,7 +387,7 @@ class TestPersistence(unittest.TestCase):
         """to_state_dict returns correct structure."""
         self.tracker.record_hybrid_recovery(step=100, rank=3, gap=30)
         state = self.tracker.to_state_dict()
-        self.assertEqual(state["version"], 1)
+        self.assertEqual(state["version"], 2)
         self.assertEqual(state["max_events"], 500)
         self.assertIsInstance(state["events"], list)
         self.assertEqual(len(state["events"]), 1)
@@ -575,6 +575,31 @@ class TestHybridRecoveryEventSerialization(unittest.TestCase):
         self.assertEqual(restored.rank, event.rank)
         self.assertEqual(restored.gap, event.gap)
         self.assertEqual(restored.recovery_path, event.recovery_path)
+
+    def test_v1_event_defaults_to_one_affected_expert(self):
+        event = HybridRecoveryEvent.from_dict({"step": 10, "rank": 2, "gap": 7})
+        self.assertEqual(event.num_affected_experts, 1)
+        self.assertEqual(event.expert_iteration_debt, 7)
+
+
+class TestExpertStalenessDensity(unittest.TestCase):
+
+    def test_debt_is_weighted_and_aggregated_across_ranks(self):
+        tracker = RankExposureTracker()
+        tracker.record_hybrid_recovery(
+            step=100, rank=1, gap=10, num_affected_experts=8,
+        )
+        tracker.record_hybrid_recovery(
+            step=200, rank=7, gap=20, num_affected_experts=4,
+        )
+        self.assertEqual(
+            tracker.get_window_expert_iteration_debt(300, 1000),
+            160,
+        )
+        self.assertAlmostEqual(
+            tracker.get_expert_staleness_density(300, 1000, 128),
+            160 / (128 * 1000),
+        )
 
 
 # =====================================================================

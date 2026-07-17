@@ -109,7 +109,7 @@ sed -E \
   "${ORIGINAL_INNER}" > "${INNER_SCRIPT}"
 
 # Inject the shared-expert flag (Megatron-LM standard switch).  We splice it in
-# right before the BSR_ARGS expansion so that MoEGambit's wrapper still sees the
+# right before the MOEGAMBIT_ARGS expansion so that MoEGambit's wrapper still sees the
 # resulting argv.  The pattern matches the line that ends the MoE arg block.
 python3 - "${INNER_SCRIPT}" <<'PYEOF'
 import re, sys
@@ -119,16 +119,16 @@ inject = (
     "    --moe-shared-expert-intermediate-size 2816 \\\n"  # 2 * 1408
     "    --moe-shared-expert-overlap \\\n"
 )
-# Insert immediately before the line that expands BSR_ARGS so the new flags
+# Insert immediately before the line that expands MOEGAMBIT_ARGS so the new flags
 # are visible to both Megatron and the MoEGambit wrapper.
 new = re.sub(
-    r"(\n)(\s*\"\$\{BSR_ARGS\[@\]\}\"[[:space:]]*\\\n)",
+    r"(\n)(\s*\"\$\{MOEGAMBIT_ARGS\[@\]\}\"[[:space:]]*\\\n)",
     lambda m: m.group(1) + inject + m.group(2),
     src,
     count=1,
 )
 if new == src:
-    # Fallback: append before the data-path line if the BSR marker moved.
+    # Fallback: append before the data-path line if the MOEGAMBIT marker moved.
     new = re.sub(
         r"(\n)(\s*--data-path)",
         lambda m: m.group(1) + inject + m.group(2),
@@ -180,15 +180,15 @@ run_phase() {
 
   if [ "${mode}" = "moegambit" ]; then
     export MODE=moegambit
-    export BSR_FAULT_INJECT_TYPE=restart_in_place
-    export BSR_FAULT_INJECT_RANK=-1
-    export BSR_FAULT_INJECT_STEP="${BENCH_FIRST_INJECT_STEP}"
-    export BSR_FAULT_INJECT_INTERVAL="${BENCH_INJECT_INTERVAL}"
-    export BSR_FAULT_INJECT_SEED=42
-    export BSR_FAULT_REPLACEMENT_STEP="${BENCH_FIRST_INJECT_STEP}"
-    export BSR_FAULT_REPLACEMENT_RANK=-1
-    export BSR_FAULT_ZERO_MEMORY=1
-    export BSR_FAULT_MEMORY_FILL=zero
+    export MOEGAMBIT_FAULT_INJECT_TYPE=restart_in_place
+    export MOEGAMBIT_FAULT_INJECT_RANK=-1
+    export MOEGAMBIT_FAULT_INJECT_STEP="${BENCH_FIRST_INJECT_STEP}"
+    export MOEGAMBIT_FAULT_INJECT_INTERVAL="${BENCH_INJECT_INTERVAL}"
+    export MOEGAMBIT_FAULT_INJECT_SEED=42
+    export MOEGAMBIT_FAULT_REPLACEMENT_STEP="${BENCH_FIRST_INJECT_STEP}"
+    export MOEGAMBIT_FAULT_REPLACEMENT_RANK=-1
+    export MOEGAMBIT_FAULT_ZERO_MEMORY=1
+    export MOEGAMBIT_FAULT_MEMORY_FILL=zero
     export MAX_RETRIES=1
   else
     export MODE=baseline

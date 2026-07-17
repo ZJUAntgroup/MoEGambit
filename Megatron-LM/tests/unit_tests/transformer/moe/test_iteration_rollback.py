@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE Iteration Rollback & Replay Manager.
+"""Unit tests for MOEGAMBIT-MoE Iteration Rollback & Replay Manager.
 
 Tests cover:
 1. IterationSnapshot creation and fields

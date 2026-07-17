@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE Optimizer Commit Guard.
+"""Unit tests for MOEGAMBIT-MoE Optimizer Commit Guard.
 
 Tests cover:
 1. OptimizerCommitGuard basic lifecycle

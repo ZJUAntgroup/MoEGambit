@@ -1,5 +1,5 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-# BSR-MoE: Unified Reintegration — convergence point for restart & hybrid paths
+# MOEGAMBIT-MoE: Unified Reintegration — convergence point for restart & hybrid paths
 #
 # After Phase A (shared infrastructure repair) and Phase B (path-specific
 # parameter recovery), both the checkpoint-restart and hybrid-recovery paths
@@ -96,7 +96,7 @@ class ConvergenceResult:
 class PostRecoveryConvergence:
     """Unified post-recovery convergence point for both restart & hybrid paths.
 
-    This class is instantiated once during ``maybe_initialize_bsr_moe()`` and
+    This class is instantiated once during ``maybe_initialize_moegambit_moe()`` and
     stored as a module-level singleton.  Both ``checkpoint_restart_fn`` and
     ``expert_restore_fn`` call ``execute()`` after their path-specific work
     is done, ensuring the same post-recovery steps are applied regardless of
@@ -120,7 +120,7 @@ class PostRecoveryConvergence:
         """
         Args:
             config: TransformerConfig (or any object with the relevant
-                    ``moe_bsr_*`` attributes).  May be ``None`` for testing.
+                    ``moe_moegambit_*`` attributes).  May be ``None`` for testing.
         """
         self._config = config
 
@@ -175,7 +175,7 @@ class PostRecoveryConvergence:
         )
 
         logger.warning(
-            "[%s] BSR-MoE unified convergence: starting post-recovery "
+            "[%s] MOEGAMBIT-MoE unified convergence: starting post-recovery "
             "sequence (path=%s, failed=%d, replacement=%d, "
             "experts=%d, step=%d)",
             _ts(), path.name, failed_rank, replacement_rank,
@@ -192,7 +192,7 @@ class PostRecoveryConvergence:
         )
         t_s1_elapsed = time.time() - t_s1
         logger.warning(
-            "[%s] BSR-MoE unified convergence: ⏱️  [1/5] mark_stale_runnable "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [1/5] mark_stale_runnable "
             "done (marked=%d, time=%.3fs)",
             _ts(), result.experts_marked_stale, t_s1_elapsed,
         )
@@ -206,7 +206,7 @@ class PostRecoveryConvergence:
         result.consistency_verified = len(result.consistency_issues) == 0
         t_s2_elapsed = time.time() - t_s2
         logger.warning(
-            "[%s] BSR-MoE unified convergence: ⏱️  [2/5] verify_consistency "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [2/5] verify_consistency "
             "done (consistent=%s, issues=%d, time=%.3fs)",
             _ts(), result.consistency_verified,
             len(result.consistency_issues), t_s2_elapsed,
@@ -214,7 +214,7 @@ class PostRecoveryConvergence:
 
         # ---- Step 3: Activate preferential routing (if enabled) ----
         t_s3 = time.time()
-        _pref_enabled = _get_flag(cfg, 'moe_bsr_preferential_routing', False)
+        _pref_enabled = _get_flag(cfg, 'moe_moegambit_preferential_routing', False)
         if _pref_enabled and restored_experts:
             result.preferential_routing_activated = self._step_preferential_routing(
                 restored_experts=restored_experts,
@@ -225,7 +225,7 @@ class PostRecoveryConvergence:
             )
         t_s3_elapsed = time.time() - t_s3
         logger.warning(
-            "[%s] BSR-MoE unified convergence: ⏱️  [3/5] preferential_routing "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [3/5] preferential_routing "
             "done (enabled=%s, activated=%d, time=%.3fs)",
             _ts(), _pref_enabled,
             result.preferential_routing_activated, t_s3_elapsed,
@@ -233,8 +233,8 @@ class PostRecoveryConvergence:
 
         # ---- Step 4: Submit deferred optimizer loads (if applicable) ----
         t_s4 = time.time()
-        _opt_restore = _get_flag(cfg, 'moe_bsr_expert_opt_restore', True)
-        _defer_opt = _get_flag(cfg, 'moe_bsr_defer_optimizer_load', True)
+        _opt_restore = _get_flag(cfg, 'moe_moegambit_expert_opt_restore', True)
+        _defer_opt = _get_flag(cfg, 'moe_moegambit_defer_optimizer_load', True)
         # Only for hybrid path — checkpoint restart loads optimizer inline
         if (
             path == RecoveryPath.HYBRID_RECOVERY
@@ -250,14 +250,14 @@ class PostRecoveryConvergence:
             )
         t_s4_elapsed = time.time() - t_s4
         logger.warning(
-            "[%s] BSR-MoE unified convergence: ⏱️  [4/5] deferred_optimizer "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [4/5] deferred_optimizer "
             "done (submitted=%d, time=%.3fs)",
             _ts(), result.optimizer_loads_submitted, t_s4_elapsed,
         )
 
         # ---- Step 5: Drive two-phase recovery state machine ----
         t_s5 = time.time()
-        _two_phase = _get_flag(cfg, 'moe_bsr_weights_first_recovery', True)
+        _two_phase = _get_flag(cfg, 'moe_moegambit_weights_first_recovery', True)
         if _two_phase and restored_experts:
             result.two_phase_driven = self._step_drive_two_phase(
                 path=path,
@@ -268,7 +268,7 @@ class PostRecoveryConvergence:
             )
         t_s5_elapsed = time.time() - t_s5
         logger.warning(
-            "[%s] BSR-MoE unified convergence: ⏱️  [5/5] two_phase_recovery "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [5/5] two_phase_recovery "
             "done (driven=%s, time=%.3fs)",
             _ts(), result.two_phase_driven, t_s5_elapsed,
         )
@@ -276,7 +276,7 @@ class PostRecoveryConvergence:
         result.elapsed_seconds = time.time() - t_start
 
         logger.warning(
-            "[%s] BSR-MoE unified convergence: ⏱️  ✅ COMPLETED "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  ✅ COMPLETED "
             "(path=%s, total=%.3fs, step=%d) "
             "| Breakdown: mark_stale=%.3fs, verify=%.3fs, pref_routing=%.3fs, "
             "deferred_opt=%.3fs, two_phase=%.3fs",
@@ -318,7 +318,7 @@ class PostRecoveryConvergence:
             return len(expert_ids)
         except Exception as e:
             msg = f"mark_stale_runnable failed: {e}"
-            logger.error("BSR-MoE unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             result.errors.append(msg)
             return 0
 
@@ -342,14 +342,14 @@ class PostRecoveryConvergence:
                 issues = mgr.check_router_dispatcher_consistency()
                 if issues:
                     logger.warning(
-                        "BSR-MoE unified convergence: consistency issues: %s",
+                        "MOEGAMBIT-MoE unified convergence: consistency issues: %s",
                         issues,
                     )
                 return issues if isinstance(issues, list) else []
             return []
         except Exception as e:
             msg = f"consistency verification failed: {e}"
-            logger.error("BSR-MoE unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             # Non-fatal — don't add to result.errors
             return [msg]
 
@@ -371,8 +371,8 @@ class PostRecoveryConvergence:
             from megatron.core.transformer.moe.preferential_routing import (
                 get_preferential_routing_manager,
             )
-            _window = _get_flag(config, 'moe_bsr_preferential_routing_window', 100)
-            _bias = _get_flag(config, 'moe_bsr_preferential_routing_bias', 0.1)
+            _window = _get_flag(config, 'moe_moegambit_preferential_routing_window', 100)
+            _bias = _get_flag(config, 'moe_moegambit_preferential_routing_bias', 0.1)
             _num_experts = _get_flag(config, 'num_moe_experts', 8)
 
             count = 0
@@ -388,7 +388,7 @@ class PostRecoveryConvergence:
             return count
         except Exception as e:
             msg = f"preferential routing activation failed: {e}"
-            logger.error("BSR-MoE unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             result.errors.append(msg)
             return 0
 
@@ -418,7 +418,7 @@ class PostRecoveryConvergence:
             return 0
         except Exception as e:
             msg = f"optimizer load submission failed: {e}"
-            logger.error("BSR-MoE unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             result.errors.append(msg)
             return 0
 
@@ -458,7 +458,7 @@ class PostRecoveryConvergence:
                 return True
         except Exception as e:
             msg = f"two-phase drive failed: {e}"
-            logger.error("BSR-MoE unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             result.errors.append(msg)
             return False
 

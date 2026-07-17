@@ -58,7 +58,7 @@ export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-${BASE_DIR}/log}"
 mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 
 # Explicitly disable MoC-PEC emulation in the MoEGuard run.
-export BSR_MOC_PEC_EMULATE=0
+export MOEGAMBIT_MOC_PEC_EMULATE=0
 
 # ---- Auto-detect resume point so already-fired faults are not back-fired ----
 # When CKPT_DIR has a latest_checkpointed_iteration.txt, read it as
@@ -96,19 +96,19 @@ rm -f /tmp/main_plan_debug.$$
 echo "[main_exp_moeguard] resolved plan: ${MAIN_FAULT_PLAN}"
 echo "============================================================"
 
-# ---- BSR fault injection knobs (plan-driven, burst_all) ----
-export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
-export BSR_FAULT_INJECT_PLAN="${MAIN_FAULT_PLAN}"
-export BSR_FAULT_INJECT_PLAN_MODE="${BSR_FAULT_INJECT_PLAN_MODE:-burst_all}"
-export BSR_FAULT_INJECT_STEP="0"
-export BSR_FAULT_INJECT_INTERVAL="0"
-export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
-export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:-0}"
-export BSR_FAULT_REPLACEMENT_STEP="0"
-export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
-export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
-export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
-export BSR_REQUIRE_OLD_PARAM_RESTORE="${BSR_REQUIRE_OLD_PARAM_RESTORE:-1}"
+# ---- MOEGAMBIT fault injection knobs (plan-driven, burst_all) ----
+export MOEGAMBIT_FAULT_INJECT_TYPE="${MOEGAMBIT_FAULT_INJECT_TYPE:-restart_in_place}"
+export MOEGAMBIT_FAULT_INJECT_PLAN="${MAIN_FAULT_PLAN}"
+export MOEGAMBIT_FAULT_INJECT_PLAN_MODE="${MOEGAMBIT_FAULT_INJECT_PLAN_MODE:-burst_all}"
+export MOEGAMBIT_FAULT_INJECT_STEP="0"
+export MOEGAMBIT_FAULT_INJECT_INTERVAL="0"
+export MOEGAMBIT_FAULT_INJECT_SEED="${MOEGAMBIT_FAULT_INJECT_SEED:-42}"
+export MOEGAMBIT_FAULT_INJECT_RANK="${MOEGAMBIT_FAULT_INJECT_RANK:-0}"
+export MOEGAMBIT_FAULT_REPLACEMENT_STEP="0"
+export MOEGAMBIT_FAULT_REPLACEMENT_RANK="${MOEGAMBIT_FAULT_REPLACEMENT_RANK:--1}"
+export MOEGAMBIT_FAULT_ZERO_MEMORY="${MOEGAMBIT_FAULT_ZERO_MEMORY:-1}"
+export MOEGAMBIT_FAULT_MEMORY_FILL="${MOEGAMBIT_FAULT_MEMORY_FILL:-zero}"
+export MOEGAMBIT_REQUIRE_OLD_PARAM_RESTORE="${MOEGAMBIT_REQUIRE_OLD_PARAM_RESTORE:-1}"
 
 # ---- Log analysis hooks ----
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
@@ -178,30 +178,30 @@ run_training() {
     --moe-router-load-balancing-type aux_loss \
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
-    --moe-bsr-enable \
-    --moe-bsr-health-mask \
-    --moe-bsr-rank-quarantine \
-    --moe-bsr-dispatch-quarantine-assert \
-    --moe-bsr-dispatch-sanitize \
-    --moe-bsr-expert-directory \
-    --moe-bsr-replacement-protocol \
-    --moe-bsr-group-rebuild \
-    --moe-bsr-dispatch-topology-refresh \
-    --moe-bsr-dense-param-sync \
-    --moe-bsr-stale-expert-restore \
-    --moe-bsr-recovery-controller \
-    --moe-bsr-deferred-optimizer-load \
-    --moe-bsr-degraded-mode-policy \
-    --moe-bsr-reintegration-barrier \
-    --moe-bsr-fault-injection \
-    --moe-bsr-restart-in-place \
-    --moe-bsr-hybrid-expert-restore \
-    --moe-bsr-expert-opt-restore \
-    --moe-bsr-weights-first-recovery \
-    --moe-bsr-defer-optimizer-load \
-    --moe-bsr-degraded-tau-c 0.5 \
-    --moe-bsr-degraded-t-max 1000 \
-    --moe-bsr-degraded-s-max 500 \
+    --moe-moegambit-enable \
+    --moe-moegambit-health-mask \
+    --moe-moegambit-rank-quarantine \
+    --moe-moegambit-dispatch-quarantine-assert \
+    --moe-moegambit-dispatch-sanitize \
+    --moe-moegambit-expert-directory \
+    --moe-moegambit-replacement-protocol \
+    --moe-moegambit-group-rebuild \
+    --moe-moegambit-dispatch-topology-refresh \
+    --moe-moegambit-dense-param-sync \
+    --moe-moegambit-stale-expert-restore \
+    --moe-moegambit-recovery-controller \
+    --moe-moegambit-deferred-optimizer-load \
+    --moe-moegambit-degraded-mode-policy \
+    --moe-moegambit-reintegration-barrier \
+    --moe-moegambit-fault-injection \
+    --moe-moegambit-restart-in-place \
+    --moe-moegambit-hybrid-expert-restore \
+    --moe-moegambit-expert-opt-restore \
+    --moe-moegambit-weights-first-recovery \
+    --moe-moegambit-defer-optimizer-load \
+    --moe-moegambit-degraded-tau-c 0.5 \
+    --moe-moegambit-degraded-t-max 1000 \
+    --moe-moegambit-degraded-s-max 500 \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 99,1,0 \
     --ckpt-format torch \

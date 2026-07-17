@@ -58,6 +58,8 @@ export GROUP_RANK="${GROUP_RANK:-${NODE_RANK}}"
 export TP_SIZE="${TP_SIZE:-1}"
 export PP_SIZE="${PP_SIZE:-8}"
 export EP_SIZE="${EP_SIZE:-8}"
+export CP_SIZE="${CP_SIZE:-1}"
+export MEGATRON_PARALLEL_ORDER="${MEGATRON_PARALLEL_ORDER:-tp-cp-ep-dp-pp}"
 
 # NCCL config
 export NCCL_DEBUG=WARN
@@ -81,7 +83,7 @@ GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-$((8 * DP_SIZE))}"
 DISTRIBUTED_TIMEOUT_MINUTES="${DISTRIBUTED_TIMEOUT_MINUTES:-10}"
 PHASE_TIMEOUT_DEFAULT=$((DISTRIBUTED_TIMEOUT_MINUTES * 60 + 120))
 
-CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/test_replace_ckpt}"
+CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt}"
 TRAIN_ITERS="${TRAIN_ITERS:-100}"
 ELASTIC_REBUILD_TIMEOUT_MINUTES="${ELASTIC_REBUILD_TIMEOUT_MINUTES:-${DISTRIBUTED_TIMEOUT_MINUTES}}"
 export ELASTIC_PHASE_TIMEOUT_SECONDS="${ELASTIC_PHASE_TIMEOUT_SECONDS:-${ELASTIC_REBUILD_PHASE_TIMEOUT:-${PHASE_TIMEOUT_DEFAULT}}}"
@@ -96,6 +98,15 @@ export ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER="${ELASTIC_MOE_FIRST_COLLECTIVE_BARR
 export ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP="${ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP:-0}"
 export ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST="${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST:-1}"
 export ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT="${ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT:-180}"
+export MOEGAMBIT_RECOVERY_POLICY_TYPE="${MOEGAMBIT_RECOVERY_POLICY_TYPE:-rank_exposure_guarded_hybrid}"
+export MOEGAMBIT_DELTA_TIME_MIN_GAP="${MOEGAMBIT_DELTA_TIME_MIN_GAP:-0}"
+export MOEGAMBIT_MAX_SINGLE_GAP="${MOEGAMBIT_MAX_SINGLE_GAP:-192}"
+export MOEGAMBIT_EXPOSURE_WINDOW_STEPS="${MOEGAMBIT_EXPOSURE_WINDOW_STEPS:-20000}"
+export MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY="${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY:-0.1}"
+export MOEGAMBIT_NUM_EXPERTS="${MOEGAMBIT_NUM_EXPERTS:-128}"
+export ELASTIC_TWO_PHASE_RECOVERY="${ELASTIC_TWO_PHASE_RECOVERY:-0}"
+# Replacement is launched directly by the watcher, not by elastic_launcher.
+unset ELASTIC_LAUNCHER_CONTROL_SOCKET 2>/dev/null || true
 
 # Elastic watcher connection
 export ELASTIC_WATCHER_ADDR="${ELASTIC_WATCHER_ADDR:-${MASTER_ADDR}}"
@@ -107,6 +118,7 @@ echo "[spare-rank] logical_node=${ELASTIC_LOGICAL_NODE_RANK:-${NODE_RANK}}, phys
 echo "[spare-rank] MASTER=${MASTER_ADDR}:${MASTER_PORT}, WORLD_SIZE=${WORLD_SIZE}"
 echo "[spare-rank] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[spare-rank] ELASTIC_REBUILD_MODE=${ELASTIC_REBUILD_MODE}"
+echo "[spare-rank] recovery epoch=${ELASTIC_RECOVERY_EPOCH:-unset}, descriptor=${ELASTIC_RECOVERY_DESCRIPTOR:-unset}"
 echo "[spare-rank] distributed timeout=${DISTRIBUTED_TIMEOUT_MINUTES}min"
 echo "[spare-rank] phase timeout=${ELASTIC_PHASE_TIMEOUT_SECONDS}s"
 echo "[spare-rank] group ordinal barrier=${ELASTIC_MPU_GROUP_ORDINAL_BARRIER} (${ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS}s)"
@@ -116,31 +128,35 @@ echo "[spare-rank] moe first collective barrier=${ELASTIC_MOE_FIRST_COLLECTIVE_B
 echo "[spare-rank] moe first collective warmup=${ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP}"
 echo "[spare-rank] moe first collective fail-fast=${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST}, timeout=${ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT}s"
 
-BSR_ARGS=(
-  --moe-bsr-enable
-  --moe-bsr-health-mask
-  --moe-bsr-rank-quarantine
-  --moe-bsr-dispatch-quarantine-assert
-  --moe-bsr-dispatch-sanitize
-  --moe-bsr-expert-directory
-  --moe-bsr-replacement-protocol
-  --moe-bsr-group-rebuild
-  --moe-bsr-dispatch-topology-refresh
-  --moe-bsr-dense-param-sync
-  --moe-bsr-stale-expert-restore
-  --moe-bsr-recovery-controller
-  --moe-bsr-deferred-optimizer-load
-  --no-moe-bsr-weights-first-recovery
-  --moe-bsr-degraded-mode-policy
-  --moe-bsr-reintegration-barrier
-  --moe-bsr-hot-spare-pool
-  --moe-bsr-num-hot-spares "${NPROC_PER_NODE}"
-  --moe-bsr-degraded-tau-c 0.5
-  --moe-bsr-degraded-t-max 1000
-  --moe-bsr-degraded-s-max 500
-  --moe-bsr-gap-aware-recovery
-  --moe-bsr-recovery-policy-type rank_exposure_guarded_hybrid
-  --moe-bsr-gap-threshold 100
+MOEGAMBIT_ARGS=(
+  --moe-moegambit-enable
+  --moe-moegambit-health-mask
+  --moe-moegambit-rank-quarantine
+  --moe-moegambit-dispatch-quarantine-assert
+  --moe-moegambit-dispatch-sanitize
+  --moe-moegambit-expert-directory
+  --moe-moegambit-replacement-protocol
+  --moe-moegambit-group-rebuild
+  --moe-moegambit-dispatch-topology-refresh
+  --moe-moegambit-dense-param-sync
+  --moe-moegambit-stale-expert-restore
+  --moe-moegambit-recovery-controller
+  --moe-moegambit-deferred-optimizer-load
+  --no-moe-moegambit-weights-first-recovery
+  --moe-moegambit-degraded-mode-policy
+  --moe-moegambit-reintegration-barrier
+  --moe-moegambit-hot-spare-pool
+  --moe-moegambit-num-hot-spares "${NPROC_PER_NODE}"
+  --moe-moegambit-degraded-tau-c 0.5
+  --moe-moegambit-degraded-t-max 1000
+  --moe-moegambit-degraded-s-max 500
+  --moe-moegambit-gap-aware-recovery
+  --moe-moegambit-recovery-policy-type "${MOEGAMBIT_RECOVERY_POLICY_TYPE}"
+  --moe-moegambit-gap-threshold 100
+  --moe-moegambit-delta-time-min-gap "${MOEGAMBIT_DELTA_TIME_MIN_GAP}"
+  --moe-moegambit-max-single-gap "${MOEGAMBIT_MAX_SINGLE_GAP}"
+  --moe-moegambit-exposure-window-steps "${MOEGAMBIT_EXPOSURE_WINDOW_STEPS}"
+  --moe-moegambit-max-expert-staleness-density "${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY}"
 )
 
 LOAD_ARGS=()
@@ -192,7 +208,7 @@ exec python3 ./Megatron-LM/pretrain_gpt.py \
   --no-bias-swiglu-fusion \
   --untie-embeddings-and-output-weights \
   --bf16 \
-  --num-experts 128 \
+  --num-experts "${MOEGAMBIT_NUM_EXPERTS}" \
   --moe-ffn-hidden-size 768 \
   --moe-router-topk 8 \
   --moe-router-dtype fp32 \
@@ -201,7 +217,7 @@ exec python3 ./Megatron-LM/pretrain_gpt.py \
   --moe-token-dispatcher-type alltoall \
   --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
-  "${BSR_ARGS[@]}" \
+  "${MOEGAMBIT_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
   --split 100,0,0 \
   --ckpt-format torch \

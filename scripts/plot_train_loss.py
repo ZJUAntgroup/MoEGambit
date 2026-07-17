@@ -20,7 +20,7 @@ from matplotlib.ticker import ScalarFormatter, FixedLocator
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import numpy as np
 
-ROOT = Path("/Users/zds/bsr")
+ROOT = Path("/Users/zds/moegambit")
 LOGS = {
     "Restart (Megatron)": ROOT / "megatron.log",
     "MoC-System":         ROOT / "mocsystem.log",

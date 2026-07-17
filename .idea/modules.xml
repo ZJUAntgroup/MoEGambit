@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/bsr.iml" filepath="$PROJECT_DIR$/.idea/bsr.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/moegambit.iml" filepath="$PROJECT_DIR$/.idea/moegambit.iml" />
     </modules>
   </component>
 </project>

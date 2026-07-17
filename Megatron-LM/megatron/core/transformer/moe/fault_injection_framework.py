@@ -1,17 +1,17 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""BSR-MoE End-to-End Fault Injection & Test Framework (Phase 14).
+"""MOEGAMBIT-MoE End-to-End Fault Injection & Test Framework (Phase 14).
 
 This module provides a **minimal, deterministic** fault injection framework
-for validating the entire BSR-MoE recovery pipeline in unit tests.  It
-orchestrates all BSR-MoE subsystems (RecoveryController, IterationInvalidator,
+for validating the entire MOEGAMBIT-MoE recovery pipeline in unit tests.  It
+orchestrates all MOEGAMBIT-MoE subsystems (RecoveryController, IterationInvalidator,
 RollbackReplayManager, OptimizerCommitGuard, HardFailureDetector,
 PipelineRollbackCoordinator) through a simulated training loop.
 
 Design goals
 ------------
 * **No torch / no distributed** — runs in the same stub environment as
-  other BSR-MoE unit tests.
+  other MOEGAMBIT-MoE unit tests.
 * **Deterministic** — fault timing is step-based, not wall-clock-based.
 * **Observable** — every recovery phase transition is recorded with
   timestamps so that latency metrics can be computed.
@@ -540,7 +540,7 @@ def run_simulated_training_loop(
 ) -> TrainingLoopResult:
     """Run a simulated training loop with fault injection.
 
-    This function orchestrates all BSR-MoE subsystems through a
+    This function orchestrates all MOEGAMBIT-MoE subsystems through a
     deterministic training loop.  It does NOT perform any real
     computation — it only drives the state machines.
 
@@ -816,19 +816,19 @@ def build_pp_gt1_pipeline_failure_scenario(
 # =====================================================================
 
 LOG_FORMAT_SPEC = """
-BSR-MoE Recovery Log Format
+MOEGAMBIT-MoE Recovery Log Format
 ============================
 
-All BSR-MoE log messages use the ``BSR-MoE`` prefix for easy grep.
+All MOEGAMBIT-MoE log messages use the ``MOEGAMBIT-MoE`` prefix for easy grep.
 
 Phase transitions:
-    BSR-MoE controller: {OLD_PHASE} → {NEW_PHASE} (event={EVENT}, step={STEP})
+    MOEGAMBIT-MoE controller: {OLD_PHASE} → {NEW_PHASE} (event={EVENT}, step={STEP})
 
 Fault injection:
     FaultInjector: injecting {FAULT_TYPE} at step {STEP} (rank={RANK})
 
 Callback invocations:
-    BSR-MoE {callback_name}: {SUCCESS|FAILED} — {details}
+    MOEGAMBIT-MoE {callback_name}: {SUCCESS|FAILED} — {details}
 
 Metrics report:
     === Recovery Metrics Report ===
@@ -842,7 +842,7 @@ Metrics report:
       ...
 
 Grep patterns:
-    grep "BSR-MoE controller:" log.txt     # Phase transitions
+    grep "MOEGAMBIT-MoE controller:" log.txt     # Phase transitions
     grep "FaultInjector:" log.txt           # Fault injections
     grep "Recovery Metrics" log.txt         # Metrics reports
     grep "FAILED" log.txt                   # Failures
@@ -854,13 +854,13 @@ Grep patterns:
 # =====================================================================
 
 TROUBLESHOOTING_GUIDE = """
-BSR-MoE Recovery Troubleshooting Guide
+MOEGAMBIT-MoE Recovery Troubleshooting Guide
 ========================================
 
 1. Controller stuck in PENDING_GROUP_REPAIR
    - Check: Was on_replacement_assigned() called?
    - Check: Is the replacement rank reachable?
-   - Fix: Ensure the job scheduler calls bsr_announce_replacement_ready()
+   - Fix: Ensure the job scheduler calls moegambit_announce_replacement_ready()
 
 2. Controller stuck in WAITING_FOR_REPLACEMENT
    - Check: Was on_replacement_ready() called?
@@ -870,7 +870,7 @@ BSR-MoE Recovery Troubleshooting Guide
 3. Controller stuck in SAFE_POINT_REPAIR
    - Check: Was before_iteration() called at the next iteration boundary?
    - Check: Are all repair callbacks registered?
-   - Fix: Ensure the training loop calls bsr_before_iteration(step)
+   - Fix: Ensure the training loop calls moegambit_before_iteration(step)
 
 4. Pipeline repair failed (PP>1)
    - Check: Are pp_group_ranks set in the FaultRecord?
@@ -880,22 +880,22 @@ BSR-MoE Recovery Troubleshooting Guide
 5. Iteration not invalidated after hard failure
    - Check: Was mid_iteration=True passed to on_hard_rank_failure()?
    - Check: Is the IterationInvalidator wired to the HardFailureDetector?
-   - Fix: Ensure bsr_report_hard_failure() is called with mid_iteration=True
+   - Fix: Ensure moegambit_report_hard_failure() is called with mid_iteration=True
 
 6. Optimizer committed tainted gradients
    - Check: Is OptimizerCommitGuard.should_commit() called before optimizer.step()?
    - Check: Is is_iteration_invalid_fn wired?
-   - Fix: Add bsr_should_commit_optimizer() check before optimizer.step()
+   - Fix: Add moegambit_should_commit_optimizer() check before optimizer.step()
 
 7. Rollback not performed
    - Check: Was take_snapshot() called at iteration start?
    - Check: Does the RollbackReplayManager have a valid snapshot?
-   - Fix: Ensure bsr_snapshot_iteration() is called at each iteration start
+   - Fix: Ensure moegambit_snapshot_iteration() is called at each iteration start
 
 8. Replay stuck
    - Check: Was complete_replay() called after successful replay?
    - Check: Has max_replay_attempts been exceeded?
-   - Fix: Call bsr_complete_replay() after successful train_step on replay
+   - Fix: Call moegambit_complete_replay() after successful train_step on replay
 
 9. Metrics show time_to_resume = -1
    - Check: Did the controller reach HEALTHY_TRAINING?

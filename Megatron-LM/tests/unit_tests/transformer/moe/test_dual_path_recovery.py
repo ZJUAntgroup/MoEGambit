@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE Dual-Path Recovery (checkpoint restart path).
+"""Unit tests for MOEGAMBIT-MoE Dual-Path Recovery (checkpoint restart path).
 
 Tests cover:
 1. Hard failure unified preconditions (all 6 actions fire)

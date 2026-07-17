@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-analyze_train_log.py — Megatron + BSR-MoE 训练日志耗时分析工具
+analyze_train_log.py — Megatron + MOEGAMBIT-MoE 训练日志耗时分析工具
 
 离线解析 Megatron 训练日志，统计各阶段耗时及占比，
-并提取 BSR-MoE 故障恢复系统的完整事件时间线。
+并提取 MOEGAMBIT-MoE 故障恢复系统的完整事件时间线。
 
 用法:
     python analyze_train_log.py <日志文件>
     python analyze_train_log.py train.log --top 20
     python analyze_train_log.py train.log --csv output.csv
     python analyze_train_log.py train.log --iter-range 10-100
-    python analyze_train_log.py train.log --bsr-only
+    python analyze_train_log.py train.log --moegambit-only
 
 支持的日志格式:
     1. iteration 行:  [datetime] iteration N/M | ... | elapsed time per iteration (ms): XXX | ...
@@ -18,13 +18,13 @@ analyze_train_log.py — Megatron + BSR-MoE 训练日志耗时分析工具
     3. checkpoint 行: saving checkpoint at iteration N
     4. evaluate 行:   evaluating ...
     5. setup 行:      model-and-optimizer-setup / train/valid/test-data-iterators-setup
-    6. BSR-MoE 事件:  BSR-MoE 前缀的所有日志（故障注入、隔离、状态迁移、恢复等）
+    6. MOEGAMBIT-MoE 事件:  MOEGAMBIT-MoE 前缀的所有日志（故障注入、隔离、状态迁移、恢复等）
 
 分析输出:
     - 每个 timer 的总耗时、平均耗时、调用次数、占比
-    - 按类别 (data/compute/comm/optimizer/checkpoint/eval/bsr/other) 汇总
+    - 按类别 (data/compute/comm/optimizer/checkpoint/eval/moegambit/other) 汇总
     - iteration 耗时统计 (min/max/mean/p50/p95/p99)
-    - BSR-MoE 事件时间线和恢复耗时分析
+    - MOEGAMBIT-MoE 事件时间线和恢复耗时分析
 """
 
 import argparse
@@ -140,25 +140,25 @@ class IterationRecord:
 
 
 # ============================================================
-# 2b. BSR-MoE 事件数据结构
+# 2b. MOEGAMBIT-MoE 事件数据结构
 # ============================================================
 
 @dataclass
-class BSREvent:
-    """单条 BSR-MoE 事件。"""
+class MOEGAMBITEvent:
+    """单条 MOEGAMBIT-MoE 事件。"""
     timestamp: str          # 原始时间戳字符串
     datetime: Optional[datetime] = None  # 解析后的 datetime
     rank: int = -1          # 产生日志的 rank (-1 = unknown)
     level: str = 'INFO'     # WARNING / INFO / ERROR
-    event_type: str = ''    # 事件分类 (见下方 BSR_EVENT_TYPES)
+    event_type: str = ''    # 事件分类 (见下方 MOEGAMBIT_EVENT_TYPES)
     step: int = -1          # 关联的 training step
     message: str = ''       # 原始消息
     details: Dict = field(default_factory=dict)  # 解析出的结构化字段
 
 
 @dataclass
-class BSRTimingRecord:
-    """单条 BSR-MoE 操作的计时记录。"""
+class MOEGAMBITTimingRecord:
+    """单条 MOEGAMBIT-MoE 操作的计时记录。"""
     timestamp: str = ''
     datetime: Optional[datetime] = None
     phase: str = ''           # 操作阶段 (group_repair, dense_sync, expert_restore, pipeline_repair, etc.)
@@ -169,8 +169,8 @@ class BSRTimingRecord:
     message: str = ''
 
 
-# BSR 计时阶段分类
-BSR_TIMING_PHASES = {
+# MOEGAMBIT 计时阶段分类
+MOEGAMBIT_TIMING_PHASES = {
     'group_repair':         '安全点组修复',
     'dense_sync':           '稠密参数同步',
     'expert_restore':       '专家参数恢复',
@@ -184,9 +184,9 @@ BSR_TIMING_PHASES = {
 }
 
 
-# BSR 事件分类
-BSR_EVENT_TYPES = {
-    'init':             'BSR 初始化',
+# MOEGAMBIT 事件分类
+MOEGAMBIT_EVENT_TYPES = {
+    'init':             'MOEGAMBIT 初始化',
     'fault_inject':     '故障注入',
     'quarantine':       'Rank 隔离',
     'quarantine_lift':  '隔离解除',
@@ -205,7 +205,7 @@ BSR_EVENT_TYPES = {
     'deferred_optim':   '延迟优化器加载',
     'callback_error':   '回调错误',
     'checkpoint_meta':  'Checkpoint 元数据',
-    'unknown':          '其他 BSR 事件',
+    'unknown':          '其他 MOEGAMBIT 事件',
 }
 
 
@@ -241,7 +241,7 @@ RE_EVAL_START = re.compile(r'evaluating', re.IGNORECASE)
 
 
 # ============================================================
-# 3b. BSR-MoE 日志正则
+# 3b. MOEGAMBIT-MoE 日志正则
 # ============================================================
 
 # 通用时间戳提取 (Megatron 日志格式: [2026-04-14 10:38:39] 或无括号)
@@ -253,176 +253,176 @@ RE_RANK = re.compile(r'\[(?:W\s+)?rank(\d+)\]')
 # 日志级别
 RE_LOG_LEVEL = re.compile(r'\b(WARNING|INFO|ERROR)\b')
 
-# --- BSR-MoE 事件正则 ---
+# --- MOEGAMBIT-MoE 事件正则 ---
 
 # 初始化
-RE_BSR_INIT = re.compile(r'BSR-MoE:\s*initializ')
-RE_BSR_INIT_COMPLETE = re.compile(r'BSR-MoE:\s*initialization complete on rank\s+(\d+)')
+RE_MOEGAMBIT_INIT = re.compile(r'MOEGAMBIT-MoE:\s*initializ')
+RE_MOEGAMBIT_INIT_COMPLETE = re.compile(r'MOEGAMBIT-MoE:\s*initialization complete on rank\s+(\d+)')
 
-# 故障注入 (带时间戳: [ts] BSR-MoE FAULT INJECTION: type=X, rank=X, step=X, experts=[...])
-RE_BSR_FAULT_INJECT = re.compile(
-    r'BSR-MoE FAULT INJECTION:\s*type=(\w+),\s*rank=(\d+),\s*step=(\d+),\s*experts=(\[[\d,\s]*\])'
+# 故障注入 (带时间戳: [ts] MOEGAMBIT-MoE FAULT INJECTION: type=X, rank=X, step=X, experts=[...])
+RE_MOEGAMBIT_FAULT_INJECT = re.compile(
+    r'MOEGAMBIT-MoE FAULT INJECTION:\s*type=(\w+),\s*rank=(\d+),\s*step=(\d+),\s*experts=(\[[\d,\s]*\])'
 )
-RE_BSR_FAULT_REPLACEMENT = re.compile(
-    r'BSR-MoE FAULT INJECTION:\s*replacement ready.*?'
+RE_MOEGAMBIT_FAULT_REPLACEMENT = re.compile(
+    r'MOEGAMBIT-MoE FAULT INJECTION:\s*replacement ready.*?'
     r'failed_rank=(\d+),\s*replacement_rank=(\d+),\s*step=(\d+)'
 )
 
-# Rank 隔离 (新格式: [ts] BSR-MoE controller: rank N QUARANTINED (step=N, reason=X, experts=[...]))
-RE_BSR_QUARANTINE = re.compile(
-    r'BSR-MoE controller:\s*rank\s+(\d+)\s+QUARANTINED\s*\(step=(\d+),\s*reason=([^,)]+)'
+# Rank 隔离 (新格式: [ts] MOEGAMBIT-MoE controller: rank N QUARANTINED (step=N, reason=X, experts=[...]))
+RE_MOEGAMBIT_QUARANTINE = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*rank\s+(\d+)\s+QUARANTINED\s*\(step=(\d+),\s*reason=([^,)]+)'
 )
-RE_BSR_QUARANTINE_OLD = re.compile(
-    r'BSR-MoE:\s*rank\s+(\d+)\s+QUARANTINED\s*\(step=(\d+),\s*reason=([^)]+)\)'
+RE_MOEGAMBIT_QUARANTINE_OLD = re.compile(
+    r'MOEGAMBIT-MoE:\s*rank\s+(\d+)\s+QUARANTINED\s*\(step=(\d+),\s*reason=([^)]+)\)'
 )
-RE_BSR_QUARANTINE_LIFT = re.compile(
-    r'BSR-MoE.*?rank\s+(\d+)\s+quarantine\s+LIFTED.*?step=(\d+)'
-)
-
-# Hard failure (新增: [ts] BSR-MoE controller: rank N HARD FAILURE (step=N, reason=X, ...))
-RE_BSR_HARD_FAILURE = re.compile(
-    r'BSR-MoE controller:\s*rank\s+(\d+)\s+HARD FAILURE\s*\(step=(\d+),\s*reason=([^,)]+)'
+RE_MOEGAMBIT_QUARANTINE_LIFT = re.compile(
+    r'MOEGAMBIT-MoE.*?rank\s+(\d+)\s+quarantine\s+LIFTED.*?step=(\d+)'
 )
 
-# 替换 rank (新增: [ts] BSR-MoE controller: replacement assigned/ready)
-RE_BSR_REPLACEMENT_ASSIGNED = re.compile(
-    r'BSR-MoE controller:\s*replacement assigned.*?'
+# Hard failure (新增: [ts] MOEGAMBIT-MoE controller: rank N HARD FAILURE (step=N, reason=X, ...))
+RE_MOEGAMBIT_HARD_FAILURE = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*rank\s+(\d+)\s+HARD FAILURE\s*\(step=(\d+),\s*reason=([^,)]+)'
+)
+
+# 替换 rank (新增: [ts] MOEGAMBIT-MoE controller: replacement assigned/ready)
+RE_MOEGAMBIT_REPLACEMENT_ASSIGNED = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*replacement assigned.*?'
     r'failed_rank=(\d+),\s*replacement_rank=(\d+).*?step=(\d+)'
 )
-RE_BSR_REPLACEMENT_READY = re.compile(
-    r'BSR-MoE controller:\s*replacement ready.*?'
+RE_MOEGAMBIT_REPLACEMENT_READY = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*replacement ready.*?'
     r'failed_rank=(\d+).*?step=(\d+)'
 )
 
 # 专家状态迁移
-RE_BSR_STATE_TRANSITION = re.compile(
-    r'BSR-MoE\s+layer\s+(\d+):\s*experts?\s+(\[[\d,\s]*\])\s*→\s*(\w+)\s*\(step=(\d+)\)'
+RE_MOEGAMBIT_STATE_TRANSITION = re.compile(
+    r'MOEGAMBIT-MoE\s+layer\s+(\d+):\s*experts?\s+(\[[\d,\s]*\])\s*→\s*(\w+)\s*\(step=(\d+)\)'
 )
 
 # 健康掩码
-RE_BSR_HEALTH_UNHEALTHY = re.compile(
-    r'BSR-MoE.*?marked experts?\s+(\[[\d,\s]*\])\s+as\s+UNHEALTHY'
+RE_MOEGAMBIT_HEALTH_UNHEALTHY = re.compile(
+    r'MOEGAMBIT-MoE.*?marked experts?\s+(\[[\d,\s]*\])\s+as\s+UNHEALTHY'
 )
-RE_BSR_HEALTH_HEALTHY = re.compile(
-    r'BSR-MoE.*?marked experts?\s+(\[[\d,\s]*\])\s+as\s+HEALTHY'
+RE_MOEGAMBIT_HEALTH_HEALTHY = re.compile(
+    r'MOEGAMBIT-MoE.*?marked experts?\s+(\[[\d,\s]*\])\s+as\s+HEALTHY'
 )
 
 # Dispatch sanitize
-RE_BSR_SANITIZE = re.compile(
-    r'BSR-MoE sanitize_routing_map:\s*zeroing\s+(\d+)\s+token-expert assignments\s+'
+RE_MOEGAMBIT_SANITIZE = re.compile(
+    r'MOEGAMBIT-MoE sanitize_routing_map:\s*zeroing\s+(\d+)\s+token-expert assignments\s+'
     r'across\s+(\d+)\s+expert columns\s*\(quarantined EP ranks:\s*(\[[\d,\s]*\])\)'
 )
 
-# 控制器阶段迁移 (新格式: [ts] BSR-MoE controller: PHASE_A → PHASE_B (event=X, step=N))
-RE_BSR_CONTROLLER_PHASE = re.compile(
-    r'BSR-MoE controller:\s*(\w+)\s*→\s*(\w+)\s*\(event=(\w+),\s*step=(\d+)\)'
+# 控制器阶段迁移 (新格式: [ts] MOEGAMBIT-MoE controller: PHASE_A → PHASE_B (event=X, step=N))
+RE_MOEGAMBIT_CONTROLLER_PHASE = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*(\w+)\s*→\s*(\w+)\s*\(event=(\w+),\s*step=(\d+)\)'
 )
 
 # 安全点修复开始
-RE_BSR_SAFE_POINT = re.compile(
-    r'BSR-MoE controller:\s*executing safe-point repair at step\s+(\d+)'
+RE_MOEGAMBIT_SAFE_POINT = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*executing safe-point repair at step\s+(\d+)'
 )
 
-# 安全点修复完成 (新增: [ts] BSR-MoE controller: safe-point repair COMPLETED total_elapsed=X.XXXs)
-RE_BSR_SAFE_POINT_COMPLETED = re.compile(
-    r'BSR-MoE controller:\s*safe-point repair COMPLETED.*?'
+# 安全点修复完成 (新增: [ts] MOEGAMBIT-MoE controller: safe-point repair COMPLETED total_elapsed=X.XXXs)
+RE_MOEGAMBIT_SAFE_POINT_COMPLETED = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*safe-point repair COMPLETED.*?'
     r'total_elapsed=([\d.]+)s.*?step=(\d+)'
 )
 
 # 重新集成完成
-RE_BSR_REINTEGRATION = re.compile(
-    r'BSR-MoE controller:\s*reintegration finalized at step\s+(\d+)'
+RE_MOEGAMBIT_REINTEGRATION = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*reintegration finalized at step\s+(\d+)'
 )
 
 # 回调错误
-RE_BSR_CALLBACK_ERROR = re.compile(
-    r'BSR-MoE\s+(\w+)\s+failed:\s*(.*)'
+RE_MOEGAMBIT_CALLBACK_ERROR = re.compile(
+    r'MOEGAMBIT-MoE\s+(\w+)\s+failed:\s*(.*)'
 )
 
 # Dispatch 一致性违规
-RE_BSR_DISPATCH_VIOLATION = re.compile(
-    r'BSR-MoE dispatch consistency violation'
+RE_MOEGAMBIT_DISPATCH_VIOLATION = re.compile(
+    r'MOEGAMBIT-MoE dispatch consistency violation'
 )
 
-# --- BSR-MoE 计时正则 ---
+# --- MOEGAMBIT-MoE 计时正则 ---
 
-# 安全点组修复: "[ts] BSR-MoE: safe-point group repair SUCCEEDED — invalidated=X, rebuilt=X, rebound=X, verified=X, elapsed=X.XXs"
-RE_BSR_GROUP_REPAIR_TIMING = re.compile(
-    r'BSR-MoE.*?safe-point group repair\s+(\w+)\s*—\s*'
+# 安全点组修复: "[ts] MOEGAMBIT-MoE: safe-point group repair SUCCEEDED — invalidated=X, rebuilt=X, rebound=X, verified=X, elapsed=X.XXs"
+RE_MOEGAMBIT_GROUP_REPAIR_TIMING = re.compile(
+    r'MOEGAMBIT-MoE.*?safe-point group repair\s+(\w+)\s*—\s*'
     r'invalidated=(\d+),\s*rebuilt=(\d+),\s*rebound=(\d+),\s*'
     r'verified=(\w+),\s*elapsed=([\d.]+)s'
 )
 
-# 稠密参数同步: "[ts] BSR-MoE dense param sync: SUCCESS — synced X params (X scalars) from rank X (attempt X, X.XXs, skipped X expert params)"
-RE_BSR_DENSE_SYNC_TIMING = re.compile(
-    r'BSR-MoE dense param sync:\s*(\w+)\s*—\s*synced\s+(\d+)\s+params\s+'
+# 稠密参数同步: "[ts] MOEGAMBIT-MoE dense param sync: SUCCESS — synced X params (X scalars) from rank X (attempt X, X.XXs, skipped X expert params)"
+RE_MOEGAMBIT_DENSE_SYNC_TIMING = re.compile(
+    r'MOEGAMBIT-MoE dense param sync:\s*(\w+)\s*—\s*synced\s+(\d+)\s+params\s+'
     r'\((\d+)\s+scalars\)\s+from rank\s+(\d+)\s+'
     r'\(attempt\s+(\d+),\s*([\d.]+)s,\s*skipped\s+(\d+)\s+expert params\)'
 )
 
-# 专家恢复 (stale_expert_restore.py): "BSR-MoE stale expert restore: SUCCESS — restored X/X experts (transitions=X, directory=X, barrier=X, X.XXs)"
-RE_BSR_EXPERT_RESTORE_TIMING = re.compile(
-    r'BSR-MoE stale expert restore:\s*(\w+)\s*—\s*restored\s+(\d+)/(\d+)\s+experts\s+'
+# 专家恢复 (stale_expert_restore.py): "MOEGAMBIT-MoE stale expert restore: SUCCESS — restored X/X experts (transitions=X, directory=X, barrier=X, X.XXs)"
+RE_MOEGAMBIT_EXPERT_RESTORE_TIMING = re.compile(
+    r'MOEGAMBIT-MoE stale expert restore:\s*(\w+)\s*—\s*restored\s+(\d+)/(\d+)\s+experts\s+'
     r'\(transitions=(\d+),\s*directory=(\d+),\s*barrier=(\d+),\s*([\d.]+)s\)'
 )
 
-# 专家恢复 (bsr_integration): "[ts] BSR-MoE expert_restore_fn: SUCCESS — restored X experts (X state transitions, X directory updates, X barrier params, X.XXs)"
-RE_BSR_EXPERT_RESTORE_FN_TIMING = re.compile(
-    r'BSR-MoE expert_restore_fn:\s*(\w+)\s*—\s*restored\s+(\d+)\s+experts\s+'
+# 专家恢复 (moegambit_integration): "[ts] MOEGAMBIT-MoE expert_restore_fn: SUCCESS — restored X experts (X state transitions, X directory updates, X barrier params, X.XXs)"
+RE_MOEGAMBIT_EXPERT_RESTORE_FN_TIMING = re.compile(
+    r'MOEGAMBIT-MoE expert_restore_fn:\s*(\w+)\s*—\s*restored\s+(\d+)\s+experts\s+'
     r'\((\d+)\s+state transitions,\s*(\d+)\s+directory updates,\s*(\d+)\s+barrier params,\s*([\d.]+)s\)'
 )
 
-# Pipeline 修复: "BSR-MoE pipeline repair SUCCEEDED — stage=X, ..., elapsed=X.XXs"
-RE_BSR_PIPELINE_REPAIR_TIMING = re.compile(
-    r'BSR-MoE pipeline repair\s+(\w+)\s*—\s*stage=(\d+).*?elapsed=([\d.]+)s'
+# Pipeline 修复: "MOEGAMBIT-MoE pipeline repair SUCCEEDED — stage=X, ..., elapsed=X.XXs"
+RE_MOEGAMBIT_PIPELINE_REPAIR_TIMING = re.compile(
+    r'MOEGAMBIT-MoE pipeline repair\s+(\w+)\s*—\s*stage=(\d+).*?elapsed=([\d.]+)s'
 )
 
-# Pipeline stage repair (bsr_integration): "[ts] BSR-MoE pipeline_stage_repair_fn: SUCCESS — pp_rebuilt=X, prev_next=X, p2p_rebound=X, elapsed=X.XXs"
-RE_BSR_PIPELINE_STAGE_REPAIR_FN_TIMING = re.compile(
-    r'BSR-MoE pipeline_stage_repair_fn:\s*(\w+)\s*—\s*'
+# Pipeline stage repair (moegambit_integration): "[ts] MOEGAMBIT-MoE pipeline_stage_repair_fn: SUCCESS — pp_rebuilt=X, prev_next=X, p2p_rebound=X, elapsed=X.XXs"
+RE_MOEGAMBIT_PIPELINE_STAGE_REPAIR_FN_TIMING = re.compile(
+    r'MOEGAMBIT-MoE pipeline_stage_repair_fn:\s*(\w+)\s*—\s*'
     r'pp_rebuilt=(\w+),\s*prev_next=(\w+),\s*p2p_rebound=(\w+),\s*elapsed=([\d.]+)s'
 )
 
-# Pipeline rollback: "BSR-MoE pipeline: rollback COMPLETE — step=X, ..., elapsed=X.XXXs"
-RE_BSR_PIPELINE_ROLLBACK_TIMING = re.compile(
-    r'BSR-MoE pipeline:\s*rollback\s+COMPLETE\s*—\s*step=(\d+).*?elapsed=([\d.]+)s'
+# Pipeline rollback: "MOEGAMBIT-MoE pipeline: rollback COMPLETE — step=X, ..., elapsed=X.XXXs"
+RE_MOEGAMBIT_PIPELINE_ROLLBACK_TIMING = re.compile(
+    r'MOEGAMBIT-MoE pipeline:\s*rollback\s+COMPLETE\s*—\s*step=(\d+).*?elapsed=([\d.]+)s'
 )
 
-# 异步恢复 worker: "BSR-MoE async worker: completed X X (layer=X, expert=X, success=X, X.XXXs)"
-RE_BSR_ASYNC_WORKER_TIMING = re.compile(
-    r'BSR-MoE async worker:\s*completed\s+(\w+)\s+\S+\s+'
+# 异步恢复 worker: "MOEGAMBIT-MoE async worker: completed X X (layer=X, expert=X, success=X, X.XXXs)"
+RE_MOEGAMBIT_ASYNC_WORKER_TIMING = re.compile(
+    r'MOEGAMBIT-MoE async worker:\s*completed\s+(\w+)\s+\S+\s+'
     r'\(layer=(\d+),\s*expert=(\d+),\s*success=(\w+),\s*([\d.]+)s\)'
 )
 
-# 延迟优化器加载: "BSR-MoE deferred loader: loaded optimizer state for expert (layer=X, id=X) at step X (X.XXs)"
-RE_BSR_DEFERRED_OPTIM_TIMING = re.compile(
-    r'BSR-MoE deferred loader:\s*(?:loaded|async)\s+optimizer\s+.*?'
+# 延迟优化器加载: "MOEGAMBIT-MoE deferred loader: loaded optimizer state for expert (layer=X, id=X) at step X (X.XXs)"
+RE_MOEGAMBIT_DEFERRED_OPTIM_TIMING = re.compile(
+    r'MOEGAMBIT-MoE deferred loader:\s*(?:loaded|async)\s+optimizer\s+.*?'
     r'\(layer=(\d+),\s*(?:id|expert)=(\d+)\)\s+at step\s+(\d+)\s+\(([\d.]+)s\)'
 )
 
-# 控制器步骤计时 (新增): "[ts] BSR-MoE controller: stepN xxx elapsed=X.XXXs (step=N)"
+# 控制器步骤计时 (新增): "[ts] MOEGAMBIT-MoE controller: stepN xxx elapsed=X.XXXs (step=N)"
 # 也匹配 "step7 expert_restore (sync) elapsed=..." 和 "step8 reintegration barrier ..."
-RE_BSR_CONTROLLER_STEP_TIMING = re.compile(
-    r'BSR-MoE controller:\s*step(\d+)\s+(.+?)\s+elapsed=([\d.]+)s\s+\(step=(\d+)\)'
+RE_MOEGAMBIT_CONTROLLER_STEP_TIMING = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*step(\d+)\s+(.+?)\s+elapsed=([\d.]+)s\s+\(step=(\d+)\)'
 )
 
-# 安全点修复总耗时 (新增): "[ts] BSR-MoE controller: safe-point repair COMPLETED total_elapsed=X.XXXs (step=N, ...)"
-RE_BSR_SAFE_POINT_TOTAL_TIMING = re.compile(
-    r'BSR-MoE controller:\s*safe-point repair COMPLETED.*?'
+# 安全点修复总耗时 (新增): "[ts] MOEGAMBIT-MoE controller: safe-point repair COMPLETED total_elapsed=X.XXXs (step=N, ...)"
+RE_MOEGAMBIT_SAFE_POINT_TOTAL_TIMING = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*safe-point repair COMPLETED.*?'
     r'total_elapsed=([\d.]+)s.*?step=(\d+)'
 )
 
-# 异步专家恢复提交 (新增): "[ts] BSR-MoE controller: step7 async expert restore submitted (N requests, elapsed=X.XXXs, step=N)"
-RE_BSR_ASYNC_EXPERT_SUBMIT_TIMING = re.compile(
-    r'BSR-MoE controller:\s*step7 async expert restore submitted\s+'
+# 异步专家恢复提交 (新增): "[ts] MOEGAMBIT-MoE controller: step7 async expert restore submitted (N requests, elapsed=X.XXXs, step=N)"
+RE_MOEGAMBIT_ASYNC_EXPERT_SUBMIT_TIMING = re.compile(
+    r'MOEGAMBIT-MoE controller:\s*step7 async expert restore submitted\s+'
     r'\((\d+)\s+requests,\s*elapsed=([\d.]+)s,\s*step=(\d+)\)'
 )
 
-# 通用 elapsed 提取 (兜底): 匹配任何 BSR-MoE 行中的 elapsed=X.XXs 或 (X.XXs)
-RE_BSR_ELAPSED_GENERIC = re.compile(r'(?:elapsed=|[\(\s])([\d.]+)s[)\s,]')
+# 通用 elapsed 提取 (兜底): 匹配任何 MOEGAMBIT-MoE 行中的 elapsed=X.XXs 或 (X.XXs)
+RE_MOEGAMBIT_ELAPSED_GENERIC = re.compile(r'(?:elapsed=|[\(\s])([\d.]+)s[)\s,]')
 
-# 通用 BSR-MoE 行 (兜底)
-RE_BSR_GENERIC = re.compile(r'BSR-MoE')
+# 通用 MOEGAMBIT-MoE 行 (兜底)
+RE_MOEGAMBIT_GENERIC = re.compile(r'MOEGAMBIT-MoE')
 
 
 def _parse_timestamp(ts_str: str) -> Optional[datetime]:
@@ -443,47 +443,47 @@ def _extract_step_from_line(line: str) -> int:
     return -1
 
 
-def _classify_bsr_event(line: str) -> Tuple[str, Dict]:
-    """对一行 BSR-MoE 日志进行事件分类，返回 (event_type, details)。"""
+def _classify_moegambit_event(line: str) -> Tuple[str, Dict]:
+    """对一行 MOEGAMBIT-MoE 日志进行事件分类，返回 (event_type, details)。"""
 
-    m = RE_BSR_FAULT_INJECT.search(line)
+    m = RE_MOEGAMBIT_FAULT_INJECT.search(line)
     if m:
         return 'fault_inject', {
             'fault_type': m.group(1), 'target_rank': int(m.group(2)),
             'step': int(m.group(3)), 'experts': m.group(4),
         }
 
-    m = RE_BSR_FAULT_REPLACEMENT.search(line)
+    m = RE_MOEGAMBIT_FAULT_REPLACEMENT.search(line)
     if m:
         return 'replacement', {
             'failed_rank': int(m.group(1)), 'replacement_rank': int(m.group(2)),
             'step': int(m.group(3)),
         }
 
-    # 新格式: BSR-MoE controller: rank N QUARANTINED
-    m = RE_BSR_QUARANTINE.search(line)
+    # 新格式: MOEGAMBIT-MoE controller: rank N QUARANTINED
+    m = RE_MOEGAMBIT_QUARANTINE.search(line)
     if m:
         return 'quarantine', {
             'rank': int(m.group(1)), 'step': int(m.group(2)),
             'reason': m.group(3).strip("'\""),
         }
 
-    # 旧格式: BSR-MoE: rank N QUARANTINED
-    m = RE_BSR_QUARANTINE_OLD.search(line)
+    # 旧格式: MOEGAMBIT-MoE: rank N QUARANTINED
+    m = RE_MOEGAMBIT_QUARANTINE_OLD.search(line)
     if m:
         return 'quarantine', {
             'rank': int(m.group(1)), 'step': int(m.group(2)),
             'reason': m.group(3).strip("'\""),
         }
 
-    m = RE_BSR_QUARANTINE_LIFT.search(line)
+    m = RE_MOEGAMBIT_QUARANTINE_LIFT.search(line)
     if m:
         return 'quarantine_lift', {
             'rank': int(m.group(1)), 'step': int(m.group(2)),
         }
 
     # Hard failure
-    m = RE_BSR_HARD_FAILURE.search(line)
+    m = RE_MOEGAMBIT_HARD_FAILURE.search(line)
     if m:
         return 'quarantine', {
             'rank': int(m.group(1)), 'step': int(m.group(2)),
@@ -492,7 +492,7 @@ def _classify_bsr_event(line: str) -> Tuple[str, Dict]:
         }
 
     # Replacement assigned (新增)
-    m = RE_BSR_REPLACEMENT_ASSIGNED.search(line)
+    m = RE_MOEGAMBIT_REPLACEMENT_ASSIGNED.search(line)
     if m:
         return 'replacement', {
             'failed_rank': int(m.group(1)), 'replacement_rank': int(m.group(2)),
@@ -500,36 +500,36 @@ def _classify_bsr_event(line: str) -> Tuple[str, Dict]:
         }
 
     # Replacement ready (新增)
-    m = RE_BSR_REPLACEMENT_READY.search(line)
+    m = RE_MOEGAMBIT_REPLACEMENT_READY.search(line)
     if m:
         return 'replacement', {
             'failed_rank': int(m.group(1)), 'step': int(m.group(2)),
             'sub': 'ready',
         }
 
-    m = RE_BSR_STATE_TRANSITION.search(line)
+    m = RE_MOEGAMBIT_STATE_TRANSITION.search(line)
     if m:
         return 'state_transition', {
             'layer': int(m.group(1)), 'experts': m.group(2),
             'new_state': m.group(3), 'step': int(m.group(4)),
         }
 
-    m = RE_BSR_HEALTH_UNHEALTHY.search(line)
+    m = RE_MOEGAMBIT_HEALTH_UNHEALTHY.search(line)
     if m:
         return 'health_mask', {'action': 'UNHEALTHY', 'experts': m.group(1)}
 
-    m = RE_BSR_HEALTH_HEALTHY.search(line)
+    m = RE_MOEGAMBIT_HEALTH_HEALTHY.search(line)
     if m:
         return 'health_mask', {'action': 'HEALTHY', 'experts': m.group(1)}
 
-    m = RE_BSR_SANITIZE.search(line)
+    m = RE_MOEGAMBIT_SANITIZE.search(line)
     if m:
         return 'sanitize', {
             'zeroed_tokens': int(m.group(1)), 'expert_cols': int(m.group(2)),
             'quarantined_ep_ranks': m.group(3),
         }
 
-    m = RE_BSR_CONTROLLER_PHASE.search(line)
+    m = RE_MOEGAMBIT_CONTROLLER_PHASE.search(line)
     if m:
         return 'controller_phase', {
             'from_phase': m.group(1), 'to_phase': m.group(2),
@@ -537,7 +537,7 @@ def _classify_bsr_event(line: str) -> Tuple[str, Dict]:
         }
 
     # 安全点修复完成 (新增，带总耗时)
-    m = RE_BSR_SAFE_POINT_COMPLETED.search(line)
+    m = RE_MOEGAMBIT_SAFE_POINT_COMPLETED.search(line)
     if m:
         return 'safe_point_repair', {
             'sub': 'completed',
@@ -545,24 +545,24 @@ def _classify_bsr_event(line: str) -> Tuple[str, Dict]:
             'step': int(m.group(2)),
         }
 
-    m = RE_BSR_SAFE_POINT.search(line)
+    m = RE_MOEGAMBIT_SAFE_POINT.search(line)
     if m:
         return 'safe_point_repair', {'step': int(m.group(1))}
 
-    m = RE_BSR_REINTEGRATION.search(line)
+    m = RE_MOEGAMBIT_REINTEGRATION.search(line)
     if m:
         return 'reintegration', {'step': int(m.group(1))}
 
-    m = RE_BSR_CALLBACK_ERROR.search(line)
+    m = RE_MOEGAMBIT_CALLBACK_ERROR.search(line)
     if m:
         return 'callback_error', {'callback': m.group(1), 'error': m.group(2)}
 
-    if RE_BSR_INIT_COMPLETE.search(line):
+    if RE_MOEGAMBIT_INIT_COMPLETE.search(line):
         return 'init', {'sub': 'complete'}
-    if RE_BSR_INIT.search(line):
+    if RE_MOEGAMBIT_INIT.search(line):
         return 'init', {'sub': 'start'}
 
-    if RE_BSR_DISPATCH_VIOLATION.search(line):
+    if RE_MOEGAMBIT_DISPATCH_VIOLATION.search(line):
         return 'sanitize', {'sub': 'violation'}
 
     # 新增: replacement_registry 日志
@@ -621,11 +621,11 @@ def _classify_bsr_event(line: str) -> Tuple[str, Dict]:
     return 'unknown', {}
 
 
-def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
-    """尝试从 BSR-MoE 日志行中提取计时信息。
+def _parse_moegambit_timing(line: str) -> Optional[MOEGAMBITTimingRecord]:
+    """尝试从 MOEGAMBIT-MoE 日志行中提取计时信息。
 
     Returns:
-        BSRTimingRecord if the line contains timing info, else None.
+        MOEGAMBITTimingRecord if the line contains timing info, else None.
     """
     # 提取时间戳
     ts_match = RE_TIMESTAMP.search(line)
@@ -634,9 +634,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
     step = _extract_step_from_line(line)
 
     # 安全点组修复
-    m = RE_BSR_GROUP_REPAIR_TIMING.search(line)
+    m = RE_MOEGAMBIT_GROUP_REPAIR_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='group_repair',
             success=(m.group(1).upper() == 'SUCCEEDED'),
             elapsed_seconds=float(m.group(6)), step=step,
@@ -648,9 +648,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # 稠密参数同步
-    m = RE_BSR_DENSE_SYNC_TIMING.search(line)
+    m = RE_MOEGAMBIT_DENSE_SYNC_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='dense_sync',
             success=(m.group(1).upper() == 'SUCCESS'),
             elapsed_seconds=float(m.group(6)), step=step,
@@ -663,9 +663,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # 专家恢复 (stale_expert_restore.py)
-    m = RE_BSR_EXPERT_RESTORE_TIMING.search(line)
+    m = RE_MOEGAMBIT_EXPERT_RESTORE_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='expert_restore',
             success=(m.group(1).upper() == 'SUCCESS'),
             elapsed_seconds=float(m.group(7)), step=step,
@@ -677,10 +677,10 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
             message=line.strip(),
         )
 
-    # 专家恢复 (bsr_integration.py expert_restore_fn)
-    m = RE_BSR_EXPERT_RESTORE_FN_TIMING.search(line)
+    # 专家恢复 (moegambit_integration.py expert_restore_fn)
+    m = RE_MOEGAMBIT_EXPERT_RESTORE_FN_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='expert_restore',
             success=(m.group(1).upper() == 'SUCCESS'),
             elapsed_seconds=float(m.group(6)), step=step,
@@ -692,9 +692,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # Pipeline 修复
-    m = RE_BSR_PIPELINE_REPAIR_TIMING.search(line)
+    m = RE_MOEGAMBIT_PIPELINE_REPAIR_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='pipeline_repair',
             success=(m.group(1).upper() == 'SUCCEEDED'),
             elapsed_seconds=float(m.group(3)), step=step,
@@ -702,10 +702,10 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
             message=line.strip(),
         )
 
-    # Pipeline stage repair (bsr_integration)
-    m = RE_BSR_PIPELINE_STAGE_REPAIR_FN_TIMING.search(line)
+    # Pipeline stage repair (moegambit_integration)
+    m = RE_MOEGAMBIT_PIPELINE_STAGE_REPAIR_FN_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='pipeline_stage_repair',
             success=(m.group(1).upper() == 'SUCCESS'),
             elapsed_seconds=float(m.group(5)), step=step,
@@ -717,9 +717,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # Pipeline rollback
-    m = RE_BSR_PIPELINE_ROLLBACK_TIMING.search(line)
+    m = RE_MOEGAMBIT_PIPELINE_ROLLBACK_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='pipeline_rollback',
             success=True,
             elapsed_seconds=float(m.group(2)), step=int(m.group(1)),
@@ -727,9 +727,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # 异步恢复 worker
-    m = RE_BSR_ASYNC_WORKER_TIMING.search(line)
+    m = RE_MOEGAMBIT_ASYNC_WORKER_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='async_worker',
             success=(m.group(4).lower() == 'true'),
             elapsed_seconds=float(m.group(5)), step=step,
@@ -741,9 +741,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # 延迟优化器加载
-    m = RE_BSR_DEFERRED_OPTIM_TIMING.search(line)
+    m = RE_MOEGAMBIT_DEFERRED_OPTIM_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='deferred_optim',
             success=True,
             elapsed_seconds=float(m.group(4)), step=int(m.group(3)),
@@ -752,7 +752,7 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # 控制器步骤计时 (新增)
-    m = RE_BSR_CONTROLLER_STEP_TIMING.search(line)
+    m = RE_MOEGAMBIT_CONTROLLER_STEP_TIMING.search(line)
     if m:
         step_num = m.group(1)
         step_name = m.group(2).strip()
@@ -772,7 +772,7 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
             phase = 'pipeline_stage_repair'
         else:
             phase = 'unknown_timed'
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase=phase,
             success=True,
             elapsed_seconds=float(m.group(3)), step=int(m.group(4)),
@@ -781,9 +781,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # 安全点修复总耗时 (新增)
-    m = RE_BSR_SAFE_POINT_TOTAL_TIMING.search(line)
+    m = RE_MOEGAMBIT_SAFE_POINT_TOTAL_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='safe_point_total',
             success=True,
             elapsed_seconds=float(m.group(1)), step=int(m.group(2)),
@@ -791,9 +791,9 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
         )
 
     # 异步专家恢复提交 (新增)
-    m = RE_BSR_ASYNC_EXPERT_SUBMIT_TIMING.search(line)
+    m = RE_MOEGAMBIT_ASYNC_EXPERT_SUBMIT_TIMING.search(line)
     if m:
-        return BSRTimingRecord(
+        return MOEGAMBITTimingRecord(
             timestamp=ts_str, datetime=ts_dt, phase='expert_restore',
             success=True,
             elapsed_seconds=float(m.group(2)), step=int(m.group(3)),
@@ -809,35 +809,35 @@ def _parse_bsr_timing(line: str) -> Optional[BSRTimingRecord]:
 # ============================================================
 
 def parse_log(filepath: str, iter_range: Optional[Tuple[int, int]] = None):
-    """解析 Megatron + BSR-MoE 训练日志文件。
+    """解析 Megatron + MOEGAMBIT-MoE 训练日志文件。
 
     Returns:
         timers:         Dict[str, TimerRecord]
         iterations:     List[IterationRecord]
-        bsr_events:     List[BSREvent]
+        moegambit_events:     List[MOEGAMBITEvent]
         meta:           dict
-        bsr_timings:    List[BSRTimingRecord]
+        moegambit_timings:    List[MOEGAMBITTimingRecord]
     """
     timers: Dict[str, TimerRecord] = {}
     iterations: List[IterationRecord] = []
-    bsr_events: List[BSREvent] = []
-    bsr_timings: List[BSRTimingRecord] = []
+    moegambit_events: List[MOEGAMBITEvent] = []
+    moegambit_timings: List[MOEGAMBITTimingRecord] = []
     meta = {
         'total_iterations': 0,
         'max_iterations': 0,
         'checkpoint_saves': 0,
         'checkpoint_loads': 0,
         'eval_count': 0,
-        'bsr_enabled': False,
-        'bsr_event_count': 0,
-        'bsr_fault_count': 0,
-        'bsr_error_count': 0,
-        'bsr_sanitize_count': 0,
-        'bsr_sanitize_total_tokens': 0,
+        'moegambit_enabled': False,
+        'moegambit_event_count': 0,
+        'moegambit_fault_count': 0,
+        'moegambit_error_count': 0,
+        'moegambit_sanitize_count': 0,
+        'moegambit_sanitize_total_tokens': 0,
     }
 
     in_timer_block = False
-    # 维护最近的时间戳，用于没有时间戳的 BSR 行
+    # 维护最近的时间戳，用于没有时间戳的 MOEGAMBIT 行
     last_timestamp_str = ''
     last_timestamp_dt = None
 
@@ -902,10 +902,10 @@ def parse_log(filepath: str, iter_range: Optional[Tuple[int, int]] = None):
             if RE_EVAL_START.search(line):
                 meta['eval_count'] += 1
 
-            # --- 6. BSR-MoE 事件 ---
-            if RE_BSR_GENERIC.search(line):
-                meta['bsr_enabled'] = True
-                meta['bsr_event_count'] += 1
+            # --- 6. MOEGAMBIT-MoE 事件 ---
+            if RE_MOEGAMBIT_GENERIC.search(line):
+                meta['moegambit_enabled'] = True
+                meta['moegambit_event_count'] += 1
 
                 # 提取时间戳 (优先从行内提取，否则使用最近的时间戳)
                 ts_match = RE_TIMESTAMP.search(line)
@@ -930,10 +930,10 @@ def parse_log(filepath: str, iter_range: Optional[Tuple[int, int]] = None):
                 level = level_match.group(1) if level_match else 'INFO'
 
                 # 分类事件
-                event_type, details = _classify_bsr_event(line)
+                event_type, details = _classify_moegambit_event(line)
                 step = details.get('step', _extract_step_from_line(line))
 
-                evt = BSREvent(
+                evt = MOEGAMBITEvent(
                     timestamp=ts_str,
                     datetime=ts_dt,
                     rank=rank,
@@ -943,23 +943,23 @@ def parse_log(filepath: str, iter_range: Optional[Tuple[int, int]] = None):
                     message=line.strip(),
                     details=details,
                 )
-                bsr_events.append(evt)
+                moegambit_events.append(evt)
 
                 # 统计
                 if event_type == 'fault_inject':
-                    meta['bsr_fault_count'] += 1
+                    meta['moegambit_fault_count'] += 1
                 if event_type == 'callback_error' or level == 'ERROR':
-                    meta['bsr_error_count'] += 1
+                    meta['moegambit_error_count'] += 1
                 if event_type == 'sanitize' and 'zeroed_tokens' in details:
-                    meta['bsr_sanitize_count'] += 1
-                    meta['bsr_sanitize_total_tokens'] += details['zeroed_tokens']
+                    meta['moegambit_sanitize_count'] += 1
+                    meta['moegambit_sanitize_total_tokens'] += details['zeroed_tokens']
 
                 # 尝试提取计时信息
-                timing = _parse_bsr_timing(line)
+                timing = _parse_moegambit_timing(line)
                 if timing:
-                    bsr_timings.append(timing)
+                    moegambit_timings.append(timing)
 
-    return timers, iterations, bsr_events, meta, bsr_timings
+    return timers, iterations, moegambit_events, meta, moegambit_timings
 
 
 def _add_timer(timers: Dict[str, TimerRecord], name: str, value_ms: float):
@@ -1015,8 +1015,8 @@ def compute_category_summary(timers: Dict[str, TimerRecord]) -> Dict[str, float]
     return dict(cats)
 
 
-def compute_bsr_recovery_timeline(bsr_events: List[BSREvent]) -> List[Dict]:
-    """从 BSR 事件中提取故障→恢复的完整时间线。
+def compute_moegambit_recovery_timeline(moegambit_events: List[MOEGAMBITEvent]) -> List[Dict]:
+    """从 MOEGAMBIT 事件中提取故障→恢复的完整时间线。
 
     每次故障注入到重新集成完成为一个 recovery cycle。
     多 rank 日志去重：同一 (step, event_type, target_rank) 的事件只计一次。
@@ -1025,7 +1025,7 @@ def compute_bsr_recovery_timeline(bsr_events: List[BSREvent]) -> List[Dict]:
     # 第一步：按 (step, event_type, target_rank) 去重，保留第一个有时间戳的事件
     seen_keys = set()
     deduped_events = []
-    for evt in bsr_events:
+    for evt in moegambit_events:
         # 对于恢复时间线关键事件，去重
         if evt.event_type in ('fault_inject', 'quarantine', 'replacement',
                               'controller_phase', 'safe_point_repair',
@@ -1108,16 +1108,16 @@ def compute_bsr_recovery_timeline(bsr_events: List[BSREvent]) -> List[Dict]:
     return cycles
 
 
-def compute_bsr_event_summary(bsr_events: List[BSREvent]) -> Dict[str, int]:
-    """按事件类型统计 BSR 事件数量。"""
+def compute_moegambit_event_summary(moegambit_events: List[MOEGAMBITEvent]) -> Dict[str, int]:
+    """按事件类型统计 MOEGAMBIT 事件数量。"""
     summary: Dict[str, int] = defaultdict(int)
-    for evt in bsr_events:
+    for evt in moegambit_events:
         summary[evt.event_type] += 1
     return dict(summary)
 
 
-def compute_bsr_event_summary_deduped(bsr_events: List[BSREvent]) -> Dict[str, int]:
-    """按事件类型统计 BSR 事件数量（多 rank 去重）。
+def compute_moegambit_event_summary_deduped(moegambit_events: List[MOEGAMBITEvent]) -> Dict[str, int]:
+    """按事件类型统计 MOEGAMBIT 事件数量（多 rank 去重）。
 
     对于关键事件（fault_inject, quarantine, controller_phase, replacement 等），
     同一 step 的同类事件只计一次。state_transition 按 (layer, step) 去重。
@@ -1125,7 +1125,7 @@ def compute_bsr_event_summary_deduped(bsr_events: List[BSREvent]) -> Dict[str, i
     summary: Dict[str, int] = defaultdict(int)
     seen: Dict[str, set] = defaultdict(set)
 
-    for evt in bsr_events:
+    for evt in moegambit_events:
         etype = evt.event_type
         step = evt.details.get('step', evt.step)
 
@@ -1168,26 +1168,26 @@ def compute_bsr_event_summary_deduped(bsr_events: List[BSREvent]) -> Dict[str, i
     return dict(summary)
 
 
-def compute_bsr_sanitize_per_iter(
-    bsr_events: List[BSREvent], iterations: List[IterationRecord]
+def compute_moegambit_sanitize_per_iter(
+    moegambit_events: List[MOEGAMBITEvent], iterations: List[IterationRecord]
 ) -> Dict[int, int]:
     """统计每个 iteration 的 sanitize 次数（用于检测 router 是否真正隔离）。"""
     sanitize_by_step: Dict[int, int] = defaultdict(int)
-    for evt in bsr_events:
+    for evt in moegambit_events:
         if evt.event_type == 'sanitize' and 'zeroed_tokens' in evt.details:
             if evt.step >= 0:
                 sanitize_by_step[evt.step] += 1
     return dict(sanitize_by_step)
 
 
-def compute_bsr_timing_stats(bsr_timings: List[BSRTimingRecord]) -> Dict[str, Dict]:
-    """按阶段统计 BSR 操作耗时。
+def compute_moegambit_timing_stats(moegambit_timings: List[MOEGAMBITTimingRecord]) -> Dict[str, Dict]:
+    """按阶段统计 MOEGAMBIT 操作耗时。
 
     Returns:
         Dict[phase, {count, total_s, avg_s, min_s, max_s, success_count, fail_count, values}]
     """
-    phase_data: Dict[str, List[BSRTimingRecord]] = defaultdict(list)
-    for t in bsr_timings:
+    phase_data: Dict[str, List[MOEGAMBITTimingRecord]] = defaultdict(list)
+    for t in moegambit_timings:
         phase_data[t.phase].append(t)
 
     stats = {}
@@ -1211,14 +1211,14 @@ def compute_bsr_timing_stats(bsr_timings: List[BSRTimingRecord]) -> Dict[str, Di
     return stats
 
 
-def compute_bsr_total_repair_time(bsr_timings: List[BSRTimingRecord]) -> Dict:
+def compute_moegambit_total_repair_time(moegambit_timings: List[MOEGAMBITTimingRecord]) -> Dict:
     """计算单次安全点修复的总耗时（组修复 + 稠密同步 + 专家恢复 + pipeline 修复）。
 
     按时间窗口聚合：如果多个操作的时间戳在 5 秒内，认为属于同一次修复。
     """
     repair_phases = ['group_repair', 'dense_sync', 'expert_restore',
                      'pipeline_repair', 'pipeline_stage_repair']
-    repair_timings = [t for t in bsr_timings if t.phase in repair_phases and t.datetime]
+    repair_timings = [t for t in moegambit_timings if t.phase in repair_phases and t.datetime]
 
     if not repair_timings:
         return {'repairs': [], 'total_repair_time_s': 0.0}
@@ -1276,14 +1276,14 @@ def _fmt_duration(dt1: Optional[datetime], dt2: Optional[datetime]) -> str:
     return f'{mins:.1f}min'
 
 
-def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=None):
+def format_report(timers, iterations, moegambit_events, meta, top_n=30, moegambit_timings=None):
     """生成文本报告。"""
     lines = []
     sep = '=' * 88
 
     # --- 标题 ---
     lines.append(sep)
-    lines.append('  Megatron + BSR-MoE 训练日志分析报告')
+    lines.append('  Megatron + MOEGAMBIT-MoE 训练日志分析报告')
     lines.append(sep)
     lines.append('')
 
@@ -1293,8 +1293,8 @@ def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=No
     lines.append(f'  Checkpoint 加载:  {meta["checkpoint_loads"]} 次')
     lines.append(f'  评估次数:         {meta["eval_count"]} 次')
     lines.append(f'  解析到的 timer:   {len(timers)} 个')
-    bsr_str = '已启用' if meta['bsr_enabled'] else '未检测到'
-    lines.append(f'  BSR-MoE:          {bsr_str} ({meta["bsr_event_count"]} 条事件)')
+    moegambit_str = '已启用' if meta['moegambit_enabled'] else '未检测到'
+    lines.append(f'  MOEGAMBIT-MoE:          {moegambit_str} ({meta["moegambit_event_count"]} 条事件)')
     lines.append('')
 
     # --- Iteration 耗时统计 ---
@@ -1377,24 +1377,24 @@ def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=No
         lines.append('')
 
     # ============================================================
-    # BSR-MoE 分析报告
+    # MOEGAMBIT-MoE 分析报告
     # ============================================================
-    if meta['bsr_enabled'] and bsr_events:
+    if meta['moegambit_enabled'] and moegambit_events:
         lines.append(sep)
-        lines.append('  BSR-MoE 故障恢复分析')
+        lines.append('  MOEGAMBIT-MoE 故障恢复分析')
         lines.append(sep)
         lines.append('')
 
         # --- 事件统计 ---
-        evt_summary = compute_bsr_event_summary_deduped(bsr_events)
-        evt_summary_raw = compute_bsr_event_summary(bsr_events)
+        evt_summary = compute_moegambit_event_summary_deduped(moegambit_events)
+        evt_summary_raw = compute_moegambit_event_summary(moegambit_events)
         lines.append('-' * 88)
-        lines.append('  BSR-MoE 事件统计 (多 rank 去重后)')
+        lines.append('  MOEGAMBIT-MoE 事件统计 (多 rank 去重后)')
         lines.append('-' * 88)
         lines.append(f'  {"事件类型":<24s} {"中文名称":<20s} {"去重后":>6s} {"原始":>6s}')
         lines.append(f'  {"─"*24} {"─"*20} {"─"*6} {"─"*6}')
         for etype in sorted(evt_summary.keys(), key=lambda x: evt_summary[x], reverse=True):
-            label = BSR_EVENT_TYPES.get(etype, etype)
+            label = MOEGAMBIT_EVENT_TYPES.get(etype, etype)
             raw = evt_summary_raw.get(etype, 0)
             lines.append(f'  {etype:<24s} {label:<20s} {evt_summary[etype]:>6d} {raw:>6d}')
         lines.append(f'  {"─"*24} {"─"*20} {"─"*6} {"─"*6}')
@@ -1402,31 +1402,31 @@ def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=No
         lines.append('')
 
         # --- Sanitize 分析 ---
-        if meta['bsr_sanitize_count'] > 0:
+        if meta['moegambit_sanitize_count'] > 0:
             lines.append('-' * 88)
             lines.append('  Dispatch Sanitize 分析 (router 未隔离的 token 被 dispatcher 清零)')
             lines.append('-' * 88)
-            lines.append(f'    触发次数:        {meta["bsr_sanitize_count"]}')
-            lines.append(f'    清零 token 总数:  {meta["bsr_sanitize_total_tokens"]}')
-            avg_tokens = meta['bsr_sanitize_total_tokens'] / meta['bsr_sanitize_count']
+            lines.append(f'    触发次数:        {meta["moegambit_sanitize_count"]}')
+            lines.append(f'    清零 token 总数:  {meta["moegambit_sanitize_total_tokens"]}')
+            avg_tokens = meta['moegambit_sanitize_total_tokens'] / meta['moegambit_sanitize_count']
             lines.append(f'    平均每次清零:    {avg_tokens:.0f} tokens')
 
-            sanitize_per_iter = compute_bsr_sanitize_per_iter(bsr_events, iterations)
+            sanitize_per_iter = compute_moegambit_sanitize_per_iter(moegambit_events, iterations)
             if sanitize_per_iter:
                 first_iter = min(sanitize_per_iter.keys())
                 last_iter = max(sanitize_per_iter.keys())
                 lines.append(f'    影响 iteration:  {first_iter} ~ {last_iter} '
                              f'(共 {len(sanitize_per_iter)} 个 iteration)')
-                if meta['bsr_sanitize_count'] > 10:
+                if meta['moegambit_sanitize_count'] > 10:
                     lines.append(f'    *** 注意: sanitize 频繁触发说明 router 层的 health mask 可能未正确生效 ***')
             lines.append('')
 
-        # --- BSR 操作计时分析 ---
-        if bsr_timings:
-            timing_stats = compute_bsr_timing_stats(bsr_timings)
+        # --- MOEGAMBIT 操作计时分析 ---
+        if moegambit_timings:
+            timing_stats = compute_moegambit_timing_stats(moegambit_timings)
             if timing_stats:
                 lines.append('-' * 88)
-                lines.append('  BSR-MoE 操作计时分析')
+                lines.append('  MOEGAMBIT-MoE 操作计时分析')
                 lines.append('-' * 88)
                 lines.append(f'  {"操作阶段":<24s} {"中文名称":<18s} {"次数":>4s} {"成功":>4s} {"失败":>4s} '
                              f'{"总耗时(s)":>10s} {"平均(s)":>8s} {"最小(s)":>8s} {"最大(s)":>8s} {"P50(s)":>8s} {"P95(s)":>8s}')
@@ -1442,7 +1442,7 @@ def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=No
                     if phase not in timing_stats:
                         continue
                     s = timing_stats[phase]
-                    label = BSR_TIMING_PHASES.get(phase, phase)
+                    label = MOEGAMBIT_TIMING_PHASES.get(phase, phase)
                     lines.append(
                         f'  {phase:<24s} {label:<18s} {s["count"]:>4d} {s["success_count"]:>4d} {s["fail_count"]:>4d} '
                         f'{s["total_s"]:>10.2f} {s["avg_s"]:>8.3f} {s["min_s"]:>8.3f} {s["max_s"]:>8.3f} '
@@ -1458,23 +1458,23 @@ def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=No
                 lines.append('')
 
                 # 修复周期耗时汇总
-                repair_info = compute_bsr_total_repair_time(bsr_timings)
+                repair_info = compute_moegambit_total_repair_time(moegambit_timings)
                 if repair_info['repairs']:
                     lines.append(f'  ── 安全点修复周期耗时 ({len(repair_info["repairs"])} 次修复) ──')
                     for i, repair in enumerate(repair_info['repairs']):
-                        phase_names = [BSR_TIMING_PHASES.get(p.phase, p.phase) for p in repair['phases']]
+                        phase_names = [MOEGAMBIT_TIMING_PHASES.get(p.phase, p.phase) for p in repair['phases']]
                         phase_times = [f'{p.elapsed_seconds:.2f}s' for p in repair['phases']]
                         lines.append(f'    修复 #{i+1}: 总耗时 {repair["total_s"]:.2f}s')
                         for p in repair['phases']:
-                            label = BSR_TIMING_PHASES.get(p.phase, p.phase)
+                            label = MOEGAMBIT_TIMING_PHASES.get(p.phase, p.phase)
                             status = '✓' if p.success else '✗'
                             lines.append(f'      {status} {label:<18s} {p.elapsed_seconds:.3f}s')
                     lines.append(f'    ── 所有修复总耗时: {repair_info["total_repair_time_s"]:.2f}s ──')
                     lines.append('')
 
                 # 异步恢复和延迟优化器加载详情
-                async_timings = [t for t in bsr_timings if t.phase == 'async_worker']
-                deferred_timings = [t for t in bsr_timings if t.phase == 'deferred_optim']
+                async_timings = [t for t in moegambit_timings if t.phase == 'async_worker']
+                deferred_timings = [t for t in moegambit_timings if t.phase == 'deferred_optim']
 
                 if async_timings:
                     lines.append(f'  ── 异步恢复 Worker 详情 ({len(async_timings)} 次) ──')
@@ -1501,11 +1501,11 @@ def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=No
                     lines.append('')
 
         # --- 错误汇总 ---
-        if meta['bsr_error_count'] > 0:
+        if meta['moegambit_error_count'] > 0:
             lines.append('-' * 88)
-            lines.append(f'  BSR-MoE 错误 ({meta["bsr_error_count"]} 条)')
+            lines.append(f'  MOEGAMBIT-MoE 错误 ({meta["moegambit_error_count"]} 条)')
             lines.append('-' * 88)
-            error_events = [e for e in bsr_events if e.event_type == 'callback_error' or e.level == 'ERROR']
+            error_events = [e for e in moegambit_events if e.event_type == 'callback_error' or e.level == 'ERROR']
             for evt in error_events[:20]:
                 ts = evt.timestamp or '?'
                 lines.append(f'    [{ts}] {evt.message[:120]}')
@@ -1514,10 +1514,10 @@ def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=No
             lines.append('')
 
         # --- 恢复时间线 ---
-        cycles = compute_bsr_recovery_timeline(bsr_events)
+        cycles = compute_moegambit_recovery_timeline(moegambit_events)
         if cycles:
             lines.append('-' * 88)
-            lines.append(f'  BSR-MoE 故障恢复时间线 ({len(cycles)} 次恢复)')
+            lines.append(f'  MOEGAMBIT-MoE 故障恢复时间线 ({len(cycles)} 次恢复)')
             lines.append('-' * 88)
             for i, cyc in enumerate(cycles):
                 lines.append(f'')
@@ -1568,26 +1568,26 @@ def format_report(timers, iterations, bsr_events, meta, top_n=30, bsr_timings=No
 
             lines.append('')
 
-        # --- BSR 事件时间线 (最近 50 条) ---
+        # --- MOEGAMBIT 事件时间线 (最近 50 条) ---
         lines.append('-' * 88)
-        lines.append(f'  BSR-MoE 事件时间线 (最近 {min(50, len(bsr_events))} 条)')
+        lines.append(f'  MOEGAMBIT-MoE 事件时间线 (最近 {min(50, len(moegambit_events))} 条)')
         lines.append('-' * 88)
-        for evt in bsr_events[-50:]:
+        for evt in moegambit_events[-50:]:
             ts = evt.timestamp or '?'
             rank_str = f'rank{evt.rank}' if evt.rank >= 0 else '     '
             step_str = f'step={evt.step:>5d}' if evt.step >= 0 else '          '
-            label = BSR_EVENT_TYPES.get(evt.event_type, evt.event_type)
+            label = MOEGAMBIT_EVENT_TYPES.get(evt.event_type, evt.event_type)
             lines.append(f'  [{ts}] {rank_str} {step_str} {label:<16s} | {evt.message[:90]}')
-        if len(bsr_events) > 50:
-            lines.append(f'  ... 共 {len(bsr_events)} 条事件 (仅显示最近 50 条)')
+        if len(moegambit_events) > 50:
+            lines.append(f'  ... 共 {len(moegambit_events)} 条事件 (仅显示最近 50 条)')
         lines.append('')
 
     lines.append(sep)
     return '\n'.join(lines)
 
 
-def write_csv(filepath: str, timers, iterations, bsr_events, bsr_timings=None):
-    """导出 CSV 文件 (含 BSR 事件和计时)。"""
+def write_csv(filepath: str, timers, iterations, moegambit_events, moegambit_timings=None):
+    """导出 CSV 文件 (含 MOEGAMBIT 事件和计时)。"""
     with open(filepath, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
 
@@ -1609,22 +1609,22 @@ def write_csv(filepath: str, timers, iterations, bsr_events, bsr_timings=None):
                         f'{it.loss:.6f}', f'{it.lr:.2e}'])
         w.writerow([])
 
-        # Sheet 3: BSR events
-        if bsr_events:
-            w.writerow(['# BSR-MoE 事件'])
+        # Sheet 3: MOEGAMBIT events
+        if moegambit_events:
+            w.writerow(['# MOEGAMBIT-MoE 事件'])
             w.writerow(['timestamp', 'rank', 'level', 'event_type', 'step', 'message'])
-            for evt in bsr_events:
+            for evt in moegambit_events:
                 w.writerow([evt.timestamp, evt.rank, evt.level,
                             evt.event_type, evt.step, evt.message[:200]])
             w.writerow([])
 
-        # Sheet 4: BSR timings
-        if bsr_timings:
-            w.writerow(['# BSR-MoE 操作计时'])
+        # Sheet 4: MOEGAMBIT timings
+        if moegambit_timings:
+            w.writerow(['# MOEGAMBIT-MoE 操作计时'])
             w.writerow(['timestamp', 'phase', 'phase_cn', 'success', 'elapsed_seconds',
                          'step', 'details'])
-            for t in bsr_timings:
-                label = BSR_TIMING_PHASES.get(t.phase, t.phase)
+            for t in moegambit_timings:
+                label = MOEGAMBIT_TIMING_PHASES.get(t.phase, t.phase)
                 w.writerow([t.timestamp, t.phase, label, t.success,
                             f'{t.elapsed_seconds:.4f}', t.step,
                             str(t.details) if t.details else ''])
@@ -1649,7 +1649,7 @@ def parse_iter_range(s: str) -> Optional[Tuple[int, int]]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Megatron + BSR-MoE 训练日志分析工具',
+        description='Megatron + MOEGAMBIT-MoE 训练日志分析工具',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -1657,7 +1657,7 @@ def main():
   python analyze_train_log.py train.log --top 50
   python analyze_train_log.py train.log --csv result.csv
   python analyze_train_log.py train.log --iter-range 10-500
-  python analyze_train_log.py train.log --bsr-only
+  python analyze_train_log.py train.log --moegambit-only
   python analyze_train_log.py train.log --output report.txt
         """,
     )
@@ -1668,8 +1668,8 @@ def main():
                         help='输出 txt 报告文件路径 (不指定则自动生成)')
     parser.add_argument('--iter-range', type=str, default=None,
                         help='只分析指定范围的 iteration，格式: START-END')
-    parser.add_argument('--bsr-only', action='store_true',
-                        help='只输出 BSR-MoE 相关分析')
+    parser.add_argument('--moegambit-only', action='store_true',
+                        help='只输出 MOEGAMBIT-MoE 相关分析')
     parser.add_argument('--no-output-file', action='store_true',
                         help='不自动生成 txt 输出文件')
     args = parser.parse_args()
@@ -1677,30 +1677,30 @@ def main():
     iter_range = parse_iter_range(args.iter_range)
 
     print(f'正在解析: {args.logfile} ...')
-    timers, iterations, bsr_events, meta, bsr_timings = parse_log(
+    timers, iterations, moegambit_events, meta, moegambit_timings = parse_log(
         args.logfile, iter_range=iter_range
     )
 
-    if not timers and not iterations and not bsr_events:
+    if not timers and not iterations and not moegambit_events:
         print('未解析到任何数据。请检查日志格式。', file=sys.stderr)
         sys.exit(1)
 
     report = format_report(
-        timers, iterations, bsr_events, meta,
-        top_n=args.top, bsr_timings=bsr_timings,
+        timers, iterations, moegambit_events, meta,
+        top_n=args.top, moegambit_timings=moegambit_timings,
     )
 
-    if args.bsr_only:
-        # 只输出 BSR 部分
-        bsr_lines = []
-        in_bsr = False
+    if args.moegambit_only:
+        # 只输出 MOEGAMBIT 部分
+        moegambit_lines = []
+        in_moegambit = False
         for line in report.split('\n'):
-            if 'BSR-MoE 故障恢复分析' in line:
-                in_bsr = True
-            if in_bsr:
+            if 'MOEGAMBIT-MoE 故障恢复分析' in line:
+                in_moegambit = True
+            if in_moegambit:
                 print(line)
-                bsr_lines.append(line)
-        report_to_save = '\n'.join(bsr_lines)
+                moegambit_lines.append(line)
+        report_to_save = '\n'.join(moegambit_lines)
     else:
         print(report)
         report_to_save = report
@@ -1713,7 +1713,7 @@ def main():
         else:
             # 自动生成: 与日志文件同目录，后缀改为 _analysis.txt
             log_base = os.path.splitext(args.logfile)[0]
-            suffix = '_bsr_analysis.txt' if args.bsr_only else '_analysis.txt'
+            suffix = '_moegambit_analysis.txt' if args.moegambit_only else '_analysis.txt'
             txt_path = log_base + suffix
 
         with open(txt_path, 'w', encoding='utf-8') as f:
@@ -1723,7 +1723,7 @@ def main():
 
     # --- CSV 导出 ---
     if args.csv:
-        write_csv(args.csv, timers, iterations, bsr_events, bsr_timings=bsr_timings)
+        write_csv(args.csv, timers, iterations, moegambit_events, moegambit_timings=moegambit_timings)
 
 
 if __name__ == '__main__':

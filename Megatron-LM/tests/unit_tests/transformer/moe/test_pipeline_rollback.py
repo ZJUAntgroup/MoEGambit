@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Tests for BSR-MoE Pipeline Rollback Coordinator (PP > 1)."""
+"""Tests for MOEGAMBIT-MoE Pipeline Rollback Coordinator (PP > 1)."""
 
 import os
 import sys

@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE Hard Failure Detection & Iteration Invalidation.
+"""Unit tests for MOEGAMBIT-MoE Hard Failure Detection & Iteration Invalidation.
 
 These tests are designed to run WITHOUT torch/NCCL dependencies by using
 importlib to load the target modules directly, bypassing megatron.core.__init__

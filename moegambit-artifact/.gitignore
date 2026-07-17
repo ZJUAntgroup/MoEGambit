@@ -1,0 +1,48 @@
+.DS_Store
+Thumbs.db
+
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+.venv/
+venv/
+env/
+
+# Site-local experiment outputs.
+runs/
+checkpoints/
+ckpt/
+outputs/
+output/
+wandb/
+tensorboard/
+slurm-*.out
+*.err
+
+# Large generated logs are site-local by default. The anonymized evaluation
+# logs shipped with this artifact are intentionally retained.
+*.log
+!data/logs/evaluation/*.log
+
+# Large datasets and model/checkpoint artifacts should be distributed out of band.
+datasets/
+data/raw/
+data/cache/
+evaldata/
+*.jsonl
+*.parquet
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.bin
+
+# Local editor/project metadata.
+.idea/
+.vscode/

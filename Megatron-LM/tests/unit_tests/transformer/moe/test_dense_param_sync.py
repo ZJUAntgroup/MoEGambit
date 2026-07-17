@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE Dense Parameter Sync.
+"""Unit tests for MOEGAMBIT-MoE Dense Parameter Sync.
 
 Tests cover:
 1. Parameter classification (dense/router/shared/expert)

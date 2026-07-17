@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Unit tests for BSR-MoE Full-Peer Recovery (EDP > 1).
+"""Unit tests for MOEGAMBIT-MoE Full-Peer Recovery (EDP > 1).
 
 Tests cover:
 1. RecoveryPath.FULL_PEER_RECOVERY enum value

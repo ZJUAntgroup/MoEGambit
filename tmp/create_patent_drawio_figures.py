@@ -19,38 +19,38 @@ def esc(value: str) -> str:
     return html.escape(value.replace("\n", "<br>"), quote=True)
 
 
-def style_rect(font_size=15, bold=False) -> str:
+def style_rect(font_size=18, bold=False) -> str:
     return (
         "rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;"
-        "strokeColor=#000000;strokeWidth=2;fontFamily=Arial;"
+        "strokeColor=#000000;strokeWidth=1.5;fontFamily=PingFang SC;"
         f"fontSize={font_size};fontColor=#000000;align=center;"
-        "verticalAlign=middle;spacing=8;"
+        "verticalAlign=middle;spacing=6;"
         f"fontStyle={1 if bold else 0};"
     )
 
 
-def style_text(font_size=13) -> str:
+def style_text(font_size=16) -> str:
     return (
         "text;html=1;strokeColor=none;fillColor=none;align=center;"
-        "verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Arial;"
+        "verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=PingFang SC;"
         f"fontSize={font_size};fontColor=#000000;"
     )
 
 
-def style_diamond(font_size=14) -> str:
+def style_diamond(font_size=17) -> str:
     return (
         "rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;"
-        "strokeColor=#000000;strokeWidth=2;fontFamily=Arial;"
+        "strokeColor=#000000;strokeWidth=1.5;fontFamily=PingFang SC;"
         f"fontSize={font_size};fontColor=#000000;align=center;"
-        "verticalAlign=middle;spacing=8;"
+        "verticalAlign=middle;spacing=5;"
     )
 
 
 def style_edge(dashed=False) -> str:
-    dashed_part = "dashed=1;dashPattern=8 6;" if dashed else ""
+    dashed_part = "dashed=1;dashPattern=6 5;" if dashed else ""
     return (
         "endArrow=block;endFill=1;html=1;rounded=0;"
-        "strokeColor=#000000;strokeWidth=2;fontFamily=Arial;fontSize=12;"
+        "strokeColor=#000000;strokeWidth=1.5;fontFamily=PingFang SC;fontSize=16;"
         f"{dashed_part}"
     )
 
@@ -67,21 +67,21 @@ class Diagram:
         self.n += 1
         return f"{prefix}{self.n}"
 
-    def rect(self, id_: str, value: str, x, y, w, h, *, bold=False, font_size=15):
+    def rect(self, id_: str, value: str, x, y, w, h, *, bold=False, font_size=18):
         self.cells.append(
             f'<mxCell id="{id_}" value="{esc(value)}" style="{style_rect(font_size, bold)}" vertex="1" parent="1">'
             f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/></mxCell>'
         )
         return id_
 
-    def diamond(self, id_: str, value: str, x, y, w, h, *, font_size=14):
+    def diamond(self, id_: str, value: str, x, y, w, h, *, font_size=17):
         self.cells.append(
             f'<mxCell id="{id_}" value="{esc(value)}" style="{style_diamond(font_size)}" vertex="1" parent="1">'
             f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/></mxCell>'
         )
         return id_
 
-    def label(self, value: str, x, y, w, h, *, font_size=13):
+    def label(self, value: str, x, y, w, h, *, font_size=16):
         id_ = self.cid("t")
         self.cells.append(
             f'<mxCell id="{id_}" value="{esc(value)}" style="{style_text(font_size)}" vertex="1" parent="1">'
@@ -130,90 +130,107 @@ class Diagram:
 
 
 def fig1() -> Diagram:
-    d = Diagram("图1 运行时混合恢复系统架构", 1500, 850)
-    d.rect("f1_event", "失效rank事件\n⟨r,t,c⟩", 50, 70, 180, 75)
-    d.rect("f1_ctrl", "恢复控制器（101）\n安全点控制、提交保护", 310, 60, 260, 95, bold=True)
-    d.rect("f1_policy", "恢复策略判定（102）\nPeerAvail、Δ、Φ′(t)", 660, 60, 310, 95, bold=True)
-    d.diamond("f1_decision", "混合\n或\n重启", 1070, 62, 120, 110)
-    d.rect("f1_restart", "检查点重启路径（109）\n全局一致恢复", 1240, 210, 210, 85)
+    d = Diagram("图1 运行时混合恢复系统架构", 1600, 800)
+    d.rect("f1_event", "失效进程事件\n⟨r,t,c⟩", 35, 65, 190, 80)
+    d.rect("f1_ctrl", "恢复控制器（101）\n安全点与替换进程管理", 275, 52, 280, 105, bold=True)
+    d.rect("f1_policy", "恢复策略判定模块（102）\nPeerAvail、Δ、Φ′(t)", 615, 52, 315, 105, bold=True)
+    d.diamond("f1_decision", "允许\n混合恢复？", 1000, 48, 145, 120)
+    d.rect("f1_restart", "检查点重启路径（109）\n恢复全局一致状态", 1260, 65, 270, 85)
 
-    d.rect("f1_class", "状态分类模块（103）\n非专家复制态\n专家分片态\n运行时元数据", 60, 455, 230, 140)
-    d.rect("f1_peer", "状态来源A（104）\n健康dense-DP peer\n当前非专家状态", 420, 360, 250, 100)
-    d.rect("f1_expert", "状态来源B（105）\n检查点分片\n或专家peer", 420, 545, 250, 100)
-    d.rect("f1_hybrid", "混合状态恢复模块（106）\nPath P + Path C\n重构替换rank状态", 770, 445, 270, 115, bold=True)
-    d.rect("f1_two", "两阶段恢复模块（107）\n权重优先\n优化器稍后", 1150, 400, 240, 100)
-    d.rect("f1_log", "重集成与日志模块（108）\nRECOVERING→HEALTHY\n记录决策、阈值、时延", 1150, 610, 260, 115)
+    d.rect("f1_class", "状态分类模块（103）\n非专家状态\n专家状态\n运行时元数据", 55, 420, 245, 145)
+    d.rect("f1_peer", "非专家状态来源（104）\n健康非专家层数据并行对等进程\n当前安全点状态", 375, 305, 335, 125)
+    d.rect("f1_expert", "专家状态来源（105）\n健康专家对等进程优先\n不可用时读取检查点分片", 375, 585, 335, 130)
+    d.rect("f1_hybrid", "混合状态恢复模块（106）\n路径P：非专家状态\n路径C：专家状态", 790, 430, 305, 130, bold=True)
+    d.rect("f1_two", "两阶段恢复模块（107）\n权重优先恢复\n优化器状态后台恢复", 1195, 350, 300, 120)
+    d.rect("f1_log", "重集成与结构化日志模块（108）\n更新屏障、状态迁移\n记录决策、阈值与时延", 1195, 590, 300, 125)
 
     d.edge("f1_event", "f1_ctrl")
     d.edge("f1_ctrl", "f1_policy")
     d.edge("f1_policy", "f1_decision")
-    d.edge("f1_decision", "f1_restart", label="Restart")
-    d.coord_edge(140, 145, 175, 455, label="状态建模", dashed=True, points=[(140, 260), (175, 260)])
+    d.edge("f1_decision", "f1_restart", label="否")
+    d.coord_edge(130, 145, 175, 420, label="状态建模", dashed=True, points=[(130, 245), (175, 245)])
     d.edge("f1_class", "f1_peer")
     d.edge("f1_class", "f1_expert")
-    d.edge("f1_peer", "f1_hybrid", label="Path P")
-    d.edge("f1_expert", "f1_hybrid", label="Path C")
+    d.edge("f1_peer", "f1_hybrid", label="路径P")
+    d.edge("f1_expert", "f1_hybrid", label="路径C")
     d.edge("f1_hybrid", "f1_two")
     d.edge("f1_two", "f1_log")
-    d.coord_edge(1130, 172, 905, 445, label="Hybrid", dashed=True, points=[(1130, 260), (905, 260)])
+    d.coord_edge(1072, 168, 942, 430, label="是", dashed=True, points=[(1072, 245), (942, 245)])
     return d
 
 
 def fig2() -> Diagram:
-    d = Diagram("图2 运行时混合恢复方法流程", 1200, 1300)
-    x_left, w, h = 90, 290, 95
-    ys = [80, 235, 390, 545]
+    d = Diagram("图2 运行时混合恢复方法流程", 1200, 1200)
+    x_left, w, h = 455, 290, 82
+    ys = [35, 150, 265, 380]
     labels = [
         "S1 接收故障事件\n⟨r,t,c⟩",
-        "S2 建立安全点\n丢弃在途迭代",
-        "S3 划分训练状态\n非专家/专家/元数据",
-        "S4 计算恢复风险\nΔ、S(t)、Φ′(t)",
+        "S2 分配替换进程并建立安全点\n丢弃在途迭代",
+        "S3 分类状态并确定恢复来源\n形成 E_ckpt(t)",
+        "S4 计算专家陈旧暴露\nΔ、S(t)、Φ′(t)",
     ]
     ids = []
     for i, (y, label) in enumerate(zip(ys, labels), 1):
         ids.append(d.rect(f"f2_s{i}", label, x_left, y, w, h))
         if i > 1:
             d.edge(ids[i - 2], ids[i - 1])
-    d.diamond("f2_decide", "是否满足\nPeerAvail\n及阈值", 560, 560, 145, 145)
+    d.diamond("f2_decide", "PeerAvail为真\n且满足阈值？", 520, 505, 160, 135)
     d.edge("f2_s4", "f2_decide")
 
-    d.rect("f2_restart", "S5c 检查点重启\n任一保护条件不满足", 460, 900, 310, 95)
+    d.rect("f2_restart", "S5c 检查点重启\n任一运行时条件不满足", 845, 520, 290, 95)
     d.edge("f2_decide", "f2_restart", label="否")
-    d.rect("f2_p", "S5a Path P\n从健康dense-DP peer\n拉取非专家状态", 870, 420, 300, 105)
-    d.rect("f2_c", "S5b Path C\n恢复专家状态\n检查点分片/专家peer", 870, 610, 300, 105)
-    d.rect("f2_phase", "S6 两阶段恢复\n权重优先、优化器稍后", 870, 800, 300, 105)
-    d.rect("f2_meta", "S7 重建运行时元数据\n通信组、专家目录、rank映射", 870, 990, 300, 105)
-    d.rect("f2_done", "S8 替换rank进入HEALTHY\n恢复训练", 870, 1170, 300, 95)
+    d.rect("f2_p", "S5a 非专家状态路径P\n从健康非专家层数据并行\n对等进程同步当前状态", 105, 700, 385, 115)
+    d.rect("f2_c", "S5b 专家状态路径C\n健康专家对等进程优先\n不可用时读取检查点分片", 710, 700, 385, 115)
+    d.rect("f2_phase", "S6 两阶段恢复\n权重优先，优化器状态稍后", 455, 875, 290, 90)
+    d.rect("f2_meta", "S7 重建运行时元数据并处理暂存梯度\n通信组、专家目录、进程映射", 390, 1000, 420, 95)
+    d.rect("f2_done", "S8 释放更新屏障并恢复训练\n记录结构化日志", 455, 1130, 290, 65)
     d.edge("f2_decide", "f2_p", label="是")
-    d.edge("f2_p", "f2_c")
+    d.edge("f2_decide", "f2_c")
+    d.edge("f2_p", "f2_phase")
     d.edge("f2_c", "f2_phase")
     d.edge("f2_phase", "f2_meta")
     d.edge("f2_meta", "f2_done")
-    d.edge("f2_restart", "f2_meta", label="重集成", dashed=True)
     return d
 
 
 def fig3() -> Diagram:
-    d = Diagram("图3 混合恢复与两阶段协议时序", 1500, 1000)
-    xs = [170, 520, 880, 1230]
-    titles = ["恢复控制器\n（101）", "替换rank", "状态来源\n（104/105）", "更新屏障\n（107）"]
+    d = Diagram("图3 混合恢复与两阶段协议时序", 1350, 900)
+    xs = [220, 515, 825, 1120]
+    x_ctrl, x_replacement, x_source, x_barrier = xs
+    titles = [
+        "恢复控制器\n（101）",
+        "替换逻辑计算进程",
+        "状态来源（104/105）\n健康对等进程/检查点",
+        "更新屏障与日志\n（107/108）",
+    ]
     for i, (x, title) in enumerate(zip(xs, titles), 1):
-        d.rect(f"f3_head{i}", title, x - 85, 55, 170, 60)
-        d.coord_edge(x, 115, x, 860, dashed=False)
+        d.rect(f"f3_head{i}", title, x - 108, 25, 216, 70)
+        d.coord_edge(x, 95, x, 835, dashed=False)
+    d.label("阶段一：权重优先", 5, 315, 165, 55, font_size=18)
+    d.label("阶段二：优化器稍后", 5, 610, 165, 55, font_size=18)
     arrows = [
-        (160, 170, 520, "分配替换rank"),
-        (250, 170, 1230, "安装提交保护"),
-        (345, 170, 880, "请求当前非专家状态"),
-        (435, 880, 520, "返回非专家状态"),
-        (530, 170, 880, "读取专家权重"),
-        (620, 880, 520, "返回专家权重"),
-        (710, 520, 1230, "等待优化器状态"),
-        (790, 880, 520, "后台返回专家优化器状态"),
-        (855, 170, 1230, "释放更新屏障并记录日志"),
+        (145, x_ctrl, x_replacement, "分配替换进程"),
+        (220, x_ctrl, x_barrier, "安装安全点和提交保护"),
+        (315, x_replacement, x_source, "请求非专家状态和专家权重"),
+        (405, x_source, x_replacement, "返回状态和权重"),
+        (495, x_replacement, x_barrier, "权重就绪，进入已修复状态"),
+        (570, x_barrier, x_replacement, "允许前向/反向；暂存专家梯度"),
+        (650, x_replacement, x_source, "后台请求专家优化器状态"),
+        (720, x_source, x_replacement, "返回专家优化器状态"),
+        (780, x_replacement, x_barrier, "按训练步顺序处理暂存梯度"),
+        (820, x_ctrl, x_barrier, "释放更新屏障并记录日志"),
     ]
     for y, x1, x2, label in arrows:
         d.coord_edge(x1, y, x2, y, label=label)
-    d.rect("f3_result", "结果：替换rank经 RECOVERING → REPAIRED → BARRIER → HEALTHY 后恢复训练", 120, 920, 1260, 55)
+    d.rect(
+        "f3_result",
+        "状态迁移：恢复中（RECOVERING）→ 已修复（REPAIRED）→ 屏障等待（BARRIER）→ 健康（HEALTHY）",
+        145,
+        845,
+        1060,
+        45,
+        font_size=16,
+    )
     return d
 
 

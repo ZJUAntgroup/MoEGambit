@@ -542,7 +542,7 @@ def topk_routing_with_score_function(
         score_function (str): The score function to use. Can be either "softmax" or "sigmoid".
         expert_bias (torch.Tensor): The bias added to logits for expert routing.
         recovery_bias (torch.Tensor, optional): Additive bias of shape ``[num_experts]``
-            for recovered experts (BSR-MoE preferential routing).  When provided,
+            for recovered experts (MOEGAMBIT-MoE preferential routing).  When provided,
             it is added on top of ``expert_bias`` (if any) in the sigmoid branch
             before top-k selection.  The bias is typically small and time-decayed.
             Defaults to None (no recovery preference).
@@ -597,7 +597,7 @@ def topk_routing_with_score_function(
         scores = torch.sigmoid(logits.float()).type_as(logits)
         if expert_bias is not None or recovery_bias is not None:
             # Combine expert_bias (DeepSeek-V3 load-balance) and recovery_bias
-            # (BSR-MoE preferential routing) into a single additive offset.
+            # (MOEGAMBIT-MoE preferential routing) into a single additive offset.
             effective_bias = torch.zeros_like(scores[0])  # [num_experts]
             if expert_bias is not None:
                 effective_bias = effective_bias + expert_bias

@@ -24,7 +24,7 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_THIS_DIR, '..', '..', '..', '..'))
 _MOE_DIR = os.path.join(_REPO_ROOT, 'megatron', 'core', 'transformer', 'moe')
 
-# Stub out torch and megatron.core before importing BSR modules
+# Stub out torch and megatron.core before importing MOEGAMBIT modules
 _torch_stub = types.ModuleType('torch')
 _torch_stub.Tensor = type('Tensor', (), {})
 _dist_stub = types.ModuleType('torch.distributed')
@@ -418,15 +418,15 @@ class TestBarrierPreventsPrematurity(unittest.TestCase):
 
 
 # =====================================================================
-# Test: bsr_integration.py public API
+# Test: moegambit_integration.py public API
 # =====================================================================
 
-class TestBsrIntegrationReintegrationAPI(unittest.TestCase):
-    """Test the public API functions in bsr_integration.py."""
+class TestMoegambitIntegrationReintegrationAPI(unittest.TestCase):
+    """Test the public API functions in moegambit_integration.py."""
 
-    def test_bsr_can_reintegrate_no_barrier(self):
+    def test_moegambit_can_reintegrate_no_barrier(self):
         """Without barrier, should return True (permissive)."""
-        # We can't easily test bsr_integration functions without full
+        # We can't easily test moegambit_integration functions without full
         # initialization, but we can test the barrier directly
         barrier = ReintegrationBarrier()
         # No record for rank 99 → can_reintegrate returns False

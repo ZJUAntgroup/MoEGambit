@@ -8,7 +8,7 @@ set -x
 # Accuracy-equivalent emulation of MoC-System's Partial Experts
 # Checkpointing (PEC), implemented as a non-invasive overlay on
 # MoEGuard's runtime. Activated by the single env var
-# BSR_MOC_PEC_EMULATE=1. See:
+# MOEGAMBIT_MOC_PEC_EMULATE=1. See:
 #   Megatron-LM/megatron/core/transformer/moe/moc_pec_emulation.py
 #
 # Key emulation properties:
@@ -48,22 +48,22 @@ mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 
 # ---- MoC-System emulation knobs ----
 # THE ONE SWITCH that turns this script into a MoC-System emulation.
-export BSR_MOC_PEC_EMULATE="${BSR_MOC_PEC_EMULATE:-1}"
+export MOEGAMBIT_MOC_PEC_EMULATE="${MOEGAMBIT_MOC_PEC_EMULATE:-1}"
 # K_pec: number of "fresh" experts MoC-System writes per save round.
 # 16 = paper's recommended setting for PLT≈3.75% on 128-expert models.
-export BSR_MOC_PEC_K="${BSR_MOC_PEC_K:-16}"
-export BSR_MOC_PEC_N_EXPERT="${BSR_MOC_PEC_N_EXPERT:-128}"
-export BSR_MOC_PEC_SCHEDULE="${BSR_MOC_PEC_SCHEDULE:-round_robin}"
+export MOEGAMBIT_MOC_PEC_K="${MOEGAMBIT_MOC_PEC_K:-16}"
+export MOEGAMBIT_MOC_PEC_N_EXPERT="${MOEGAMBIT_MOC_PEC_N_EXPERT:-128}"
+export MOEGAMBIT_MOC_PEC_SCHEDULE="${MOEGAMBIT_MOC_PEC_SCHEDULE:-round_robin}"
 
-# Force every fault recovery onto the CHECKPOINT_RESTART path in the BSR
+# Force every fault recovery onto the CHECKPOINT_RESTART path in the MOEGAMBIT
 # controller, even if some hybrid-path flags are still wired up in argv.
 # Without this, recovery_controller defaults to HYBRID_RECOVERY when the
 # gap-aware policy manager is disabled (see recovery_controller.py around
 # line 1431). The same effect is also achieved by the argv flag
-# --moe-bsr-force-checkpoint-restart (registered via
+# --moe-moegambit-force-checkpoint-restart (registered via
 # force_checkpoint_restart_fn); we set both so the intent is unambiguous
 # in logs and unaffected by future refactors of either path.
-export BSR_FORCE_CHECKPOINT_RESTART="${BSR_FORCE_CHECKPOINT_RESTART:-1}"
+export MOEGAMBIT_FORCE_CHECKPOINT_RESTART="${MOEGAMBIT_FORCE_CHECKPOINT_RESTART:-1}"
 
 # ---- Build the simplified 10-fault plan for MoC-System ----
 # MoC-System recovers every fault with a full CHECKPOINT_RESTART (the PEC
@@ -98,26 +98,26 @@ cat /tmp/main_plan_debug.$$
 rm -f /tmp/main_plan_debug.$$
 echo "[main_exp_mocsystem] resolved plan: ${MAIN_FAULT_PLAN}"
 echo "[main_exp_mocsystem] MoC-PEC emulation enabled: "
-echo "    BSR_MOC_PEC_EMULATE=${BSR_MOC_PEC_EMULATE}"
-echo "    BSR_MOC_PEC_K=${BSR_MOC_PEC_K}"
-echo "    BSR_MOC_PEC_N_EXPERT=${BSR_MOC_PEC_N_EXPERT}"
-echo "    BSR_MOC_PEC_SCHEDULE=${BSR_MOC_PEC_SCHEDULE}"
-echo "    BSR_FORCE_CHECKPOINT_RESTART=${BSR_FORCE_CHECKPOINT_RESTART}"
+echo "    MOEGAMBIT_MOC_PEC_EMULATE=${MOEGAMBIT_MOC_PEC_EMULATE}"
+echo "    MOEGAMBIT_MOC_PEC_K=${MOEGAMBIT_MOC_PEC_K}"
+echo "    MOEGAMBIT_MOC_PEC_N_EXPERT=${MOEGAMBIT_MOC_PEC_N_EXPERT}"
+echo "    MOEGAMBIT_MOC_PEC_SCHEDULE=${MOEGAMBIT_MOC_PEC_SCHEDULE}"
+echo "    MOEGAMBIT_FORCE_CHECKPOINT_RESTART=${MOEGAMBIT_FORCE_CHECKPOINT_RESTART}"
 echo "============================================================"
 
-# ---- BSR fault injection knobs (plan-driven, burst_all) ----
-export BSR_FAULT_INJECT_TYPE="${BSR_FAULT_INJECT_TYPE:-restart_in_place}"
-export BSR_FAULT_INJECT_PLAN="${MAIN_FAULT_PLAN}"
-export BSR_FAULT_INJECT_PLAN_MODE="${BSR_FAULT_INJECT_PLAN_MODE:-burst_all}"
-export BSR_FAULT_INJECT_STEP="0"
-export BSR_FAULT_INJECT_INTERVAL="0"
-export BSR_FAULT_INJECT_SEED="${BSR_FAULT_INJECT_SEED:-42}"
-export BSR_FAULT_INJECT_RANK="${BSR_FAULT_INJECT_RANK:-0}"
-export BSR_FAULT_REPLACEMENT_STEP="0"
-export BSR_FAULT_REPLACEMENT_RANK="${BSR_FAULT_REPLACEMENT_RANK:--1}"
-export BSR_FAULT_ZERO_MEMORY="${BSR_FAULT_ZERO_MEMORY:-1}"
-export BSR_FAULT_MEMORY_FILL="${BSR_FAULT_MEMORY_FILL:-zero}"
-export BSR_REQUIRE_OLD_PARAM_RESTORE="${BSR_REQUIRE_OLD_PARAM_RESTORE:-1}"
+# ---- MOEGAMBIT fault injection knobs (plan-driven, burst_all) ----
+export MOEGAMBIT_FAULT_INJECT_TYPE="${MOEGAMBIT_FAULT_INJECT_TYPE:-restart_in_place}"
+export MOEGAMBIT_FAULT_INJECT_PLAN="${MAIN_FAULT_PLAN}"
+export MOEGAMBIT_FAULT_INJECT_PLAN_MODE="${MOEGAMBIT_FAULT_INJECT_PLAN_MODE:-burst_all}"
+export MOEGAMBIT_FAULT_INJECT_STEP="0"
+export MOEGAMBIT_FAULT_INJECT_INTERVAL="0"
+export MOEGAMBIT_FAULT_INJECT_SEED="${MOEGAMBIT_FAULT_INJECT_SEED:-42}"
+export MOEGAMBIT_FAULT_INJECT_RANK="${MOEGAMBIT_FAULT_INJECT_RANK:-0}"
+export MOEGAMBIT_FAULT_REPLACEMENT_STEP="0"
+export MOEGAMBIT_FAULT_REPLACEMENT_RANK="${MOEGAMBIT_FAULT_REPLACEMENT_RANK:--1}"
+export MOEGAMBIT_FAULT_ZERO_MEMORY="${MOEGAMBIT_FAULT_ZERO_MEMORY:-1}"
+export MOEGAMBIT_FAULT_MEMORY_FILL="${MOEGAMBIT_FAULT_MEMORY_FILL:-zero}"
+export MOEGAMBIT_REQUIRE_OLD_PARAM_RESTORE="${MOEGAMBIT_REQUIRE_OLD_PARAM_RESTORE:-1}"
 
 # ---- Log analysis hooks ----
 export LOG_ANALYZE_INTERVAL="${LOG_ANALYZE_INTERVAL:-0}"
@@ -130,10 +130,10 @@ run_training() {
     LOAD_ARGS=(--load "${CKPT_DIR}")
   fi
 
-  # MoC-System emulation: enable BSR infrastructure (needed for fault
+  # MoC-System emulation: enable MOEGAMBIT infrastructure (needed for fault
   # injection + plan parsing + manifest sidecar) and force every fault
-  # onto the CHECKPOINT_RESTART path via --moe-bsr-force-checkpoint-restart
-  # + BSR_FORCE_CHECKPOINT_RESTART=1. Hybrid restore, two-phase recovery,
+  # onto the CHECKPOINT_RESTART path via --moe-moegambit-force-checkpoint-restart
+  # + MOEGAMBIT_FORCE_CHECKPOINT_RESTART=1. Hybrid restore, two-phase recovery,
   # and stale-expert peer-pull are NOT used (their flags are absent
   # below). The PEC emulation overlay (apply_pec_to_plan) then redirects
   # individual expert entries inside the loaded plan to historical iter_*
@@ -195,24 +195,24 @@ run_training() {
     --moe-router-load-balancing-type aux_loss \
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
-    --moe-bsr-enable \
-    --moe-bsr-health-mask \
-    --moe-bsr-rank-quarantine \
-    --moe-bsr-dispatch-quarantine-assert \
-    --moe-bsr-dispatch-sanitize \
-    --moe-bsr-expert-directory \
-    --moe-bsr-replacement-protocol \
-    --moe-bsr-group-rebuild \
-    --moe-bsr-dispatch-topology-refresh \
-    --moe-bsr-recovery-controller \
-    --moe-bsr-reintegration-barrier \
-    --moe-bsr-fault-injection \
-    --moe-bsr-restart-in-place \
-    --moe-bsr-force-checkpoint-restart \
-    --moe-bsr-degraded-mode-policy \
-    --moe-bsr-degraded-tau-c 0.5 \
-    --moe-bsr-degraded-t-max 1000 \
-    --moe-bsr-degraded-s-max 500 \
+    --moe-moegambit-enable \
+    --moe-moegambit-health-mask \
+    --moe-moegambit-rank-quarantine \
+    --moe-moegambit-dispatch-quarantine-assert \
+    --moe-moegambit-dispatch-sanitize \
+    --moe-moegambit-expert-directory \
+    --moe-moegambit-replacement-protocol \
+    --moe-moegambit-group-rebuild \
+    --moe-moegambit-dispatch-topology-refresh \
+    --moe-moegambit-recovery-controller \
+    --moe-moegambit-reintegration-barrier \
+    --moe-moegambit-fault-injection \
+    --moe-moegambit-restart-in-place \
+    --moe-moegambit-force-checkpoint-restart \
+    --moe-moegambit-degraded-mode-policy \
+    --moe-moegambit-degraded-tau-c 0.5 \
+    --moe-moegambit-degraded-t-max 1000 \
+    --moe-moegambit-degraded-s-max 500 \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 99,1,0 \
     --ckpt-format torch \
@@ -225,14 +225,14 @@ run_training() {
 }
 # NOTE: deliberately OMITTED switches (compared to MoEGuard) to faithfully
 # emulate MoC-System's restore semantics:
-#   --moe-bsr-dense-param-sync         (peer-pull dense — MoC-System has no equivalent)
-#   --moe-bsr-hybrid-expert-restore    (selective expert load — disabled; PEC overlay handles)
-#   --moe-bsr-stale-expert-restore     (peer-pull stale-runnable — would never fire under
+#   --moe-moegambit-dense-param-sync         (peer-pull dense — MoC-System has no equivalent)
+#   --moe-moegambit-hybrid-expert-restore    (selective expert load — disabled; PEC overlay handles)
+#   --moe-moegambit-stale-expert-restore     (peer-pull stale-runnable — would never fire under
 #                                        force-checkpoint-restart, but omitted for clarity)
-#   --moe-bsr-expert-opt-restore       (expert opt selective restore — disabled)
-#   --moe-bsr-weights-first-recovery   (two-phase weights-first — disabled)
-#   --moe-bsr-defer-optimizer-load     (two-phase opt-later — disabled)
-#   --moe-bsr-deferred-optimizer-load  (two-phase coordinator — disabled)
+#   --moe-moegambit-expert-opt-restore       (expert opt selective restore — disabled)
+#   --moe-moegambit-weights-first-recovery   (two-phase weights-first — disabled)
+#   --moe-moegambit-defer-optimizer-load     (two-phase opt-later — disabled)
+#   --moe-moegambit-deferred-optimizer-load  (two-phase coordinator — disabled)
 
 # ============================================================
 # Main loop with retry + log analysis
@@ -274,5 +274,5 @@ echo "Logs:    ${TRAIN_LOG_DIR}"
 echo "Ckpts:   ${CKPT_DIR}"
 echo "Plan:    ${MAIN_FAULT_PLAN}"
 echo "Seed:    ${PLAN_SEED}"
-echo "PEC:     K=${BSR_MOC_PEC_K}/N=${BSR_MOC_PEC_N_EXPERT}, schedule=${BSR_MOC_PEC_SCHEDULE}"
+echo "PEC:     K=${MOEGAMBIT_MOC_PEC_K}/N=${MOEGAMBIT_MOC_PEC_N_EXPERT}, schedule=${MOEGAMBIT_MOC_PEC_SCHEDULE}"
 echo "============================================================"

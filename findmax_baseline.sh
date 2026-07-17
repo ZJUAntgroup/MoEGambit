@@ -43,18 +43,18 @@ run_training() {
   export LOG_ANALYZE_SCRIPT="${LOG_ANALYZE_SCRIPT:-${SCRIPT_DIR}/log_analysis/analyze_train_log.py}"
 
   # Guard against inherited fault-injection environment from previous runs.
-  unset BSR_FAULT_INJECT_TYPE
-  unset BSR_FAULT_INJECT_RANK
-  unset BSR_FAULT_INJECT_STEP
-  unset BSR_FAULT_INJECT_INTERVAL
-  unset BSR_FAULT_INJECT_SEED
-  unset BSR_FAULT_INJECT_PLAN
-  unset BSR_FAULT_INJECT_PLAN_MODE
-  unset BSR_FAULT_REPLACEMENT_STEP
-  unset BSR_FAULT_REPLACEMENT_RANK
-  unset BSR_FAULT_ZERO_MEMORY
-  unset BSR_FAULT_MEMORY_FILL
-  unset BSR_REQUIRE_OLD_PARAM_RESTORE
+  unset MOEGAMBIT_FAULT_INJECT_TYPE
+  unset MOEGAMBIT_FAULT_INJECT_RANK
+  unset MOEGAMBIT_FAULT_INJECT_STEP
+  unset MOEGAMBIT_FAULT_INJECT_INTERVAL
+  unset MOEGAMBIT_FAULT_INJECT_SEED
+  unset MOEGAMBIT_FAULT_INJECT_PLAN
+  unset MOEGAMBIT_FAULT_INJECT_PLAN_MODE
+  unset MOEGAMBIT_FAULT_REPLACEMENT_STEP
+  unset MOEGAMBIT_FAULT_REPLACEMENT_RANK
+  unset MOEGAMBIT_FAULT_ZERO_MEMORY
+  unset MOEGAMBIT_FAULT_MEMORY_FILL
+  unset MOEGAMBIT_REQUIRE_OLD_PARAM_RESTORE
 
   echo "============================================================"
   echo "[findmax_baseline] Starting baseline run=${RUN_ID}"
@@ -124,24 +124,24 @@ run_training() {
     --moe-router-load-balancing-type aux_loss \
     --moe-aux-loss-coeff 1e-3 \
     --moe-token-dispatcher-type alltoall \
-    --moe-bsr-enable \
-    --moe-bsr-health-mask \
-    --moe-bsr-rank-quarantine \
-    --moe-bsr-dispatch-quarantine-assert \
-    --moe-bsr-dispatch-sanitize \
-    --moe-bsr-expert-directory \
-    --moe-bsr-replacement-protocol \
-    --moe-bsr-group-rebuild \
-    --moe-bsr-dispatch-topology-refresh \
-    --moe-bsr-dense-param-sync \
-    --moe-bsr-stale-expert-restore \
-    --moe-bsr-recovery-controller \
-    --moe-bsr-deferred-optimizer-load \
-    --moe-bsr-degraded-mode-policy \
-    --moe-bsr-reintegration-barrier \
-    --moe-bsr-degraded-tau-c 0.5 \
-    --moe-bsr-degraded-t-max 1000 \
-    --moe-bsr-degraded-s-max 500 \
+    --moe-moegambit-enable \
+    --moe-moegambit-health-mask \
+    --moe-moegambit-rank-quarantine \
+    --moe-moegambit-dispatch-quarantine-assert \
+    --moe-moegambit-dispatch-sanitize \
+    --moe-moegambit-expert-directory \
+    --moe-moegambit-replacement-protocol \
+    --moe-moegambit-group-rebuild \
+    --moe-moegambit-dispatch-topology-refresh \
+    --moe-moegambit-dense-param-sync \
+    --moe-moegambit-stale-expert-restore \
+    --moe-moegambit-recovery-controller \
+    --moe-moegambit-deferred-optimizer-load \
+    --moe-moegambit-degraded-mode-policy \
+    --moe-moegambit-reintegration-barrier \
+    --moe-moegambit-degraded-tau-c 0.5 \
+    --moe-moegambit-degraded-t-max 1000 \
+    --moe-moegambit-degraded-s-max 500 \
     --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
     --split 99,1,0 \
     --ckpt-format torch \

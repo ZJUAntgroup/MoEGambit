@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Restart-In-Place Recovery Module for BSR-MoE.
+"""Restart-In-Place Recovery Module for MOEGAMBIT-MoE.
 
 This module provides the core infrastructure for simulating and testing
 restart-in-place fault recovery with real tensor operations.  Unlike the
@@ -177,7 +177,7 @@ def invalidate_rank_tensors(model, optimizer=None, fill_value: float = float('na
                         stats["opt_states_invalidated"] += 1
 
     logger.warning(
-        "BSR-MoE restart-in-place: invalidated %d params, %d optimizer states "
+        "MOEGAMBIT-MoE restart-in-place: invalidated %d params, %d optimizer states "
         "(fill_value=%s)",
         stats["params_invalidated"], stats["opt_states_invalidated"], fill_value,
     )
@@ -410,11 +410,11 @@ def verify_recovery(
         )
         if len(result.errors) > 5:
             error_msg += f" ... and {len(result.errors) - 5} more"
-        logger.error("BSR-MoE restart-in-place: %s", error_msg)
+        logger.error("MOEGAMBIT-MoE restart-in-place: %s", error_msg)
         raise RecoveryVerificationError(error_msg)
 
     logger.info(
-        "BSR-MoE restart-in-place: verification PASSED "
+        "MOEGAMBIT-MoE restart-in-place: verification PASSED "
         "(%d params, %d opt states checked)",
         result.num_params_checked, result.num_opt_states_checked,
     )
@@ -507,7 +507,7 @@ class RestartInPlaceCoordinator:
         }
         self._event_log.append(event)
         logger.info(
-            "BSR-MoE restart-in-place: %s → %s",
+            "MOEGAMBIT-MoE restart-in-place: %s → %s",
             old.name, new_state.name,
         )
 
@@ -549,7 +549,7 @@ class RestartInPlaceCoordinator:
         stats = invalidate_rank_tensors(model, optimizer)
 
         logger.warning(
-            "BSR-MoE restart-in-place: fault injected at step %d, "
+            "MOEGAMBIT-MoE restart-in-place: fault injected at step %d, "
             "invalidated %d params, %d opt states",
             step, stats["params_invalidated"], stats["opt_states_invalidated"],
         )
@@ -631,7 +631,7 @@ class RestartInPlaceCoordinator:
                 checkpoint_restore_fn(model, optimizer)
             else:
                 logger.warning(
-                    "BSR-MoE restart-in-place: CHECKPOINT_RESTART selected "
+                    "MOEGAMBIT-MoE restart-in-place: CHECKPOINT_RESTART selected "
                     "but no checkpoint_restore_fn provided"
                 )
         else:
@@ -672,7 +672,7 @@ class RestartInPlaceCoordinator:
         )
 
         logger.warning(
-            "BSR-MoE restart-in-place: recovery completed via %s at step %d",
+            "MOEGAMBIT-MoE restart-in-place: recovery completed via %s at step %d",
             path, step,
         )
         return path
@@ -719,7 +719,7 @@ class RestartInPlaceCoordinator:
         )
 
         logger.warning(
-            "BSR-MoE restart-in-place: verification PASSED, "
+            "MOEGAMBIT-MoE restart-in-place: verification PASSED, "
             "transitioned to HEALTHY at step %d",
             step,
         )

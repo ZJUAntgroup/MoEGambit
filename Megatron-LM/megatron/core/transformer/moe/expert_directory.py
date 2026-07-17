@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Expert Directory & Recovery Manifest for BSR-MoE.
+"""Expert Directory & Recovery Manifest for MOEGAMBIT-MoE.
 
 This module provides two complementary data structures for MoE fault recovery:
 
@@ -19,11 +19,11 @@ This module provides two complementary data structures for MoE fault recovery:
 Design principles
 -----------------
 * **No modification to the checkpoint format itself** — the manifest is a
-  separate ``bsr_manifest.json`` file written into the same checkpoint
-  directory (e.g. ``iter_0001000/bsr_manifest.json``).
+  separate ``moegambit_manifest.json`` file written into the same checkpoint
+  directory (e.g. ``iter_0001000/moegambit_manifest.json``).
 * **Minimal coupling** — the directory is a pure-Python / torch-CPU data
   structure that can be tested without distributed init.
-* **Integration with existing BSR-MoE stack**:
+* **Integration with existing MOEGAMBIT-MoE stack**:
   - ``ExpertHealthManager`` (Step 2) owns per-expert lifecycle states.
   - ``RankQuarantineRegistry`` (Step 4) owns rank-level quarantine.
   - ``ActiveExpertDirectory`` (this module) owns the rank ↔ expert mapping
@@ -58,7 +58,7 @@ Typical usage::
     # --- At checkpoint save ---
     manifest = RecoveryManifest.from_directory(directory, step=1000,
                                                checkpoint_dir="/ckpt/iter_0001000")
-    manifest.save()   # writes /ckpt/iter_0001000/bsr_manifest.json
+    manifest.save()   # writes /ckpt/iter_0001000/moegambit_manifest.json
 
     # --- At recovery ---
     manifest = RecoveryManifest.load("/ckpt/iter_0001000")
@@ -77,7 +77,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # Manifest file name — written as a side-car alongside Megatron checkpoint files.
-MANIFEST_FILENAME = "bsr_manifest.json"
+MANIFEST_FILENAME = "moegambit_manifest.json"
 MANIFEST_VERSION = 1
 
 
@@ -161,7 +161,7 @@ class ActiveExpertDirectory:
     * A safe barrier promotes experts back to HEALTHY.
 
     The directory does NOT own the ``ExpertHealthMask`` or the
-    ``ExpertHealthManager`` — those are separate layers in the BSR-MoE
+    ``ExpertHealthManager`` — those are separate layers in the MOEGAMBIT-MoE
     stack.  The directory is a *passive data store* that other components
     query.
     """
@@ -433,7 +433,7 @@ class ActiveExpertDirectory:
 class RecoveryManifest:
     """Serialisable snapshot of expert recovery metadata.
 
-    The manifest is saved as ``bsr_manifest.json`` inside the Megatron
+    The manifest is saved as ``moegambit_manifest.json`` inside the Megatron
     checkpoint directory.  It contains:
 
     * Global metadata (version, step, parallel config).
