@@ -772,22 +772,26 @@ def reduce_aux_losses_tracker_across_ranks(track_names: Optional[List[str]] = No
         values = tracker[name]["values"]
         # TODO(Hepteract): delete the usage of the global parallel_state.
         # Collect aux losses across PP.
-        torch.distributed.all_reduce(
-            values, group=parallel_state.get_pipeline_model_parallel_group()
-        )
+        pp_group = parallel_state.get_pipeline_model_parallel_group()
+        if pp_group.size() > 1:
+            torch.distributed.all_reduce(values, group=pp_group)
         # Reduce aux losses across ranks.
-        if tracker[name].get('reduce_group') is not None:
-            torch.distributed.all_reduce(values, group=tracker[name].get('reduce_group'))
-        if tracker[name].get('avg_group') is not None:
+        reduce_group = tracker[name].get('reduce_group')
+        if reduce_group is not None and reduce_group.size() > 1:
+            torch.distributed.all_reduce(values, group=reduce_group)
+        avg_group = tracker[name].get('avg_group')
+        if avg_group is not None and avg_group.size() > 1:
             torch.distributed.all_reduce(
-                values, group=tracker[name]['avg_group'], op=torch.distributed.ReduceOp.AVG
+                values, group=avg_group, op=torch.distributed.ReduceOp.AVG
             )
         # This ensures proper loss averaging across all ranks including CP ranks
-        torch.distributed.all_reduce(
-            values,
-            group=parallel_state.get_data_parallel_group(with_context_parallel=True),
-            op=torch.distributed.ReduceOp.AVG,
-        )
+        dp_cp_group = parallel_state.get_data_parallel_group(with_context_parallel=True)
+        if dp_cp_group.size() > 1:
+            torch.distributed.all_reduce(
+                values,
+                group=dp_cp_group,
+                op=torch.distributed.ReduceOp.AVG,
+            )
 
 
 def track_moe_metrics(

@@ -1558,8 +1558,6 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             phase="step_complete",
             step_tag=args.curr_iteration + 1,
         )
-        elastic_trace_post_rebuild_phase("post_rebuild_step_complete", args.curr_iteration)
-        elastic_clear_post_rebuild_trace()
     else:
         skipped_iter = 1
         elastic_client_update_step(
@@ -1586,22 +1584,18 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
                     val = torch.vstack(val)
                     val = val[:, 0] / val[:, 1]
                     val = val.mean()
-                    torch.distributed.all_reduce(
-                        val,
-                        group=mpu.get_data_parallel_group(with_context_parallel=True)
-                    )
-                    val /= torch.distributed.get_world_size(
-                        group=mpu.get_data_parallel_group(with_context_parallel=True)
-                    )
+                    loss_group = mpu.get_data_parallel_group(with_context_parallel=True)
+                    if loss_group.size() > 1:
+                        torch.distributed.all_reduce(val, group=loss_group)
+                        val /= loss_group.size()
                     loss_reduced[key] = val
                 else:
                     # there is one dict per microbatch. in new reporting, we average
                     # over the total number of tokens across the global batch.
                     val = torch.vstack(val).sum(dim=0)
-                    torch.distributed.all_reduce(
-                        val,
-                        group=mpu.get_data_parallel_group(with_context_parallel=True)
-                    )
+                    loss_group = mpu.get_data_parallel_group(with_context_parallel=True)
+                    if loss_group.size() > 1:
+                        torch.distributed.all_reduce(val, group=loss_group)
                     loss_reduced[key] = val[0] / val[1]
             elif val[0].numel() == 1:
                 # legacy behavior, we average over the number of microbatches
@@ -1609,6 +1603,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
                 loss_reduced[key] = val
             else:
                 raise ValueError(f"Invalid value shape: {val[0].shape} for key {key}")
+        elastic_trace_post_rebuild_phase("train_step_finalize_done", args.curr_iteration)
         return (
             loss_reduced,
             skipped_iter,
@@ -1618,6 +1613,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             grad_norm,
             num_zeros_in_grad,
         )
+    elastic_trace_post_rebuild_phase("train_step_finalize_done", args.curr_iteration)
     return {}, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad
 
 
@@ -2912,6 +2908,7 @@ def train(
                 decoupled_learning_rate = param_group['lr']
             else:
                 learning_rate = param_group['lr']
+        elastic_trace_post_rebuild_phase("training_log_start", args.curr_iteration)
         report_memory_flag = training_log(
             loss_dict,
             total_loss_dict,
@@ -2925,6 +2922,9 @@ def train(
             params_norm,
             num_zeros_in_grad,
         )
+        elastic_trace_post_rebuild_phase("training_log_done", args.curr_iteration)
+        elastic_trace_post_rebuild_phase("post_rebuild_step_complete", args.curr_iteration)
+        elastic_clear_post_rebuild_trace()
 
         # Evaluation.
         if args.eval_interval and iteration % args.eval_interval == 0 and args.do_valid:

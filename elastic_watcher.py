@@ -114,7 +114,10 @@ _PHASE_ORDER = {
     "optimizer_step_start": 140,
     "optimizer_step_done": 150,
     "optimizer_skipped": 155,
-    "post_rebuild_step_complete": 160,
+    "train_step_finalize_done": 160,
+    "training_log_start": 170,
+    "training_log_done": 180,
+    "post_rebuild_step_complete": 190,
 }
 
 
@@ -2028,6 +2031,9 @@ class ElasticWatcher:
                         "resume_state_applied",
                         "state_contract_ready",
                         "train_ready",
+                        "train_step_finalize_done",
+                        "training_log_start",
+                        "training_log_done",
                         "post_rebuild_step_complete",
                     ],
                     "debt_commit_point": "post_rebuild_step_complete",

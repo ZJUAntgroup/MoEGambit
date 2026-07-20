@@ -5,6 +5,7 @@ import time
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import List, Optional
 from unittest.mock import patch
 
 from elastic_watcher import ElasticWatcher, _PHASE_ORDER
@@ -382,3 +383,126 @@ def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():
     assert _PHASE_ORDER["optimizer_pg_contract_ready"] < _PHASE_ORDER[
         "optimizer_step_start"
     ]
+    assert _PHASE_ORDER["optimizer_step_done"] < _PHASE_ORDER[
+        "train_step_finalize_done"
+    ]
+    assert _PHASE_ORDER["train_step_finalize_done"] < _PHASE_ORDER[
+        "training_log_start"
+    ]
+    assert _PHASE_ORDER["training_log_start"] < _PHASE_ORDER["training_log_done"]
+    assert _PHASE_ORDER["training_log_done"] < _PHASE_ORDER[
+        "post_rebuild_step_complete"
+    ]
+
+
+def test_aux_loss_reduction_skips_single_rank_process_groups():
+    moe_utils_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "core"
+        / "transformer"
+        / "moe"
+        / "moe_utils.py"
+    )
+    tree = ast.parse(moe_utils_path.read_text())
+    reducer_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "reduce_aux_losses_tracker_across_ranks"
+    )
+
+    class _Group:
+        def __init__(self, size):
+            self._size = size
+
+        def size(self):
+            return self._size
+
+    class _Distributed:
+        class ReduceOp:
+            AVG = "avg"
+
+        def __init__(self):
+            self.calls = []
+
+        def all_reduce(self, values, group, op=None):
+            self.calls.append((values, group, op))
+
+    class _Torch:
+        distributed = _Distributed()
+
+    class _ParallelState:
+        pp_group = _Group(1)
+        dp_group = _Group(1)
+
+        @classmethod
+        def get_pipeline_model_parallel_group(cls):
+            return cls.pp_group
+
+        @classmethod
+        def get_data_parallel_group(cls, with_context_parallel=False):
+            assert with_context_parallel
+            return cls.dp_group
+
+    tracker = {
+        "aux": {
+            "values": object(),
+            "reduce_group": _Group(1),
+            "avg_group": _Group(1),
+        }
+    }
+    namespace = {
+        "List": List,
+        "Optional": Optional,
+        "torch": _Torch,
+        "parallel_state": _ParallelState,
+        "get_moe_layer_wise_logging_tracker": lambda: tracker,
+    }
+    reducer_module = ast.Module(body=[reducer_node], type_ignores=[])
+    exec(compile(reducer_module, "moe_utils", "exec"), namespace)
+    reduce_aux_losses = namespace["reduce_aux_losses_tracker_across_ranks"]
+
+    reduce_aux_losses(["aux"])
+    assert _Torch.distributed.calls == []
+
+    _ParallelState.pp_group = _Group(2)
+    _ParallelState.dp_group = _Group(2)
+    tracker["aux"]["reduce_group"] = _Group(2)
+    tracker["aux"]["avg_group"] = _Group(2)
+    reduce_aux_losses(["aux"])
+    assert len(_Torch.distributed.calls) == 4
+
+
+def test_recovery_contract_is_committed_after_training_log():
+    training_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "training.py"
+    )
+    source = training_path.read_text()
+    tree = ast.parse(source)
+    train_step_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "train_step"
+    )
+    train_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "train"
+    )
+    train_step_source = ast.get_source_segment(source, train_step_node)
+    train_source = ast.get_source_segment(source, train_node)
+
+    assert '"post_rebuild_step_complete"' not in train_step_source
+    training_log_call = train_source.index("report_memory_flag = training_log(")
+    training_log_done = train_source.index('"training_log_done"', training_log_call)
+    recovery_complete = train_source.index(
+        '"post_rebuild_step_complete"', training_log_done
+    )
+    trace_clear = train_source.index("elastic_clear_post_rebuild_trace()", recovery_complete)
+    assert training_log_call < training_log_done < recovery_complete < trace_clear
