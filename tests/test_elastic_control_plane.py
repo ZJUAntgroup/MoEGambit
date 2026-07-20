@@ -1,11 +1,13 @@
+import ast
 import os
 import tempfile
 import time
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import patch
 
-from elastic_watcher import ElasticWatcher
+from elastic_watcher import ElasticWatcher, _PHASE_ORDER
 
 
 class _Connection:
@@ -295,3 +297,40 @@ def test_replacement_env_drops_inherited_torchelastic_store_namespace():
         assert "TORCHELASTIC_USE_AGENT_STORE" not in env
         assert "TORCHELASTIC_RESTART_COUNT" not in env
         assert "TORCHELASTIC_RUN_ID" not in env
+
+
+def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
+    initialize_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "initialize.py"
+    )
+    tree = ast.parse(initialize_path.read_text())
+    initialize_distributed = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_initialize_distributed"
+    )
+
+    init_pg_start_line = None
+    rebuild_store_line = None
+    for node in ast.walk(initialize_distributed):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if (
+            node.func.id == "_elastic_report_phase_safely"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "init_pg_start"
+        ):
+            init_pg_start_line = node.lineno
+        elif node.func.id == "elastic_create_rebuild_store":
+            rebuild_store_line = node.lineno
+
+    assert _PHASE_ORDER["init_pg_start"] < _PHASE_ORDER["rebuild_store_ready"]
+    assert _PHASE_ORDER["rebuild_store_ready"] < _PHASE_ORDER["pg_ready"]
+    assert init_pg_start_line is not None
+    assert rebuild_store_line is not None
+    assert init_pg_start_line < rebuild_store_line

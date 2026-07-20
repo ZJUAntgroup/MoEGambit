@@ -76,6 +76,7 @@ def _env_bool(name, default=False):
 
 _PHASE_ORDER = {
     "init_pg_start": 10,
+    "rebuild_store_ready": 15,
     "pg_ready": 20,
     "mpu_init_start": 30,
     "mpu_group_start": 32,

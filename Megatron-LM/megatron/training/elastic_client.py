@@ -158,6 +158,13 @@ def elastic_create_rebuild_store(host, port, world_size, rank, timeout):
         "multi_tenant": False,
         "use_libuv": True,
     }
+    logger.warning(
+        "[elastic] Rank %d: opening rebuild TCPStore endpoint=%s:%s role=%s",
+        int(rank),
+        host,
+        port,
+        "server" if int(rank) == 0 else "client",
+    )
     try:
         store = dist.TCPStore(**kwargs)
     except TypeError:
