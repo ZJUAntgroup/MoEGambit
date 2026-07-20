@@ -109,6 +109,8 @@ _PHASE_ORDER = {
     "moe_first_collective_error": 126,
     "moe_first_collective_timeout": 128,
     "forward_backward_done": 130,
+    "optimizer_pg_contract_ready": 135,
+    "optimizer_pg_contract_error": 136,
     "optimizer_step_start": 140,
     "optimizer_step_done": 150,
     "optimizer_skipped": 155,
@@ -622,6 +624,7 @@ class ElasticWatcher:
                 "state_contract_error",
                 "moe_first_collective_error",
                 "moe_first_collective_timeout",
+                "optimizer_pg_contract_error",
             }
             record_contract_epoch = None
             with self.lock:

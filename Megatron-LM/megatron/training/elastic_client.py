@@ -984,10 +984,14 @@ def elastic_warmup_post_rebuild_communicators(iteration: int) -> bool:
     return bool(groups)
 
 
-def elastic_trace_post_rebuild_phase(phase: str, iteration: Optional[int] = None):
+def elastic_trace_post_rebuild_phase(
+    phase: str, iteration: Optional[int] = None, optimizer=None
+):
     """Report a diagnostic phase for the first post-rebuild train step."""
     if not elastic_is_post_rebuild_trace_active(iteration):
         return
+    if phase == "optimizer_step_start" and optimizer is not None:
+        elastic_validate_optimizer_process_groups(optimizer, iteration)
     extra = {}
     if iteration is not None:
         extra["step"] = iteration
@@ -2213,14 +2217,95 @@ def _elastic_classify_optimizer_buffers(megatron_optimizer, buffer_kind):
     return None
 
 
+def _elastic_classify_optimizer_param_groups(megatron_optimizer):
+    """Classify an inner optimizer using Megatron's persistent group metadata."""
+    base_optimizer = getattr(megatron_optimizer, "optimizer", None)
+    param_groups = getattr(base_optimizer, "param_groups", None) or []
+    expert_flags = {
+        bool(group["is_expert_parallel"])
+        for group in param_groups
+        if "is_expert_parallel" in group
+    }
+    if expert_flags == {True}:
+        return "expert"
+    if expert_flags == {False}:
+        return "dense"
+    if len(expert_flags) > 1:
+        raise RuntimeError(
+            "one inner Megatron optimizer contains both dense and expert parameter groups"
+        )
+    return None
+
+
+def _elastic_classify_optimizer_kind(megatron_optimizer, buffer_kind):
+    # Non-distributed Float16Optimizer does not retain `.buffers`, but its
+    # underlying optimizer param groups keep `is_expert_parallel`.  Prefer that
+    # canonical metadata so dense/expert grad-stat groups remain distinct.
+    kind = _elastic_classify_optimizer_param_groups(megatron_optimizer)
+    if kind is not None:
+        return kind, "param_groups"
+
+    kind = _elastic_classify_optimizer_buffers(megatron_optimizer, buffer_kind)
+    if kind is not None:
+        return kind, "buffers"
+
+    # A parameterless/stub optimizer may not have either source.  Preserve its
+    # original semantic identity from the retired ProcessGroup when available.
+    old_group = getattr(megatron_optimizer, "grad_stats_parallel_group", None)
+    old_desc = str(getattr(old_group, "group_desc", "")).upper()
+    if "EXPERT_TENSOR" in old_desc and "PIPELINE" in old_desc:
+        return "expert", "retired_group_desc"
+    if "MODEL_PARALLEL" in old_desc:
+        return "dense", "retired_group_desc"
+    return None, "unresolved"
+
+
+def _elastic_optimizer_uses_distributed_optimizer(megatron_optimizer):
+    config = getattr(megatron_optimizer, "config", None)
+    return bool(getattr(config, "use_distributed_optimizer", False))
+
+
+def _elastic_expected_optimizer_grad_group(megatron_optimizer, kind, pg_dict):
+    if _elastic_optimizer_uses_distributed_optimizer(megatron_optimizer):
+        return "intra_dist_opt", pg_dict.get("intra_dist_opt")
+    if kind == "expert":
+        return "tp_ep_pp", pg_dict.get("tp_ep_pp")
+    return "mp", pg_dict.get("mp")
+
+
+def _elastic_process_group_contract(group):
+    if group is None:
+        return {"group_name": "missing", "group_desc": "missing", "ranks": []}
+    contract = {
+        "group_name": str(getattr(group, "group_name", "unavailable")),
+        "group_desc": str(getattr(group, "group_desc", "unavailable")),
+        "ranks": [],
+    }
+    try:
+        contract["ranks"] = list(dist.get_process_group_ranks(group))
+    except Exception as exc:
+        contract["ranks_error"] = str(exc)
+    return contract
+
+
 def _elastic_rebind_optimizer_process_groups(optimizer, model, pg_dict):
     if optimizer is None:
         return 0
 
     count = 0
     buffer_kind = _elastic_model_buffer_kind_by_id(model)
-    for megatron_optimizer in _iter_megatron_optimizers(optimizer):
-        kind = _elastic_classify_optimizer_buffers(megatron_optimizer, buffer_kind)
+    contracts = []
+    for optimizer_idx, megatron_optimizer in enumerate(_iter_megatron_optimizers(optimizer)):
+        kind, kind_source = _elastic_classify_optimizer_kind(
+            megatron_optimizer, buffer_kind
+        )
+        if kind is None:
+            if getattr(megatron_optimizer, "is_stub_optimizer", False):
+                continue
+            raise RuntimeError(
+                f"cannot classify optimizer[{optimizer_idx}] as dense or expert; "
+                "missing is_expert_parallel metadata"
+            )
         if kind == "expert":
             data_group = pg_dict.get("intra_expt_dp")
             data_group_gloo = pg_dict.get("intra_expt_dp_gloo")
@@ -2255,18 +2340,129 @@ def _elastic_rebind_optimizer_process_groups(optimizer, model, pg_dict):
                     megatron_optimizer.data_parallel_group_gloo = data_group_gloo
                     count += 1
 
-        ddp_config = getattr(megatron_optimizer, "ddp_config", None)
-        if getattr(ddp_config, "use_distributed_optimizer", False):
-            grad_stats_group = pg_dict.get("intra_dist_opt")
-        elif kind == "expert":
-            grad_stats_group = pg_dict.get("tp_ep_pp")
-        else:
-            grad_stats_group = pg_dict.get("mp")
+        expected_key, grad_stats_group = _elastic_expected_optimizer_grad_group(
+            megatron_optimizer, kind, pg_dict
+        )
+        if grad_stats_group is None:
+            raise RuntimeError(
+                f"optimizer[{optimizer_idx}] kind={kind} expected ProcessGroup "
+                f"{expected_key}, but it is unavailable after rebuild"
+            )
         count += _elastic_set_attr(
             megatron_optimizer, "grad_stats_parallel_group", grad_stats_group
         )
+        contracts.append(
+            {
+                "index": optimizer_idx,
+                "kind": kind,
+                "kind_source": kind_source,
+                "expected_group": expected_key,
+                "use_distributed_optimizer": _elastic_optimizer_uses_distributed_optimizer(
+                    megatron_optimizer
+                ),
+                **_elastic_process_group_contract(grad_stats_group),
+            }
+        )
+
+    logger.warning(
+        "[elastic] Rank %d: rebound optimizer ProcessGroup contract=%s",
+        dist.get_rank(),
+        contracts,
+    )
 
     return count
+
+
+def elastic_validate_optimizer_process_groups(optimizer, iteration=None):
+    """Validate first-step optimizer collective groups without running a collective."""
+    if not elastic_is_post_rebuild_trace_active(iteration):
+        return False
+
+    pg_dict = _elastic_current_pg_dict()
+    buffer_kind = {}
+    contracts = []
+    try:
+        for optimizer_idx, megatron_optimizer in enumerate(
+            _iter_megatron_optimizers(optimizer)
+        ):
+            kind, kind_source = _elastic_classify_optimizer_kind(
+                megatron_optimizer, buffer_kind
+            )
+            if kind is None:
+                if getattr(megatron_optimizer, "is_stub_optimizer", False):
+                    continue
+                raise RuntimeError(
+                    f"cannot classify optimizer[{optimizer_idx}] as dense or expert"
+                )
+            expected_key, expected_group = _elastic_expected_optimizer_grad_group(
+                megatron_optimizer, kind, pg_dict
+            )
+            actual_group = megatron_optimizer.get_grad_stats_parallel_group()
+            contract = {
+                "index": optimizer_idx,
+                "kind": kind,
+                "kind_source": kind_source,
+                "expected_group": expected_key,
+                "use_distributed_optimizer": _elastic_optimizer_uses_distributed_optimizer(
+                    megatron_optimizer
+                ),
+                **_elastic_process_group_contract(actual_group),
+            }
+            contracts.append(contract)
+            if expected_group is None or actual_group is not expected_group:
+                raise RuntimeError(
+                    f"optimizer[{optimizer_idx}] kind={kind} grad-stat ProcessGroup "
+                    f"does not match current {expected_key}: contract={contract}"
+                )
+
+        non_distributed = [
+            item
+            for item in contracts
+            if not item["use_distributed_optimizer"]
+        ]
+        dense_groups = {
+            item["group_name"] for item in non_distributed if item["kind"] == "dense"
+        }
+        expert_groups = {
+            item["group_name"] for item in non_distributed if item["kind"] == "expert"
+        }
+        if dense_groups and expert_groups and dense_groups == expert_groups:
+            raise RuntimeError(
+                "dense and expert optimizers share one grad-stat ProcessGroup after rebuild: "
+                f"dense={dense_groups} expert={expert_groups}"
+            )
+    except Exception as exc:
+        elastic_report_recovery_phase(
+            "optimizer_pg_contract_error",
+            optimizer_pg_contract=contracts,
+            error=str(exc),
+        )
+        raise
+
+    elastic_report_recovery_phase(
+        "optimizer_pg_contract_ready", optimizer_pg_contract=contracts
+    )
+    world_size = dist.get_world_size()
+    timeout = _elastic_phase_timeout_seconds()
+    if not elastic_wait_for_recovery_phase_count(
+        "optimizer_pg_contract_ready", world_size, timeout
+    ):
+        error = (
+            "not all ranks validated optimizer ProcessGroups before the first "
+            f"post-rebuild optimizer step within {timeout}s"
+        )
+        elastic_report_recovery_phase(
+            "optimizer_pg_contract_error",
+            optimizer_pg_contract=contracts,
+            error=error,
+        )
+        raise RuntimeError(error)
+    logger.warning(
+        "[elastic] Rank %d: optimizer ProcessGroup contract verified: %s",
+        dist.get_rank(),
+        contracts,
+    )
+    return True
 
 
 def _elastic_rebind_model_process_groups(model, optimizer=None):

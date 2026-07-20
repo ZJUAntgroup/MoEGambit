@@ -1511,7 +1511,9 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
         return {}, 1, should_checkpoint, should_exit, exit_code, None, None
 
     elastic_client_update_step(args.curr_iteration, phase="optimizer_step", step_tag=-1)
-    elastic_trace_post_rebuild_phase("optimizer_step_start", args.curr_iteration)
+    elastic_trace_post_rebuild_phase(
+        "optimizer_step_start", args.curr_iteration, optimizer=optimizer
+    )
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()

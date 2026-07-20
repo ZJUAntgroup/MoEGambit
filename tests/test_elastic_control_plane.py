@@ -334,3 +334,51 @@ def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
     assert init_pg_start_line is not None
     assert rebuild_store_line is not None
     assert init_pg_start_line < rebuild_store_line
+
+
+def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    tree = ast.parse(elastic_client_path.read_text())
+    classifier_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_elastic_classify_optimizer_param_groups"
+    )
+    namespace = {}
+    classifier_module = ast.Module(body=[classifier_node], type_ignores=[])
+    exec(compile(classifier_module, "classifier", "exec"), namespace)
+    classify = namespace["_elastic_classify_optimizer_param_groups"]
+
+    class _BaseOptimizer:
+        def __init__(self, expert_flags):
+            self.param_groups = [
+                {"is_expert_parallel": expert_flag} for expert_flag in expert_flags
+            ]
+
+    class _MegatronOptimizer:
+        def __init__(self, expert_flags):
+            self.optimizer = _BaseOptimizer(expert_flags)
+
+    assert classify(_MegatronOptimizer([False, False])) == "dense"
+    assert classify(_MegatronOptimizer([True, True])) == "expert"
+    assert classify(_MegatronOptimizer([])) is None
+    try:
+        classify(_MegatronOptimizer([False, True]))
+    except RuntimeError as exc:
+        assert "both dense and expert" in str(exc)
+    else:
+        raise AssertionError("mixed dense/expert optimizer must be rejected")
+
+    assert _PHASE_ORDER["forward_backward_done"] < _PHASE_ORDER[
+        "optimizer_pg_contract_ready"
+    ]
+    assert _PHASE_ORDER["optimizer_pg_contract_ready"] < _PHASE_ORDER[
+        "optimizer_step_start"
+    ]
