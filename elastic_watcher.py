@@ -2572,6 +2572,20 @@ class ElasticWatcher:
         physical_node_rank = os.environ.get("NODE_RANK", str(self.training_nnodes))
 
         env = os.environ.copy()
+        # The replacement uses our standalone TCPStore, not torchrun's agent
+        # rendezvous.  An inherited agent-store flag adds a private PrefixStore
+        # on replacement only and makes survivor NCCL bootstrap keys invisible.
+        for key in (
+            "TORCHELASTIC_USE_AGENT_STORE",
+            "TORCHELASTIC_RUN_ID",
+            "TORCHELASTIC_RESTART_COUNT",
+            "TORCHELASTIC_MAX_RESTARTS",
+            "TORCHELASTIC_ERROR_FILE",
+            "TORCHELASTIC_ROLE",
+            "TORCHELASTIC_ROLE_RANK",
+            "TORCHELASTIC_ROLE_WORLD_SIZE",
+        ):
+            env.pop(key, None)
         env["ELASTIC_LOGICAL_NODE_RANK"] = str(failed_node)
         env["ELASTIC_PHYSICAL_NODE_RANK"] = str(physical_node_rank)
         env["NODE_RANK"] = str(failed_node)

@@ -274,3 +274,24 @@ def test_replacement_env_carries_recovery_nccl_transport_contract():
         assert env["ELASTIC_RECOVERY_NCCL_SOCKET_ONLY"] == "1"
         assert env["ELASTIC_RECOVERY_NCCL_DEBUG"] == "INFO"
         assert env["ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME"] == "=eth9"
+
+
+def test_replacement_env_drops_inherited_torchelastic_store_namespace():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        watcher.recovery_epoch = 1
+        with patch.dict(
+            os.environ,
+            {
+                "NODE_RANK": "2",
+                "TORCHELASTIC_USE_AGENT_STORE": "True",
+                "TORCHELASTIC_RESTART_COUNT": "7",
+                "TORCHELASTIC_RUN_ID": "stale-run",
+            },
+            clear=False,
+        ):
+            env = watcher._build_spare_env(0, 1, resume_iteration=18)
+
+        assert "TORCHELASTIC_USE_AGENT_STORE" not in env
+        assert "TORCHELASTIC_RESTART_COUNT" not in env
+        assert "TORCHELASTIC_RUN_ID" not in env

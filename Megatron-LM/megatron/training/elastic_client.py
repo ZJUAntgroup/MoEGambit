@@ -144,6 +144,44 @@ def elastic_configure_recovery_nccl_transport():
     return config
 
 
+def elastic_create_rebuild_store(host, port, world_size, rank, timeout):
+    """Create the same unprefixed TCPStore on survivor and replacement paths."""
+    global _REBUILD_STORE
+
+    kwargs = {
+        "host_name": str(host),
+        "port": int(port),
+        "world_size": int(world_size),
+        "is_master": int(rank) == 0,
+        "timeout": timeout,
+        "wait_for_workers": True,
+        "multi_tenant": False,
+        "use_libuv": True,
+    }
+    try:
+        store = dist.TCPStore(**kwargs)
+    except TypeError:
+        # Older supported PyTorch builds expose only the original constructor.
+        # All removed options match that constructor's defaults.
+        kwargs.pop("wait_for_workers")
+        kwargs.pop("multi_tenant")
+        kwargs.pop("use_libuv")
+        store = dist.TCPStore(**kwargs)
+
+    _REBUILD_STORE = store
+    logger.warning(
+        "[elastic] Rank %d: rebuild TCPStore ready endpoint=%s:%s "
+        "role=%s type=%s torchelastic_agent_store=%s",
+        int(rank),
+        host,
+        port,
+        "server" if int(rank) == 0 else "client",
+        type(store).__name__,
+        os.environ.get("TORCHELASTIC_USE_AGENT_STORE", "unset"),
+    )
+    return store
+
+
 def elastic_sanitize_recovery_env_for_startup():
     """Clear one-shot recovery state for a fresh, non-rebuild training process."""
     if is_rebuild_mode():
@@ -2635,24 +2673,19 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
         torch.cuda.set_device(local_rank)
         device_id = torch.device(f"cuda:{local_rank}")
 
-    # Create a new TCPStore for rendezvous
-    is_master = (rank == 0)
+    # Create the same explicit, unprefixed store used by replacement startup.
+    # Mixing this path with replacement's implicit env:// rendezvous can add a
+    # torch-elastic PrefixStore only on one side and make lazy NCCL keys invisible.
     rebuild_timeout = _elastic_rebuild_timeout(args)
     logger.warning("[elastic] Rank %d: rebuild timeout is %s", rank, rebuild_timeout)
 
-    global _REBUILD_STORE
-    store = dist.TCPStore(
-        host_name=new_master_addr,
-        port=int(new_master_port),
-        world_size=world_size,
-        is_master=is_master,
-        timeout=rebuild_timeout,
+    store = elastic_create_rebuild_store(
+        new_master_addr,
+        new_master_port,
+        world_size,
+        rank,
+        rebuild_timeout,
     )
-    # Keep the rebuild TCPStore alive after this function returns.  NCCL
-    # sub-communicators are lazily initialized by the first training P2P op, so
-    # dropping rank 0's store object here can close the server before those
-    # communicators fetch their ncclUniqueId.
-    _REBUILD_STORE = store
 
     init_process_group_kwargs = {
         "backend": "nccl",

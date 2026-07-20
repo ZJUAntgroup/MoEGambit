@@ -398,9 +398,26 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
         if args.rank == 0:
             print("> initializing torch distributed ...", flush=True)
         if _is_elastic_rebuild_mode():
-            from megatron.training.elastic_client import elastic_configure_recovery_nccl_transport
+            from megatron.training.elastic_client import (
+                elastic_configure_recovery_nccl_transport,
+                elastic_create_rebuild_store,
+            )
 
             elastic_configure_recovery_nccl_transport()
+            if store is None:
+                rebuild_timeout_minutes = int(
+                    os.environ.get(
+                        "ELASTIC_REBUILD_TIMEOUT_MINUTES",
+                        str(args.distributed_timeout_minutes),
+                    )
+                )
+                store = elastic_create_rebuild_store(
+                    os.environ["MASTER_ADDR"],
+                    os.environ["MASTER_PORT"],
+                    args.world_size,
+                    args.rank,
+                    timedelta(minutes=rebuild_timeout_minutes),
+                )
         # Manually set the device ids.
         if device_count > 0:
             torch.cuda.set_device(args.local_rank)

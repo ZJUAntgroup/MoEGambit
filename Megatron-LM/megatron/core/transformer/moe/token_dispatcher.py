@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 _ELASTIC_MOE_FIRST_COLLECTIVE_BARRIERS = set()
 _ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS = set()
+_ELASTIC_MOE_FIRST_COLLECTIVE_STORES = set()
 
 """ We use the following notation throughout this file:
      H: hidden size
@@ -297,6 +298,92 @@ class MoETokenDispatcher:
             return None
 
     @staticmethod
+    def _elastic_replacement_facing_group(group) -> bool:
+        if not MoETokenDispatcher._elastic_post_rebuild_trace_active():
+            return False
+        ranks = MoETokenDispatcher._elastic_group_ranks(group)
+        if not ranks:
+            return False
+        try:
+            replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
+        except ValueError:
+            return False
+        return replacement_rank in ranks
+
+    @staticmethod
+    def _elastic_process_group_contract(group):
+        contract = {
+            "group_name": str(getattr(group, "group_name", "unavailable")),
+            "group_desc": str(getattr(group, "group_desc", "unavailable")),
+            "group_rank": int(group.rank()),
+            "group_size": int(group.size()),
+            "store_type": "unavailable",
+        }
+        try:
+            world = torch.distributed.distributed_c10d._world
+            contract["c10d_name"] = str(world.pg_names.get(group, "unregistered"))
+            contract["store_type"] = type(world.pg_map[group][1]).__name__
+        except Exception as exc:
+            contract["registry_error"] = str(exc)
+        return contract
+
+    @staticmethod
+    def _elastic_validate_first_collective_store(name: str, group, ranks):
+        """Verify that all members see rank zero through this PG's exact PrefixStore."""
+        replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
+        store_key = (name, tuple(ranks), replacement_rank)
+        if store_key in _ELASTIC_MOE_FIRST_COLLECTIVE_STORES:
+            return
+
+        contract = MoETokenDispatcher._elastic_process_group_contract(group)
+        timeout = float(os.environ.get("ELASTIC_MOE_STORE_CANARY_TIMEOUT", "30"))
+        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
+        canary_key = f"elastic_canary:{token}:{name}"
+        expected = (
+            f"{token}|{name}|{contract['group_name']}|"
+            + "-".join(str(rank) for rank in ranks)
+        ).encode()
+        rank = torch.distributed.get_rank()
+
+        try:
+            world = torch.distributed.distributed_c10d._world
+            pg_store = world.pg_map[group][1]
+            if int(group.rank()) == 0:
+                pg_store.set(canary_key, expected)
+            pg_store.wait([canary_key], timedelta(seconds=timeout))
+            observed = bytes(pg_store.get(canary_key))
+            if observed != expected:
+                raise RuntimeError(
+                    f"payload mismatch expected={expected!r} observed={observed!r}"
+                )
+        except Exception as exc:
+            MoETokenDispatcher._elastic_report_recovery_phase(
+                "moe_first_collective_store_error",
+                collective=name,
+                group_ranks=ranks,
+                pg_contract=contract,
+                error=str(exc),
+            )
+            raise RuntimeError(
+                f"[elastic] first MoE {name} ProcessGroup store namespace is not shared "
+                f"rank={rank} ranks={ranks} contract={contract}: {exc}"
+            ) from exc
+
+        _ELASTIC_MOE_FIRST_COLLECTIVE_STORES.add(store_key)
+        MoETokenDispatcher._elastic_report_recovery_phase(
+            "moe_first_collective_store_ready",
+            collective=name,
+            group_ranks=ranks,
+            pg_contract=contract,
+        )
+        logger.warning(
+            "[elastic] Rank %d: first MoE %s ProcessGroup store verified contract=%s",
+            rank,
+            name,
+            contract,
+        )
+
+    @staticmethod
     def _elastic_wait_first_collective_barrier(name: str, group):
         """Align replacement-facing MoE collectives on the first post-rebuild step."""
         if not MoETokenDispatcher._elastic_post_rebuild_trace_active():
@@ -438,7 +525,9 @@ class MoETokenDispatcher:
             pass
 
     @staticmethod
-    def _elastic_gather_first_dim_fail_fast(input_: torch.Tensor, group, name: str):
+    def _elastic_gather_first_dim_fail_fast(
+        input_: torch.Tensor, group, name: str, output: Optional[torch.Tensor] = None
+    ):
         """All-gather along dim 0 with a recovery-only timeout.
 
         This mirrors gather_from_sequence_parallel_region for metadata tensors
@@ -451,9 +540,12 @@ class MoETokenDispatcher:
         if world_size == 1:
             return input_
 
-        dim_size = list(input_.size())
-        dim_size[0] = dim_size[0] * world_size
-        output = torch.empty(dim_size, dtype=input_.dtype, device=torch.cuda.current_device())
+        if output is None:
+            dim_size = list(input_.size())
+            dim_size[0] = dim_size[0] * world_size
+            output = torch.empty(
+                dim_size, dtype=input_.dtype, device=torch.cuda.current_device()
+            )
 
         ranks = MoETokenDispatcher._elastic_group_ranks(group)
         rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
@@ -549,6 +641,60 @@ class MoETokenDispatcher:
             name,
             ranks,
         )
+        return output
+
+    @staticmethod
+    def _elastic_gather_first_dim_ready_aligned(input_: torch.Tensor, group, name: str):
+        """Prepare CUDA tensors before releasing peers into lazy NCCL bootstrap."""
+        world_size = group.size()
+        if world_size == 1:
+            return input_
+
+        dim_size = list(input_.size())
+        dim_size[0] *= world_size
+        output = torch.empty(dim_size, dtype=input_.dtype, device=input_.device)
+        contiguous_input = input_.contiguous()
+
+        # The old barrier ran before these CUDA operations.  A fresh replacement
+        # could consequently enter store->get while rank zero was still blocked
+        # in allocator/stream work and had not published the NCCL unique ID.
+        torch.cuda.current_stream().synchronize()
+        ranks = MoETokenDispatcher._elastic_group_ranks(group)
+        rank = torch.distributed.get_rank()
+        contract = MoETokenDispatcher._elastic_process_group_contract(group)
+        MoETokenDispatcher._elastic_report_recovery_phase(
+            "moe_first_collective_prepared",
+            collective=name,
+            group_ranks=ranks,
+            pg_contract=contract,
+        )
+        logger.warning(
+            "[elastic] Rank %d: prepared first MoE %s tensors contract=%s",
+            rank,
+            name,
+            contract,
+        )
+
+        MoETokenDispatcher._elastic_wait_first_collective_barrier(name, group)
+        MoETokenDispatcher._elastic_validate_first_collective_store(name, group, ranks)
+        logger.warning(
+            "[elastic] Rank %d: starting prepared first MoE %s collective contract=%s",
+            rank,
+            name,
+            contract,
+        )
+
+        if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST", "0") != "0":
+            return MoETokenDispatcher._elastic_gather_first_dim_fail_fast(
+                contiguous_input, group, name, output=output
+            )
+
+        gather_fn = (
+            torch.distributed.all_gather_into_tensor
+            if hasattr(torch.distributed, "all_gather_into_tensor")
+            else torch.distributed._all_gather_base
+        )
+        gather_fn(output, contiguous_input, group=group)
         return output
 
 
@@ -860,23 +1006,17 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
                 "MoE dispatcher entering TPxEP metadata gather ranks=%s",
                 self._elastic_group_ranks(self.tp_ep_group),
             )
-            self._elastic_wait_first_collective_barrier(
-                "tp_ep_metadata_gather", self.tp_ep_group
-            )
-            self._elastic_trace_once(
-                "tp_ep_metadata_real_start",
-                "MoE dispatcher starting TPxEP metadata gather",
-            )
-            if (
-                self._elastic_post_rebuild_trace_active()
-                and os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST", "0") != "0"
-            ):
-                gathered_num_tokens = self._elastic_gather_first_dim_fail_fast(
+            if self._elastic_replacement_facing_group(self.tp_ep_group):
+                gathered_num_tokens = self._elastic_gather_first_dim_ready_aligned(
                     num_local_tokens_per_expert,
                     self.tp_ep_group,
                     "tp_ep_metadata_gather",
                 )
             else:
+                self._elastic_trace_once(
+                    "tp_ep_metadata_real_start",
+                    "MoE dispatcher starting TPxEP metadata gather",
+                )
                 gathered_num_tokens = gather_from_sequence_parallel_region(
                     num_local_tokens_per_expert, group=self.tp_ep_group
                 )
