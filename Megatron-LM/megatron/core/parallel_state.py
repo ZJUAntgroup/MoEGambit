@@ -145,6 +145,39 @@ def reset_elastic_mpu_group_ordinal():
     _ELASTIC_MPU_GROUP_ORDINAL = 0
 
 
+def _elastic_rebuild_eager_group_device_id(ranks, backend, group_desc):
+    """Bind selected replacement-facing rebuild groups to the current CUDA device."""
+    if not is_torch_min_version("2.6.0") or not torch.cuda.is_available():
+        return None
+    if os.environ.get("ELASTIC_REBUILD_MODE", "0") != "1" and os.environ.get(
+        "ELASTIC_PG_GENERATION", "0"
+    ) in ("", "0"):
+        return None
+    if backend is not None and "nccl" not in str(backend).lower():
+        return None
+
+    selected = {
+        name.strip()
+        for name in os.environ.get(
+            "ELASTIC_REBUILD_EAGER_NCCL_GROUPS",
+            "EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP",
+        ).split(",")
+        if name.strip()
+    }
+    if str(group_desc) not in selected or ranks is None:
+        return None
+
+    try:
+        replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
+        group_ranks = {int(rank) for rank in ranks}
+    except (TypeError, ValueError):
+        return None
+    if replacement_rank < 0 or replacement_rank not in group_ranks:
+        return None
+
+    return torch.device("cuda", torch.cuda.current_device())
+
+
 def get_nccl_options(pg_name, nccl_comm_cfgs):
     """Set the NCCL process group options.
 
@@ -233,6 +266,18 @@ def create_group(
         "use_local_synchronization": use_local_synchronization,
         "group_desc": group_desc,
     }
+    eager_device_id = _elastic_rebuild_eager_group_device_id(ranks, backend, group_desc)
+    if eager_device_id is not None:
+        kwargs["device_id"] = eager_device_id
+        if ranks is None or torch.distributed.get_rank() in ranks:
+            logger.warning(
+                "[elastic] Rank %d: eagerly initializing rebuild NCCL group "
+                "desc=%s ranks=%s device_id=%s",
+                torch.distributed.get_rank(),
+                group_desc,
+                list(ranks) if ranks is not None else "ALL",
+                eager_device_id,
+            )
     if not is_torch_min_version("2.4.0"):
         kwargs.pop("group_desc")
         if timeout is None:

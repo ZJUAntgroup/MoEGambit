@@ -2379,6 +2379,10 @@ class ElasticWatcher:
             "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
             "0",
         )
+        env["ELASTIC_REBUILD_EAGER_NCCL_GROUPS"] = os.environ.get(
+            "ELASTIC_REBUILD_EAGER_NCCL_GROUPS",
+            "EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP",
+        )
         env["ELASTIC_POST_REBUILD_COMM_WARMUP"] = os.environ.get(
             "ELASTIC_POST_REBUILD_COMM_WARMUP",
             "0",
@@ -2503,6 +2507,7 @@ class ElasticWatcher:
                 "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
                 "ELASTIC_INIT_PG_DEVICE_ID",
                 "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
+                "ELASTIC_REBUILD_EAGER_NCCL_GROUPS",
                 "ELASTIC_POST_REBUILD_COMM_WARMUP",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",
