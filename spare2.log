@@ -20,8 +20,8 @@ nohup: ignoring input
 + NODE_RANK=7
 + export MASTER_ADDR=33.181.110.66
 + MASTER_ADDR=33.181.110.66
-+ export MASTER_PORT=20122
-+ MASTER_PORT=20122
++ export MASTER_PORT=20123
++ MASTER_PORT=20123
 + export ELASTIC_WATCHER_PORT=20200
 + ELASTIC_WATCHER_PORT=20200
 + TRAINING_NNODES=8
@@ -110,6 +110,8 @@ nohup: ignoring input
 + ELASTIC_INIT_PG_DEVICE_ID=0
 + export ELASTIC_REBUILD_INIT_PG_DEVICE_ID=0
 + ELASTIC_REBUILD_INIT_PG_DEVICE_ID=0
++ export ELASTIC_REBUILD_EAGER_NCCL_GROUPS=EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP
++ ELASTIC_REBUILD_EAGER_NCCL_GROUPS=EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP
 + export ELASTIC_POST_REBUILD_COMM_WARMUP=0
 + ELASTIC_POST_REBUILD_COMM_WARMUP=0
 + export ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER=1
@@ -171,6 +173,8 @@ nohup: ignoring input
 [test-replace] Group barrier:   1 (720s)
 + echo '[test-replace] PG device_id:    init=0, rebuild=0'
 [test-replace] PG device_id:    init=0, rebuild=0
++ echo '[test-replace] Eager rebuild PG:EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP'
+[test-replace] Eager rebuild PG:EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP
 + echo '[test-replace] Post warmup:     0'
 [test-replace] Post warmup:     0
 + echo '[test-replace] MoE first:       barrier=1, warmup=0'
@@ -210,21 +214,21 @@ nohup: ignoring input
 + LOAD_ARGS=(--load "${CKPT_DIR}")
 + echo '[test-replace] Restart/relaunch attempt will load checkpoint from /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt'
 [test-replace] Restart/relaunch attempt will load checkpoint from /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
-+ python3 /root/workdir/antllm/bsr2/elastic_launcher.py --nproc-per-node 8 --nnodes 8 --node-rank 7 --master-addr 33.181.110.66 --master-port 20122 -- python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
++ python3 /root/workdir/antllm/bsr2/elastic_launcher.py --nproc-per-node 8 --nnodes 8 --node-rank 7 --master-addr 33.181.110.66 --master-port 20123 -- python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
 [launcher] Starting 8 workers on node 7/8 (world_size=64)
-[launcher] Master: 33.181.110.66:20122
-[launcher] PID=7224, PGID=7224
+[launcher] Master: 33.181.110.66:20123
+[launcher] PID=13644, PGID=13644
 [launcher] Command: python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
 [launcher-control] started node=7 watcher=33.212.70.87:20200 socket=/tmp/elastic_faults/launcher_control_7.sock
-[launcher] Started worker local_rank=0 global_rank=56 pid=7227
-[launcher] Started worker local_rank=1 global_rank=57 pid=7228
-[launcher] Started worker local_rank=2 global_rank=58 pid=7229
-[launcher] Started worker local_rank=3 global_rank=59 pid=7230
-[launcher] Started worker local_rank=4 global_rank=60 pid=7231
+[launcher] Started worker local_rank=0 global_rank=56 pid=13647
+[launcher] Started worker local_rank=1 global_rank=57 pid=13648
+[launcher] Started worker local_rank=2 global_rank=58 pid=13649
+[launcher] Started worker local_rank=3 global_rank=59 pid=13650
+[launcher] Started worker local_rank=4 global_rank=60 pid=13651
+[launcher] Started worker local_rank=5 global_rank=61 pid=13652
 [launcher-control] connected to watcher 33.212.70.87:20200
-[launcher] Started worker local_rank=5 global_rank=61 pid=7232
-[launcher] Started worker local_rank=6 global_rank=62 pid=7233
-[launcher] Started worker local_rank=7 global_rank=63 pid=7234
+[launcher] Started worker local_rank=6 global_rank=62 pid=13653
+[launcher] Started worker local_rank=7 global_rank=63 pid=13654
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
@@ -233,809 +237,486 @@ fused_indices_to_multihot has reached end of life. Please migrate to a non-exper
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
 fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
-[rank58]:[W720 15:21:56.936714647 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 58]  using GPU 2 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank57]:[W720 15:21:56.939877034 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 57]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank61]:[W720 15:21:56.942427681 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 61]  using GPU 5 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank63]:[W720 15:21:56.946498078 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 63]  using GPU 7 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank62]:[W720 15:21:56.946528838 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 62]  using GPU 6 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank59]:[W720 15:21:56.946774957 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 59]  using GPU 3 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank60]:[W720 15:21:56.953428693 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 60]  using GPU 4 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-[rank56]:[W720 15:21:56.029712297 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 56]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
-WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
-WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+[rank58]:[W720 16:01:24.576592257 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 58]  using GPU 2 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank62]:[W720 16:01:24.581951984 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 62]  using GPU 6 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank59]:[W720 16:01:24.582007870 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 59]  using GPU 3 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank57]:[W720 16:01:24.582092834 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 57]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank61]:[W720 16:01:24.583781823 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 61]  using GPU 5 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank63]:[W720 16:01:24.584841338 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 63]  using GPU 7 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank60]:[W720 16:01:24.584876993 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 60]  using GPU 4 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank56]:[W720 16:01:24.658938884 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 56]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
 WARNING: one_logger package is required to enable e2e metrics tracking. please go to https://confluence.nvidia.com/display/MLWFO/Package+Repositories for details to install it
-WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
-WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
-WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
-WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
-WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
-WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=1)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=6)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=2)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=3)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=4)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=5)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=7)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=0)
- > number of parameters on (tensor, pipeline) model parallel rank (0, 7): 878472704
-INFO:megatron.core.distributed.param_and_grad_buffer:Number of buckets for gradient all-reduce / reduce-scatter: 1
-Params for bucket 1 (425487872 elements, 425487872 padded size):
-	module.decoder.layers.5.pre_mlp_layernorm.weight
-	module.decoder.layers.5.self_attention.q_layernorm.weight
-	module.decoder.layers.3.mlp.router.weight
-	module.output_layer.weight
-	module.decoder.layers.5.self_attention.linear_proj.weight
-	module.decoder.layers.4.mlp.router.weight
-	module.decoder.layers.4.self_attention.linear_qkv.weight
-	module.decoder.layers.3.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.1.pre_mlp_layernorm.weight
-	module.decoder.layers.0.self_attention.linear_qkv.weight
-	module.decoder.layers.5.self_attention.k_layernorm.weight
-	module.decoder.layers.4.pre_mlp_layernorm.weight
-	module.decoder.layers.3.self_attention.k_layernorm.weight
-	module.decoder.layers.2.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.1.mlp.router.weight
-	module.decoder.layers.4.self_attention.q_layernorm.weight
-	module.decoder.layers.4.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.2.self_attention.k_layernorm.weight
-	module.decoder.layers.1.self_attention.q_layernorm.weight
-	module.decoder.layers.4.self_attention.k_layernorm.weight
-	module.decoder.layers.2.self_attention.linear_qkv.weight
-	module.decoder.layers.1.self_attention.k_layernorm.weight
-	module.decoder.layers.1.self_attention.linear_qkv.weight
-	module.decoder.layers.0.pre_mlp_layernorm.weight
-	module.decoder.layers.5.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.2.self_attention.linear_proj.weight
-	module.decoder.layers.1.self_attention.linear_proj.weight
-	module.decoder.layers.0.mlp.router.weight
-	module.decoder.layers.0.self_attention.k_layernorm.weight
-	module.decoder.layers.0.self_attention.linear_proj.weight
-	module.decoder.layers.4.self_attention.linear_proj.weight
-	module.decoder.layers.3.pre_mlp_layernorm.weight
-	module.decoder.layers.3.self_attention.q_layernorm.weight
-	module.decoder.layers.3.self_attention.linear_qkv.weight
-	module.decoder.layers.2.mlp.router.weight
-	module.decoder.layers.2.pre_mlp_layernorm.weight
-	module.decoder.layers.2.self_attention.q_layernorm.weight
-	module.decoder.final_layernorm.weight
-	module.decoder.layers.5.mlp.router.weight
-	module.decoder.layers.5.self_attention.linear_qkv.weight
-	module.decoder.layers.3.self_attention.linear_proj.weight
-	module.decoder.layers.1.self_attention.linear_qkv.layer_norm_weight
-	module.decoder.layers.0.self_attention.q_layernorm.weight
-	module.decoder.layers.0.self_attention.linear_qkv.layer_norm_weight
-INFO:megatron.core.distributed.param_and_grad_buffer:Number of buckets for gradient all-reduce / reduce-scatter: 1
-Params for bucket 1 (452984832 elements, 452984832 padded size):
-	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.11.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.11.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.14.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.5.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.12.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.10.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.2.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.2.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.7.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc1.weight
-	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.1.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.11.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc2.weight
-	module.decoder.layers.5.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.5.mlp.experts.local_experts.4.linear_fc1.weight
-	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc1.weight
-	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc2.weight
-	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc1.weight
-	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc2.weight
-	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc2.weight
-	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc1.weight
-/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-  state_dict = torch.load(checkpoint_name, map_location='cpu')
-/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-  state_dict = torch.load(checkpoint_name, map_location='cpu')
-/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-  state_dict = torch.load(checkpoint_name, map_location='cpu')
-/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-  state_dict = torch.load(checkpoint_name, map_location='cpu')
-/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-  state_dict = torch.load(checkpoint_name, map_location='cpu')
-/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-  state_dict = torch.load(checkpoint_name, map_location='cpu')
-/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-  state_dict = torch.load(checkpoint_name, map_location='cpu')
-/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
-  state_dict = torch.load(checkpoint_name, map_location='cpu')
-(min, max) time across ranks (ms):
-    load-checkpoint ................................: (8591.32, 8593.25)
-(min, max) time across ranks (ms):
-    model-and-optimizer-setup ......................: (10903.31, 10903.75)
-    train/valid/test-data-iterators-setup ..........: (29.94, 177.28)
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initializing on rank 61 ...
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initializing on rank 62 ...
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initializing on rank 56 ...
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initializing on rank 57 ...
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initializing on rank 60 ...
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initializing on rank 58 ...
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initializing on rank 59 ...
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initializing on rank 63 ...
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
-INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
-INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
-INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
-INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
-INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
-INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
-INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
-INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initialization complete on rank 62
-INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
-INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initialization complete on rank 61
-INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initialization complete on rank 57
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initialization complete on rank 56
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initialization complete on rank 60
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initialization complete on rank 58
-INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
-INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initialization complete on rank 59
-INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
-INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
-WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
-INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
-INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
-WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
-WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 15:22:14] MOEGAMBIT-MoE: initialization complete on rank 63
-NCCL version 2.21.5+cuda12.4
-NCCL version 2.21.5+cuda12.4
-NCCL version 2.21.5+cuda12.4
-NCCL version 2.21.5+cuda12.4
-NCCL version 2.21.5+cuda12.4
-NCCL version 2.21.5+cuda12.4
-NCCL version 2.21.5+cuda12.4
-NCCL version 2.21.5+cuda12.4
- [2026-07-20 15:24:13] iteration       11/     100 | consumed samples:          704 | elapsed time per iteration (ms): 118649.9 | learning rate: 9.911710E-05 | global batch size:    64 | lm loss: 9.202128E+00 | load_balancing_loss: 2.054845E+00 | loss scale: 1.0 | grad norm: 2.075 | number of skipped iterations:   0 | number of nan iterations:   0 |
-[Rank 56] (after 11 iterations) memory (MB) | allocated: 16203.49267578125 | max allocated: 70201.775390625 | reserved: 79818.0 | max reserved: 79818.0
- [2026-07-20 15:24:28] iteration       12/     100 | consumed samples:          768 | elapsed time per iteration (ms): 14693.0 | learning rate: 9.879970E-05 | global batch size:    64 | lm loss: 9.034945E+00 | load_balancing_loss: 1.927723E+00 | loss scale: 1.0 | grad norm: 3.192 | number of skipped iterations:   0 | number of nan iterations:   0 |
- [2026-07-20 15:24:42] iteration       13/     100 | consumed samples:          832 | elapsed time per iteration (ms): 14306.6 | learning rate: 9.843440E-05 | global batch size:    64 | lm loss: 8.912665E+00 | load_balancing_loss: 1.806688E+00 | loss scale: 1.0 | grad norm: 3.261 | number of skipped iterations:   0 | number of nan iterations:   0 |
- [2026-07-20 15:24:56] iteration       14/     100 | consumed samples:          896 | elapsed time per iteration (ms): 13705.2 | learning rate: 9.802161E-05 | global batch size:    64 | lm loss: 8.798526E+00 | load_balancing_loss: 1.722112E+00 | loss scale: 1.0 | grad norm: 2.619 | number of skipped iterations:   0 | number of nan iterations:   0 |
- [2026-07-20 15:25:10] iteration       15/     100 | consumed samples:          960 | elapsed time per iteration (ms): 13891.0 | learning rate: 9.756177E-05 | global batch size:    64 | lm loss: 8.596424E+00 | load_balancing_loss: 1.639488E+00 | loss scale: 1.0 | grad norm: 2.151 | number of skipped iterations:   0 | number of nan iterations:   0 |
- [2026-07-20 15:25:23] iteration       16/     100 | consumed samples:         1024 | elapsed time per iteration (ms): 12919.2 | learning rate: 9.705540E-05 | global batch size:    64 | lm loss: 8.462907E+00 | load_balancing_loss: 1.574771E+00 | loss scale: 1.0 | grad norm: 1.157 | number of skipped iterations:   0 | number of nan iterations:   0 |
- [2026-07-20 15:25:36] iteration       17/     100 | consumed samples:         1088 | elapsed time per iteration (ms): 13461.4 | learning rate: 9.650304E-05 | global batch size:    64 | lm loss: 8.396007E+00 | load_balancing_loss: 1.503308E+00 | loss scale: 1.0 | grad norm: 1.253 | number of skipped iterations:   0 | number of nan iterations:   0 |
-[launcher-control] pause received epoch=1 failed_node=0 local_rank=1
- [2026-07-20 15:25:49] iteration       18/     100 | consumed samples:         1152 | elapsed time per iteration (ms): 12893.9 | learning rate: 9.590529E-05 | global batch size:    64 | lm loss: 8.257927E+00 | load_balancing_loss: 1.450707E+00 | loss scale: 1.0 | grad norm: 1.308 | number of skipped iterations:   0 | number of nan iterations:   0 |
-WARNING:megatron.training.training:[elastic] Iteration 18: pause requested, entering rebuild...
-WARNING:megatron.training.training:[elastic] Iteration 18: pause requested, entering rebuild...
-WARNING:megatron.training.training:[elastic] Iteration 18: pause requested, entering rebuild...
-WARNING:megatron.training.training:[elastic] Iteration 18: pause requested, entering rebuild...
-WARNING:megatron.training.training:[elastic] Iteration 18: pause requested, entering rebuild...
-WARNING:megatron.training.training:[elastic] Iteration 18: pause requested, entering rebuild...
-WARNING:megatron.training.training:[elastic] Iteration 18: pause requested, entering rebuild...
-WARNING:megatron.training.training:[elastic] Iteration 18: pause requested, entering rebuild...
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: entering rebuild sequence
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: entering rebuild sequence
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: entering rebuild sequence
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: entering rebuild sequence
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: entering rebuild sequence
-INFO:megatron.training.elastic_client:[elastic] Rank 63: destroying process groups (stop watchdog)
-INFO:megatron.training.elastic_client:[elastic] Rank 56: destroying process groups (stop watchdog)
-INFO:megatron.training.elastic_client:[elastic] Rank 57: destroying process groups (stop watchdog)
-INFO:megatron.training.elastic_client:[elastic] Rank 60: destroying process groups (stop watchdog)
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: entering rebuild sequence
-INFO:megatron.training.elastic_client:[elastic] Rank 62: destroying process groups (stop watchdog)
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: entering rebuild sequence
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: entering rebuild sequence
-INFO:megatron.training.elastic_client:[elastic] Rank 58: destroying process groups (stop watchdog)
-INFO:megatron.training.elastic_client:[elastic] Rank 61: destroying process groups (stop watchdog)
-INFO:megatron.training.elastic_client:[elastic] Rank 59: destroying process groups (stop watchdog)
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: destroyed stale model-parallel subgroups before rebuild (destroyed=19, skipped=0)
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: destroyed stale model-parallel subgroups before rebuild (destroyed=19, skipped=0)
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: destroyed stale model-parallel subgroups before rebuild (destroyed=19, skipped=0)
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: destroyed stale model-parallel subgroups before rebuild (destroyed=19, skipped=0)
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: destroyed stale model-parallel subgroups before rebuild (destroyed=19, skipped=0)
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: destroyed stale model-parallel subgroups before rebuild (destroyed=19, skipped=0)
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: destroyed stale model-parallel subgroups before rebuild (destroyed=19, skipped=0)
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: destroyed stale model-parallel subgroups before rebuild (destroyed=19, skipped=0)
-[launcher-control] node quiesced epoch=1 ranks=8/8 valid=True step=18
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: rebuild signal received. Failed node=0, killed_rank=1, resume_iteration=18, new master=33.181.110.66:20123
-INFO:megatron.training.elastic_client:[elastic] Rank 58: re-initializing process group (master=33.181.110.66:20123)
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: rebuild timeout is 0:30:00
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: rebuild signal received. Failed node=0, killed_rank=1, resume_iteration=18, new master=33.181.110.66:20123
-INFO:megatron.training.elastic_client:[elastic] Rank 56: re-initializing process group (master=33.181.110.66:20123)
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: rebuild timeout is 0:30:00
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: rebuild signal received. Failed node=0, killed_rank=1, resume_iteration=18, new master=33.181.110.66:20123
-INFO:megatron.training.elastic_client:[elastic] Rank 63: re-initializing process group (master=33.181.110.66:20123)
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: rebuild timeout is 0:30:00
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: rebuild signal received. Failed node=0, killed_rank=1, resume_iteration=18, new master=33.181.110.66:20123
-INFO:megatron.training.elastic_client:[elastic] Rank 61: re-initializing process group (master=33.181.110.66:20123)
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: rebuild timeout is 0:30:00
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: rebuild signal received. Failed node=0, killed_rank=1, resume_iteration=18, new master=33.181.110.66:20123
-INFO:megatron.training.elastic_client:[elastic] Rank 62: re-initializing process group (master=33.181.110.66:20123)
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: rebuild timeout is 0:30:00
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: rebuild signal received. Failed node=0, killed_rank=1, resume_iteration=18, new master=33.181.110.66:20123
-INFO:megatron.training.elastic_client:[elastic] Rank 60: re-initializing process group (master=33.181.110.66:20123)
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: rebuild timeout is 0:30:00
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: rebuild signal received. Failed node=0, killed_rank=1, resume_iteration=18, new master=33.181.110.66:20123
-INFO:megatron.training.elastic_client:[elastic] Rank 57: re-initializing process group (master=33.181.110.66:20123)
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: rebuild timeout is 0:30:00
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: rebuild signal received. Failed node=0, killed_rank=1, resume_iteration=18, new master=33.181.110.66:20123
-INFO:megatron.training.elastic_client:[elastic] Rank 59: re-initializing process group (master=33.181.110.66:20123)
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: rebuild timeout is 0:30:00
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: rebuild init_process_group device_id enabled=False device=cuda:3
-INFO:megatron.training.elastic_client:[elastic] Rank 59: re-initializing model parallel
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: waiting for 64 ranks to reach mpu_init_start
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: rebuild init_process_group device_id enabled=False device=cuda:6
-INFO:megatron.training.elastic_client:[elastic] Rank 62: re-initializing model parallel
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: waiting for 64 ranks to reach mpu_init_start
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: rebuild init_process_group device_id enabled=False device=cuda:0
-INFO:megatron.training.elastic_client:[elastic] Rank 56: re-initializing model parallel
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: waiting for 64 ranks to reach mpu_init_start
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: rebuild init_process_group device_id enabled=False device=cuda:5
-INFO:megatron.training.elastic_client:[elastic] Rank 61: re-initializing model parallel
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: waiting for 64 ranks to reach mpu_init_start
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: rebuild init_process_group device_id enabled=False device=cuda:2
-INFO:megatron.training.elastic_client:[elastic] Rank 58: re-initializing model parallel
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: waiting for 64 ranks to reach mpu_init_start
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: rebuild init_process_group device_id enabled=False device=cuda:4
-INFO:megatron.training.elastic_client:[elastic] Rank 60: re-initializing model parallel
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: waiting for 64 ranks to reach mpu_init_start
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: rebuild init_process_group device_id enabled=False device=cuda:1
-INFO:megatron.training.elastic_client:[elastic] Rank 57: re-initializing model parallel
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: waiting for 64 ranks to reach mpu_init_start
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: rebuild init_process_group device_id enabled=False device=cuda:7
-INFO:megatron.training.elastic_client:[elastic] Rank 63: re-initializing model parallel
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: waiting for 64 ranks to reach mpu_init_start
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: rebuilding Megatron subgroups with timeout=10 minutes
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: rebuilding Megatron subgroups with timeout=10 minutes
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: rebuilding Megatron subgroups with timeout=10 minutes
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: rebuilding Megatron subgroups with timeout=10 minutes
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: rebuilding Megatron subgroups with timeout=10 minutes
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: rebuilding Megatron subgroups with timeout=10 minutes
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: rebuilding Megatron subgroups with timeout=10 minutes
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: rebuilding Megatron subgroups with timeout=10 minutes
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=DATA_PARALLEL_GROUP_WITH_CP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=DATA_PARALLEL_GROUP_WITH_CP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=DATA_PARALLEL_GROUP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=DATA_PARALLEL_GROUP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_start desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_done desc=CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_start desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_done desc=TENSOR_MODEL_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=TENSOR_AND_DATA_PARALLEL_GROUP_WITH_CP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=TENSOR_AND_DATA_PARALLEL_GROUP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=TENSOR_AND_DATA_PARALLEL_GROUP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_start desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_done desc=TENSOR_AND_CONTEXT_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=EXPERT_MODEL_PARALLEL_GROUP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=EXPERT_MODEL_PARALLEL_GROUP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_start desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_done desc=EXPERT_TENSOR_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP backend=None group_size=8 ranks=[56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 56: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[56]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 57: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[57]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 58: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[58]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 59: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[59]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 60: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[60]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 61: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[61]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 62: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[62]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_start desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_done desc=EXPERT_DATA_PARALLEL_GROUP backend=None group_size=1 ranks=[63]
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: rebound cached process groups after rebuild (attrs=340, modules=422, ddp_wrappers=1, dispatchers=6, optimizer_attrs=2)
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: rebound cached process groups after rebuild (attrs=340, modules=422, ddp_wrappers=1, dispatchers=6, optimizer_attrs=2)
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: waiting for 64 ranks to reach mpu_ready before param sync
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: rebound cached process groups after rebuild (attrs=340, modules=422, ddp_wrappers=1, dispatchers=6, optimizer_attrs=2)
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: waiting for 64 ranks to reach mpu_ready before param sync
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: waiting for 64 ranks to reach mpu_ready before param sync
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: rebound cached process groups after rebuild (attrs=340, modules=422, ddp_wrappers=1, dispatchers=6, optimizer_attrs=2)
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: waiting for 64 ranks to reach mpu_ready before param sync
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: rebound cached process groups after rebuild (attrs=340, modules=422, ddp_wrappers=1, dispatchers=6, optimizer_attrs=2)
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: waiting for 64 ranks to reach mpu_ready before param sync
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: rebound cached process groups after rebuild (attrs=340, modules=422, ddp_wrappers=1, dispatchers=6, optimizer_attrs=2)
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: rebound cached process groups after rebuild (attrs=340, modules=422, ddp_wrappers=1, dispatchers=6, optimizer_attrs=2)
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: waiting for 64 ranks to reach mpu_ready before param sync
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: waiting for 64 ranks to reach mpu_ready before param sync
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: rebound cached process groups after rebuild (attrs=340, modules=422, ddp_wrappers=1, dispatchers=6, optimizer_attrs=2)
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: waiting for 64 ranks to reach mpu_ready before param sync
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: waiting for replacement rank 1 model_optimizer_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: waiting for replacement rank 1 model_optimizer_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: waiting for replacement rank 1 model_optimizer_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: waiting for replacement rank 1 model_optimizer_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: waiting for replacement rank 1 model_optimizer_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: waiting for replacement rank 1 model_optimizer_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: waiting for replacement rank 1 model_optimizer_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: waiting for replacement rank 1 model_optimizer_ready
-INFO:megatron.training.elastic_client:[elastic] Rank 60: skipping param sync for pp_rank=7; replacement rank 1 is not in DP group [56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: waiting for replacement rank 1 state_contract_ready before global barrier
-INFO:megatron.training.elastic_client:[elastic] Rank 59: skipping param sync for pp_rank=7; replacement rank 1 is not in DP group [56, 57, 58, 59, 60, 61, 62, 63]
-INFO:megatron.training.elastic_client:[elastic] Rank 56: skipping param sync for pp_rank=7; replacement rank 1 is not in DP group [56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: waiting for replacement rank 1 state_contract_ready before global barrier
-INFO:megatron.training.elastic_client:[elastic] Rank 62: skipping param sync for pp_rank=7; replacement rank 1 is not in DP group [56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: waiting for replacement rank 1 state_contract_ready before global barrier
-INFO:megatron.training.elastic_client:[elastic] Rank 58: skipping param sync for pp_rank=7; replacement rank 1 is not in DP group [56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: waiting for replacement rank 1 state_contract_ready before global barrier
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: waiting for replacement rank 1 state_contract_ready before global barrier
-INFO:megatron.training.elastic_client:[elastic] Rank 61: skipping param sync for pp_rank=7; replacement rank 1 is not in DP group [56, 57, 58, 59, 60, 61, 62, 63]
-INFO:megatron.training.elastic_client:[elastic] Rank 63: skipping param sync for pp_rank=7; replacement rank 1 is not in DP group [56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: waiting for replacement rank 1 state_contract_ready before global barrier
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: waiting for replacement rank 1 state_contract_ready before global barrier
-INFO:megatron.training.elastic_client:[elastic] Rank 57: skipping param sync for pp_rank=7; replacement rank 1 is not in DP group [56, 57, 58, 59, 60, 61, 62, 63]
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: waiting for replacement rank 1 state_contract_ready before global barrier
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
-INFO:megatron.training.elastic_client:[elastic] Rank 58: skipped 1 rebuild warmup groups: [('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-INFO:megatron.training.elastic_client:[elastic] Rank 62: skipped 1 rebuild warmup groups: [('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
-INFO:megatron.training.elastic_client:[elastic] Rank 59: skipped 1 rebuild warmup groups: [('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
-INFO:megatron.training.elastic_client:[elastic] Rank 63: skipped 1 rebuild warmup groups: [('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
-INFO:megatron.training.elastic_client:[elastic] Rank 57: skipped 4 rebuild warmup groups: [('model', 'not-selected', [1, 9, 17, 25, 33, 41, 49, 57]), ('pipeline', 'not-selected', [1, 9, 17, 25, 33, 41, 49, 57]), ('embedding', 'not-selected', [1, 57]), ('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-INFO:megatron.training.elastic_client:[elastic] Rank 60: skipped 1 rebuild warmup groups: [('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
-INFO:megatron.training.elastic_client:[elastic] Rank 61: skipped 1 rebuild warmup groups: [('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: warming 0 replacement-facing rebuild communicators before train_ready (replacement=1)
-INFO:megatron.training.elastic_client:[elastic] Rank 56: skipped 1 rebuild warmup groups: [('expert_tensor_model_pipeline', 'not-selected', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63])]
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: rebuild communicator warmup complete
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: waiting for 64 ranks to reach train_ready via watcher
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: rebuild communicator warmup complete
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: waiting for 64 ranks to reach train_ready via watcher
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: rebuild communicator warmup complete
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: rebuild communicator warmup complete
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: rebuild communicator warmup complete
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: waiting for 64 ranks to reach train_ready via watcher
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: waiting for 64 ranks to reach train_ready via watcher
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: rebuild communicator warmup complete
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: rebuild communicator warmup complete
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: waiting for 64 ranks to reach train_ready via watcher
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: waiting for 64 ranks to reach train_ready via watcher
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: waiting for 64 ranks to reach train_ready via watcher
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: rebuild communicator warmup complete
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: skipping rebuild-final NCCL barrier (phase-gated by watcher param_sync_done)
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: waiting for 64 ranks to reach train_ready via watcher
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: all ranks reached train_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: rebuild complete, resuming training
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=2)
-WARNING:megatron.training.training:[elastic] Rebuild complete, resuming at iteration 18
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: all ranks reached train_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: rebuild complete, resuming training
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=4)
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: all ranks reached train_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: all ranks reached train_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: rebuild complete, resuming training
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: rebuild complete, resuming training
-WARNING:megatron.training.training:[elastic] Rebuild complete, resuming at iteration 18
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: all ranks reached train_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: rebuild complete, resuming training
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=7)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=1)
-WARNING:megatron.training.training:[elastic] Rebuild complete, resuming at iteration 18
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=3)
-WARNING:megatron.training.training:[elastic] Rebuild complete, resuming at iteration 18
-WARNING:megatron.training.training:[elastic] Rebuild complete, resuming at iteration 18
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: all ranks reached train_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: rebuild complete, resuming training
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: all ranks reached train_ready
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: rebuild complete, resuming training
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=0)
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=5)
-WARNING:megatron.training.training:[elastic] Rebuild complete, resuming at iteration 18
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: all ranks reached train_ready
-WARNING:megatron.training.training:[elastic] Rebuild complete, resuming at iteration 18
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: rebuild complete, resuming training
-INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=6)
-WARNING:megatron.training.training:[elastic] Rebuild complete, resuming at iteration 18
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: all ranks aligned before first post-rebuild train step (iteration=18 token=iter18:replacement1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 61: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: all ranks aligned before first post-rebuild train step (iteration=18 token=iter18:replacement1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: all ranks aligned before first post-rebuild train step (iteration=18 token=iter18:replacement1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: all ranks aligned before first post-rebuild train step (iteration=18 token=iter18:replacement1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 56: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
-WARNING:megatron.training.elastic_client:[elastic] Rank 62: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
-WARNING:megatron.training.elastic_client:[elastic] Rank 60: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: all ranks aligned before first post-rebuild train step (iteration=18 token=iter18:replacement1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 63: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: all ranks aligned before first post-rebuild train step (iteration=18 token=iter18:replacement1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 59: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: all ranks aligned before first post-rebuild train step (iteration=18 token=iter18:replacement1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 58: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: all ranks aligned before first post-rebuild train step (iteration=18 token=iter18:replacement1)
-WARNING:megatron.training.elastic_client:[elastic] Rank 57: skipping post-rebuild communicator warmup; using Megatron's lazy first-step communicator order
+[rank57]: Traceback (most recent call last):
+[rank57]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[rank57]:     pretrain(
+[rank57]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 727, in pretrain
+[rank57]:     initialize_megatron(
+[rank57]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 228, in initialize_megatron
+[rank57]:     _compile_dependencies()
+[rank57]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 293, in _compile_dependencies
+[rank57]:     torch.distributed.barrier()
+[rank57]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank57]:     return func(*args, **kwargs)
+[rank57]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 4551, in barrier
+[rank57]:     work = group.barrier(opts=opts)
+[rank57]: torch.distributed.DistBackendError: [57] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[rank57]: Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[rank57]: frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f367df7d788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[rank57]: frame #1: <unknown function> + 0x59a2a3e (0x7f366f7a2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #2: <unknown function> + 0x59a3bc0 (0x7f366f7a3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7f366f7a03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f366f7a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f366f7a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f366f74fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f366f74fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f366f74fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #9: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f36360f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank57]: frame #10: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f36361029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank57]: frame #11: <unknown function> + 0x11082d3 (0x7f36361082d3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank57]: frame #12: c10d::ProcessGroupNCCL::allreduce_impl(at::Tensor&, char const*, c10d::AllreduceOptions const&) + 0xf2 (0x7f3636108ac2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank57]: frame #13: c10d::ProcessGroupNCCL::barrier(c10d::BarrierOptions const&) + 0x69b (0x7f363611876b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank57]: frame #14: <unknown function> + 0x593da6f (0x7f366f73da6f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #15: <unknown function> + 0x594d0ee (0x7f366f74d0ee in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #16: <unknown function> + 0x50166e0 (0x7f366ee166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #17: <unknown function> + 0x595b9f2 (0x7f366f75b9f2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #18: <unknown function> + 0x595c7ad (0x7f366f75c7ad in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank57]: frame #19: <unknown function> + 0xd29443 (0x7f367ed29443 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank57]: frame #20: <unknown function> + 0x42d55e (0x7f367e42d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank57]: frame #21: python3() [0x4fdcf7]
+[rank57]: <omitting python frames>
+[rank57]: frame #23: python3() [0x509d6f]
+[rank57]: frame #35: python3() [0x5953a2]
+[rank57]: frame #37: python3() [0x5c6737]
+[rank57]: frame #38: python3() [0x5c1870]
+[rank57]: frame #39: python3() [0x459839]
+[rank57]: frame #44: __libc_start_main + 0xf2 (0x7f368805c1b2 in /usr/lib64/libc.so.6)
+[rank57]: frame #45: python3() [0x58848e]
+[rank57]: . This may indicate a possible application crash on rank 0 or a network set up issue.
+[rank58]: Traceback (most recent call last):
+[rank58]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[rank58]:     pretrain(
+[rank58]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 727, in pretrain
+[rank58]:     initialize_megatron(
+[rank58]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 228, in initialize_megatron
+[rank58]:     _compile_dependencies()
+[rank58]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 293, in _compile_dependencies
+[rank58]:     torch.distributed.barrier()
+[rank58]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank58]:     return func(*args, **kwargs)
+[rank58]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 4551, in barrier
+[rank58]:     work = group.barrier(opts=opts)
+[rank58]: torch.distributed.DistBackendError: [58] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[rank58]: Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[rank58]: frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f2c2caf2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[rank58]: frame #1: <unknown function> + 0x59a2a3e (0x7f2c1cda2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #2: <unknown function> + 0x59a3bc0 (0x7f2c1cda3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7f2c1cda03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f2c1cda0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f2c1cda189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2c1cd4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2c1cd4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f2c1cd4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #9: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f2be36f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank58]: frame #10: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f2be37029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank58]: frame #11: <unknown function> + 0x11082d3 (0x7f2be37082d3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank58]: frame #12: c10d::ProcessGroupNCCL::allreduce_impl(at::Tensor&, char const*, c10d::AllreduceOptions const&) + 0xf2 (0x7f2be3708ac2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank58]: frame #13: c10d::ProcessGroupNCCL::barrier(c10d::BarrierOptions const&) + 0x69b (0x7f2be371876b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank58]: frame #14: <unknown function> + 0x593da6f (0x7f2c1cd3da6f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #15: <unknown function> + 0x594d0ee (0x7f2c1cd4d0ee in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #16: <unknown function> + 0x50166e0 (0x7f2c1c4166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #17: <unknown function> + 0x595b9f2 (0x7f2c1cd5b9f2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #18: <unknown function> + 0x595c7ad (0x7f2c1cd5c7ad in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank58]: frame #19: <unknown function> + 0xd29443 (0x7f2c2c329443 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank58]: frame #20: <unknown function> + 0x42d55e (0x7f2c2ba2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank58]: frame #21: python3() [0x4fdcf7]
+[rank58]: <omitting python frames>
+[rank58]: frame #23: python3() [0x509d6f]
+[rank58]: frame #35: python3() [0x5953a2]
+[rank58]: frame #37: python3() [0x5c6737]
+[rank58]: frame #38: python3() [0x5c1870]
+[rank58]: frame #39: python3() [0x459839]
+[rank58]: frame #44: __libc_start_main + 0xf2 (0x7f2c357161b2 in /usr/lib64/libc.so.6)
+[rank58]: frame #45: python3() [0x58848e]
+[rank58]: . This may indicate a possible application crash on rank 0 or a network set up issue.
+[rank59]: Traceback (most recent call last):
+[rank59]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[rank59]:     pretrain(
+[rank59]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 727, in pretrain
+[rank59]:     initialize_megatron(
+[rank59]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 228, in initialize_megatron
+[rank59]:     _compile_dependencies()
+[rank59]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 293, in _compile_dependencies
+[rank59]:     torch.distributed.barrier()
+[rank59]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank59]:     return func(*args, **kwargs)
+[rank59]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 4551, in barrier
+[rank59]:     work = group.barrier(opts=opts)
+[rank59]: torch.distributed.DistBackendError: [59] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[rank59]: Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[rank59]: frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f602acf2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[rank59]: frame #1: <unknown function> + 0x59a2a3e (0x7f601afa2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #2: <unknown function> + 0x59a3bc0 (0x7f601afa3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7f601afa03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f601afa0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f601afa189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f601af4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f601af4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f601af4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #9: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f5fe18f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank59]: frame #10: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f5fe19029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank59]: frame #11: <unknown function> + 0x11082d3 (0x7f5fe19082d3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank59]: frame #12: c10d::ProcessGroupNCCL::allreduce_impl(at::Tensor&, char const*, c10d::AllreduceOptions const&) + 0xf2 (0x7f5fe1908ac2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank59]: frame #13: c10d::ProcessGroupNCCL::barrier(c10d::BarrierOptions const&) + 0x69b (0x7f5fe191876b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank59]: frame #14: <unknown function> + 0x593da6f (0x7f601af3da6f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #15: <unknown function> + 0x594d0ee (0x7f601af4d0ee in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #16: <unknown function> + 0x50166e0 (0x7f601a6166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #17: <unknown function> + 0x595b9f2 (0x7f601af5b9f2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #18: <unknown function> + 0x595c7ad (0x7f601af5c7ad in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank59]: frame #19: <unknown function> + 0xd29443 (0x7f602a529443 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank59]: frame #20: <unknown function> + 0x42d55e (0x7f6029c2d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank59]: frame #21: python3() [0x4fdcf7]
+[rank59]: <omitting python frames>
+[rank59]: frame #23: python3() [0x509d6f]
+[rank59]: frame #35: python3() [0x5953a2]
+[rank59]: frame #37: python3() [0x5c6737]
+[rank59]: frame #38: python3() [0x5c1870]
+[rank59]: frame #39: python3() [0x459839]
+[rank59]: frame #44: __libc_start_main + 0xf2 (0x7f60339161b2 in /usr/lib64/libc.so.6)
+[rank59]: frame #45: python3() [0x58848e]
+[rank59]: . This may indicate a possible application crash on rank 0 or a network set up issue.
+[rank61]: Traceback (most recent call last):
+[rank61]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[rank61]:     pretrain(
+[rank61]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 727, in pretrain
+[rank61]:     initialize_megatron(
+[rank61]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 228, in initialize_megatron
+[rank61]:     _compile_dependencies()
+[rank61]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 293, in _compile_dependencies
+[rank61]:     torch.distributed.barrier()
+[rank61]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank61]:     return func(*args, **kwargs)
+[rank61]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 4551, in barrier
+[rank61]:     work = group.barrier(opts=opts)
+[rank61]: torch.distributed.DistBackendError: [61] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[rank61]: Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[rank61]: frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f18e1f7d788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[rank61]: frame #1: <unknown function> + 0x59a2a3e (0x7f18d37a2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #2: <unknown function> + 0x59a3bc0 (0x7f18d37a3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7f18d37a03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f18d37a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f18d37a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f18d374fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f18d374fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f18d374fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #9: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f189a0f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank61]: frame #10: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f189a1029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank61]: frame #11: <unknown function> + 0x11082d3 (0x7f189a1082d3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank61]: frame #12: c10d::ProcessGroupNCCL::allreduce_impl(at::Tensor&, char const*, c10d::AllreduceOptions const&) + 0xf2 (0x7f189a108ac2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank61]: frame #13: c10d::ProcessGroupNCCL::barrier(c10d::BarrierOptions const&) + 0x69b (0x7f189a11876b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank61]: frame #14: <unknown function> + 0x593da6f (0x7f18d373da6f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #15: <unknown function> + 0x594d0ee (0x7f18d374d0ee in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #16: <unknown function> + 0x50166e0 (0x7f18d2e166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #17: <unknown function> + 0x595b9f2 (0x7f18d375b9f2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #18: <unknown function> + 0x595c7ad (0x7f18d375c7ad in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank61]: frame #19: <unknown function> + 0xd29443 (0x7f18e2d29443 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank61]: frame #20: <unknown function> + 0x42d55e (0x7f18e242d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank61]: frame #21: python3() [0x4fdcf7]
+[rank61]: <omitting python frames>
+[rank61]: frame #23: python3() [0x509d6f]
+[rank61]: frame #35: python3() [0x5953a2]
+[rank61]: frame #37: python3() [0x5c6737]
+[rank61]: frame #38: python3() [0x5c1870]
+[rank61]: frame #39: python3() [0x459839]
+[rank61]: frame #44: __libc_start_main + 0xf2 (0x7f18ec05c1b2 in /usr/lib64/libc.so.6)
+[rank61]: frame #45: python3() [0x58848e]
+[rank61]: . This may indicate a possible application crash on rank 0 or a network set up issue.
+[rank60]: Traceback (most recent call last):
+[rank60]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[rank60]:     pretrain(
+[rank60]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 727, in pretrain
+[rank60]:     initialize_megatron(
+[rank60]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 228, in initialize_megatron
+[rank60]:     _compile_dependencies()
+[rank60]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 293, in _compile_dependencies
+[rank60]:     torch.distributed.barrier()
+[rank60]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank60]:     return func(*args, **kwargs)
+[rank60]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 4551, in barrier
+[rank60]:     work = group.barrier(opts=opts)
+[rank60]: torch.distributed.DistBackendError: [60] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[rank60]: Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[rank60]: frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f08892f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[rank60]: frame #1: <unknown function> + 0x59a2a3e (0x7f08795a2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #2: <unknown function> + 0x59a3bc0 (0x7f08795a3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7f08795a03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f08795a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f08795a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f087954fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f087954fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f087954fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #9: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f083fef517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank60]: frame #10: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f083ff029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank60]: frame #11: <unknown function> + 0x11082d3 (0x7f083ff082d3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank60]: frame #12: c10d::ProcessGroupNCCL::allreduce_impl(at::Tensor&, char const*, c10d::AllreduceOptions const&) + 0xf2 (0x7f083ff08ac2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank60]: frame #13: c10d::ProcessGroupNCCL::barrier(c10d::BarrierOptions const&) + 0x69b (0x7f083ff1876b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank60]: frame #14: <unknown function> + 0x593da6f (0x7f087953da6f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #15: <unknown function> + 0x594d0ee (0x7f087954d0ee in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #16: <unknown function> + 0x50166e0 (0x7f0878c166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #17: <unknown function> + 0x595b9f2 (0x7f087955b9f2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #18: <unknown function> + 0x595c7ad (0x7f087955c7ad in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank60]: frame #19: <unknown function> + 0xd29443 (0x7f0888b29443 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank60]: frame #20: <unknown function> + 0x42d55e (0x7f088822d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank60]: frame #21: python3() [0x4fdcf7]
+[rank60]: <omitting python frames>
+[rank60]: frame #23: python3() [0x509d6f]
+[rank60]: frame #35: python3() [0x5953a2]
+[rank60]: frame #37: python3() [0x5c6737]
+[rank60]: frame #38: python3() [0x5c1870]
+[rank60]: frame #39: python3() [0x459839]
+[rank60]: frame #44: __libc_start_main + 0xf2 (0x7f0891f161b2 in /usr/lib64/libc.so.6)
+[rank60]: frame #45: python3() [0x58848e]
+[rank60]: . This may indicate a possible application crash on rank 0 or a network set up issue.
+[rank62]: Traceback (most recent call last):
+[rank62]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[rank62]:     pretrain(
+[rank62]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 727, in pretrain
+[rank62]:     initialize_megatron(
+[rank62]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 228, in initialize_megatron
+[rank62]:     _compile_dependencies()
+[rank62]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 293, in _compile_dependencies
+[rank62]:     torch.distributed.barrier()
+[rank62]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank62]:     return func(*args, **kwargs)
+[rank62]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 4551, in barrier
+[rank62]:     work = group.barrier(opts=opts)
+[rank62]: torch.distributed.DistBackendError: [62] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[rank62]: Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[rank62]: frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7eff7d6f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[rank62]: frame #1: <unknown function> + 0x59a2a3e (0x7eff6d9a2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #2: <unknown function> + 0x59a3bc0 (0x7eff6d9a3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7eff6d9a03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7eff6d9a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7eff6d9a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7eff6d94fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7eff6d94fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7eff6d94fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #9: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7eff342f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank62]: frame #10: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7eff343029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank62]: frame #11: <unknown function> + 0x11082d3 (0x7eff343082d3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank62]: frame #12: c10d::ProcessGroupNCCL::allreduce_impl(at::Tensor&, char const*, c10d::AllreduceOptions const&) + 0xf2 (0x7eff34308ac2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank62]: frame #13: c10d::ProcessGroupNCCL::barrier(c10d::BarrierOptions const&) + 0x69b (0x7eff3431876b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank62]: frame #14: <unknown function> + 0x593da6f (0x7eff6d93da6f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #15: <unknown function> + 0x594d0ee (0x7eff6d94d0ee in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #16: <unknown function> + 0x50166e0 (0x7eff6d0166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #17: <unknown function> + 0x595b9f2 (0x7eff6d95b9f2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #18: <unknown function> + 0x595c7ad (0x7eff6d95c7ad in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank62]: frame #19: <unknown function> + 0xd29443 (0x7eff7cf29443 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank62]: frame #20: <unknown function> + 0x42d55e (0x7eff7c62d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank62]: frame #21: python3() [0x4fdcf7]
+[rank62]: <omitting python frames>
+[rank62]: frame #23: python3() [0x509d6f]
+[rank62]: frame #35: python3() [0x5953a2]
+[rank62]: frame #37: python3() [0x5c6737]
+[rank62]: frame #38: python3() [0x5c1870]
+[rank62]: frame #39: python3() [0x459839]
+[rank62]: frame #44: __libc_start_main + 0xf2 (0x7eff862e21b2 in /usr/lib64/libc.so.6)
+[rank62]: frame #45: python3() [0x58848e]
+[rank62]: . This may indicate a possible application crash on rank 0 or a network set up issue.
+[rank56]: Traceback (most recent call last):
+[rank56]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[rank56]:     pretrain(
+[rank56]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 727, in pretrain
+[rank56]:     initialize_megatron(
+[rank56]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 228, in initialize_megatron
+[rank56]:     _compile_dependencies()
+[rank56]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 293, in _compile_dependencies
+[rank56]:     torch.distributed.barrier()
+[rank56]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank56]:     return func(*args, **kwargs)
+[rank56]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 4551, in barrier
+[rank56]:     work = group.barrier(opts=opts)
+[rank56]: torch.distributed.DistBackendError: [56] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[rank56]: Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[rank56]: frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f3a198f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[rank56]: frame #1: <unknown function> + 0x59a2a3e (0x7f3a09ba2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #2: <unknown function> + 0x59a3bc0 (0x7f3a09ba3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7f3a09ba03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f3a09ba0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f3a09ba189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f3a09b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f3a09b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f3a09b4fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #9: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f39d04f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank56]: frame #10: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f39d05029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank56]: frame #11: <unknown function> + 0x11082d3 (0x7f39d05082d3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank56]: frame #12: c10d::ProcessGroupNCCL::allreduce_impl(at::Tensor&, char const*, c10d::AllreduceOptions const&) + 0xf2 (0x7f39d0508ac2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank56]: frame #13: c10d::ProcessGroupNCCL::barrier(c10d::BarrierOptions const&) + 0x69b (0x7f39d051876b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank56]: frame #14: <unknown function> + 0x593da6f (0x7f3a09b3da6f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #15: <unknown function> + 0x594d0ee (0x7f3a09b4d0ee in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #16: <unknown function> + 0x50166e0 (0x7f3a092166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #17: <unknown function> + 0x595b9f2 (0x7f3a09b5b9f2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #18: <unknown function> + 0x595c7ad (0x7f3a09b5c7ad in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank56]: frame #19: <unknown function> + 0xd29443 (0x7f3a19129443 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank56]: frame #20: <unknown function> + 0x42d55e (0x7f3a1882d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank56]: frame #21: python3() [0x4fdcf7]
+[rank56]: <omitting python frames>
+[rank56]: frame #23: python3() [0x509d6f]
+[rank56]: frame #35: python3() [0x5953a2]
+[rank56]: frame #37: python3() [0x5c6737]
+[rank56]: frame #38: python3() [0x5c1870]
+[rank56]: frame #39: python3() [0x459839]
+[rank56]: frame #44: __libc_start_main + 0xf2 (0x7f3a225161b2 in /usr/lib64/libc.so.6)
+[rank56]: frame #45: python3() [0x58848e]
+[rank56]: . This may indicate a possible application crash on rank 0 or a network set up issue.
+[rank63]: Traceback (most recent call last):
+[rank63]:   File "/root/workdir/antllm/bsr2/./Megatron-LM/pretrain_gpt.py", line 233, in <module>
+[rank63]:     pretrain(
+[rank63]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/training.py", line 727, in pretrain
+[rank63]:     initialize_megatron(
+[rank63]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 228, in initialize_megatron
+[rank63]:     _compile_dependencies()
+[rank63]:   File "/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/initialize.py", line 293, in _compile_dependencies
+[rank63]:     torch.distributed.barrier()
+[rank63]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank63]:     return func(*args, **kwargs)
+[rank63]:   File "/opt/conda/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py", line 4551, in barrier
+[rank63]:     work = group.barrier(opts=opts)
+[rank63]: torch.distributed.DistBackendError: [63] is setting up NCCL communicator and retrieving ncclUniqueId from [0] via c10d key-value store by key '0', but store->get('0') got error: failed to recv, got 0 bytes
+[rank63]: Exception raised from recvBytes at /pytorch/torch/csrc/distributed/c10d/Utils.hpp:671 (most recent call first):
+[rank63]: frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x98 (0x7f5e416f2788 in /opt/conda/lib/python3.10/site-packages/torch/lib/libc10.so)
+[rank63]: frame #1: <unknown function> + 0x59a2a3e (0x7f5e319a2a3e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #2: <unknown function> + 0x59a3bc0 (0x7f5e319a3bc0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #3: c10d::TCPStore::doWait(c10::ArrayRef<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::chrono::duration<long, std::ratio<1l, 1000l> >) + 0x2a3 (0x7f5e319a03e3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #4: c10d::TCPStore::doGet(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x33 (0x7f5e319a0723 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #5: c10d::TCPStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0xab (0x7f5e319a189b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #6: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f5e3194fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #7: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f5e3194fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #8: c10d::PrefixStore::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) + 0x2f (0x7f5e3194fd3f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #9: c10d::ProcessGroupNCCL::broadcastUniqueNCCLID(ncclUniqueId*, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int) + 0x16d (0x7f5df82f517d in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank63]: frame #10: c10d::ProcessGroupNCCL::initNCCLComm(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, c10::Device&, c10d::OpType, int, bool) + 0x3b7 (0x7f5df83029b7 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank63]: frame #11: <unknown function> + 0x11082d3 (0x7f5df83082d3 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank63]: frame #12: c10d::ProcessGroupNCCL::allreduce_impl(at::Tensor&, char const*, c10d::AllreduceOptions const&) + 0xf2 (0x7f5df8308ac2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank63]: frame #13: c10d::ProcessGroupNCCL::barrier(c10d::BarrierOptions const&) + 0x69b (0x7f5df831876b in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cuda.so)
+[rank63]: frame #14: <unknown function> + 0x593da6f (0x7f5e3193da6f in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #15: <unknown function> + 0x594d0ee (0x7f5e3194d0ee in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #16: <unknown function> + 0x50166e0 (0x7f5e310166e0 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #17: <unknown function> + 0x595b9f2 (0x7f5e3195b9f2 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #18: <unknown function> + 0x595c7ad (0x7f5e3195c7ad in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so)
+[rank63]: frame #19: <unknown function> + 0xd29443 (0x7f5e40f29443 in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank63]: frame #20: <unknown function> + 0x42d55e (0x7f5e4062d55e in /opt/conda/lib/python3.10/site-packages/torch/lib/libtorch_python.so)
+[rank63]: frame #21: python3() [0x4fdcf7]
+[rank63]: <omitting python frames>
+[rank63]: frame #23: python3() [0x509d6f]
+[rank63]: frame #35: python3() [0x5953a2]
+[rank63]: frame #37: python3() [0x5c6737]
+[rank63]: frame #38: python3() [0x5c1870]
+[rank63]: frame #39: python3() [0x459839]
+[rank63]: frame #44: __libc_start_main + 0xf2 (0x7f5e4a3161b2 in /usr/lib64/libc.so.6)
+[rank63]: frame #45: python3() [0x58848e]
+[rank63]: . This may indicate a possible application crash on rank 0 or a network set up issue.
+[rank56]:[W720 16:11:24.734961193 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[rank59]:[W720 16:11:24.833717570 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[rank58]:[W720 16:11:24.834672361 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[rank57]:[W720 16:11:24.854830649 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[rank61]:[W720 16:11:24.864900557 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[rank62]:[W720 16:11:24.864936215 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[rank63]:[W720 16:11:24.864977594 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[rank60]:[W720 16:11:24.864992652 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[launcher] Fallback relaunch requested (exit_code=75, request={'type': 'fallback_relaunch', 'action': 'checkpoint_relaunch', 'reason': 'software_failure_requires_external_fallback', 'details': {'failed_node': 0, 'killed_local_rank': 4, 'failure_scope': 'software'}, 'timestamp': 1784535085.1710293, 'recovery_epoch': 2, 'failed_node': 0, 'killed_local_rank': 4, 'killed_global_rank': 4, 'resume_iteration': -1, 'checkpoint_dir': '/mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt', 'exit_code': 75, 'descriptor': '/tmp/elastic_faults/recovery_descriptor.json', 'ready_steps': {}, 'ready_step_tags': {}, 'ready_phases': {}, 'last_steps': {'4': -1, '1': -1, '6': -1, '3': -1, '0': -1, '7': -1, '2': -1, '5': -1}, 'last_step_tags': {'4': -1, '1': -1, '6': -1, '3': -1, '0': -1, '7': -1, '2': -1, '5': -1}, 'last_phases': {'4': 'startup', '1': 'startup', '6': 'startup', '3': 'startup', '0': 'startup', '7': 'startup', '2': 'startup', '5': 'startup'}, 'recovery_phases': {}, 'path': '/tmp/elastic_faults/fallback_relaunch_signal.json'}); terminating workers
++ rc=75
++ '[' 75 -eq 0 ']'
++ retry=1
++ echo '[test-replace] training launcher exited rc=75; retry=1/2'
+[test-replace] training launcher exited rc=75; retry=1/2
++ '[' 75 -ne 75 ']'
++ '[' 1 -gt 2 ']'
++ '[' '!' -f /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt/latest_checkpointed_iteration.txt ']'
++ echo '[test-replace] relaunching from checkpoint after 30s...'
+[test-replace] relaunching from checkpoint after 30s...
++ sleep 30
++ true
++ run_training
++ wait_for_watcher
++ python3 - 33.212.70.87 20200 600 2
+[test-replace] waiting for watcher at 33.212.70.87:20200
+[test-replace] watcher is ready at 33.212.70.87:20200
++ cleanup_elastic_attempt_files
++ rm -f /tmp/elastic_faults/pause_signal /tmp/elastic_faults/rebuild_signal.json /tmp/elastic_faults/fallback_relaunch_signal.json
++ rm -f /tmp/elastic_faults/worker_pid_0 /tmp/elastic_faults/worker_pid_1 /tmp/elastic_faults/worker_pid_2 /tmp/elastic_faults/worker_pid_3 /tmp/elastic_faults/worker_pid_4 /tmp/elastic_faults/worker_pid_5 /tmp/elastic_faults/worker_pid_6 /tmp/elastic_faults/worker_pid_7
++ LOAD_ARGS=()
++ '[' -f /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt/latest_checkpointed_iteration.txt ']'
++ LOAD_ARGS=(--load "${CKPT_DIR}")
++ echo '[test-replace] Restart/relaunch attempt will load checkpoint from /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt'
+[test-replace] Restart/relaunch attempt will load checkpoint from /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
++ python3 /root/workdir/antllm/bsr2/elastic_launcher.py --nproc-per-node 8 --nnodes 8 --node-rank 7 --master-addr 33.181.110.66 --master-port 20123 -- python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
+[launcher] Starting 8 workers on node 7/8 (world_size=64)
+[launcher] Master: 33.181.110.66:20123
+[launcher] PID=15980, PGID=15980
+[launcher] Command: python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
+[launcher-control] started node=7 watcher=33.212.70.87:20200 socket=/tmp/elastic_faults/launcher_control_7.sock
+[launcher] Started worker local_rank=0 global_rank=56 pid=15983
+[launcher] Started worker local_rank=1 global_rank=57 pid=15984
+[launcher] Started worker local_rank=2 global_rank=58 pid=15985
+[launcher] Started worker local_rank=3 global_rank=59 pid=15986
+[launcher] Started worker local_rank=4 global_rank=60 pid=15987
+[launcher-control] connected to watcher 33.212.70.87:20200
+[launcher] Started worker local_rank=5 global_rank=61 pid=15988
+[launcher] Started worker local_rank=6 global_rank=62 pid=15989
+[launcher] Started worker local_rank=7 global_rank=63 pid=15990
+[launcher] Fallback relaunch requested (exit_code=75, request={'type': 'fallback_relaunch', 'action': 'checkpoint_relaunch', 'reason': 'node_failure_requires_full_relaunch', 'details': {'failed_node': 4, 'killed_local_rank': -1, 'failure_scope': 'node'}, 'timestamp': 1784535115.9531674, 'recovery_epoch': 19, 'failed_node': 4, 'killed_local_rank': -1, 'killed_global_rank': -1, 'resume_iteration': -1, 'checkpoint_dir': '/mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt', 'exit_code': 75, 'descriptor': '/tmp/elastic_faults/recovery_descriptor.json', 'ready_steps': {}, 'ready_step_tags': {}, 'ready_phases': {}, 'last_steps': {'4': -1, '1': -1, '6': -1, '3': -1, '0': -1, '7': -1, '2': -1, '5': -1}, 'last_step_tags': {'4': -1, '1': -1, '6': -1, '3': -1, '0': -1, '7': -1, '2': -1, '5': -1}, 'last_phases': {'4': 'startup', '1': 'startup', '6': 'startup', '3': 'startup', '0': 'startup', '7': 'startup', '2': 'startup', '5': 'startup'}, 'recovery_phases': {}, 'path': '/tmp/elastic_faults/fallback_relaunch_signal.json'}); terminating workers
++ rc=75
++ '[' 75 -eq 0 ']'
++ retry=2
++ echo '[test-replace] training launcher exited rc=75; retry=2/2'
+[test-replace] training launcher exited rc=75; retry=2/2
++ '[' 75 -ne 75 ']'
++ '[' 2 -gt 2 ']'
++ '[' '!' -f /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt/latest_checkpointed_iteration.txt ']'
++ echo '[test-replace] relaunching from checkpoint after 30s...'
+[test-replace] relaunching from checkpoint after 30s...
++ sleep 30
++ true
++ run_training
++ wait_for_watcher
++ python3 - 33.212.70.87 20200 600 2
+[test-replace] waiting for watcher at 33.212.70.87:20200
+[test-replace] watcher is ready at 33.212.70.87:20200
++ cleanup_elastic_attempt_files
++ rm -f /tmp/elastic_faults/pause_signal /tmp/elastic_faults/rebuild_signal.json /tmp/elastic_faults/fallback_relaunch_signal.json
++ rm -f /tmp/elastic_faults/worker_pid_0 /tmp/elastic_faults/worker_pid_1 /tmp/elastic_faults/worker_pid_2 /tmp/elastic_faults/worker_pid_3 /tmp/elastic_faults/worker_pid_4 /tmp/elastic_faults/worker_pid_5 /tmp/elastic_faults/worker_pid_6 /tmp/elastic_faults/worker_pid_7
++ LOAD_ARGS=()
++ '[' -f /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt/latest_checkpointed_iteration.txt ']'
++ LOAD_ARGS=(--load "${CKPT_DIR}")
++ echo '[test-replace] Restart/relaunch attempt will load checkpoint from /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt'
+[test-replace] Restart/relaunch attempt will load checkpoint from /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
++ python3 /root/workdir/antllm/bsr2/elastic_launcher.py --nproc-per-node 8 --nnodes 8 --node-rank 7 --master-addr 33.181.110.66 --master-port 20123 -- python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
+[launcher] Starting 8 workers on node 7/8 (world_size=64)
+[launcher] Master: 33.181.110.66:20123
+[launcher] PID=16505, PGID=16505
+[launcher] Command: python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
+[launcher-control] started node=7 watcher=33.212.70.87:20200 socket=/tmp/elastic_faults/launcher_control_7.sock
+[launcher] Started worker local_rank=0 global_rank=56 pid=16508
+[launcher] Started worker local_rank=1 global_rank=57 pid=16509
+[launcher] Started worker local_rank=2 global_rank=58 pid=16510
+[launcher] Started worker local_rank=3 global_rank=59 pid=16511
+[launcher] Started worker local_rank=4 global_rank=60 pid=16512
+[launcher] Started worker local_rank=5 global_rank=61 pid=16513
+[launcher-control] connected to watcher 33.212.70.87:20200
+[launcher] Started worker local_rank=6 global_rank=62 pid=16514
+[launcher] Started worker local_rank=7 global_rank=63 pid=16515
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[rank57]:[W720 16:12:41.541488565 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 57]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank58]:[W720 16:12:41.545668793 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 58]  using GPU 2 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank61]:[W720 16:12:41.547881933 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 61]  using GPU 5 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank62]:[W720 16:12:41.547946535 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 62]  using GPU 6 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank63]:[W720 16:12:41.547963609 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 63]  using GPU 7 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank60]:[W720 16:12:41.548949234 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 60]  using GPU 4 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank59]:[W720 16:12:41.551424196 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 59]  using GPU 3 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank56]:[W720 16:12:42.709400984 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 56]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.

@@ -34,6 +34,7 @@ Environment variables set for each worker:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -94,6 +95,7 @@ class LauncherControlAgent:
         status_socket_path,
         kill_worker,
         worker_health,
+        startup_manifest,
         heartbeat_interval=1.0,
     ):
         self.watcher_addr = watcher_addr
@@ -104,6 +106,7 @@ class LauncherControlAgent:
         self.status_socket_path = status_socket_path
         self.kill_worker = kill_worker
         self.worker_health = worker_health
+        self.startup_manifest = dict(startup_manifest)
         self.heartbeat_interval = float(heartbeat_interval)
         self.running = False
         self.rank_states = {}
@@ -113,6 +116,8 @@ class LauncherControlAgent:
         self.ready_epoch_sent = None
         self.target_killed_epoch = None
         self.reported_worker_failures = set()
+        self.startup_release_event = threading.Event()
+        self.startup_error = None
         self.lock = threading.Lock()
         self.send_lock = threading.Lock()
         self.watcher_sock = None
@@ -154,6 +159,25 @@ class LauncherControlAgent:
             os.unlink(self.status_socket_path)
         except OSError:
             pass
+
+    def wait_for_startup_release(self, timeout):
+        """Wait until every launcher presents the same distributed contract."""
+        attempt = self.startup_manifest["attempt"]
+        print(
+            "[launcher-control] waiting for startup quorum "
+            f"attempt={attempt} timeout={timeout:.1f}s",
+            flush=True,
+        )
+        if not self.startup_release_event.wait(timeout):
+            raise RuntimeError(
+                f"startup quorum timed out after {timeout:.1f}s for attempt={attempt}"
+            )
+        if self.startup_error:
+            raise RuntimeError(self.startup_error)
+        print(
+            f"[launcher-control] startup quorum released attempt={attempt}",
+            flush=True,
+        )
 
     def _connect_watcher(self):
         while self.running:
@@ -375,6 +399,7 @@ class LauncherControlAgent:
             "launcher_pid": os.getpid(),
             "workers": self.worker_health(),
             "control_owner": "launcher",
+            "startup_manifest": self.startup_manifest,
         }
 
     def _report_worker_failures(self):
@@ -443,6 +468,13 @@ class LauncherControlAgent:
             )
         elif msg_type == "kill_rank" and int(msg.get("target_node", -1)) == self.node_rank:
             self.kill_worker(int(msg.get("local_rank", -1)))
+        elif msg_type in {"startup_release", "startup_reject"}:
+            attempt = int(msg.get("attempt", -1))
+            if attempt != int(self.startup_manifest["attempt"]):
+                return
+            if msg_type == "startup_reject":
+                self.startup_error = str(msg.get("reason", "startup contract rejected"))
+            self.startup_release_event.set()
 
     def _watcher_loop(self):
         recv_buf = b""
@@ -523,6 +555,18 @@ def main():
     nnodes = args.nnodes
     node_rank = args.node_rank
     world_size = nnodes * nproc
+    launch_attempt = int(os.environ.get("ELASTIC_LAUNCH_ATTEMPT", "0"))
+    command_digest = hashlib.sha256("\0".join(cmd_args).encode()).hexdigest()
+    startup_manifest = {
+        "attempt": launch_attempt,
+        "node_rank": node_rank,
+        "nnodes": nnodes,
+        "nproc_per_node": nproc,
+        "world_size": world_size,
+        "master_addr": args.master_addr,
+        "master_port": str(args.master_port),
+        "command_sha256": command_digest,
+    }
 
     # Create a new process group so that kill_node can kill the launcher
     # and all workers without affecting the calling shell (nohup, etc.).
@@ -534,6 +578,10 @@ def main():
     print(f"[launcher] Starting {nproc} workers on node {node_rank}/{nnodes} "
           f"(world_size={world_size})", flush=True)
     print(f"[launcher] Master: {args.master_addr}:{args.master_port}", flush=True)
+    print(
+        f"[launcher] Launch attempt={launch_attempt} contract_sha256={command_digest[:12]}",
+        flush=True,
+    )
     print(f"[launcher] PID={os.getpid()}, PGID={os.getpgrp()}", flush=True)
     print(f"[launcher] Command: {' '.join(cmd_args)}", flush=True)
     inherited_torchelastic = [key for key in _TORCHELASTIC_ENV_VARS if key in os.environ]
@@ -628,11 +676,20 @@ def main():
             status_socket_path=status_socket_path,
             kill_worker=_kill_worker,
             worker_health=_worker_health,
+            startup_manifest=startup_manifest,
             heartbeat_interval=float(
                 os.environ.get("ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL", "1.0")
             ),
         )
         control_agent.start()
+        try:
+            control_agent.wait_for_startup_release(
+                float(os.environ.get("ELASTIC_WATCHER_STARTUP_TIMEOUT_SECONDS", "600"))
+            )
+        except (RuntimeError, ValueError) as exc:
+            print(f"[launcher-control] startup rejected: {exc}", flush=True)
+            control_agent.stop()
+            sys.exit(70)
 
     for local_rank in range(nproc):
         global_rank = node_rank * nproc + local_rank

@@ -150,6 +150,10 @@ class ElasticWatcher:
         self.node_train_phases = {}  # node_rank -> forward_backward / optimizer_step / step_complete
         self.node_rank_states = {}  # node_rank -> per-rank state from launcher agent
         self.node_control_owners = {}
+        self.startup_manifests = {}  # attempt -> node_rank -> manifest
+        self.startup_connections = {}  # attempt -> node_rank -> socket
+        self.startup_rejections = {}  # attempt -> reason
+        self.startup_released_attempt = -1
         self.pending_nccl_fallback_nodes = set()
         self.failed_node = None
         self.killed_local_rank = 0
@@ -288,12 +292,155 @@ class ElasticWatcher:
                         )
             conn.close()
 
+    def _record_startup_manifest_locked(self, node_rank, manifest, conn):
+        """Validate one launcher contract and return a release/reject action."""
+        try:
+            attempt = int(manifest.get("attempt", -1))
+            manifest_node = int(manifest.get("node_rank", -1))
+            nnodes = int(manifest.get("nnodes", -1))
+            nproc = int(manifest.get("nproc_per_node", -1))
+            world_size = int(manifest.get("world_size", -1))
+        except (TypeError, ValueError):
+            attempt = -1
+            manifest_node = -1
+            nnodes = -1
+            nproc = -1
+            world_size = -1
+
+        errors = []
+        expected_world_size = self.training_nnodes * self.nproc_per_node
+        expected = {
+            "node_rank": int(node_rank),
+            "nnodes": self.training_nnodes,
+            "nproc_per_node": self.nproc_per_node,
+            "world_size": expected_world_size,
+            "master_addr": str(self.master_addr),
+            "master_port": str(self.master_port),
+        }
+        observed = {
+            "node_rank": manifest_node,
+            "nnodes": nnodes,
+            "nproc_per_node": nproc,
+            "world_size": world_size,
+            "master_addr": str(manifest.get("master_addr", "")),
+            "master_port": str(manifest.get("master_port", "")),
+        }
+        for key, expected_value in expected.items():
+            if observed[key] != expected_value:
+                errors.append(f"{key}={observed[key]!r} expected={expected_value!r}")
+        if attempt < 0:
+            errors.append(f"attempt={attempt!r} expected_non_negative")
+        if not manifest.get("command_sha256"):
+            errors.append("command_sha256 is empty")
+
+        manifests = self.startup_manifests.setdefault(attempt, {})
+        connections = self.startup_connections.setdefault(attempt, {})
+        manifests[int(node_rank)] = dict(manifest)
+        connections[int(node_rank)] = conn
+
+        if attempt in self.startup_rejections:
+            reason = self.startup_rejections[attempt]
+            return "reject", attempt, list(connections.items()), reason, False
+        if errors:
+            reason = f"node {node_rank} startup contract mismatch: " + "; ".join(errors)
+            self.startup_rejections[attempt] = reason
+            return "reject", attempt, list(connections.items()), reason, False
+        if attempt < self.startup_released_attempt or (
+            attempt == self.startup_released_attempt and self.fallback_initiated
+        ):
+            reason = (
+                f"stale launch attempt={attempt}; "
+                f"released_attempt={self.startup_released_attempt}"
+            )
+            self.startup_rejections[attempt] = reason
+            return "reject", attempt, list(connections.items()), reason, False
+        if attempt == self.startup_released_attempt:
+            return None
+        if len(manifests) < self.training_nnodes:
+            return None
+
+        command_digests = {
+            str(item.get("command_sha256", "")) for item in manifests.values()
+        }
+        if len(command_digests) != 1:
+            digest_by_node = {
+                rank: str(item.get("command_sha256", ""))[:12]
+                for rank, item in sorted(manifests.items())
+            }
+            reason = f"launcher command mismatch for attempt={attempt}: {digest_by_node}"
+            self.startup_rejections[attempt] = reason
+            return "reject", attempt, list(connections.items()), reason, False
+
+        restart_standby = self.fallback_initiated and self.fallback_restart_standby
+        self.startup_released_attempt = attempt
+        self.fallback_initiated = False
+        self.recovery_in_progress = False
+        self.failed_node = None
+        self.rebuild_ready_count = 0
+        self.rebuild_ready_nodes = set()
+        self.rebuild_ready_steps = {}
+        self.rebuild_ready_step_tags = {}
+        self.rebuild_ready_phases = {}
+        self.rebuild_ready_rank_states = {}
+        self.rebuild_ready_quiescence = {}
+        self.rebuild_ready_control_owners = {}
+        self.rank_quiescence_proof = {"status": "pending"}
+        self.recovery_phases = {}
+        self.ordinal_barriers = {}
+        self.peer_sync_endpoints = {}
+        self.rebuild_triggered = False
+        self.pending_nccl_fallback_nodes.clear()
+        self.node_disconnected_at.clear()
+        self.replacement_ready_event.clear()
+        self.phase_cv.notify_all()
+        return "release", attempt, list(connections.items()), "", restart_standby
+
+    def _complete_startup_action(self, action, attempt, connections, reason, restart_standby):
+        payload = {
+            "type": "startup_release" if action == "release" else "startup_reject",
+            "attempt": attempt,
+        }
+        if reason:
+            payload["reason"] = reason
+        encoded = (json.dumps(payload) + "\n").encode()
+        for node_rank, conn in connections:
+            try:
+                conn.sendall(encoded)
+            except (BrokenPipeError, OSError) as exc:
+                log.warning(
+                    "Failed to send %s for attempt=%s to node %s: %s",
+                    action,
+                    attempt,
+                    node_rank,
+                    exc,
+                )
+        if action == "reject":
+            log.error("Startup attempt %s rejected: %s", attempt, reason)
+            return
+
+        for path in (self.fallback_relaunch_file, self.fault_dir / "fallback_relaunch_signal.json"):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        log.info(
+            "Startup attempt %s released: launchers=%s master=%s:%s world_size=%s",
+            attempt,
+            sorted(rank for rank, _ in connections),
+            self.master_addr,
+            self.master_port,
+            self.training_nnodes * self.nproc_per_node,
+        )
+        if restart_standby:
+            self._start_standby_worker()
+
     def _process_message(self, msg, conn, addr=None):
         """Process a message from a training node. Returns node_rank."""
         msg_type = msg.get("type")
         node_rank = msg.get("node_rank")
 
         if msg_type == "heartbeat":
+            startup_action = None
             with self.lock:
                 previous_conn = self.node_connections.get(node_rank)
                 first_registration = node_rank not in self.last_heartbeat
@@ -316,6 +463,13 @@ class ElasticWatcher:
                     for rank in self.node_connections
                     if isinstance(rank, int) and 0 <= rank < self.training_nnodes
                 )
+                if (
+                    msg.get("control_owner") == "launcher"
+                    and isinstance(msg.get("startup_manifest"), dict)
+                ):
+                    startup_action = self._record_startup_manifest_locked(
+                        node_rank, msg["startup_manifest"], conn
+                    )
 
             if first_registration or previous_conn is not conn:
                 peer = f"{addr[0]}:{addr[1]}" if addr else "unknown"
@@ -331,6 +485,9 @@ class ElasticWatcher:
                     connected_nodes,
                 )
 
+            if startup_action is not None:
+                self._complete_startup_action(*startup_action)
+
             # Check for step-based fault injection
             self._maybe_inject_fault(node_rank, msg.get("step", -1))
             return node_rank
@@ -345,7 +502,17 @@ class ElasticWatcher:
                 msg.get("global_rank"),
                 msg.get("exit_code"),
             )
-            if not self.recovery_in_progress and local_rank >= 0:
+            with self.lock:
+                suppress_failure = self.recovery_in_progress or self.fallback_initiated
+            if suppress_failure:
+                log.info(
+                    "Ignoring cascading worker failure for active recovery/fallback: "
+                    "node=%s local_rank=%s exit_code=%s",
+                    node_rank,
+                    local_rank,
+                    exit_code,
+                )
+            elif local_rank >= 0:
                 failure_scope = (
                     "single_rank" if exit_code in {-11, -9, -6} else "software"
                 )
@@ -1065,7 +1232,12 @@ class ElasticWatcher:
 
         while self.running:
             time.sleep(2.0)
-            if self.recovery_in_progress:
+            if self.recovery_in_progress or self.fallback_initiated:
+                continue
+
+            with self.lock:
+                startup_released = self.startup_released_attempt >= 0
+            if not startup_released:
                 continue
 
             now = time.time()
@@ -1975,7 +2147,9 @@ class ElasticWatcher:
         self._terminate_spare_process(reason)
         self._reset_after_fallback()
         if self.fallback_restart_standby:
-            self._start_standby_worker()
+            log.info(
+                "Warm standby restart deferred until every launcher joins the next attempt"
+            )
 
     def _handle_fault(
         self,
@@ -1990,9 +2164,27 @@ class ElasticWatcher:
         process groups, then the target rank is killed.
         """
         with self.lock:
+            if self.fallback_initiated:
+                log.info(
+                    "Ignoring fault while checkpoint fallback is active: "
+                    "node=%s local_rank=%s scope=%s",
+                    failed_node_rank,
+                    killed_local_rank,
+                    failure_scope,
+                )
+                return
+            if self.recovery_in_progress:
+                log.info(
+                    "Ignoring duplicate fault during recovery epoch=%s: "
+                    "node=%s local_rank=%s scope=%s",
+                    self.recovery_epoch,
+                    failed_node_rank,
+                    killed_local_rank,
+                    failure_scope,
+                )
+                return
             self.recovery_epoch += 1
             recovery_epoch = self.recovery_epoch
-            self.fallback_initiated = False
             self.recovery_in_progress = True
             self.failed_node = failed_node_rank
             if killed_local_rank is None:

@@ -392,6 +392,8 @@ run_training() {
 
 retry=0
 while true; do
+  export ELASTIC_LAUNCH_ATTEMPT="${retry}"
+  echo "[test-replace] launch attempt=${ELASTIC_LAUNCH_ATTEMPT}"
   run_training
   rc=$?
   if [ "${rc}" -eq 0 ]; then
