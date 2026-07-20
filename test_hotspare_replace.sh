@@ -150,6 +150,8 @@ export ELASTIC_FALLBACK_EXIT_CODE="${ELASTIC_FALLBACK_EXIT_CODE:-75}"
 export ELASTIC_FALLBACK_RESTART_STANDBY="${ELASTIC_FALLBACK_RESTART_STANDBY:-1}"
 export ELASTIC_LAUNCHER_CONTROL_PLANE="${ELASTIC_LAUNCHER_CONTROL_PLANE:-1}"
 export ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL="${ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL:-1.0}"
+export ELASTIC_WATCHER_STARTUP_TIMEOUT_SECONDS="${ELASTIC_WATCHER_STARTUP_TIMEOUT_SECONDS:-600}"
+export ELASTIC_WATCHER_CONNECT_INTERVAL_SECONDS="${ELASTIC_WATCHER_CONNECT_INTERVAL_SECONDS:-2}"
 export ELASTIC_QUIESCENCE_TIMEOUT_SECONDS="${ELASTIC_QUIESCENCE_TIMEOUT_SECONDS:-300}"
 export ELASTIC_NCCL_CLASSIFICATION_GRACE_SECONDS="${ELASTIC_NCCL_CLASSIFICATION_GRACE_SECONDS:-5}"
 HOTSPARE_MAX_RETRIES="${HOTSPARE_MAX_RETRIES:-2}"
@@ -183,6 +185,7 @@ echo "[test-replace] MoE first:       barrier=${ELASTIC_MOE_FIRST_COLLECTIVE_BAR
 echo "[test-replace] MoE fail-fast:   enabled=${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST}, timeout=${ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT}s"
 echo "[test-replace] Fallback:        relaunch=${ELASTIC_FALLBACK_RELAUNCH}, exit=${ELASTIC_FALLBACK_EXIT_CODE}, retries=${HOTSPARE_MAX_RETRIES} (fallback exit only)"
 echo "[test-replace] Control plane:   launcher=${ELASTIC_LAUNCHER_CONTROL_PLANE}, heartbeat=${ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL}s"
+echo "[test-replace] Watcher startup: ${ELASTIC_WATCHER_ADDR}:${ELASTIC_WATCHER_PORT}, timeout=${ELASTIC_WATCHER_STARTUP_TIMEOUT_SECONDS}s"
 echo "[test-replace] Quiescence:      timeout=${ELASTIC_QUIESCENCE_TIMEOUT_SECONDS}s"
 echo "[test-replace] R2 contract:      gap=[${MOEGAMBIT_DELTA_TIME_MIN_GAP},${MOEGAMBIT_MAX_SINGLE_GAP}], window=${MOEGAMBIT_EXPOSURE_WINDOW_STEPS}, phi_max=${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY}, experts=${MOEGAMBIT_NUM_EXPERTS}"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
@@ -252,6 +255,46 @@ if [ "${MOEGAMBIT_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
   )
 fi
 
+wait_for_watcher() {
+  python3 - \
+    "${ELASTIC_WATCHER_ADDR}" \
+    "${ELASTIC_WATCHER_PORT}" \
+    "${ELASTIC_WATCHER_STARTUP_TIMEOUT_SECONDS}" \
+    "${ELASTIC_WATCHER_CONNECT_INTERVAL_SECONDS}" <<'PY'
+import socket
+import sys
+import time
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+timeout = float(sys.argv[3])
+interval = max(float(sys.argv[4]), 0.1)
+deadline = time.monotonic() + timeout
+last_error = None
+
+print(f"[test-replace] waiting for watcher at {host}:{port}", flush=True)
+while True:
+    try:
+        with socket.create_connection((host, port), timeout=min(5.0, interval)):
+            pass
+        print(f"[test-replace] watcher is ready at {host}:{port}", flush=True)
+        raise SystemExit(0)
+    except OSError as exc:
+        last_error = exc
+
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        print(
+            f"[test-replace] watcher readiness timed out after {timeout:.1f}s: "
+            f"{host}:{port}: {last_error}",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(70)
+    time.sleep(min(interval, remaining))
+PY
+}
+
 cleanup_elastic_attempt_files() {
   rm -f "${ELASTIC_FAULT_DIR}/pause_signal" \
         "${ELASTIC_FAULT_DIR}/rebuild_signal.json" \
@@ -260,6 +303,9 @@ cleanup_elastic_attempt_files() {
 }
 
 run_training() {
+  if ! wait_for_watcher; then
+    return 70
+  fi
   cleanup_elastic_attempt_files
 
   LOAD_ARGS=()

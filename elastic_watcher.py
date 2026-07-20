@@ -295,6 +295,8 @@ class ElasticWatcher:
 
         if msg_type == "heartbeat":
             with self.lock:
+                previous_conn = self.node_connections.get(node_rank)
+                first_registration = node_rank not in self.last_heartbeat
                 self.node_connections[node_rank] = conn
                 self.last_heartbeat[node_rank] = time.time()
                 self.node_disconnected_at.pop(node_rank, None)
@@ -308,6 +310,25 @@ class ElasticWatcher:
                     self.node_rank_states[node_rank] = msg["rank_states"]
                 self.node_control_owners[node_rank] = msg.get(
                     "control_owner", "training_rank"
+                )
+                connected_nodes = sorted(
+                    rank
+                    for rank in self.node_connections
+                    if isinstance(rank, int) and 0 <= rank < self.training_nnodes
+                )
+
+            if first_registration or previous_conn is not conn:
+                peer = f"{addr[0]}:{addr[1]}" if addr else "unknown"
+                event = "registered" if first_registration else "reconnected"
+                log.info(
+                    "Node %s %s from %s owner=%s; launchers=%s/%s connected=%s",
+                    node_rank,
+                    event,
+                    peer,
+                    msg.get("control_owner", "training_rank"),
+                    len(connected_nodes),
+                    self.training_nnodes,
+                    connected_nodes,
                 )
 
             # Check for step-based fault injection
