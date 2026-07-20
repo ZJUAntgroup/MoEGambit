@@ -1589,59 +1589,82 @@ def _elastic_phase_timeout_seconds(args=None, default_seconds: float = 300.0) ->
     return max(float(default_seconds), group_timeout + margin)
 
 
-def _elastic_destroy_stale_model_parallel_groups(mpu):
-    """Abort old Megatron subgroups before in-process rebuild creates new ones."""
-    if not dist.is_available() or not dist.is_initialized():
-        return
+def _elastic_c10d_generation_state():
+    """Return the process-local c10d registry state used by PG naming."""
+    state = {
+        "initialized": bool(dist.is_available() and dist.is_initialized()),
+        "pg_map_count": -1,
+        "pg_name_count": -1,
+        "group_count": -1,
+    }
+    try:
+        world = torch.distributed.distributed_c10d._world
+        state.update(
+            pg_map_count=len(world.pg_map),
+            pg_name_count=len(world.pg_names),
+            group_count=int(world.group_count),
+        )
+    except Exception:
+        pass
+    return state
 
-    group_list = getattr(mpu, "_global_process_group_list", None)
-    if not group_list:
-        return
 
-    rank = dist.get_rank()
-    seen = set()
-    destroyed = 0
-    skipped = 0
-    for group in reversed(group_list):
-        if group is None:
-            continue
-        group_id = id(group)
-        if group_id in seen:
-            continue
-        seen.add(group_id)
+def _elastic_destroy_process_group_generation(mpu, rank):
+    """Atomically retire one c10d generation before rebuilding another.
 
-        try:
-            pg_map = torch.distributed.distributed_c10d._world.pg_map
-            if pg_map.get(group, None) is None:
-                skipped += 1
-                continue
-        except Exception:
-            pass
+    PyTorch's WORLD teardown sorts and shuts down every registered subgroup,
+    clears the Python/C++ registries, and resets the implicit group-name
+    counter. Destroying each rank's Megatron subgroup list first bypasses that
+    recovery path and is asymmetric because pipeline stages own different PGs.
+    """
+    global _REBUILD_STORE
 
-        try:
-            backend = dist.get_backend(group)
-        except Exception:
-            backend = "unknown"
+    before = _elastic_c10d_generation_state()
+    if not before["initialized"]:
+        raise RuntimeError(
+            f"rank {rank} cannot retire c10d generation: default PG is not initialized"
+        )
+    unknown_before = [
+        key for key in ("pg_map_count", "pg_name_count", "group_count")
+        if before[key] < 0
+    ]
+    if unknown_before:
+        raise RuntimeError(
+            "cannot validate c10d generation state: " + ",".join(unknown_before)
+        )
 
-        try:
-            dist.destroy_process_group(group)
-            destroyed += 1
-        except Exception as exc:
-            skipped += 1
-            logger.warning(
-                "[elastic] Rank %d: failed to destroy stale model-parallel "
-                "subgroup backend=%s: %s",
-                rank,
-                backend,
-                exc,
-            )
+    dist.destroy_process_group()
+    after = _elastic_c10d_generation_state()
+    errors = []
+    unknown_after = [
+        key for key in ("pg_map_count", "pg_name_count", "group_count")
+        if after[key] < 0
+    ]
+    if unknown_after:
+        errors.append("unavailable=" + ",".join(unknown_after))
+    if after["initialized"]:
+        errors.append("default PG remains initialized")
+    if after["pg_map_count"] not in (-1, 0):
+        errors.append(f"pg_map_count={after['pg_map_count']}")
+    if after["pg_name_count"] not in (-1, 0):
+        errors.append(f"pg_name_count={after['pg_name_count']}")
+    if after["group_count"] not in (-1, 0):
+        errors.append(f"group_count={after['group_count']}")
+    if errors:
+        raise RuntimeError(
+            "incomplete c10d generation teardown: " + "; ".join(errors)
+        )
 
+    # The c10d generation is already shut down; this only drops Megatron's
+    # Python references and cached topology fields.
+    mpu.destroy_model_parallel()
+    _REBUILD_STORE = None
     logger.warning(
-        "[elastic] Rank %d: destroyed stale model-parallel subgroups before "
-        "rebuild (destroyed=%d, skipped=%d)",
+        "[elastic] Rank %d: retired c10d generation atomically "
+        "(before=%s, after=%s)",
         rank,
-        destroyed,
-        skipped,
+        before,
+        after,
     )
 
 
@@ -2427,21 +2450,26 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     logger.warning(f"[elastic] Rank {rank}: entering rebuild sequence")
 
-    # CRITICAL: Destroy process groups FIRST, before waiting for rebuild signal.
+    # CRITICAL: Destroy the complete c10d generation before waiting for the
+    # rebuild signal. WORLD teardown owns subgroup shutdown order and registry
+    # reset; per-subgroup teardown is not a valid generation boundary.
     # The NCCL watchdog runs in a C++ background thread and will SIGABRT
     # the process if it detects a timeout on any process group — even while
     # Python is blocked waiting for the rebuild signal.  Destroying the
     # groups stops the watchdog immediately.
     logger.info(f"[elastic] Rank {rank}: destroying process groups (stop watchdog)")
     try:
-        _elastic_destroy_stale_model_parallel_groups(mpu)
-        mpu.destroy_model_parallel()
-    except Exception as e:
-        logger.warning(f"[elastic] destroy_model_parallel failed (expected): {e}")
-    try:
-        dist.destroy_process_group()
-    except Exception as e:
-        logger.warning(f"[elastic] destroy_process_group failed (expected): {e}")
+        _elastic_destroy_process_group_generation(mpu, rank)
+    except Exception as exc:
+        logger.exception(
+            "[elastic] Rank %d: failed to retire c10d generation", rank
+        )
+        elastic_report_recovery_phase(
+            "state_contract_error",
+            contract="c10d_generation_teardown",
+            error=str(exc),
+        )
+        raise
 
     # Brief sleep to let NCCL resources release
     time.sleep(2.0)

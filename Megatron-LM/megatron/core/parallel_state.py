@@ -145,37 +145,14 @@ def reset_elastic_mpu_group_ordinal():
     _ELASTIC_MPU_GROUP_ORDINAL = 0
 
 
-def _elastic_rebuild_eager_group_device_id(ranks, backend, group_desc):
-    """Bind selected replacement-facing rebuild groups to the current CUDA device."""
-    if not is_torch_min_version("2.6.0") or not torch.cuda.is_available():
+def _elastic_c10d_group_count(use_local_synchronization=False):
+    """Expose c10d's implicit PG generation counter for rebuild contracts."""
+    if use_local_synchronization:
         return None
-    if os.environ.get("ELASTIC_REBUILD_MODE", "0") != "1" and os.environ.get(
-        "ELASTIC_PG_GENERATION", "0"
-    ) in ("", "0"):
-        return None
-    if backend is not None and "nccl" not in str(backend).lower():
-        return None
-
-    selected = {
-        name.strip()
-        for name in os.environ.get(
-            "ELASTIC_REBUILD_EAGER_NCCL_GROUPS",
-            "EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP",
-        ).split(",")
-        if name.strip()
-    }
-    if str(group_desc) not in selected or ranks is None:
-        return None
-
     try:
-        replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
-        group_ranks = {int(rank) for rank in ranks}
-    except (TypeError, ValueError):
+        return int(torch.distributed.distributed_c10d._world.group_count)
+    except Exception:
         return None
-    if replacement_rank < 0 or replacement_rank not in group_ranks:
-        return None
-
-    return torch.device("cuda", torch.cuda.current_device())
 
 
 def get_nccl_options(pg_name, nccl_comm_cfgs):
@@ -252,11 +229,38 @@ def create_group(
 ):
     """Creates a ProcessGroup."""
     group_ordinal = _elastic_next_mpu_group_ordinal()
+    c10d_group_count = (
+        _elastic_c10d_group_count(use_local_synchronization)
+        if group_ordinal is not None
+        else None
+    )
+    if (
+        group_ordinal is not None
+        and not use_local_synchronization
+        and c10d_group_count is None
+    ):
+        raise RuntimeError(
+            "[elastic] c10d group_count is unavailable during subgroup rebuild"
+        )
     _elastic_trace_mpu_group(
-        "mpu_group_start", ranks, timeout, backend, group_desc, group_ordinal
+        "mpu_group_start",
+        ranks,
+        timeout,
+        backend,
+        group_desc,
+        group_ordinal,
+        use_local_synchronization,
+        c10d_group_count,
     )
     _elastic_wait_mpu_group_ordinal_barrier(
-        group_ordinal, "enter", ranks, timeout, backend, group_desc
+        group_ordinal,
+        "enter",
+        ranks,
+        timeout,
+        backend,
+        group_desc,
+        use_local_synchronization,
+        c10d_group_count,
     )
     kwargs = {
         "ranks": ranks,
@@ -266,18 +270,6 @@ def create_group(
         "use_local_synchronization": use_local_synchronization,
         "group_desc": group_desc,
     }
-    eager_device_id = _elastic_rebuild_eager_group_device_id(ranks, backend, group_desc)
-    if eager_device_id is not None:
-        kwargs["device_id"] = eager_device_id
-        if ranks is None or torch.distributed.get_rank() in ranks:
-            logger.warning(
-                "[elastic] Rank %d: eagerly initializing rebuild NCCL group "
-                "desc=%s ranks=%s device_id=%s",
-                torch.distributed.get_rank(),
-                group_desc,
-                list(ranks) if ranks is not None else "ALL",
-                eager_device_id,
-            )
     if not is_torch_min_version("2.4.0"):
         kwargs.pop("group_desc")
         if timeout is None:
@@ -289,11 +281,38 @@ def create_group(
             # type error.
             kwargs.pop("timeout")
     group = torch.distributed.new_group(**kwargs)
+    c10d_group_count = (
+        _elastic_c10d_group_count(use_local_synchronization)
+        if group_ordinal is not None
+        else None
+    )
+    if (
+        group_ordinal is not None
+        and not use_local_synchronization
+        and c10d_group_count is None
+    ):
+        raise RuntimeError(
+            "[elastic] c10d group_count disappeared during subgroup rebuild"
+        )
     _elastic_trace_mpu_group(
-        "mpu_group_done", ranks, timeout, backend, group_desc, group_ordinal
+        "mpu_group_done",
+        ranks,
+        timeout,
+        backend,
+        group_desc,
+        group_ordinal,
+        use_local_synchronization,
+        c10d_group_count,
     )
     _elastic_wait_mpu_group_ordinal_barrier(
-        group_ordinal, "exit", ranks, timeout, backend, group_desc
+        group_ordinal,
+        "exit",
+        ranks,
+        timeout,
+        backend,
+        group_desc,
+        use_local_synchronization,
+        c10d_group_count,
     )
     global _global_process_group_list
     if _global_process_group_list is None:
@@ -347,7 +366,16 @@ def _elastic_mpu_group_barrier_timeout(timeout):
     return 300.0
 
 
-def _elastic_group_manifest(ranks, timeout, backend, group_desc, group_ordinal, stage):
+def _elastic_group_manifest(
+    ranks,
+    timeout,
+    backend,
+    group_desc,
+    group_ordinal,
+    stage,
+    use_local_synchronization,
+    c10d_group_count,
+):
     ranks_list = None if ranks is None else [int(r) for r in ranks]
     if ranks_list is None:
         group_size = torch.distributed.get_world_size()
@@ -361,9 +389,13 @@ def _elastic_group_manifest(ranks, timeout, backend, group_desc, group_ordinal, 
         "barrier_stage": stage,
         "group_desc": str(group_desc),
         "group_backend": "default" if backend is None else str(backend),
+        "group_init_mode": "lazy",
+        "group_use_local_synchronization": bool(use_local_synchronization),
         "group_size": group_size,
         "group_representative_rank": representative_rank,
     }
+    if c10d_group_count is not None:
+        manifest["group_c10d_count"] = int(c10d_group_count)
     if timeout is not None:
         manifest["group_timeout_seconds"] = float(timeout.total_seconds())
     if ranks_list is None:
@@ -377,7 +409,14 @@ def _elastic_group_manifest(ranks, timeout, backend, group_desc, group_ordinal, 
 
 
 def _elastic_wait_mpu_group_ordinal_barrier(
-    group_ordinal, stage, ranks, timeout, backend, group_desc
+    group_ordinal,
+    stage,
+    ranks,
+    timeout,
+    backend,
+    group_desc,
+    use_local_synchronization,
+    c10d_group_count,
 ):
     if group_ordinal is None:
         return
@@ -395,7 +434,14 @@ def _elastic_wait_mpu_group_ordinal_barrier(
         barrier_id = f"mpu_group:{token}:{int(group_ordinal):06d}:{stage}"
         wait_timeout = _elastic_mpu_group_barrier_timeout(timeout)
         manifest = _elastic_group_manifest(
-            ranks, timeout, backend, group_desc, group_ordinal, stage
+            ranks,
+            timeout,
+            backend,
+            group_desc,
+            group_ordinal,
+            stage,
+            use_local_synchronization,
+            c10d_group_count,
         )
         ok = elastic_wait_for_ordinal_barrier(
             barrier_id,
@@ -413,7 +459,16 @@ def _elastic_wait_mpu_group_ordinal_barrier(
         raise
 
 
-def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc, group_ordinal=None):
+def _elastic_trace_mpu_group(
+    phase,
+    ranks,
+    timeout,
+    backend,
+    group_desc,
+    group_ordinal=None,
+    use_local_synchronization=False,
+    c10d_group_count=None,
+):
     """Trace rebuild-time Megatron subgroup creation without perturbing normal runs."""
     if os.environ.get("ELASTIC_TRACE_MPU_GROUPS", "0").lower() not in ("1", "true", "yes", "on"):
         return
@@ -472,10 +527,14 @@ def _elastic_trace_mpu_group(phase, ranks, timeout, backend, group_desc, group_o
             "group_ordinal": int(group_ordinal) if group_ordinal is not None else -1,
             "group_desc": str(group_desc),
             "group_backend": "default" if backend is None else str(backend),
+            "group_init_mode": "lazy",
+            "group_use_local_synchronization": bool(use_local_synchronization),
             "group_size": group_size,
             "group_representative_rank": representative_rank,
             "group_report_rank": rank,
         }
+        if c10d_group_count is not None:
+            extra["group_c10d_count"] = int(c10d_group_count)
         if timeout is not None:
             extra["group_timeout_seconds"] = float(timeout.total_seconds())
         if ranks_list is None:

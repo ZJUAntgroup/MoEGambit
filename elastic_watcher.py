@@ -130,6 +130,10 @@ class ElasticWatcher:
         self.forward_heartbeat_timeout = args.forward_heartbeat_timeout
         self.checkpoint_heartbeat_timeout = args.checkpoint_heartbeat_timeout
         self.disconnect_grace_timeout = args.disconnect_grace_timeout
+        self.recovery_stall_timeout = max(
+            1.0,
+            float(os.environ.get("ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS", "70")),
+        )
         self.fallback_relaunch = args.fallback_relaunch
         self.fallback_exit_code = args.fallback_exit_code
         self.fallback_restart_standby = args.fallback_restart_standby
@@ -198,6 +202,10 @@ class ElasticWatcher:
         log.info(f"Forward/backward heartbeat timeout: {self.forward_heartbeat_timeout}s")
         log.info(f"Checkpoint heartbeat timeout: {self.checkpoint_heartbeat_timeout}s")
         log.info(f"Disconnect grace timeout: {self.disconnect_grace_timeout}s")
+        log.info(
+            "Recovery ordinal stall timeout: %.1fs",
+            self.recovery_stall_timeout,
+        )
         log.info(
             "Fallback relaunch: enabled=%s exit_code=%s restart_standby=%s",
             self.fallback_relaunch,
@@ -333,29 +341,33 @@ class ElasticWatcher:
         if not manifest.get("command_sha256"):
             errors.append("command_sha256 is empty")
 
-        manifests = self.startup_manifests.setdefault(attempt, {})
-        connections = self.startup_connections.setdefault(attempt, {})
-        manifests[int(node_rank)] = dict(manifest)
-        connections[int(node_rank)] = conn
-
         if attempt in self.startup_rejections:
             reason = self.startup_rejections[attempt]
+            connections = self.startup_connections.setdefault(attempt, {})
+            connections[int(node_rank)] = conn
             return "reject", attempt, list(connections.items()), reason, False
         if errors:
             reason = f"node {node_rank} startup contract mismatch: " + "; ".join(errors)
             self.startup_rejections[attempt] = reason
+            connections = self.startup_connections.setdefault(attempt, {})
+            connections[int(node_rank)] = conn
             return "reject", attempt, list(connections.items()), reason, False
-        if attempt < self.startup_released_attempt or (
-            attempt == self.startup_released_attempt and self.fallback_initiated
-        ):
+        if attempt < self.startup_released_attempt:
             reason = (
                 f"stale launch attempt={attempt}; "
                 f"released_attempt={self.startup_released_attempt}"
             )
             self.startup_rejections[attempt] = reason
-            return "reject", attempt, list(connections.items()), reason, False
+            return "reject", attempt, [(int(node_rank), conn)], reason, False
         if attempt == self.startup_released_attempt:
+            # Heartbeats from the active attempt can race with fallback shutdown.
+            # They are already released and must not be converted into rejections.
             return None
+
+        manifests = self.startup_manifests.setdefault(attempt, {})
+        connections = self.startup_connections.setdefault(attempt, {})
+        manifests[int(node_rank)] = dict(manifest)
+        connections[int(node_rank)] = conn
         if len(manifests) < self.training_nnodes:
             return None
 
@@ -957,10 +969,14 @@ class ElasticWatcher:
                     "meta_by_rank": {},
                     "manifest_by_rank": {},
                     "created": time.time(),
+                    "last_progress": time.time(),
+                    "min_count": min_count,
                     "mismatch_logged": False,
                     "released_logged": False,
                 },
             )
+            if rank not in state["arrived"]:
+                state["last_progress"] = time.time()
             state["arrived"].add(rank)
             state["meta_by_rank"][rank] = {
                 k: v
@@ -978,6 +994,9 @@ class ElasticWatcher:
                 for k in (
                     "group_desc",
                     "group_backend",
+                    "group_init_mode",
+                    "group_use_local_synchronization",
+                    "group_c10d_count",
                     "group_size",
                     "group_ranks",
                     "group_first_rank",
@@ -1055,6 +1074,39 @@ class ElasticWatcher:
                     meta.get("barrier_stage"),
                 )
             return len(arrived), missing, arrived, True
+
+    def _stalled_ordinal_barrier_locked(self, now=None):
+        """Return the oldest recovery barrier that stopped gaining participants."""
+        now = time.time() if now is None else float(now)
+        stalled = None
+        for barrier_id, state in self.ordinal_barriers.items():
+            min_count = int(
+                state.get("min_count", self.training_nnodes * self.nproc_per_node)
+            )
+            arrived = sorted(int(rank) for rank in state.get("arrived", set()))
+            if not arrived or len(arrived) >= min_count:
+                continue
+            last_progress = float(
+                state.get("last_progress", state.get("created", now))
+            )
+            elapsed = now - last_progress
+            if elapsed < self.recovery_stall_timeout:
+                continue
+            details = {
+                "barrier_id": barrier_id,
+                "timeout": self.recovery_stall_timeout,
+                "elapsed_without_progress": elapsed,
+                "min_count": min_count,
+                "count": len(arrived),
+                "arrived": arrived,
+                "missing": [rank for rank in range(min_count) if rank not in arrived],
+            }
+            meta_by_rank = state.get("meta_by_rank", {})
+            if meta_by_rank:
+                details["sample"] = meta_by_rank.get(arrived[0], {})
+            if stalled is None or elapsed > stalled["elapsed_without_progress"]:
+                stalled = details
+        return stalled
 
     def _phase_reached_locked(self, role, rank, target_phase):
         state = self.recovery_phases.get(f"{role}:{rank}")
@@ -1232,7 +1284,32 @@ class ElasticWatcher:
 
         while self.running:
             time.sleep(2.0)
-            if self.recovery_in_progress or self.fallback_initiated:
+            with self.lock:
+                recovery_in_progress = self.recovery_in_progress
+                fallback_initiated = self.fallback_initiated
+                stalled_barrier = (
+                    self._stalled_ordinal_barrier_locked()
+                    if recovery_in_progress and not fallback_initiated
+                    else None
+                )
+            if stalled_barrier is not None:
+                log.error(
+                    "Recovery ordinal barrier stalled: id=%s count=%s/%s "
+                    "elapsed=%.1fs timeout=%.1fs missing=%s",
+                    stalled_barrier["barrier_id"],
+                    stalled_barrier["count"],
+                    stalled_barrier["min_count"],
+                    stalled_barrier["elapsed_without_progress"],
+                    stalled_barrier["timeout"],
+                    stalled_barrier["missing"],
+                )
+                self._log_recovery_phase_summary("ordinal-barrier-stall")
+                self._initiate_fallback_relaunch(
+                    "ordinal_barrier_stall_timeout",
+                    stalled_barrier,
+                )
+                continue
+            if recovery_in_progress or fallback_initiated:
                 continue
 
             with self.lock:
@@ -1343,6 +1420,9 @@ class ElasticWatcher:
         keys = (
             "group_desc",
             "group_backend",
+            "group_init_mode",
+            "group_use_local_synchronization",
+            "group_c10d_count",
             "group_size",
             "group_ranks",
             "group_first_rank",
@@ -2571,10 +2651,6 @@ class ElasticWatcher:
             "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
             "0",
         )
-        env["ELASTIC_REBUILD_EAGER_NCCL_GROUPS"] = os.environ.get(
-            "ELASTIC_REBUILD_EAGER_NCCL_GROUPS",
-            "EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP",
-        )
         env["ELASTIC_POST_REBUILD_COMM_WARMUP"] = os.environ.get(
             "ELASTIC_POST_REBUILD_COMM_WARMUP",
             "0",
@@ -2593,7 +2669,7 @@ class ElasticWatcher:
         )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT",
-            "180",
+            "70",
         )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
@@ -2699,7 +2775,6 @@ class ElasticWatcher:
                 "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
                 "ELASTIC_INIT_PG_DEVICE_ID",
                 "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
-                "ELASTIC_REBUILD_EAGER_NCCL_GROUPS",
                 "ELASTIC_POST_REBUILD_COMM_WARMUP",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",

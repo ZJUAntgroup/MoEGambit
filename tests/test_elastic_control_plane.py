@@ -1,5 +1,7 @@
 import tempfile
+import time
 from argparse import Namespace
+from concurrent.futures import ThreadPoolExecutor
 
 from elastic_watcher import ElasticWatcher
 
@@ -122,3 +124,116 @@ def test_fallback_stays_latched_until_the_next_attempt_quorum():
         assert watcher.startup_released_attempt == 1
         assert not watcher.fallback_initiated
         assert standby_restarts == ["started"]
+
+
+def test_active_attempt_heartbeats_are_ignored_during_fallback_shutdown():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        connections = [_Connection(), _Connection()]
+
+        _record(watcher, 0, _manifest(0), connections[0])
+        watcher._complete_startup_action(
+            *_record(watcher, 1, _manifest(1), connections[1])
+        )
+        watcher.fallback_initiated = True
+
+        assert _record(watcher, 0, _manifest(0), connections[0]) is None
+        assert 0 not in watcher.startup_rejections
+
+
+def test_ordinal_barrier_rejects_asymmetric_group_init_modes():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        base = {
+            "group_desc": "EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP",
+            "group_backend": "default",
+            "group_use_local_synchronization": False,
+            "group_c10d_count": 329,
+            "group_size": 2,
+            "group_ranks": [0, 1],
+            "group_ordinal": 329,
+            "barrier_stage": "enter",
+        }
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(
+                watcher._wait_for_ordinal_barrier,
+                "group-329",
+                0,
+                2,
+                1.0,
+                {**base, "group_init_mode": "lazy"},
+            )
+            time.sleep(0.01)
+            second = executor.submit(
+                watcher._wait_for_ordinal_barrier,
+                "group-329",
+                1,
+                2,
+                1.0,
+                {**base, "group_init_mode": "eager"},
+            )
+
+            assert first.result()[-1] is False
+            assert second.result()[-1] is False
+
+
+def test_ordinal_barrier_rejects_different_c10d_generations():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        base = {
+            "group_desc": "EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP",
+            "group_backend": "default",
+            "group_init_mode": "lazy",
+            "group_use_local_synchronization": False,
+            "group_size": 2,
+            "group_ranks": [0, 1],
+            "group_ordinal": 329,
+            "barrier_stage": "enter",
+        }
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(
+                watcher._wait_for_ordinal_barrier,
+                "group-329-generation",
+                0,
+                2,
+                1.0,
+                {**base, "group_c10d_count": 329},
+            )
+            time.sleep(0.01)
+            second = executor.submit(
+                watcher._wait_for_ordinal_barrier,
+                "group-329-generation",
+                1,
+                2,
+                1.0,
+                {**base, "group_c10d_count": 330},
+            )
+
+            assert first.result()[-1] is False
+            assert second.result()[-1] is False
+
+
+def test_ordinal_barrier_stall_is_detected_after_70_seconds():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        watcher.recovery_stall_timeout = 70.0
+        watcher.ordinal_barriers["group-329-exit"] = {
+            "arrived": {rank for rank in range(64) if rank != 1},
+            "meta_by_rank": {
+                0: {
+                    "group_desc": "EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP",
+                    "barrier_stage": "exit",
+                }
+            },
+            "min_count": 64,
+            "created": 100.0,
+            "last_progress": 100.0,
+        }
+
+        assert watcher._stalled_ordinal_barrier_locked(now=169.9) is None
+        stalled = watcher._stalled_ordinal_barrier_locked(now=170.0)
+        assert stalled["barrier_id"] == "group-329-exit"
+        assert stalled["count"] == 63
+        assert stalled["missing"] == [1]
