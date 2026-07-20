@@ -215,7 +215,21 @@ def test_ordinal_barrier_rejects_different_c10d_generations():
             assert second.result()[-1] is False
 
 
-def test_ordinal_barrier_stall_is_detected_after_70_seconds():
+def test_ordinal_barrier_stall_fail_fast_is_disabled_by_default():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        watcher.ordinal_barriers["group-329-exit"] = {
+            "arrived": {rank for rank in range(64) if rank != 1},
+            "min_count": 64,
+            "created": 100.0,
+            "last_progress": 100.0,
+        }
+
+        assert watcher.recovery_stall_timeout == 0.0
+        assert watcher._stalled_ordinal_barrier_locked(now=1000.0) is None
+
+
+def test_ordinal_barrier_stall_is_detected_when_explicitly_enabled():
     with tempfile.TemporaryDirectory() as fault_dir:
         watcher = ElasticWatcher(_args(fault_dir))
         watcher.recovery_stall_timeout = 70.0

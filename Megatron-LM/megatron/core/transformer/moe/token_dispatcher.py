@@ -869,7 +869,7 @@ class MoEAlltoAllTokenDispatcher(MoETokenDispatcher):
             )
             if (
                 self._elastic_post_rebuild_trace_active()
-                and os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST", "1") != "0"
+                and os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST", "0") != "0"
             ):
                 gathered_num_tokens = self._elastic_gather_first_dim_fail_fast(
                     num_local_tokens_per_expert,

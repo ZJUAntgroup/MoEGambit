@@ -131,8 +131,8 @@ class ElasticWatcher:
         self.checkpoint_heartbeat_timeout = args.checkpoint_heartbeat_timeout
         self.disconnect_grace_timeout = args.disconnect_grace_timeout
         self.recovery_stall_timeout = max(
-            1.0,
-            float(os.environ.get("ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS", "70")),
+            0.0,
+            float(os.environ.get("ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS", "0")),
         )
         self.fallback_relaunch = args.fallback_relaunch
         self.fallback_exit_code = args.fallback_exit_code
@@ -202,10 +202,13 @@ class ElasticWatcher:
         log.info(f"Forward/backward heartbeat timeout: {self.forward_heartbeat_timeout}s")
         log.info(f"Checkpoint heartbeat timeout: {self.checkpoint_heartbeat_timeout}s")
         log.info(f"Disconnect grace timeout: {self.disconnect_grace_timeout}s")
-        log.info(
-            "Recovery ordinal stall timeout: %.1fs",
-            self.recovery_stall_timeout,
-        )
+        if self.recovery_stall_timeout > 0:
+            log.info(
+                "Recovery ordinal stall fail-fast: enabled, timeout=%.1fs",
+                self.recovery_stall_timeout,
+            )
+        else:
+            log.info("Recovery ordinal stall fail-fast: disabled")
         log.info(
             "Fallback relaunch: enabled=%s exit_code=%s restart_standby=%s",
             self.fallback_relaunch,
@@ -1077,6 +1080,8 @@ class ElasticWatcher:
 
     def _stalled_ordinal_barrier_locked(self, now=None):
         """Return the oldest recovery barrier that stopped gaining participants."""
+        if self.recovery_stall_timeout <= 0:
+            return None
         now = time.time() if now is None else float(now)
         stalled = None
         for barrier_id, state in self.ordinal_barriers.items():
@@ -2665,7 +2670,7 @@ class ElasticWatcher:
         )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST",
-            "1",
+            "0",
         )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT",

@@ -102,7 +102,7 @@ unset MOEGAMBIT_FAULT_INJECT_STEP 2>/dev/null || true
 
 # Checkpoint: 每 10 步保存一次（确保故障时有近期 checkpoint）
 export SAVE_INTERVAL=10
-export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt}"
+export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/720hotspare/test_replace_ckpt}"
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
 
 # ============================================================================
@@ -138,13 +138,13 @@ export ELASTIC_REBUILD_PHASE_TIMEOUT="${ELASTIC_REBUILD_PHASE_TIMEOUT:-${ELASTIC
 export ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS="${ELASTIC_TRACE_REPLACEMENT_GROUP_MEMBERS:-1}"
 export ELASTIC_MPU_GROUP_ORDINAL_BARRIER="${ELASTIC_MPU_GROUP_ORDINAL_BARRIER:-1}"
 export ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS="${ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS:-${ELASTIC_PHASE_TIMEOUT_SECONDS}}"
-export ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS="${ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS:-70}"
+export ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS="${ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS:-0}"
 export ELASTIC_INIT_PG_DEVICE_ID="${ELASTIC_INIT_PG_DEVICE_ID:-0}"
 export ELASTIC_REBUILD_INIT_PG_DEVICE_ID="${ELASTIC_REBUILD_INIT_PG_DEVICE_ID:-0}"
 export ELASTIC_POST_REBUILD_COMM_WARMUP="${ELASTIC_POST_REBUILD_COMM_WARMUP:-0}"
 export ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER="${ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER:-1}"
 export ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP="${ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP:-0}"
-export ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST="${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST:-1}"
+export ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST="${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST:-0}"
 export ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT="${ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT:-70}"
 export ELASTIC_FALLBACK_RELAUNCH="${ELASTIC_FALLBACK_RELAUNCH:-1}"
 export ELASTIC_FALLBACK_EXIT_CODE="${ELASTIC_FALLBACK_EXIT_CODE:-75}"
@@ -180,11 +180,19 @@ echo "[test-replace] Train iters:     ${TRAIN_ITERS}"
 echo "[test-replace] Dist timeout:    ${DISTRIBUTED_TIMEOUT_MINUTES}min (60s after init)"
 echo "[test-replace] Phase timeout:   ${ELASTIC_PHASE_TIMEOUT_SECONDS}s"
 echo "[test-replace] Group barrier:   ${ELASTIC_MPU_GROUP_ORDINAL_BARRIER} (${ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS}s)"
-echo "[test-replace] Barrier stall:   ${ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS}s -> checkpoint relaunch"
+if [ "${ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS}" = "0" ]; then
+    echo "[test-replace] Barrier fail-fast: disabled"
+else
+    echo "[test-replace] Barrier fail-fast: ${ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS}s -> checkpoint relaunch"
+fi
 echo "[test-replace] PG device_id:    init=${ELASTIC_INIT_PG_DEVICE_ID}, rebuild=${ELASTIC_REBUILD_INIT_PG_DEVICE_ID}"
 echo "[test-replace] Post warmup:     ${ELASTIC_POST_REBUILD_COMM_WARMUP}"
 echo "[test-replace] MoE first:       barrier=${ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER}, warmup=${ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP}"
-echo "[test-replace] MoE fail-fast:   enabled=${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST}, timeout=${ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT}s"
+if [ "${ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST}" = "0" ]; then
+    echo "[test-replace] MoE fail-fast:   disabled"
+else
+    echo "[test-replace] MoE fail-fast:   enabled, timeout=${ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT}s"
+fi
 echo "[test-replace] Fallback:        relaunch=${ELASTIC_FALLBACK_RELAUNCH}, exit=${ELASTIC_FALLBACK_EXIT_CODE}, retries=${HOTSPARE_MAX_RETRIES} (fallback exit only)"
 echo "[test-replace] Control plane:   launcher=${ELASTIC_LAUNCHER_CONTROL_PLANE}, heartbeat=${ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL}s"
 echo "[test-replace] Watcher startup: ${ELASTIC_WATCHER_ADDR}:${ELASTIC_WATCHER_PORT}, timeout=${ELASTIC_WATCHER_STARTUP_TIMEOUT_SECONDS}s"

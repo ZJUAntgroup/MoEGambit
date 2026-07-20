@@ -916,3 +916,730 @@ WARNING:megatron.core.parallel_state:[elastic] Rank 63: mpu_group_done desc=EXPE
 + echo '[test-replace] relaunching from checkpoint after 30s...'
 [test-replace] relaunching from checkpoint after 30s...
 + sleep 30
++ true
++ export ELASTIC_LAUNCH_ATTEMPT=1
++ ELASTIC_LAUNCH_ATTEMPT=1
++ echo '[test-replace] launch attempt=1'
+[test-replace] launch attempt=1
++ run_training
++ wait_for_watcher
++ python3 - 33.215.192.189 20200 600 2
+[test-replace] waiting for watcher at 33.215.192.189:20200
+[test-replace] watcher is ready at 33.215.192.189:20200
++ cleanup_elastic_attempt_files
++ rm -f /tmp/elastic_faults/pause_signal /tmp/elastic_faults/rebuild_signal.json /tmp/elastic_faults/fallback_relaunch_signal.json
++ rm -f /tmp/elastic_faults/worker_pid_0 /tmp/elastic_faults/worker_pid_1 /tmp/elastic_faults/worker_pid_2 /tmp/elastic_faults/worker_pid_3 /tmp/elastic_faults/worker_pid_4 /tmp/elastic_faults/worker_pid_5 /tmp/elastic_faults/worker_pid_6 /tmp/elastic_faults/worker_pid_7
++ LOAD_ARGS=()
++ '[' -f /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt/latest_checkpointed_iteration.txt ']'
++ LOAD_ARGS=(--load "${CKPT_DIR}")
++ echo '[test-replace] Restart/relaunch attempt will load checkpoint from /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt'
+[test-replace] Restart/relaunch attempt will load checkpoint from /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
++ python3 /root/workdir/antllm/bsr2/elastic_launcher.py --nproc-per-node 8 --nnodes 8 --node-rank 7 --master-addr 33.163.15.55 --master-port 20126 -- python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
+[launcher] Starting 8 workers on node 7/8 (world_size=64)
+[launcher] Master: 33.163.15.55:20126
+[launcher] Launch attempt=1 contract_sha256=94c132344501
+[launcher] PID=5756, PGID=5756
+[launcher] Command: python3 ./Megatron-LM/pretrain_gpt.py --use-mcore-models --transformer-impl transformer_engine --tensor-model-parallel-size 1 --pipeline-model-parallel-size 8 --expert-model-parallel-size 8 --sequence-parallel --legacy-tokenizer --tokenizer-type HuggingFaceTokenizer --tokenizer-model ./tokenizer --vocab-file ./tokenizer/vocab.json --merge-file ./tokenizer/merges.txt --num-layers 48 --hidden-size 2048 --ffn-hidden-size 6144 --num-attention-heads 32 --group-query-attention --num-query-groups 4 --kv-channels 128 --qk-layernorm --seq-length 4096 --max-position-embeddings 40960 --rotary-base 1000000 --rotary-percent 1.0 --micro-batch-size 8 --global-batch-size 64 --train-iters 100 --lr 1e-4 --min-lr 1e-5 --lr-decay-style cosine --lr-warmup-iters 5 --weight-decay 0.1 --clip-grad 1.0 --adam-beta1 0.9 --adam-beta2 0.95 --init-method-std 0.02 --normalization RMSNorm --disable-bias-linear --position-embedding-type rope --no-rope-fusion --swiglu --no-bias-swiglu-fusion --untie-embeddings-and-output-weights --bf16 --num-experts 128 --moe-ffn-hidden-size 768 --moe-router-topk 8 --moe-router-dtype fp32 --moe-router-load-balancing-type aux_loss --moe-aux-loss-coeff 1e-3 --moe-token-dispatcher-type alltoall --distributed-timeout-minutes 10 --distributed-timeout-seconds-after-init 60 --moe-moegambit-enable --moe-moegambit-health-mask --moe-moegambit-rank-quarantine --moe-moegambit-dispatch-quarantine-assert --moe-moegambit-dispatch-sanitize --moe-moegambit-expert-directory --moe-moegambit-replacement-protocol --moe-moegambit-group-rebuild --moe-moegambit-dispatch-topology-refresh --moe-moegambit-dense-param-sync --moe-moegambit-stale-expert-restore --moe-moegambit-recovery-controller --moe-moegambit-deferred-optimizer-load --no-moe-moegambit-weights-first-recovery --moe-moegambit-degraded-mode-policy --moe-moegambit-reintegration-barrier --moe-moegambit-hot-spare-pool --moe-moegambit-num-hot-spares 8 --moe-moegambit-degraded-tau-c 0.5 --moe-moegambit-degraded-t-max 1000 --moe-moegambit-degraded-s-max 500 --moe-moegambit-gap-aware-recovery --moe-moegambit-recovery-policy-type rank_exposure_guarded_hybrid --moe-moegambit-gap-threshold 100 --moe-moegambit-delta-time-min-gap 0 --moe-moegambit-max-single-gap 192 --moe-moegambit-exposure-window-steps 20000 --moe-moegambit-max-expert-staleness-density 0.1 --data-path /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document --split 100,0,0 --ckpt-format torch --save /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt --save-interval 10 --eval-interval 1000 --eval-iters 0 --log-interval 1 --load /mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt
+[launcher-control] started node=7 watcher=33.215.192.189:20200 socket=/tmp/elastic_faults/launcher_control_7.sock
+[launcher-control] waiting for startup quorum attempt=1 timeout=600.0s
+[launcher-control] connected to watcher 33.215.192.189:20200
+[launcher-control] startup quorum released attempt=1
+[launcher] Started worker local_rank=0 global_rank=56 pid=5760
+[launcher] Started worker local_rank=1 global_rank=57 pid=5761
+[launcher] Started worker local_rank=2 global_rank=58 pid=5762
+[launcher] Started worker local_rank=3 global_rank=59 pid=5763
+[launcher] Started worker local_rank=4 global_rank=60 pid=5764
+[launcher] Started worker local_rank=5 global_rank=61 pid=5765
+[launcher] Started worker local_rank=6 global_rank=62 pid=5766
+[launcher] Started worker local_rank=7 global_rank=63 pid=5767
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+fused_indices_to_multihot has reached end of life. Please migrate to a non-experimental function.
+[rank60]:[W720 17:50:35.249862536 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 60]  using GPU 4 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank58]:[W720 17:50:35.250174009 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 58]  using GPU 2 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank59]:[W720 17:50:35.250196437 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 59]  using GPU 3 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank61]:[W720 17:50:35.250748113 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 61]  using GPU 5 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank57]:[W720 17:50:35.254025591 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 57]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank62]:[W720 17:50:35.275913752 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 62]  using GPU 6 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank63]:[W720 17:50:35.276542031 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 63]  using GPU 7 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank56]:[W720 17:50:35.373460870 ProcessGroupNCCL.cpp:4561] [PG ID 0 PG GUID 0 Rank 56]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+WARNING: one_logger package is required to enable e2e metrics tracking. please go to https://confluence.nvidia.com/display/MLWFO/Package+Repositories for details to install it
+WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+WARNING:megatron.training.elastic_client:[elastic] Cleared stale recovery env for fresh startup: ELASTIC_TWO_PHASE_RECOVERY
+INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=1)
+INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=3)
+INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=2)
+INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=4)
+INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=5)
+INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=6)
+INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=7)
+INFO:megatron.training.elastic_client:[elastic] Watcher control is owned by the fault-isolated launcher (local_rank=0)
+ > number of parameters on (tensor, pipeline) model parallel rank (0, 7): 878472704
+INFO:megatron.core.distributed.param_and_grad_buffer:Number of buckets for gradient all-reduce / reduce-scatter: 1
+Params for bucket 1 (425487872 elements, 425487872 padded size):
+	module.decoder.final_layernorm.weight
+	module.decoder.layers.3.mlp.router.weight
+	module.decoder.layers.3.pre_mlp_layernorm.weight
+	module.decoder.layers.1.self_attention.linear_proj.weight
+	module.decoder.layers.4.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.3.self_attention.linear_qkv.weight
+	module.decoder.layers.2.mlp.router.weight
+	module.decoder.layers.2.pre_mlp_layernorm.weight
+	module.decoder.layers.2.self_attention.q_layernorm.weight
+	module.decoder.layers.1.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.0.self_attention.q_layernorm.weight
+	module.decoder.layers.0.self_attention.linear_proj.weight
+	module.output_layer.weight
+	module.decoder.layers.3.self_attention.q_layernorm.weight
+	module.decoder.layers.3.self_attention.linear_proj.weight
+	module.decoder.layers.5.mlp.router.weight
+	module.decoder.layers.5.self_attention.linear_qkv.weight
+	module.decoder.layers.5.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.4.self_attention.linear_qkv.weight
+	module.decoder.layers.4.self_attention.linear_proj.weight
+	module.decoder.layers.2.self_attention.k_layernorm.weight
+	module.decoder.layers.1.self_attention.q_layernorm.weight
+	module.decoder.layers.5.pre_mlp_layernorm.weight
+	module.decoder.layers.5.self_attention.q_layernorm.weight
+	module.decoder.layers.4.self_attention.q_layernorm.weight
+	module.decoder.layers.2.self_attention.linear_qkv.weight
+	module.decoder.layers.1.self_attention.k_layernorm.weight
+	module.decoder.layers.0.mlp.router.weight
+	module.decoder.layers.0.self_attention.linear_qkv.weight
+	module.decoder.layers.5.self_attention.linear_proj.weight
+	module.decoder.layers.4.mlp.router.weight
+	module.decoder.layers.1.mlp.router.weight
+	module.decoder.layers.1.pre_mlp_layernorm.weight
+	module.decoder.layers.0.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.5.self_attention.k_layernorm.weight
+	module.decoder.layers.4.pre_mlp_layernorm.weight
+	module.decoder.layers.4.self_attention.k_layernorm.weight
+	module.decoder.layers.3.self_attention.k_layernorm.weight
+	module.decoder.layers.3.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.2.self_attention.linear_qkv.layer_norm_weight
+	module.decoder.layers.0.pre_mlp_layernorm.weight
+	module.decoder.layers.2.self_attention.linear_proj.weight
+	module.decoder.layers.1.self_attention.linear_qkv.weight
+	module.decoder.layers.0.self_attention.k_layernorm.weight
+INFO:megatron.core.distributed.param_and_grad_buffer:Number of buckets for gradient all-reduce / reduce-scatter: 1
+Params for bucket 1 (452984832 elements, 452984832 padded size):
+	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.14.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.2.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.8.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.0.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.14.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.9.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.0.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.15.linear_fc2.weight
+	module.decoder.layers.0.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.5.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.1.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.1.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.7.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.5.linear_fc1.weight
+	module.decoder.layers.4.mlp.experts.local_experts.11.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.7.linear_fc2.weight
+	module.decoder.layers.2.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.12.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.15.linear_fc1.weight
+	module.decoder.layers.3.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.5.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.2.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.3.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.9.linear_fc1.weight
+	module.decoder.layers.2.mlp.experts.local_experts.4.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.11.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.5.mlp.experts.local_experts.3.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.6.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.3.mlp.experts.local_experts.10.linear_fc2.weight
+	module.decoder.layers.4.mlp.experts.local_experts.12.linear_fc2.weight
+	module.decoder.layers.1.mlp.experts.local_experts.10.linear_fc1.weight
+	module.decoder.layers.1.mlp.experts.local_experts.8.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.13.linear_fc1.weight
+	module.decoder.layers.0.mlp.experts.local_experts.8.linear_fc1.weight
+/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+  state_dict = torch.load(checkpoint_name, map_location='cpu')
+/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+  state_dict = torch.load(checkpoint_name, map_location='cpu')
+/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+  state_dict = torch.load(checkpoint_name, map_location='cpu')
+/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+  state_dict = torch.load(checkpoint_name, map_location='cpu')
+/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+  state_dict = torch.load(checkpoint_name, map_location='cpu')
+/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+  state_dict = torch.load(checkpoint_name, map_location='cpu')
+/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+  state_dict = torch.load(checkpoint_name, map_location='cpu')
+/root/workdir/antllm/bsr2/Megatron-LM/megatron/training/checkpointing.py:1142: UserWarning: Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected, since the`weights_only` argument was not explicitly passed to `torch.load`, forcing weights_only=False.
+  state_dict = torch.load(checkpoint_name, map_location='cpu')
+(min, max) time across ranks (ms):
+    load-checkpoint ................................: (7930.09, 7931.04)
+(min, max) time across ranks (ms):
+    model-and-optimizer-setup ......................: (10035.03, 10035.34)
+    train/valid/test-data-iterators-setup ..........: (33.14, 323.65)
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initializing on rank 60 ...
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initializing on rank 61 ...
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
+INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initialization complete on rank 61
+INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initialization complete on rank 60
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initializing on rank 56 ...
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initializing on rank 59 ...
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initializing on rank 57 ...
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initializing on rank 62 ...
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initializing on rank 58 ...
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:51] MOEGAMBIT-MoE: initializing on rank 63 ...
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: num_experts=128, num_layers=48, ep_size=8, ep_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], dp_group_ranks=[56, 57, 58, 59, 60, 61, 62, 63], global_ep_groups=8
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+INFO:megatron.core.transformer.moe.expert_directory:ActiveExpertDirectory: built 6144 entries (48 layers × 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63])
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
+INFO:megatron.core.transformer.moe.expert_directory:Global ActiveExpertDirectory set: ActiveExpertDirectory(layers=48, experts=128, ep_size=8, entries=6144)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: expert directory initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
+INFO:megatron.core.transformer.moe.dispatch_topology_refresh:DispatchTopologyManager: initialised — 48 layers, 128 experts, ep_size=8, ranks=[56, 57, 58, 59, 60, 61, 62, 63]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: dispatch topology manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: recovery controller initialized and callbacks wired
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: reintegration barrier wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rank-exposure-guarded policy config: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: {'delta_time_min_gap': 0, 'max_single_gap': 192, 'exposure_window_steps': 20000, 'max_rank_stale_exposure': 0.1, 'max_expert_staleness_density': 0.1}
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy: using RankExposureGuardedPolicy (delta_time_min_gap=0, max_single_gap=192, exposure_window_steps=20000, max_rank_stale_exposure=0.1000)
+WARNING:megatron.core.transformer.moe.gap_aware_recovery_policy:MOEGAMBIT-MoE gap-aware recovery policy initialized: enabled=True, policy=RankExposureGuardedPolicy
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller (type=rank_exposure_guarded_hybrid, threshold=100)
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: rollback/replay manager initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: optimizer commit guard initialized
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: pipeline rollback coordinator initialized
+INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:52] MOEGAMBIT-MoE: initialization complete on rank 56
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:52] MOEGAMBIT-MoE: initialization complete on rank 59
+INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
+INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:52] MOEGAMBIT-MoE: initialization complete on rank 57
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:52] MOEGAMBIT-MoE: initialization complete on rank 58
+INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:52] MOEGAMBIT-MoE: initialization complete on rank 62
+INFO:megatron.core.transformer.moe.async_recovery_worker:MOEGAMBIT-MoE AsyncRecoveryWorker: started 2 worker threads
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: async recovery worker initialized (workers=2, CUDA stream created)
+INFO:megatron.core.transformer.moe.hot_spare_pool:MOEGAMBIT-MoE HotSparePool initialized: 8 spares, training_world=64, total_world=72, spare_ranks=[64, 65, 66, 67, 68, 69, 70, 71]
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — 8 spares (logical ranks [64, 65, 66, 67, 68, 69, 70, 71]), training_world=64
+WARNING:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller
+WARNING:megatron.core.transformer.moe.moegambit_integration:[2026-07-20 17:50:52] MOEGAMBIT-MoE: initialization complete on rank 63
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+NCCL version 2.21.5+cuda12.4
+ [2026-07-20 17:52:47] iteration       11/     100 | consumed samples:          704 | elapsed time per iteration (ms): 115287.3 | learning rate: 9.911710E-05 | global batch size:    64 | lm loss: 9.202128E+00 | load_balancing_loss: 2.054846E+00 | loss scale: 1.0 | grad norm: 2.075 | number of skipped iterations:   0 | number of nan iterations:   0 |
+[Rank 56] (after 11 iterations) memory (MB) | allocated: 16203.49267578125 | max allocated: 70201.2548828125 | reserved: 79818.0 | max reserved: 79818.0
+ [2026-07-20 17:53:02] iteration       12/     100 | consumed samples:          768 | elapsed time per iteration (ms): 15204.3 | learning rate: 9.879970E-05 | global batch size:    64 | lm loss: 9.034927E+00 | load_balancing_loss: 1.927729E+00 | loss scale: 1.0 | grad norm: 3.191 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:53:16] iteration       13/     100 | consumed samples:          832 | elapsed time per iteration (ms): 13815.0 | learning rate: 9.843440E-05 | global batch size:    64 | lm loss: 8.912647E+00 | load_balancing_loss: 1.806673E+00 | loss scale: 1.0 | grad norm: 3.261 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:53:31] iteration       14/     100 | consumed samples:          896 | elapsed time per iteration (ms): 15070.2 | learning rate: 9.802161E-05 | global batch size:    64 | lm loss: 8.798524E+00 | load_balancing_loss: 1.722177E+00 | loss scale: 1.0 | grad norm: 2.619 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:53:45] iteration       15/     100 | consumed samples:          960 | elapsed time per iteration (ms): 13923.6 | learning rate: 9.756177E-05 | global batch size:    64 | lm loss: 8.596178E+00 | load_balancing_loss: 1.639546E+00 | loss scale: 1.0 | grad norm: 2.150 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:53:58] iteration       16/     100 | consumed samples:         1024 | elapsed time per iteration (ms): 12891.0 | learning rate: 9.705540E-05 | global batch size:    64 | lm loss: 8.462900E+00 | load_balancing_loss: 1.574704E+00 | loss scale: 1.0 | grad norm: 1.157 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:54:11] iteration       17/     100 | consumed samples:         1088 | elapsed time per iteration (ms): 13022.3 | learning rate: 9.650304E-05 | global batch size:    64 | lm loss: 8.396090E+00 | load_balancing_loss: 1.503250E+00 | loss scale: 1.0 | grad norm: 1.253 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:54:23] iteration       18/     100 | consumed samples:         1152 | elapsed time per iteration (ms): 12901.1 | learning rate: 9.590529E-05 | global batch size:    64 | lm loss: 8.257578E+00 | load_balancing_loss: 1.450761E+00 | loss scale: 1.0 | grad norm: 1.307 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:54:36] iteration       19/     100 | consumed samples:         1216 | elapsed time per iteration (ms): 12976.5 | learning rate: 9.526282E-05 | global batch size:    64 | lm loss: 8.169440E+00 | load_balancing_loss: 1.414626E+00 | loss scale: 1.0 | grad norm: 1.055 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:54:50] iteration       20/     100 | consumed samples:         1280 | elapsed time per iteration (ms): 13299.7 | learning rate: 9.457632E-05 | global batch size:    64 | lm loss: 8.108047E+00 | load_balancing_loss: 1.388824E+00 | loss scale: 1.0 | grad norm: 0.746 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=20, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (34362.70, 34363.42)
+ [2026-07-20 17:55:37] iteration       21/     100 | consumed samples:         1344 | elapsed time per iteration (ms): 12957.6 | learning rate: 9.384654E-05 | global batch size:    64 | lm loss: 8.001455E+00 | load_balancing_loss: 1.361611E+00 | loss scale: 1.0 | grad norm: 0.828 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:55:50] iteration       22/     100 | consumed samples:         1408 | elapsed time per iteration (ms): 13147.2 | learning rate: 9.307429E-05 | global batch size:    64 | lm loss: 7.968292E+00 | load_balancing_loss: 1.333121E+00 | loss scale: 1.0 | grad norm: 0.764 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:56:03] iteration       23/     100 | consumed samples:         1472 | elapsed time per iteration (ms): 12629.1 | learning rate: 9.226039E-05 | global batch size:    64 | lm loss: 7.924145E+00 | load_balancing_loss: 1.315312E+00 | loss scale: 1.0 | grad norm: 0.627 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:56:16] iteration       24/     100 | consumed samples:         1536 | elapsed time per iteration (ms): 12951.6 | learning rate: 9.140577E-05 | global batch size:    64 | lm loss: 7.898309E+00 | load_balancing_loss: 1.299303E+00 | loss scale: 1.0 | grad norm: 0.598 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:56:29] iteration       25/     100 | consumed samples:         1600 | elapsed time per iteration (ms): 13393.3 | learning rate: 9.051132E-05 | global batch size:    64 | lm loss: 7.867112E+00 | load_balancing_loss: 1.283395E+00 | loss scale: 1.0 | grad norm: 0.557 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:56:42] iteration       26/     100 | consumed samples:         1664 | elapsed time per iteration (ms): 12476.2 | learning rate: 8.957805E-05 | global batch size:    64 | lm loss: 7.874570E+00 | load_balancing_loss: 1.273923E+00 | loss scale: 1.0 | grad norm: 0.525 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:56:54] iteration       27/     100 | consumed samples:         1728 | elapsed time per iteration (ms): 12301.6 | learning rate: 8.860697E-05 | global batch size:    64 | lm loss: 7.863307E+00 | load_balancing_loss: 1.258801E+00 | loss scale: 1.0 | grad norm: 0.526 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:57:07] iteration       28/     100 | consumed samples:         1792 | elapsed time per iteration (ms): 12564.2 | learning rate: 8.759913E-05 | global batch size:    64 | lm loss: 7.802789E+00 | load_balancing_loss: 1.245163E+00 | loss scale: 1.0 | grad norm: 0.448 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:57:19] iteration       29/     100 | consumed samples:         1856 | elapsed time per iteration (ms): 12063.0 | learning rate: 8.655566E-05 | global batch size:    64 | lm loss: 7.793797E+00 | load_balancing_loss: 1.234245E+00 | loss scale: 1.0 | grad norm: 0.398 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:57:31] iteration       30/     100 | consumed samples:         1920 | elapsed time per iteration (ms): 11980.6 | learning rate: 8.547767E-05 | global batch size:    64 | lm loss: 7.790398E+00 | load_balancing_loss: 1.221053E+00 | loss scale: 1.0 | grad norm: 0.383 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=30, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (41297.78, 41298.53)
+ [2026-07-20 17:58:24] iteration       31/     100 | consumed samples:         1984 | elapsed time per iteration (ms): 11868.0 | learning rate: 8.436636E-05 | global batch size:    64 | lm loss: 7.800983E+00 | load_balancing_loss: 1.209843E+00 | loss scale: 1.0 | grad norm: 0.366 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:58:36] iteration       32/     100 | consumed samples:         2048 | elapsed time per iteration (ms): 11991.3 | learning rate: 8.322293E-05 | global batch size:    64 | lm loss: 7.826030E+00 | load_balancing_loss: 1.197424E+00 | loss scale: 1.0 | grad norm: 0.439 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:58:48] iteration       33/     100 | consumed samples:         2112 | elapsed time per iteration (ms): 11990.8 | learning rate: 8.204865E-05 | global batch size:    64 | lm loss: 7.748251E+00 | load_balancing_loss: 1.185303E+00 | loss scale: 1.0 | grad norm: 0.435 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:59:00] iteration       34/     100 | consumed samples:         2176 | elapsed time per iteration (ms): 11955.1 | learning rate: 8.084479E-05 | global batch size:    64 | lm loss: 7.792577E+00 | load_balancing_loss: 1.176778E+00 | loss scale: 1.0 | grad norm: 0.371 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:59:12] iteration       35/     100 | consumed samples:         2240 | elapsed time per iteration (ms): 11896.6 | learning rate: 7.961267E-05 | global batch size:    64 | lm loss: 7.777220E+00 | load_balancing_loss: 1.168059E+00 | loss scale: 1.0 | grad norm: 0.366 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:59:24] iteration       36/     100 | consumed samples:         2304 | elapsed time per iteration (ms): 12133.9 | learning rate: 7.835363E-05 | global batch size:    64 | lm loss: 7.770155E+00 | load_balancing_loss: 1.162818E+00 | loss scale: 1.0 | grad norm: 0.370 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:59:36] iteration       37/     100 | consumed samples:         2368 | elapsed time per iteration (ms): 11914.0 | learning rate: 7.706906E-05 | global batch size:    64 | lm loss: 7.800189E+00 | load_balancing_loss: 1.153908E+00 | loss scale: 1.0 | grad norm: 0.346 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:59:47] iteration       38/     100 | consumed samples:         2432 | elapsed time per iteration (ms): 11671.6 | learning rate: 7.576036E-05 | global batch size:    64 | lm loss: 7.714571E+00 | load_balancing_loss: 1.144265E+00 | loss scale: 1.0 | grad norm: 0.392 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 17:59:59] iteration       39/     100 | consumed samples:         2496 | elapsed time per iteration (ms): 11640.0 | learning rate: 7.442894E-05 | global batch size:    64 | lm loss: 7.697051E+00 | load_balancing_loss: 1.138848E+00 | loss scale: 1.0 | grad norm: 0.295 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:00:11] iteration       40/     100 | consumed samples:         2560 | elapsed time per iteration (ms): 11646.6 | learning rate: 7.307629E-05 | global batch size:    64 | lm loss: 7.762627E+00 | load_balancing_loss: 1.133743E+00 | loss scale: 1.0 | grad norm: 0.295 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=40, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (34080.12, 34080.92)
+ [2026-07-20 18:00:56] iteration       41/     100 | consumed samples:         2624 | elapsed time per iteration (ms): 11371.3 | learning rate: 7.170388E-05 | global batch size:    64 | lm loss: 7.708372E+00 | load_balancing_loss: 1.133727E+00 | loss scale: 1.0 | grad norm: 0.333 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:01:07] iteration       42/     100 | consumed samples:         2688 | elapsed time per iteration (ms): 11250.6 | learning rate: 7.031320E-05 | global batch size:    64 | lm loss: 7.749238E+00 | load_balancing_loss: 1.125216E+00 | loss scale: 1.0 | grad norm: 0.315 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:01:19] iteration       43/     100 | consumed samples:         2752 | elapsed time per iteration (ms): 11322.0 | learning rate: 6.890576E-05 | global batch size:    64 | lm loss: 7.770696E+00 | load_balancing_loss: 1.118608E+00 | loss scale: 1.0 | grad norm: 0.344 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:01:30] iteration       44/     100 | consumed samples:         2816 | elapsed time per iteration (ms): 11284.6 | learning rate: 6.748313E-05 | global batch size:    64 | lm loss: 7.736835E+00 | load_balancing_loss: 1.115913E+00 | loss scale: 1.0 | grad norm: 0.279 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:01:41] iteration       45/     100 | consumed samples:         2880 | elapsed time per iteration (ms): 11182.2 | learning rate: 6.604685E-05 | global batch size:    64 | lm loss: 7.736039E+00 | load_balancing_loss: 1.110536E+00 | loss scale: 1.0 | grad norm: 0.294 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:01:52] iteration       46/     100 | consumed samples:         2944 | elapsed time per iteration (ms): 11070.1 | learning rate: 6.459848E-05 | global batch size:    64 | lm loss: 7.721897E+00 | load_balancing_loss: 1.112414E+00 | loss scale: 1.0 | grad norm: 0.318 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:02:03] iteration       47/     100 | consumed samples:         3008 | elapsed time per iteration (ms): 10979.4 | learning rate: 6.313963E-05 | global batch size:    64 | lm loss: 7.721271E+00 | load_balancing_loss: 1.106049E+00 | loss scale: 1.0 | grad norm: 0.613 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:02:14] iteration       48/     100 | consumed samples:         3072 | elapsed time per iteration (ms): 10968.9 | learning rate: 6.167186E-05 | global batch size:    64 | lm loss: 7.688745E+00 | load_balancing_loss: 1.097673E+00 | loss scale: 1.0 | grad norm: 0.396 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:02:25] iteration       49/     100 | consumed samples:         3136 | elapsed time per iteration (ms): 10838.7 | learning rate: 6.019681E-05 | global batch size:    64 | lm loss: 7.697530E+00 | load_balancing_loss: 1.090082E+00 | loss scale: 1.0 | grad norm: 0.263 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:02:36] iteration       50/     100 | consumed samples:         3200 | elapsed time per iteration (ms): 10836.8 | learning rate: 5.871607E-05 | global batch size:    64 | lm loss: 7.711814E+00 | load_balancing_loss: 1.088087E+00 | loss scale: 1.0 | grad norm: 0.383 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=50, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (37587.84, 37588.73)
+ [2026-07-20 18:03:24] iteration       51/     100 | consumed samples:         3264 | elapsed time per iteration (ms): 10819.5 | learning rate: 5.723127E-05 | global batch size:    64 | lm loss: 7.649029E+00 | load_balancing_loss: 1.097635E+00 | loss scale: 1.0 | grad norm: 0.444 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:03:35] iteration       52/     100 | consumed samples:         3328 | elapsed time per iteration (ms): 11042.7 | learning rate: 5.574403E-05 | global batch size:    64 | lm loss: 7.688114E+00 | load_balancing_loss: 1.096609E+00 | loss scale: 1.0 | grad norm: 0.492 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:03:46] iteration       53/     100 | consumed samples:         3392 | elapsed time per iteration (ms): 11023.2 | learning rate: 5.425597E-05 | global batch size:    64 | lm loss: 7.631129E+00 | load_balancing_loss: 1.102450E+00 | loss scale: 1.0 | grad norm: 0.409 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:03:57] iteration       54/     100 | consumed samples:         3456 | elapsed time per iteration (ms): 11087.3 | learning rate: 5.276873E-05 | global batch size:    64 | lm loss: 7.651249E+00 | load_balancing_loss: 1.095440E+00 | loss scale: 1.0 | grad norm: 0.391 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:04:08] iteration       55/     100 | consumed samples:         3520 | elapsed time per iteration (ms): 11033.1 | learning rate: 5.128393E-05 | global batch size:    64 | lm loss: 7.592232E+00 | load_balancing_loss: 1.094811E+00 | loss scale: 1.0 | grad norm: 0.473 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:04:19] iteration       56/     100 | consumed samples:         3584 | elapsed time per iteration (ms): 11116.8 | learning rate: 4.980319E-05 | global batch size:    64 | lm loss: 7.596575E+00 | load_balancing_loss: 1.091303E+00 | loss scale: 1.0 | grad norm: 0.388 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:04:30] iteration       57/     100 | consumed samples:         3648 | elapsed time per iteration (ms): 10979.6 | learning rate: 4.832814E-05 | global batch size:    64 | lm loss: 7.578403E+00 | load_balancing_loss: 1.090696E+00 | loss scale: 1.0 | grad norm: 1.092 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:04:41] iteration       58/     100 | consumed samples:         3712 | elapsed time per iteration (ms): 10989.3 | learning rate: 4.686038E-05 | global batch size:    64 | lm loss: 7.571534E+00 | load_balancing_loss: 1.105620E+00 | loss scale: 1.0 | grad norm: 0.559 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:04:52] iteration       59/     100 | consumed samples:         3776 | elapsed time per iteration (ms): 10939.7 | learning rate: 4.540152E-05 | global batch size:    64 | lm loss: 7.521748E+00 | load_balancing_loss: 1.103161E+00 | loss scale: 1.0 | grad norm: 0.430 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:05:03] iteration       60/     100 | consumed samples:         3840 | elapsed time per iteration (ms): 10907.8 | learning rate: 4.395315E-05 | global batch size:    64 | lm loss: 7.541989E+00 | load_balancing_loss: 1.101065E+00 | loss scale: 1.0 | grad norm: 0.524 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=60, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (34400.66, 34401.48)
+ [2026-07-20 18:05:49] iteration       61/     100 | consumed samples:         3904 | elapsed time per iteration (ms): 10922.2 | learning rate: 4.251687E-05 | global batch size:    64 | lm loss: 7.589249E+00 | load_balancing_loss: 1.104743E+00 | loss scale: 1.0 | grad norm: 0.475 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:05:59] iteration       62/     100 | consumed samples:         3968 | elapsed time per iteration (ms): 10837.6 | learning rate: 4.109423E-05 | global batch size:    64 | lm loss: 7.499476E+00 | load_balancing_loss: 1.093806E+00 | loss scale: 1.0 | grad norm: 0.399 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:06:10] iteration       63/     100 | consumed samples:         4032 | elapsed time per iteration (ms): 10776.4 | learning rate: 3.968681E-05 | global batch size:    64 | lm loss: 7.515088E+00 | load_balancing_loss: 1.081901E+00 | loss scale: 1.0 | grad norm: 0.987 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:06:21] iteration       64/     100 | consumed samples:         4096 | elapsed time per iteration (ms): 10730.1 | learning rate: 3.829612E-05 | global batch size:    64 | lm loss: 7.532612E+00 | load_balancing_loss: 1.080710E+00 | loss scale: 1.0 | grad norm: 0.393 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:06:32] iteration       65/     100 | consumed samples:         4160 | elapsed time per iteration (ms): 10716.9 | learning rate: 3.692371E-05 | global batch size:    64 | lm loss: 7.439277E+00 | load_balancing_loss: 1.079174E+00 | loss scale: 1.0 | grad norm: 0.666 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:06:43] iteration       66/     100 | consumed samples:         4224 | elapsed time per iteration (ms): 10905.6 | learning rate: 3.557105E-05 | global batch size:    64 | lm loss: 7.471196E+00 | load_balancing_loss: 1.072840E+00 | loss scale: 1.0 | grad norm: 0.770 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:06:53] iteration       67/     100 | consumed samples:         4288 | elapsed time per iteration (ms): 10645.0 | learning rate: 3.423965E-05 | global batch size:    64 | lm loss: 7.526726E+00 | load_balancing_loss: 1.070676E+00 | loss scale: 1.0 | grad norm: 0.416 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:07:04] iteration       68/     100 | consumed samples:         4352 | elapsed time per iteration (ms): 10748.2 | learning rate: 3.293094E-05 | global batch size:    64 | lm loss: 7.549628E+00 | load_balancing_loss: 1.084891E+00 | loss scale: 1.0 | grad norm: 0.661 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:07:15] iteration       69/     100 | consumed samples:         4416 | elapsed time per iteration (ms): 10684.4 | learning rate: 3.164637E-05 | global batch size:    64 | lm loss: 7.448715E+00 | load_balancing_loss: 1.073560E+00 | loss scale: 1.0 | grad norm: 0.333 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:07:25] iteration       70/     100 | consumed samples:         4480 | elapsed time per iteration (ms): 10679.7 | learning rate: 3.038733E-05 | global batch size:    64 | lm loss: 7.484755E+00 | load_balancing_loss: 1.066728E+00 | loss scale: 1.0 | grad norm: 0.630 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=70, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (31919.58, 31920.48)
+ [2026-07-20 18:08:08] iteration       71/     100 | consumed samples:         4544 | elapsed time per iteration (ms): 10604.1 | learning rate: 2.915521E-05 | global batch size:    64 | lm loss: 7.441448E+00 | load_balancing_loss: 1.070027E+00 | loss scale: 1.0 | grad norm: 0.524 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:08:19] iteration       72/     100 | consumed samples:         4608 | elapsed time per iteration (ms): 10671.8 | learning rate: 2.795135E-05 | global batch size:    64 | lm loss: 7.432000E+00 | load_balancing_loss: 1.074501E+00 | loss scale: 1.0 | grad norm: 0.410 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:08:29] iteration       73/     100 | consumed samples:         4672 | elapsed time per iteration (ms): 10555.6 | learning rate: 2.677706E-05 | global batch size:    64 | lm loss: 7.456125E+00 | load_balancing_loss: 1.065339E+00 | loss scale: 1.0 | grad norm: 0.518 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:08:40] iteration       74/     100 | consumed samples:         4736 | elapsed time per iteration (ms): 10523.2 | learning rate: 2.563364E-05 | global batch size:    64 | lm loss: 7.401318E+00 | load_balancing_loss: 1.059922E+00 | loss scale: 1.0 | grad norm: 0.464 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:08:50] iteration       75/     100 | consumed samples:         4800 | elapsed time per iteration (ms): 10555.0 | learning rate: 2.452233E-05 | global batch size:    64 | lm loss: 7.395370E+00 | load_balancing_loss: 1.056967E+00 | loss scale: 1.0 | grad norm: 0.343 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:09:01] iteration       76/     100 | consumed samples:         4864 | elapsed time per iteration (ms): 10562.0 | learning rate: 2.344435E-05 | global batch size:    64 | lm loss: 7.459362E+00 | load_balancing_loss: 1.061260E+00 | loss scale: 1.0 | grad norm: 0.766 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:09:11] iteration       77/     100 | consumed samples:         4928 | elapsed time per iteration (ms): 10518.6 | learning rate: 2.240087E-05 | global batch size:    64 | lm loss: 7.355604E+00 | load_balancing_loss: 1.055451E+00 | loss scale: 1.0 | grad norm: 0.409 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:09:22] iteration       78/     100 | consumed samples:         4992 | elapsed time per iteration (ms): 10592.6 | learning rate: 2.139303E-05 | global batch size:    64 | lm loss: 7.385949E+00 | load_balancing_loss: 1.065202E+00 | loss scale: 1.0 | grad norm: 0.411 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:09:33] iteration       79/     100 | consumed samples:         5056 | elapsed time per iteration (ms): 10636.8 | learning rate: 2.042195E-05 | global batch size:    64 | lm loss: 7.352480E+00 | load_balancing_loss: 1.067523E+00 | loss scale: 1.0 | grad norm: 0.546 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:09:43] iteration       80/     100 | consumed samples:         5120 | elapsed time per iteration (ms): 10519.1 | learning rate: 1.948868E-05 | global batch size:    64 | lm loss: 7.482039E+00 | load_balancing_loss: 1.056638E+00 | loss scale: 1.0 | grad norm: 0.415 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=80, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (32791.76, 32792.50)
+ [2026-07-20 18:10:26] iteration       81/     100 | consumed samples:         5184 | elapsed time per iteration (ms): 10451.9 | learning rate: 1.859424E-05 | global batch size:    64 | lm loss: 7.373316E+00 | load_balancing_loss: 1.052982E+00 | loss scale: 1.0 | grad norm: 0.305 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:10:37] iteration       82/     100 | consumed samples:         5248 | elapsed time per iteration (ms): 10404.8 | learning rate: 1.773960E-05 | global batch size:    64 | lm loss: 7.408536E+00 | load_balancing_loss: 1.052622E+00 | loss scale: 1.0 | grad norm: 0.417 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:10:47] iteration       83/     100 | consumed samples:         5312 | elapsed time per iteration (ms): 10425.5 | learning rate: 1.692571E-05 | global batch size:    64 | lm loss: 7.400551E+00 | load_balancing_loss: 1.050330E+00 | loss scale: 1.0 | grad norm: 0.366 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:10:58] iteration       84/     100 | consumed samples:         5376 | elapsed time per iteration (ms): 10426.7 | learning rate: 1.615346E-05 | global batch size:    64 | lm loss: 7.332438E+00 | load_balancing_loss: 1.044845E+00 | loss scale: 1.0 | grad norm: 0.290 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:11:08] iteration       85/     100 | consumed samples:         5440 | elapsed time per iteration (ms): 10420.2 | learning rate: 1.542368E-05 | global batch size:    64 | lm loss: 7.368100E+00 | load_balancing_loss: 1.042156E+00 | loss scale: 1.0 | grad norm: 0.439 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:11:18] iteration       86/     100 | consumed samples:         5504 | elapsed time per iteration (ms): 10389.5 | learning rate: 1.473718E-05 | global batch size:    64 | lm loss: 7.412634E+00 | load_balancing_loss: 1.045294E+00 | loss scale: 1.0 | grad norm: 0.340 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:11:29] iteration       87/     100 | consumed samples:         5568 | elapsed time per iteration (ms): 10390.2 | learning rate: 1.409471E-05 | global batch size:    64 | lm loss: 7.286296E+00 | load_balancing_loss: 1.047131E+00 | loss scale: 1.0 | grad norm: 0.432 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:11:39] iteration       88/     100 | consumed samples:         5632 | elapsed time per iteration (ms): 10379.1 | learning rate: 1.349696E-05 | global batch size:    64 | lm loss: 7.394318E+00 | load_balancing_loss: 1.043629E+00 | loss scale: 1.0 | grad norm: 0.411 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:11:49] iteration       89/     100 | consumed samples:         5696 | elapsed time per iteration (ms): 10362.3 | learning rate: 1.294460E-05 | global batch size:    64 | lm loss: 7.366334E+00 | load_balancing_loss: 1.043431E+00 | loss scale: 1.0 | grad norm: 0.569 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:12:00] iteration       90/     100 | consumed samples:         5760 | elapsed time per iteration (ms): 10380.2 | learning rate: 1.243822E-05 | global batch size:    64 | lm loss: 7.359455E+00 | load_balancing_loss: 1.047156E+00 | loss scale: 1.0 | grad norm: 0.379 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=90, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (33341.39, 33342.08)
+ [2026-07-20 18:12:44] iteration       91/     100 | consumed samples:         5824 | elapsed time per iteration (ms): 10381.5 | learning rate: 1.197839E-05 | global batch size:    64 | lm loss: 7.398432E+00 | load_balancing_loss: 1.043747E+00 | loss scale: 1.0 | grad norm: 0.389 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:12:54] iteration       92/     100 | consumed samples:         5888 | elapsed time per iteration (ms): 10356.5 | learning rate: 1.156560E-05 | global batch size:    64 | lm loss: 7.393831E+00 | load_balancing_loss: 1.039262E+00 | loss scale: 1.0 | grad norm: 0.414 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:13:04] iteration       93/     100 | consumed samples:         5952 | elapsed time per iteration (ms): 10361.0 | learning rate: 1.120030E-05 | global batch size:    64 | lm loss: 7.344589E+00 | load_balancing_loss: 1.034799E+00 | loss scale: 1.0 | grad norm: 0.395 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:13:15] iteration       94/     100 | consumed samples:         6016 | elapsed time per iteration (ms): 10370.1 | learning rate: 1.088290E-05 | global batch size:    64 | lm loss: 7.315466E+00 | load_balancing_loss: 1.034618E+00 | loss scale: 1.0 | grad norm: 0.289 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:13:25] iteration       95/     100 | consumed samples:         6080 | elapsed time per iteration (ms): 10349.8 | learning rate: 1.061374E-05 | global batch size:    64 | lm loss: 7.337893E+00 | load_balancing_loss: 1.038680E+00 | loss scale: 1.0 | grad norm: 0.322 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:13:35] iteration       96/     100 | consumed samples:         6144 | elapsed time per iteration (ms): 10335.8 | learning rate: 1.039312E-05 | global batch size:    64 | lm loss: 7.394970E+00 | load_balancing_loss: 1.040660E+00 | loss scale: 1.0 | grad norm: 0.429 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:13:46] iteration       97/     100 | consumed samples:         6208 | elapsed time per iteration (ms): 10302.4 | learning rate: 1.022127E-05 | global batch size:    64 | lm loss: 7.393744E+00 | load_balancing_loss: 1.035808E+00 | loss scale: 1.0 | grad norm: 0.348 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:13:56] iteration       98/     100 | consumed samples:         6272 | elapsed time per iteration (ms): 10240.8 | learning rate: 1.009839E-05 | global batch size:    64 | lm loss: 7.319845E+00 | load_balancing_loss: 1.031554E+00 | loss scale: 1.0 | grad norm: 0.373 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:14:06] iteration       99/     100 | consumed samples:         6336 | elapsed time per iteration (ms): 10208.9 | learning rate: 1.002460E-05 | global batch size:    64 | lm loss: 7.311663E+00 | load_balancing_loss: 1.029553E+00 | loss scale: 1.0 | grad norm: 0.538 | number of skipped iterations:   0 | number of nan iterations:   0 |
+ [2026-07-20 18:14:16] iteration      100/     100 | consumed samples:         6400 | elapsed time per iteration (ms): 10191.3 | learning rate: 1.000000E-05 | global batch size:    64 | lm loss: 7.357492E+00 | load_balancing_loss: 1.032546E+00 | loss scale: 1.0 | grad norm: 0.356 | number of skipped iterations:   0 | number of nan iterations:   0 |
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+INFO:megatron.core.transformer.moe.moegambit_integration:MOEGAMBIT-MoE: checkpoint metadata injected (iteration=100, phase=HEALTHY_TRAINING)
+(min, max) time across ranks (ms):
+    save-checkpoint ................................: (38754.32, 38755.82)
+[rank56]:[W720 18:14:56.766621792 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[launcher] Worker local_rank=5 (global_rank=61) exited normally
+[launcher] Worker local_rank=4 (global_rank=60) exited normally
+[launcher] Worker local_rank=0 (global_rank=56) exited normally
+[launcher] Worker local_rank=2 (global_rank=58) exited normally
+[launcher] Worker local_rank=3 (global_rank=59) exited normally
+[launcher] Worker local_rank=6 (global_rank=62) exited normally
+[launcher] Worker local_rank=7 (global_rank=63) exited normally
+[launcher] Worker local_rank=1 (global_rank=57) exited normally
+[launcher] All 8 workers completed successfully
++ rc=0
++ '[' 0 -eq 0 ']'
++ echo '[test-replace] training finished normally'
+[test-replace] training finished normally
++ exit 0
