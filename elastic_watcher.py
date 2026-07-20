@@ -2680,6 +2680,18 @@ class ElasticWatcher:
             "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
             env["ELASTIC_PHASE_TIMEOUT_SECONDS"],
         )
+        env["ELASTIC_RECOVERY_NCCL_SOCKET_ONLY"] = os.environ.get(
+            "ELASTIC_RECOVERY_NCCL_SOCKET_ONLY",
+            "1",
+        )
+        env["ELASTIC_RECOVERY_NCCL_DEBUG"] = os.environ.get(
+            "ELASTIC_RECOVERY_NCCL_DEBUG",
+            "INFO",
+        )
+        if os.environ.get("ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME"):
+            env["ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME"] = os.environ[
+                "ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME"
+            ]
         # Use the specific GPU that corresponds to the killed local_rank
         env["CUDA_VISIBLE_DEVICES"] = str(killed_local_rank)
         return env
@@ -2786,6 +2798,9 @@ class ElasticWatcher:
                 "ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",
+                "ELASTIC_RECOVERY_NCCL_SOCKET_ONLY",
+                "ELASTIC_RECOVERY_NCCL_DEBUG",
+                "ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME",
                 "CUDA_VISIBLE_DEVICES",
             }
         }

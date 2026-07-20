@@ -30,6 +30,7 @@ Usage in training code:
 
 import json
 import hashlib
+import fcntl
 import logging
 import os
 import io
@@ -69,6 +70,78 @@ _POST_REBUILD_STATE_ENV = (
     "ELASTIC_POST_REBUILD_COMM_WARMUP_DONE",
     "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN",
 )
+
+
+def _elastic_ipv4_interface_for_peer(peer_host):
+    """Return the interface carrying IPv4 traffic to a recovery peer."""
+    if not peer_host:
+        return None, None
+    try:
+        peer_ip = socket.gethostbyname(peer_host)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect((peer_ip, 9))
+            local_ip = probe.getsockname()[0]
+    except OSError:
+        return None, None
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as control:
+            for _, interface in socket.if_nameindex():
+                request = struct.pack("256s", interface[:15].encode())
+                try:
+                    response = fcntl.ioctl(control.fileno(), 0x8915, request)
+                except OSError:
+                    continue
+                if socket.inet_ntoa(response[20:24]) == local_ip:
+                    return interface, local_ip
+    except OSError:
+        pass
+    return None, local_ip
+
+
+def elastic_configure_recovery_nccl_transport():
+    """Pin recovery NCCL to the control-plane-reachable IPv4 socket path."""
+    enabled = os.environ.get("ELASTIC_RECOVERY_NCCL_SOCKET_ONLY", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    recovery_active = is_rebuild_mode() or os.environ.get("ELASTIC_PG_GENERATION", "0") not in (
+        "",
+        "0",
+    )
+    if not enabled or not recovery_active:
+        return None
+
+    peer_host = os.environ.get("ELASTIC_WATCHER_ADDR")
+    if peer_host in (None, "", "127.0.0.1", "localhost", "::1"):
+        peer_host = os.environ.get("MASTER_ADDR")
+    interface, local_ip = _elastic_ipv4_interface_for_peer(peer_host)
+
+    os.environ["NCCL_IB_DISABLE"] = "1"
+    os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
+    recovery_ifname = os.environ.get("ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME")
+    if recovery_ifname:
+        os.environ["NCCL_SOCKET_IFNAME"] = recovery_ifname
+    elif interface:
+        os.environ["NCCL_SOCKET_IFNAME"] = f"={interface}"
+
+    debug_level = os.environ.get("ELASTIC_RECOVERY_NCCL_DEBUG", "")
+    if debug_level:
+        os.environ["NCCL_DEBUG"] = debug_level
+        os.environ.setdefault("NCCL_DEBUG_SUBSYS", "INIT,NET,ENV")
+
+    config = {
+        "peer": peer_host,
+        "local_ip": local_ip,
+        "socket_ifname": os.environ.get("NCCL_SOCKET_IFNAME", "auto"),
+        "socket_family": os.environ["NCCL_SOCKET_FAMILY"],
+        "ib_disabled": os.environ["NCCL_IB_DISABLE"],
+        "debug": os.environ.get("NCCL_DEBUG", "WARN"),
+    }
+    logger.warning("[elastic] Recovery NCCL transport configured: %s", config)
+    return config
 
 
 def elastic_sanitize_recovery_env_for_startup():
@@ -2555,6 +2628,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
                 f"(master={new_master_addr}:{new_master_port})")
     os.environ["MASTER_ADDR"] = new_master_addr
     os.environ["MASTER_PORT"] = new_master_port
+    elastic_configure_recovery_nccl_transport()
     device_id = None
     if torch.cuda.is_available():
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))

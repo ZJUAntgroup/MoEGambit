@@ -62,7 +62,23 @@ export CP_SIZE="${CP_SIZE:-1}"
 export MEGATRON_PARALLEL_ORDER="${MEGATRON_PARALLEL_ORDER:-tp-cp-ep-dp-pp}"
 
 # NCCL config
-export NCCL_DEBUG=WARN
+export ELASTIC_RECOVERY_NCCL_SOCKET_ONLY="${ELASTIC_RECOVERY_NCCL_SOCKET_ONLY:-1}"
+export ELASTIC_RECOVERY_NCCL_DEBUG="${ELASTIC_RECOVERY_NCCL_DEBUG:-INFO}"
+export NCCL_DEBUG="${NCCL_DEBUG:-${ELASTIC_RECOVERY_NCCL_DEBUG}}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET,ENV}"
+if [ "${ELASTIC_RECOVERY_NCCL_SOCKET_ONLY}" = "1" ]; then
+  export NCCL_IB_DISABLE=1
+  export NCCL_SOCKET_FAMILY=AF_INET
+  if [ -n "${ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME:-}" ]; then
+    export NCCL_SOCKET_IFNAME="${ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME}"
+  elif command -v ip >/dev/null 2>&1; then
+    NCCL_ROUTE_IFNAME="$(ip -o route get "${MASTER_ADDR}" 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')"
+    if [ -n "${NCCL_ROUTE_IFNAME}" ]; then
+      export NCCL_SOCKET_IFNAME="=${NCCL_ROUTE_IFNAME}"
+      export ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME}"
+    fi
+  fi
+fi
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=0
 export TORCH_NCCL_ENABLE_MONITORING=0
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=600
@@ -120,6 +136,8 @@ echo "[spare-rank] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[spare-rank] ELASTIC_REBUILD_MODE=${ELASTIC_REBUILD_MODE}"
 echo "[spare-rank] recovery epoch=${ELASTIC_RECOVERY_EPOCH:-unset}, descriptor=${ELASTIC_RECOVERY_DESCRIPTOR:-unset}"
 echo "[spare-rank] distributed timeout=${DISTRIBUTED_TIMEOUT_MINUTES}min"
+echo "[spare-rank] recovery NCCL socket_only=${ELASTIC_RECOVERY_NCCL_SOCKET_ONLY}, debug=${ELASTIC_RECOVERY_NCCL_DEBUG}"
+echo "[spare-rank] NCCL transport ib_disable=${NCCL_IB_DISABLE:-0}, ifname=${NCCL_SOCKET_IFNAME:-auto}, family=${NCCL_SOCKET_FAMILY:-auto}"
 echo "[spare-rank] phase timeout=${ELASTIC_PHASE_TIMEOUT_SECONDS}s"
 echo "[spare-rank] group ordinal barrier=${ELASTIC_MPU_GROUP_ORDINAL_BARRIER} (${ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS}s)"
 echo "[spare-rank] pg device_id init=${ELASTIC_INIT_PG_DEVICE_ID}, rebuild=${ELASTIC_REBUILD_INIT_PG_DEVICE_ID}"

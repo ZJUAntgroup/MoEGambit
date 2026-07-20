@@ -1,7 +1,9 @@
+import os
 import tempfile
 import time
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 from elastic_watcher import ElasticWatcher
 
@@ -251,3 +253,24 @@ def test_ordinal_barrier_stall_is_detected_when_explicitly_enabled():
         assert stalled["barrier_id"] == "group-329-exit"
         assert stalled["count"] == 63
         assert stalled["missing"] == [1]
+
+
+def test_replacement_env_carries_recovery_nccl_transport_contract():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        watcher.recovery_epoch = 1
+        with patch.dict(
+            os.environ,
+            {
+                "NODE_RANK": "2",
+                "ELASTIC_RECOVERY_NCCL_SOCKET_ONLY": "1",
+                "ELASTIC_RECOVERY_NCCL_DEBUG": "INFO",
+                "ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME": "=eth9",
+            },
+            clear=False,
+        ):
+            env = watcher._build_spare_env(0, 1, resume_iteration=18)
+
+        assert env["ELASTIC_RECOVERY_NCCL_SOCKET_ONLY"] == "1"
+        assert env["ELASTIC_RECOVERY_NCCL_DEBUG"] == "INFO"
+        assert env["ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME"] == "=eth9"

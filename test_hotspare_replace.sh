@@ -106,9 +106,30 @@ export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/720hotspare/test_replace_ck
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
 
 # ============================================================================
-# NCCL configuration: short timeout for fast failure detection
+# NCCL configuration for a topology that may move one logical rank across nodes
 # ============================================================================
-export NCCL_DEBUG=WARN
+export ELASTIC_RECOVERY_NCCL_SOCKET_ONLY="${ELASTIC_RECOVERY_NCCL_SOCKET_ONLY:-1}"
+export ELASTIC_RECOVERY_NCCL_DEBUG="${ELASTIC_RECOVERY_NCCL_DEBUG:-INFO}"
+export NCCL_DEBUG="${NCCL_DEBUG:-${ELASTIC_RECOVERY_NCCL_DEBUG}}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET,ENV}"
+if [ "${ELASTIC_RECOVERY_NCCL_SOCKET_ONLY}" = "1" ]; then
+  export NCCL_IB_DISABLE=1
+  export NCCL_SOCKET_FAMILY=AF_INET
+  if [ -n "${ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME:-}" ]; then
+    export NCCL_SOCKET_IFNAME="${ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME}"
+  elif command -v ip >/dev/null 2>&1; then
+    if [ "${IS_SPARE}" = "1" ]; then
+      NCCL_ROUTE_PEER="${MASTER_ADDR}"
+    else
+      NCCL_ROUTE_PEER="${ELASTIC_WATCHER_ADDR}"
+    fi
+    NCCL_ROUTE_IFNAME="$(ip -o route get "${NCCL_ROUTE_PEER}" 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')"
+    if [ -n "${NCCL_ROUTE_IFNAME}" ]; then
+      export NCCL_SOCKET_IFNAME="=${NCCL_ROUTE_IFNAME}"
+      export ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME}"
+    fi
+  fi
+fi
 # CRITICAL: Set to 0 so that NCCL timeout raises a catchable Python RuntimeError
 # instead of calling std::abort() (SIGABRT).  With =1, the C++ watchdog kills
 # the process immediately on timeout — Python never gets a chance to handle it.
@@ -178,6 +199,8 @@ echo "[test-replace] Fault inject:    kill node ${FAULT_INJECT_NODE} local_rank 
 echo "[test-replace] Save interval:   ${SAVE_INTERVAL}"
 echo "[test-replace] Train iters:     ${TRAIN_ITERS}"
 echo "[test-replace] Dist timeout:    ${DISTRIBUTED_TIMEOUT_MINUTES}min (60s after init)"
+echo "[test-replace] Recovery NCCL:   socket_only=${ELASTIC_RECOVERY_NCCL_SOCKET_ONLY}, debug=${ELASTIC_RECOVERY_NCCL_DEBUG}"
+echo "[test-replace] NCCL transport:  ib_disable=${NCCL_IB_DISABLE:-0}, ifname=${NCCL_SOCKET_IFNAME:-auto}, family=${NCCL_SOCKET_FAMILY:-auto}"
 echo "[test-replace] Phase timeout:   ${ELASTIC_PHASE_TIMEOUT_SECONDS}s"
 echo "[test-replace] Group barrier:   ${ELASTIC_MPU_GROUP_ORDINAL_BARRIER} (${ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS}s)"
 if [ "${ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS}" = "0" ]; then

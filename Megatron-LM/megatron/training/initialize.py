@@ -397,6 +397,10 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
 
         if args.rank == 0:
             print("> initializing torch distributed ...", flush=True)
+        if _is_elastic_rebuild_mode():
+            from megatron.training.elastic_client import elastic_configure_recovery_nccl_transport
+
+            elastic_configure_recovery_nccl_transport()
         # Manually set the device ids.
         if device_count > 0:
             torch.cuda.set_device(args.local_rank)
