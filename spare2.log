@@ -22475,3 +22475,157 @@ WARNING:megatron.training.elastic_client:[elastic] Rank 59: recovery epoch commi
 WARNING:megatron.training.elastic_client:[elastic] Rank 56: recovery epoch committed after iteration 18
 WARNING:megatron.training.elastic_client:[elastic] Rank 60: recovery epoch committed after iteration 18
 WARNING:megatron.training.elastic_client:[elastic] Rank 63: recovery epoch committed after iteration 18
+des 9 localRanks 8 localRank 2 MNNVL 0
+gpulingjun033163047163:368:5951 [2] NCCL INFO Ring 00 : 59 -> 58 -> 57
+gpulingjun033163047163:368:5951 [2] NCCL INFO Ring 01 : 59 -> 58 -> 57
+gpulingjun033163047163:368:5951 [2] NCCL INFO Trees [0] 59/-1/-1->58->57 [1] 59/-1/-1->58->57
+gpulingjun033163047163:368:5951 [2] NCCL INFO P2P Chunksize set to 131072
+gpulingjun033163047163:368:5951 [2] NCCL INFO Channel 00/0 : 58[2] -> 57[1] via P2P/CUMEM
+gpulingjun033163047163:368:5951 [2] NCCL INFO Channel 01/0 : 58[2] -> 57[1] via P2P/CUMEM
+gpulingjun033163047163:368:5951 [2] NCCL INFO Connected all rings
+gpulingjun033163047163:368:5951 [2] NCCL INFO Channel 00/0 : 58[2] -> 59[3] via P2P/CUMEM
+gpulingjun033163047163:368:5951 [2] NCCL INFO Channel 01/0 : 58[2] -> 59[3] via P2P/CUMEM
+gpulingjun033163047163:368:5951 [2] NCCL INFO Connected all trees
+gpulingjun033163047163:368:5951 [2] NCCL INFO threadThresholds 8/8/64 | 512/8/64 | 512 | 512
+gpulingjun033163047163:368:5951 [2] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+gpulingjun033163047163:368:5951 [2] NCCL INFO ncclCommInitRank comm 0x1c8d5190 rank 58 nranks 64 cudaDev 2 nvmlDev 2 busId a2000 commId 0xd3ba0cb3bca6186a - Init COMPLETE
+[rank58]:[E721 15:08:55.112511372 ProcessGroupNCCL.cpp:629] [Rank 7] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3, OpType=COALESCED, NumelIn=18446744073709551615, NumelOut=18446744073709551615, Timeout(ms)=600000) ran for 600000 milliseconds before timing out.
+es 9 localRanks 8 localRank 3 MNNVL 0
+gpulingjun033163047163:369:5950 [3] NCCL INFO Ring 00 : 60 -> 59 -> 58
+gpulingjun033163047163:369:5950 [3] NCCL INFO Ring 01 : 60 -> 59 -> 58
+gpulingjun033163047163:369:5950 [3] NCCL INFO Trees [0] 60/-1/-1->59->58 [1] 60/-1/-1->59->58
+gpulingjun033163047163:369:5950 [3] NCCL INFO P2P Chunksize set to 131072
+gpulingjun033163047163:369:5950 [3] NCCL INFO Channel 00/0 : 59[3] -> 58[2] via P2P/CUMEM
+gpulingjun033163047163:369:5950 [3] NCCL INFO Channel 01/0 : 59[3] -> 58[2] via P2P/CUMEM
+gpulingjun033163047163:369:5950 [3] NCCL INFO Connected all rings
+gpulingjun033163047163:369:5950 [3] NCCL INFO Channel 00/0 : 59[3] -> 60[4] via P2P/CUMEM
+gpulingjun033163047163:369:5950 [3] NCCL INFO Channel 01/0 : 59[3] -> 60[4] via P2P/CUMEM
+gpulingjun033163047163:369:5950 [3] NCCL INFO Connected all trees
+gpulingjun033163047163:369:5950 [3] NCCL INFO threadThresholds 8/8/64 | 512/8/64 | 512 | 512
+gpulingjun033163047163:369:5950 [3] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+gpulingjun033163047163:369:5950 [3] NCCL INFO ncclCommInitRank comm 0x271bf430 rank 59 nranks 64 cudaDev 3 nvmlDev 3 busId c6000 commId 0xd3ba0cb3bca6186a - Init COMPLETE
+[rank59]:[E721 15:08:55.114533728 ProcessGroupNCCL.cpp:629] [Rank 7] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3, OpType=COALESCED, NumelIn=18446744073709551615, NumelOut=18446744073709551615, Timeout(ms)=600000) ran for 600000 milliseconds before timing out.
+[rank59]:[E721 15:08:55.119023848 ProcessGroupNCCL.cpp:2168] [PG ID 23 PG GUID 162(PIPELINE_MODEL_PARALLEL_GROUP) Rank 7]  failure detected by watchdog at work sequence id: 3 PG status: last enqueued work: 3, last completed work: 1
+[rank59]:[E721 15:08:55.119030983 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[rank59]:[E721 15:08:55.119034243 ProcessGroupNCCL.cpp:681] [Rank 7] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+[rank58]:[E721 15:08:55.119027245 ProcessGroupNCCL.cpp:2168] [PG ID 23 PG GUID 159(PIPELINE_MODEL_PARALLEL_GROUP) Rank 7]  failure detected by watchdog at work sequence id: 3 PG status: last enqueued work: 3, last completed work: 1
+[rank58]:[E721 15:08:55.119041895 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[rank58]:[E721 15:08:55.119046735 ProcessGroupNCCL.cpp:681] [Rank 7] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+33163047163:366:5949 [0] NCCL INFO comm 0x5a84c840 rank 56 nRanks 64 nNodes 9 localRanks 8 localRank 0 MNNVL 0
+gpulingjun033163047163:366:5949 [0] NCCL INFO Tree 0 : 0 -> 56 -> 57/-1/-1
+gpulingjun033163047163:366:5949 [0] NCCL INFO Tree 1 : 48 -> 56 -> 57/-1/-1
+gpulingjun033163047163:366:5949 [0] NCCL INFO Ring 00 : 49 -> 56 -> 63
+gpulingjun033163047163:366:5949 [0] NCCL INFO Ring 01 : 49 -> 56 -> 63
+gpulingjun033163047163:366:5949 [0] NCCL INFO Trees [0] 57/-1/-1->56->0 [1] 57/-1/-1->56->48
+gpulingjun033163047163:366:5949 [0] NCCL INFO P2P Chunksize set to 131072
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 00/0 : 49[1] -> 56[0] [receive] via NET/Socket/0
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 01/0 : 49[1] -> 56[0] [receive] via NET/Socket/0
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 00/0 : 56[0] -> 63[7] via P2P/CUMEM
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 01/0 : 56[0] -> 63[7] via P2P/CUMEM
+gpulingjun033163047163:366:5949 [0] NCCL INFO Connected all rings
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 00/0 : 56[0] -> 57[1] via P2P/CUMEM
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 01/0 : 56[0] -> 57[1] via P2P/CUMEM
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 01/0 : 48[0] -> 56[0] [receive] via NET/Socket/0
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 00/0 : 56[0] -> 0[0] [send] via NET/Socket/0
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 00/0 : 0[0] -> 56[0] [receive] via NET/Socket/0
+gpulingjun033163047163:366:5949 [0] NCCL INFO Channel 01/0 : 56[0] -> 48[0] [send] via NET/Socket/0
+gpulingjun033163047163:366:5949 [0] NCCL INFO Connected all trees
+gpulingjun033163047163:366:5949 [0] NCCL INFO threadThresholds 8/8/64 | 512/8/64 | 512 | 512
+gpulingjun033163047163:366:5949 [0] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+gpulingjun033163047163:366:5949 [0] NCCL INFO ncclCommInitRank comm 0x5a84c840 rank 56 nranks 64 cudaDev 0 nvmlDev 0 busId 8000 commId 0xd3ba0cb3bca6186a - Init COMPLETE
+gpulingjun033163047163:366:366 [0] NCCL INFO 8 Bytes -> Algo 1 proto 0 time 15.000099
+gpulingjun033163047163:366:366 [0] NCCL INFO 192 Bytes -> Algo 1 proto 0 time 15.002383
+[rank56]:[E721 15:08:55.125152037 ProcessGroupNCCL.cpp:629] [Rank 7] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3, OpType=COALESCED, NumelIn=18446744073709551615, NumelOut=18446744073709551615, Timeout(ms)=600000) ran for 600010 milliseconds before timing out.
+[rank56]:[E721 15:08:55.125387202 ProcessGroupNCCL.cpp:2168] [PG ID 23 PG GUID 153(PIPELINE_MODEL_PARALLEL_GROUP) Rank 7]  failure detected by watchdog at work sequence id: 3 PG status: last enqueued work: 3, last completed work: 1
+[rank56]:[E721 15:08:55.125394173 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[rank56]:[E721 15:08:55.125397318 ProcessGroupNCCL.cpp:681] [Rank 7] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+047163:367:5952 [1] NCCL INFO Channel 00/0 : 57[1] -> 58[2] via P2P/CUMEM
+gpulingjun033163047163:367:5952 [1] NCCL INFO Channel 01/0 : 57[1] -> 58[2] via P2P/CUMEM
+gpulingjun033163047163:367:5952 [1] NCCL INFO Channel 00/0 : 57[1] -> 24[0] [send] via NET/Socket/0
+gpulingjun033163047163:367:5952 [1] NCCL INFO Channel 00/0 : 24[0] -> 57[1] [receive] via NET/Socket/0
+gpulingjun033163047163:367:5952 [1] NCCL INFO Channel 00/0 : 57[1] -> 56[0] via P2P/CUMEM
+gpulingjun033163047163:367:5952 [1] NCCL INFO Channel 01/0 : 57[1] -> 56[0] via P2P/CUMEM
+gpulingjun033163047163:367:5952 [1] NCCL INFO Connected all trees
+gpulingjun033163047163:367:5952 [1] NCCL INFO threadThresholds 8/8/64 | 512/8/64 | 512 | 512
+gpulingjun033163047163:367:5952 [1] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+gpulingjun033163047163:367:5952 [1] NCCL INFO ncclCommInitRank comm 0xc14f79b0 rank 57 nranks 64 cudaDev 1 nvmlDev 1 busId 7e000 commId 0xd3ba0cb3bca6186a - Init COMPLETE
+[rank57]:[E721 15:08:55.141831320 ProcessGroupNCCL.cpp:629] [Rank 7] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3, OpType=COALESCED, NumelIn=18446744073709551615, NumelOut=18446744073709551615, Timeout(ms)=600000) ran for 600028 milliseconds before timing out.
+[rank57]:[E721 15:08:55.142043249 ProcessGroupNCCL.cpp:2168] [PG ID 23 PG GUID 156(PIPELINE_MODEL_PARALLEL_GROUP) Rank 7]  failure detected by watchdog at work sequence id: 3 PG status: last enqueued work: 3, last completed work: 1
+[rank57]:[E721 15:08:55.142049987 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[rank57]:[E721 15:08:55.142053424 ProcessGroupNCCL.cpp:681] [Rank 7] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+n 1, crossNic 0, nChannels 1, bw 48.000000/24.000000, type NVL/PHB, sameChannels 1
+gpulingjun033163047163:372:5955 [6] NCCL INFO  0 : NET/0 GPU/56 GPU/57 GPU/58 GPU/59 GPU/60 GPU/61 GPU/62 GPU/63 NET/0
+gpulingjun033163047163:372:5955 [6] NCCL INFO comm 0x205c9810 rank 62 nRanks 64 nNodes 9 localRanks 8 localRank 6 MNNVL 0
+gpulingjun033163047163:372:5955 [6] NCCL INFO Ring 00 : 63 -> 62 -> 61
+gpulingjun033163047163:372:5955 [6] NCCL INFO Ring 01 : 63 -> 62 -> 61
+gpulingjun033163047163:372:5955 [6] NCCL INFO Trees [0] 63/-1/-1->62->61 [1] 63/-1/-1->62->61
+gpulingjun033163047163:372:5955 [6] NCCL INFO P2P Chunksize set to 131072
+gpulingjun033163047163:372:5955 [6] NCCL INFO Channel 00/0 : 62[6] -> 61[5] via P2P/CUMEM
+gpulingjun033163047163:372:5955 [6] NCCL INFO Channel 01/0 : 62[6] -> 61[5] via P2P/CUMEM
+gpulingjun033163047163:372:5955 [6] NCCL INFO Connected all rings
+gpulingjun033163047163:372:5955 [6] NCCL INFO Channel 00/0 : 62[6] -> 63[7] via P2P/CUMEM
+gpulingjun033163047163:372:5955 [6] NCCL INFO Channel 01/0 : 62[6] -> 63[7] via P2P/CUMEM
+gpulingjun033163047163:372:5955 [6] NCCL INFO Connected all trees
+gpulingjun033163047163:372:5955 [6] NCCL INFO threadThresholds 8/8/64 | 512/8/64 | 512 | 512
+gpulingjun033163047163:372:5955 [6] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+gpulingjun033163047163:372:5955 [6] NCCL INFO ncclCommInitRank comm 0x205c9810 rank 62 nranks 64 cudaDev 6 nvmlDev 6 busId 1a3000 commId 0xd3ba0cb3bca6186a - Init COMPLETE
+[rank62]:[E721 15:08:55.142975755 ProcessGroupNCCL.cpp:629] [Rank 7] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3, OpType=COALESCED, NumelIn=18446744073709551615, NumelOut=18446744073709551615, Timeout(ms)=600000) ran for 600029 milliseconds before timing out.
+[rank62]:[E721 15:08:55.143192368 ProcessGroupNCCL.cpp:2168] [PG ID 23 PG GUID 171(PIPELINE_MODEL_PARALLEL_GROUP) Rank 7]  failure detected by watchdog at work sequence id: 3 PG status: last enqueued work: 3, last completed work: 1
+[rank62]:[E721 15:08:55.143198727 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[rank62]:[E721 15:08:55.143207659 ProcessGroupNCCL.cpp:681] [Rank 7] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+, crossNic 0, nChannels 1, bw 48.000000/24.000000, type NVL/PHB, sameChannels 1
+gpulingjun033163047163:370:5954 [4] NCCL INFO  0 : NET/0 GPU/56 GPU/57 GPU/58 GPU/59 GPU/60 GPU/61 GPU/62 GPU/63 NET/0
+gpulingjun033163047163:370:5954 [4] NCCL INFO comm 0xb7a3bf60 rank 60 nRanks 64 nNodes 9 localRanks 8 localRank 4 MNNVL 0
+gpulingjun033163047163:370:5954 [4] NCCL INFO Ring 00 : 61 -> 60 -> 59
+gpulingjun033163047163:370:5954 [4] NCCL INFO Ring 01 : 61 -> 60 -> 59
+gpulingjun033163047163:370:5954 [4] NCCL INFO Trees [0] 61/-1/-1->60->59 [1] 61/-1/-1->60->59
+gpulingjun033163047163:370:5954 [4] NCCL INFO P2P Chunksize set to 131072
+gpulingjun033163047163:370:5954 [4] NCCL INFO Channel 00/0 : 60[4] -> 59[3] via P2P/CUMEM
+gpulingjun033163047163:370:5954 [4] NCCL INFO Channel 01/0 : 60[4] -> 59[3] via P2P/CUMEM
+gpulingjun033163047163:370:5954 [4] NCCL INFO Connected all rings
+gpulingjun033163047163:370:5954 [4] NCCL INFO Channel 00/0 : 60[4] -> 61[5] via P2P/CUMEM
+gpulingjun033163047163:370:5954 [4] NCCL INFO Channel 01/0 : 60[4] -> 61[5] via P2P/CUMEM
+gpulingjun033163047163:370:5954 [4] NCCL INFO Connected all trees
+gpulingjun033163047163:370:5954 [4] NCCL INFO threadThresholds 8/8/64 | 512/8/64 | 512 | 512
+gpulingjun033163047163:370:5954 [4] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+gpulingjun033163047163:370:5954 [4] NCCL INFO ncclCommInitRank comm 0xb7a3bf60 rank 60 nranks 64 cudaDev 4 nvmlDev 4 busId 109000 commId 0xd3ba0cb3bca6186a - Init COMPLETE
+[rank60]:[E721 15:08:55.146581076 ProcessGroupNCCL.cpp:629] [Rank 7] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3, OpType=COALESCED, NumelIn=18446744073709551615, NumelOut=18446744073709551615, Timeout(ms)=600000) ran for 600031 milliseconds before timing out.
+[rank60]:[E721 15:08:55.146790141 ProcessGroupNCCL.cpp:2168] [PG ID 23 PG GUID 165(PIPELINE_MODEL_PARALLEL_GROUP) Rank 7]  failure detected by watchdog at work sequence id: 3 PG status: last enqueued work: 3, last completed work: 1
+[rank60]:[E721 15:08:55.146796762 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[rank60]:[E721 15:08:55.146799641 ProcessGroupNCCL.cpp:681] [Rank 7] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+crossNic 0, nChannels 1, bw 48.000000/24.000000, type NVL/PHB, sameChannels 1
+gpulingjun033163047163:371:5956 [5] NCCL INFO  0 : NET/0 GPU/56 GPU/57 GPU/58 GPU/59 GPU/60 GPU/61 GPU/62 GPU/63 NET/0
+gpulingjun033163047163:371:5956 [5] NCCL INFO comm 0xbd8279c0 rank 61 nRanks 64 nNodes 9 localRanks 8 localRank 5 MNNVL 0
+gpulingjun033163047163:371:5956 [5] NCCL INFO Ring 00 : 62 -> 61 -> 60
+gpulingjun033163047163:371:5956 [5] NCCL INFO Ring 01 : 62 -> 61 -> 60
+gpulingjun033163047163:371:5956 [5] NCCL INFO Trees [0] 62/-1/-1->61->60 [1] 62/-1/-1->61->60
+gpulingjun033163047163:371:5956 [5] NCCL INFO P2P Chunksize set to 131072
+gpulingjun033163047163:371:5956 [5] NCCL INFO Channel 00/0 : 61[5] -> 60[4] via P2P/CUMEM
+gpulingjun033163047163:371:5956 [5] NCCL INFO Channel 01/0 : 61[5] -> 60[4] via P2P/CUMEM
+gpulingjun033163047163:371:5956 [5] NCCL INFO Connected all rings
+gpulingjun033163047163:371:5956 [5] NCCL INFO Channel 00/0 : 61[5] -> 62[6] via P2P/CUMEM
+gpulingjun033163047163:371:5956 [5] NCCL INFO Channel 01/0 : 61[5] -> 62[6] via P2P/CUMEM
+gpulingjun033163047163:371:5956 [5] NCCL INFO Connected all trees
+gpulingjun033163047163:371:5956 [5] NCCL INFO threadThresholds 8/8/64 | 512/8/64 | 512 | 512
+gpulingjun033163047163:371:5956 [5] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+gpulingjun033163047163:371:5956 [5] NCCL INFO ncclCommInitRank comm 0xbd8279c0 rank 61 nranks 64 cudaDev 5 nvmlDev 5 busId 17f000 commId 0xd3ba0cb3bca6186a - Init COMPLETE
+[rank61]:[E721 15:08:55.168532500 ProcessGroupNCCL.cpp:629] [Rank 7] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3, OpType=COALESCED, NumelIn=18446744073709551615, NumelOut=18446744073709551615, Timeout(ms)=600000) ran for 600056 milliseconds before timing out.
+[rank61]:[E721 15:08:55.168723631 ProcessGroupNCCL.cpp:2168] [PG ID 23 PG GUID 168(PIPELINE_MODEL_PARALLEL_GROUP) Rank 7]  failure detected by watchdog at work sequence id: 3 PG status: last enqueued work: 3, last completed work: 1
+[rank61]:[E721 15:08:55.168729996 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[rank61]:[E721 15:08:55.168735010 ProcessGroupNCCL.cpp:681] [Rank 7] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+63047163:373:5953 [7] NCCL INFO comm 0xb7b06ec0 rank 63 nRanks 64 nNodes 9 localRanks 8 localRank 7 MNNVL 0
+gpulingjun033163047163:373:5953 [7] NCCL INFO Ring 00 : 56 -> 63 -> 62
+gpulingjun033163047163:373:5953 [7] NCCL INFO Ring 01 : 56 -> 63 -> 62
+gpulingjun033163047163:373:5953 [7] NCCL INFO Trees [0] -1/-1/-1->63->62 [1] -1/-1/-1->63->62
+gpulingjun033163047163:373:5953 [7] NCCL INFO P2P Chunksize set to 131072
+gpulingjun033163047163:373:5953 [7] NCCL INFO Channel 00/0 : 63[7] -> 62[6] via P2P/CUMEM
+gpulingjun033163047163:373:5953 [7] NCCL INFO Channel 01/0 : 63[7] -> 62[6] via P2P/CUMEM
+gpulingjun033163047163:373:5953 [7] NCCL INFO Connected all rings
+gpulingjun033163047163:373:5953 [7] NCCL INFO Connected all trees
+gpulingjun033163047163:373:5953 [7] NCCL INFO threadThresholds 8/8/64 | 512/8/64 | 512 | 512
+gpulingjun033163047163:373:5953 [7] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 1 p2p channels per peer
+gpulingjun033163047163:373:5953 [7] NCCL INFO ncclCommInitRank comm 0xb7b06ec0 rank 63 nranks 64 cudaDev 7 nvmlDev 7 busId 1c7000 commId 0xd3ba0cb3bca6186a - Init COMPLETE
+[rank63]:[E721 15:08:55.186242786 ProcessGroupNCCL.cpp:629] [Rank 7] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3, OpType=COALESCED, NumelIn=18446744073709551615, NumelOut=18446744073709551615, Timeout(ms)=600000) ran for 600070 milliseconds before timing out.
+[rank63]:[E721 15:08:55.186439946 ProcessGroupNCCL.cpp:2168] [PG ID 23 PG GUID 174(PIPELINE_MODEL_PARALLEL_GROUP) Rank 7]  failure detected by watchdog at work sequence id: 3 PG status: last enqueued work: 3, last completed work: 1
+[rank63]:[E721 15:08:55.186446086 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[rank63]:[E721 15:08:55.186448877 ProcessGroupNCCL.cpp:681] [Rank 7] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.

@@ -220,6 +220,53 @@ def test_ordinal_barrier_rejects_different_c10d_generations():
             assert second.result()[-1] is False
 
 
+def test_ordinal_barrier_rejects_different_rerun_state_contracts():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        base = {
+            "group_desc": "RERUN_STATE_MACHINE",
+            "group_backend": "control_plane",
+            "group_size": 2,
+            "group_ranks": [0, 1],
+            "barrier_stage": "pre_stabilization_recovered_step",
+        }
+        canonical = {
+            "mode": "validate_results",
+            "state": 0,
+            "state_name": "NOT_RUNNING_YET",
+            "current_iteration": 19,
+        }
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(
+                watcher._wait_for_ordinal_barrier,
+                "rerun-state-19",
+                0,
+                2,
+                1.0,
+                {**base, "state_contract": canonical},
+            )
+            time.sleep(0.01)
+            second = executor.submit(
+                watcher._wait_for_ordinal_barrier,
+                "rerun-state-19",
+                1,
+                2,
+                1.0,
+                {
+                    **base,
+                    "state_contract": {
+                        **canonical,
+                        "state": 1,
+                        "state_name": "INITIAL_RUN",
+                    },
+                },
+            )
+
+            assert first.result()[-1] is False
+            assert second.result()[-1] is False
+
+
 def test_ordinal_barrier_stall_fail_fast_is_disabled_by_default():
     with tempfile.TemporaryDirectory() as fault_dir:
         watcher = ElasticWatcher(_args(fault_dir))
@@ -538,6 +585,62 @@ def test_recovery_contract_is_committed_at_train_loop_boundary():
         < checkpoint_call
         < recovery_commit
     )
+
+
+def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
+    root = Path(__file__).parents[1]
+    rerun_path = (
+        root
+        / "Megatron-LM"
+        / "megatron"
+        / "core"
+        / "rerun_state_machine.py"
+    )
+    elastic_client_path = (
+        root
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    rerun_source = rerun_path.read_text()
+    rerun_tree = ast.parse(rerun_source)
+    rerun_class = next(
+        node
+        for node in rerun_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "RerunStateMachine"
+    )
+    reset_node = next(
+        node
+        for node in rerun_class.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "reset_after_external_recovery"
+    )
+    reset_source = ast.get_source_segment(rerun_source, reset_node)
+    assert "self.state = RerunState.NOT_RUNNING_YET" in reset_source
+    assert "self.current_iteration = int(current_iteration)" in reset_source
+    assert "self.rerun_requested = False" in reset_source
+    assert "self.data_iterator_checkpoints = None" in reset_source
+    assert '"first_iteration_complete": self.first_iteration_complete' in reset_source
+
+    elastic_source = elastic_client_path.read_text()
+    assert elastic_source.count("_elastic_reset_rerun_state_machine(") == 3
+    assert 'elastic_report_recovery_phase("rerun_state_reset"' in elastic_source
+    assert 'group_desc="RERUN_STATE_MACHINE"' in elastic_source
+    assert "state_contract=canonical" in elastic_source
+    assert "_elastic_validate_rerun_state_machine(iteration" in elastic_source
+    assert 'state_contract=local' in elastic_source
+    assert _PHASE_ORDER["state_contract_ready"] < _PHASE_ORDER["rerun_state_reset"]
+    assert _PHASE_ORDER["rerun_state_reset"] < _PHASE_ORDER["train_ready"]
+    assert _PHASE_ORDER["post_rebuild_iteration_ready"] < _PHASE_ORDER[
+        "rerun_state_contract_start"
+    ]
+    assert _PHASE_ORDER["rerun_state_contract_ready"] < _PHASE_ORDER[
+        "forward_backward_start"
+    ]
+    assert _PHASE_ORDER["post_rebuild_stabilization_ready"] < _PHASE_ORDER[
+        "stabilization_rerun_state_contract_start"
+    ]
 
 
 def test_post_rebuild_commit_requires_a_stabilization_iteration():

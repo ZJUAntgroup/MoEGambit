@@ -72,6 +72,9 @@ _POST_REBUILD_STATE_ENV = (
 )
 
 _POST_REBUILD_STABILIZATION_PHASES = {
+    "rerun_state_contract_start",
+    "rerun_state_contract_ready",
+    "rerun_state_contract_error",
     "iteration_prologue_start",
     "iteration_prologue_done",
     "iteration_safe_point_start",
@@ -842,6 +845,7 @@ def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
             f"[elastic] Not all {world_size} ranks reached {phase} "
             f"before first post-rebuild train step within {timeout}s"
         )
+    _elastic_validate_rerun_state_machine(iteration, stabilization=stabilization)
 
     os.environ["ELASTIC_POST_REBUILD_PENDING"] = "0"
     os.environ["ELASTIC_POST_REBUILD_TRACE_ACTIVE"] = "1"
@@ -2886,6 +2890,120 @@ def elastic_align_resume_state(args, opt_param_scheduler, resume_iteration):
     return resume_iteration
 
 
+def _elastic_reset_rerun_state_machine(resume_iteration: int):
+    """Make Megatron's local rerun FSM part of the recovery state contract."""
+    from megatron.core.rerun_state_machine import get_rerun_state_machine
+
+    try:
+        resume_iteration = int(resume_iteration)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"[elastic] invalid rerun-state recovery iteration: {resume_iteration!r}"
+        ) from exc
+    if resume_iteration < 0:
+        raise RuntimeError(
+            f"[elastic] invalid rerun-state recovery iteration: {resume_iteration}"
+        )
+
+    machine = get_rerun_state_machine()
+    summary = machine.reset_after_external_recovery(resume_iteration)
+    elastic_report_recovery_phase("rerun_state_reset", rerun_state=summary)
+    if dist.is_available() and dist.is_initialized():
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        logger.warning(
+            "[elastic] Rank %d: reset rerun state after external recovery: %s",
+            rank,
+            summary,
+        )
+        epoch = os.environ.get("ELASTIC_RECOVERY_EPOCH", "0")
+        canonical = {
+            key: summary[key]
+            for key in (
+                "mode",
+                "state",
+                "current_iteration",
+                "first_iteration_complete",
+            )
+        }
+        if not elastic_wait_for_ordinal_barrier(
+            f"rerun_state_reset:{epoch}:{resume_iteration}",
+            rank,
+            world_size,
+            _elastic_phase_timeout_seconds(),
+            group_desc="RERUN_STATE_MACHINE",
+            group_backend="control_plane",
+            group_size=world_size,
+            group_ranks=list(range(world_size)),
+            barrier_stage="post_rebuild_reset",
+            state_contract=canonical,
+        ):
+            raise RuntimeError(
+                "[elastic] rerun-state recovery contract did not match across "
+                f"{world_size} ranks: local={canonical}"
+            )
+    return summary
+
+
+def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool):
+    """Verify the local rerun FSM contract before a recovered train step."""
+    from megatron.core.rerun_state_machine import RerunState, get_rerun_state_machine
+
+    machine = get_rerun_state_machine()
+    local = {
+        "mode": machine.mode.value,
+        "state": machine.state.value,
+        "state_name": machine.state.name,
+        "current_iteration": machine.current_iteration,
+        "first_iteration_complete": machine.first_iteration_complete,
+        "rerun_requested": machine.rerun_requested,
+        "checkpoint_requested": machine.checkpoint_requested,
+        "restart_again_requested": machine.restart_again_requested,
+        "continue_requested": machine.continue_requested,
+    }
+    expected = (
+        machine.state == RerunState.NOT_RUNNING_YET
+        and machine.current_iteration == int(iteration)
+        and not machine.rerun_requested
+        and not machine.checkpoint_requested
+        and not machine.restart_again_requested
+        and not machine.continue_requested
+    )
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    epoch = os.environ.get("ELASTIC_RECOVERY_EPOCH", "0")
+    stage = "stabilization" if stabilization else "first"
+    elastic_report_recovery_phase(
+        "rerun_state_contract_start", rerun_state=local, contract_ok=expected
+    )
+    matched = elastic_wait_for_ordinal_barrier(
+        f"rerun_state_pre_step:{epoch}:{iteration}:{stage}",
+        rank,
+        world_size,
+        _elastic_phase_timeout_seconds(),
+        group_desc="RERUN_STATE_MACHINE",
+        group_backend="control_plane",
+        group_size=world_size,
+        group_ranks=list(range(world_size)),
+        barrier_stage=f"pre_{stage}_recovered_step",
+        state_contract=local,
+    )
+    if not matched or not expected:
+        elastic_report_recovery_phase(
+            "rerun_state_contract_error",
+            rerun_state=local,
+            manifest_matched=matched,
+            contract_ok=expected,
+        )
+        raise RuntimeError(
+            "[elastic] rerun-state contract invalid before recovered train step: "
+            f"stage={stage} manifest_matched={matched} local={local}"
+        )
+    elastic_report_recovery_phase(
+        "rerun_state_contract_ready", rerun_state=local, contract_ok=True
+    )
+
+
 def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     """Execute the full group rebuild sequence.
 
@@ -3123,6 +3241,7 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     elastic_report_recovery_phase("param_sync_start")
     _sync_params_to_new_rank(model, optimizer, replacement_rank=killed_global_rank)
     elastic_report_recovery_phase("param_sync_done")
+    _elastic_reset_rerun_state_machine(resume_iteration)
 
     # Step 5: Barrier to ensure all ranks are ready.  Ranks outside the
     # replacement DP group can finish immediately; keep them out of the NCCL
@@ -3237,6 +3356,7 @@ def elastic_replacement_sync_params(model, optimizer, opt_param_scheduler=None):
         aligned_iteration=aligned_iteration,
         two_phase_enabled=os.environ.get("ELASTIC_TWO_PHASE_RECOVERY", "0") == "1",
     )
+    _elastic_reset_rerun_state_machine(aligned_iteration)
     phase_timeout = _elastic_phase_timeout_seconds()
     _elastic_warmup_rebuild_communicators(replacement_rank, phase_timeout)
     _elastic_rebuild_final_barrier()

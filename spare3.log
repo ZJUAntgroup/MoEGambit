@@ -4801,3 +4801,7 @@ nohup: ignoring input
 [watcher 14:58:55] INFO: Recovery phase: role=survivor rank=33 node=4 step=18 phase=post_rebuild_commit_ready
 [watcher 14:58:55] INFO: [spare-standby] WARNING:megatron.training.elastic_client:[elastic] Rank 1: recovery epoch committed after iteration 18
 [watcher 14:58:55] INFO: Committed hybrid staleness debt: epoch=1 step=18 gap=8 affected_experts=16 debt=128
+[watcher 15:08:55] INFO: [spare-standby] [rank1]:[E721 15:08:55.914634655 ProcessGroupNCCL.cpp:629] [Rank 1] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=5, OpType=ALLREDUCE, NumelIn=1, NumelOut=1, Timeout(ms)=600000) ran for 600039 milliseconds before timing out.
+[watcher 15:08:55] INFO: [spare-standby] [rank1]:[E721 15:08:55.925128660 ProcessGroupNCCL.cpp:2168] [PG ID 0 PG GUID 0(default_pg) Rank 1]  failure detected by watchdog at work sequence id: 5 PG status: last enqueued work: 5, last completed work: 4
+[watcher 15:08:55] INFO: [spare-standby] [rank1]:[E721 15:08:55.925150205 ProcessGroupNCCL.cpp:667] Stack trace of the failed collective not found, potentially because FlightRecorder is disabled. You can enable it by setting TORCH_NCCL_TRACE_BUFFER_SIZE to a non-zero value.
+[watcher 15:08:55] INFO: [spare-standby] [rank1]:[E721 15:08:55.925155948 ProcessGroupNCCL.cpp:681] [Rank 1] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
