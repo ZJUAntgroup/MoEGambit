@@ -224,6 +224,26 @@ def test_hotspare_fail_fast_is_terminal_and_cannot_relaunch():
     assert "HOTSPARE_MAX_RETRIES=0" in script
 
 
+def test_post_rebuild_communicators_follow_the_real_training_order():
+    root = Path(__file__).parents[1]
+    sources = (
+        (root / "test_hotspare_replace.sh").read_text(),
+        (root / "run_spare_single_rank.sh").read_text(),
+        (root / "elastic_watcher.py").read_text(),
+        (root / "Megatron-LM/megatron/training/training.py").read_text(),
+        (root / "Megatron-LM/megatron/training/elastic_client.py").read_text(),
+        (
+            root
+            / "Megatron-LM/megatron/core/transformer/moe/token_dispatcher.py"
+        ).read_text(),
+    )
+
+    for source in sources:
+        assert "ELASTIC_POST_REBUILD_COMM_WARMUP" not in source
+        assert "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP" not in source
+        assert "elastic_warmup_post_rebuild_communicators" not in source
+
+
 def test_active_attempt_heartbeats_are_ignored_during_fallback_shutdown():
     with tempfile.TemporaryDirectory() as fault_dir:
         watcher = ElasticWatcher(_args(fault_dir))
@@ -540,7 +560,7 @@ def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():
         "post_rebuild_step_complete"
     ]
     assert _PHASE_ORDER["post_rebuild_step_complete"] < _PHASE_ORDER[
-        "post_rebuild_stabilization_pending"
+        "post_rebuild_stabilization_ready"
     ]
     assert _PHASE_ORDER["post_rebuild_stabilization_ready"] < _PHASE_ORDER[
         "stabilization_iteration_prologue_start"
@@ -549,9 +569,6 @@ def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():
         "stabilization_optimizer_step_start"
     ]
     assert _PHASE_ORDER["stabilization_checkpoint_exit_done"] < _PHASE_ORDER[
-        "post_rebuild_stabilization_complete"
-    ]
-    assert _PHASE_ORDER["post_rebuild_stabilization_complete"] < _PHASE_ORDER[
         "post_rebuild_commit_ready"
     ]
 
@@ -783,7 +800,7 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     assert contract(11, 0, True) != contract(11, 10, True)
 
 
-def test_post_rebuild_commit_requires_a_stabilization_iteration():
+def test_post_rebuild_commit_uses_one_barrier_per_iteration():
     elastic_client_path = (
         Path(__file__).parents[1]
         / "Megatron-LM"
@@ -807,18 +824,12 @@ def test_post_rebuild_commit_requires_a_stabilization_iteration():
     first_completed_wait = commit_source.index(
         "elastic_wait_for_recovery_phase_count(completed_phase"
     )
-    stabilization_pending = commit_source.index(
-        "elastic_report_recovery_phase(stabilization_phase", first_completed_wait
-    )
     stabilization_state = commit_source.index(
         'os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_stabilization_pending"',
-        stabilization_pending,
-    )
-    stabilization_complete = commit_source.index(
-        'completed_phase = "post_rebuild_stabilization_complete"', stabilization_state
+        first_completed_wait,
     )
     ready_report = commit_source.index(
-        "elastic_report_recovery_phase(commit_phase", stabilization_complete
+        "elastic_report_recovery_phase(commit_phase", stabilization_state
     )
     ready_wait = commit_source.index(
         "elastic_wait_for_recovery_phase_count(commit_phase"
@@ -827,13 +838,13 @@ def test_post_rebuild_commit_requires_a_stabilization_iteration():
     assert (
         first_completed_report
         < first_completed_wait
-        < stabilization_pending
         < stabilization_state
-        < stabilization_complete
         < ready_report
         < ready_wait
         < trace_clear
     )
+    assert "elastic_report_recovery_phase(stabilization_phase" not in commit_source
+    assert 'completed_phase = "post_rebuild_stabilization_complete"' not in commit_source
 
     validator_node = next(
         node
@@ -849,6 +860,70 @@ def test_post_rebuild_commit_requires_a_stabilization_iteration():
         "elastic_wait_for_recovery_phase_count(\n        ready_phase"
     )
     assert effective_phase < phase_wait
+
+
+def test_moe_first_collective_fail_fast_is_one_shot_per_recovery_step():
+    dispatcher_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "core"
+        / "transformer"
+        / "moe"
+        / "token_dispatcher.py"
+    )
+    source = dispatcher_path.read_text()
+    tree = ast.parse(source)
+    dispatcher = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "MoETokenDispatcher"
+    )
+    gather_node = next(
+        node
+        for node in dispatcher.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_elastic_gather_first_dim_ready_aligned"
+    )
+    gather_source = ast.get_source_segment(source, gather_node)
+
+    fast_path = gather_source.index(
+        "if check_key in _ELASTIC_MOE_FIRST_COLLECTIVE_CHECKS"
+    )
+    stream_sync = gather_source.index("torch.cuda.current_stream().synchronize()")
+    fail_fast = gather_source.index("_elastic_gather_first_dim_fail_fast(")
+    mark_checked = gather_source.index(
+        "_ELASTIC_MOE_FIRST_COLLECTIVE_CHECKS.add(check_key)"
+    )
+    assert fast_path < stream_sync < fail_fast < mark_checked
+
+
+def test_post_rebuild_detail_trace_uses_node_representatives():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    source = elastic_client_path.read_text()
+    tree = ast.parse(source)
+    trace_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "elastic_trace_post_rebuild_phase"
+    )
+    trace_source = ast.get_source_segment(source, trace_node)
+
+    first_step_validation = trace_source.index(
+        'os.environ.get("ELASTIC_RECOVERY_STATE") == "post_rebuild_trace"'
+    )
+    representative_guard = trace_source.index(
+        "if local_rank != 0 and not is_rebuild_mode()"
+    )
+    report = trace_source.index("elastic_report_recovery_phase(phase")
+    assert first_step_validation < representative_guard < report
 
 
 def test_pipeline_p2p_diagnostics_are_recovery_gated_and_non_blocking():

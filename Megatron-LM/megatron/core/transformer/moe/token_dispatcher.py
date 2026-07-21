@@ -39,7 +39,7 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 logger = logging.getLogger(__name__)
 
 _ELASTIC_MOE_FIRST_COLLECTIVE_BARRIERS = set()
-_ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS = set()
+_ELASTIC_MOE_FIRST_COLLECTIVE_CHECKS = set()
 _ELASTIC_MOE_FIRST_COLLECTIVE_STORES = set()
 
 """ We use the following notation throughout this file:
@@ -466,46 +466,6 @@ class MoETokenDispatcher:
             name,
             ranks,
         )
-        MoETokenDispatcher._elastic_warm_first_collective(name, group, ranks, replacement_rank)
-
-    @staticmethod
-    def _elastic_warm_first_collective(name: str, group, ranks, replacement_rank: int):
-        """Run one tiny same-order collective before the first real MoE collective."""
-        if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP", "0") == "0":
-            return
-        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
-        warmup_key = (token, name, tuple(ranks), replacement_rank)
-        if warmup_key in _ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS:
-            return
-
-        rank = torch.distributed.get_rank()
-        world_size = len(ranks)
-        device = torch.device("cuda", torch.cuda.current_device())
-        warmup_input = torch.zeros(1, dtype=torch.int64, device=device)
-        warmup_output = torch.empty(world_size, dtype=torch.int64, device=device)
-        logger.warning(
-            "[elastic] Rank %d: warming first MoE %s collective ranks=%s",
-            rank,
-            name,
-            ranks,
-        )
-        try:
-            if hasattr(torch.distributed, "all_gather_into_tensor"):
-                torch.distributed.all_gather_into_tensor(warmup_output, warmup_input, group=group)
-            else:
-                torch.distributed._all_gather_base(warmup_output, warmup_input, group=group)
-        except Exception as exc:
-            raise RuntimeError(
-                f"[elastic] failed warming first MoE {name} collective "
-                f"rank={rank} ranks={ranks}: {exc}"
-            ) from exc
-        _ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS.add(warmup_key)
-        logger.warning(
-            "[elastic] Rank %d: warmed first MoE %s collective ranks=%s",
-            rank,
-            name,
-            ranks,
-        )
 
     @staticmethod
     def _elastic_first_collective_timeout() -> float:
@@ -650,21 +610,33 @@ class MoETokenDispatcher:
 
     @staticmethod
     def _elastic_gather_first_dim_ready_aligned(input_: torch.Tensor, group, name: str):
-        """Prepare CUDA tensors before releasing peers into lazy NCCL bootstrap."""
+        """Fail fast once, then use the normal collective for later MoE layers."""
         world_size = group.size()
         if world_size == 1:
             return input_
 
+        ranks = MoETokenDispatcher._elastic_group_ranks(group)
+        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
+        replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
+        check_key = (token, name, tuple(ranks or ()), replacement_rank)
         dim_size = list(input_.size())
         dim_size[0] *= world_size
         output = torch.empty(dim_size, dtype=input_.dtype, device=input_.device)
         contiguous_input = input_.contiguous()
+        gather_fn = (
+            torch.distributed.all_gather_into_tensor
+            if hasattr(torch.distributed, "all_gather_into_tensor")
+            else torch.distributed._all_gather_base
+        )
+
+        if check_key in _ELASTIC_MOE_FIRST_COLLECTIVE_CHECKS:
+            gather_fn(output, contiguous_input, group=group)
+            return output
 
         # The old barrier ran before these CUDA operations.  A fresh replacement
         # could consequently enter store->get while rank zero was still blocked
         # in allocator/stream work and had not published the NCCL unique ID.
         torch.cuda.current_stream().synchronize()
-        ranks = MoETokenDispatcher._elastic_group_ranks(group)
         rank = torch.distributed.get_rank()
         contract = MoETokenDispatcher._elastic_process_group_contract(group)
         MoETokenDispatcher._elastic_report_recovery_phase(
@@ -690,17 +662,15 @@ class MoETokenDispatcher:
         )
 
         if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST", "0") != "0":
-            return MoETokenDispatcher._elastic_gather_first_dim_fail_fast(
+            result = MoETokenDispatcher._elastic_gather_first_dim_fail_fast(
                 contiguous_input, group, name, output=output
             )
+        else:
+            gather_fn(output, contiguous_input, group=group)
+            result = output
 
-        gather_fn = (
-            torch.distributed.all_gather_into_tensor
-            if hasattr(torch.distributed, "all_gather_into_tensor")
-            else torch.distributed._all_gather_base
-        )
-        gather_fn(output, contiguous_input, group=group)
-        return output
+        _ELASTIC_MOE_FIRST_COLLECTIVE_CHECKS.add(check_key)
+        return result
 
 
 class MoEAllGatherTokenDispatcher(MoETokenDispatcher):

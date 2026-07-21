@@ -99,7 +99,6 @@ from megatron.training.elastic_client import (
     elastic_replacement_sync_params,
     elastic_report_recovery_phase,
     elastic_post_rebuild_iteration_barrier,
-    elastic_warmup_post_rebuild_communicators,
     elastic_trace_post_rebuild_phase,
     elastic_clear_post_rebuild_trace,
     elastic_commit_post_rebuild_iteration,
@@ -2597,7 +2596,6 @@ def train(
         moegambit_before_iteration(iteration)
         elastic_trace_post_rebuild_phase("moegambit_before_iteration_done", iteration)
         elastic_post_rebuild_iteration_barrier(iteration)
-        elastic_warmup_post_rebuild_communicators(iteration)
 
         # MOEGAMBIT-MoE: if a checkpoint restart was executed during safe-point
         # repair, the failed rank's weights have been restored from the

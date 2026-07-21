@@ -103,10 +103,6 @@ _PHASE_ORDER = {
     "rerun_state_contract_start": 111,
     "rerun_state_contract_ready": 112,
     "rerun_state_contract_error": 113,
-    "post_rebuild_comm_warmup_start": 114,
-    "post_rebuild_comm_warmup_done": 116,
-    "post_rebuild_moe_comm_warmup_start": 114,
-    "post_rebuild_moe_comm_warmup_done": 116,
     "forward_backward_start": 120,
     "moe_first_collective_start": 122,
     "moe_first_collective_done": 124,
@@ -126,7 +122,6 @@ _PHASE_ORDER = {
     "checkpoint_exit_start": 210,
     "checkpoint_exit_done": 220,
     "post_rebuild_step_complete": 230,
-    "post_rebuild_stabilization_pending": 240,
     "post_rebuild_stabilization_ready": 250,
     "stabilization_rerun_state_contract_start": 252,
     "stabilization_rerun_state_contract_ready": 254,
@@ -160,7 +155,6 @@ _PHASE_ORDER = {
     "stabilization_post_step_callbacks_done": 400,
     "stabilization_checkpoint_exit_start": 410,
     "stabilization_checkpoint_exit_done": 420,
-    "post_rebuild_stabilization_complete": 430,
     "post_rebuild_commit_ready": 440,
 }
 
@@ -2115,7 +2109,6 @@ class ElasticWatcher:
                         "checkpoint_exit_start",
                         "checkpoint_exit_done",
                         "post_rebuild_step_complete",
-                        "post_rebuild_stabilization_pending",
                         "post_rebuild_stabilization_ready",
                         "stabilization_rerun_state_contract_start",
                         "stabilization_rerun_state_contract_ready",
@@ -2138,7 +2131,6 @@ class ElasticWatcher:
                         "stabilization_post_step_callbacks_done",
                         "stabilization_checkpoint_exit_start",
                         "stabilization_checkpoint_exit_done",
-                        "post_rebuild_stabilization_complete",
                         "post_rebuild_commit_ready",
                     ],
                     "debt_commit_point": "post_rebuild_commit_ready",
@@ -2871,17 +2863,9 @@ class ElasticWatcher:
             "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
             "0",
         )
-        env["ELASTIC_POST_REBUILD_COMM_WARMUP"] = os.environ.get(
-            "ELASTIC_POST_REBUILD_COMM_WARMUP",
-            "0",
-        )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
             "1",
-        )
-        env["ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP"] = os.environ.get(
-            "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",
-            "0",
         )
         env["ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST"] = os.environ.get(
             "ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST",
@@ -3007,9 +2991,7 @@ class ElasticWatcher:
                 "ELASTIC_MPU_GROUP_ORDINAL_TIMEOUT_SECONDS",
                 "ELASTIC_INIT_PG_DEVICE_ID",
                 "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
-                "ELASTIC_POST_REBUILD_COMM_WARMUP",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER",
-                "ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT",
                 "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TIMEOUT",

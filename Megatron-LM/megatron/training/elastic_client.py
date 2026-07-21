@@ -67,7 +67,6 @@ _POST_REBUILD_STATE_ENV = (
     "ELASTIC_POST_REBUILD_TRACE_ACTIVE",
     "ELASTIC_POST_REBUILD_TRACE_TOKEN",
     "ELASTIC_POST_REBUILD_TRACE_ITERATION",
-    "ELASTIC_POST_REBUILD_COMM_WARMUP_DONE",
     "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN",
 )
 
@@ -874,181 +873,24 @@ def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
     return True
 
 
-def _elastic_replacement_rank_from_env() -> int:
-    try:
-        return int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
-    except ValueError:
-        return -1
-
-
-def _elastic_group_ranks(group):
-    try:
-        return tuple(dist.get_process_group_ranks(group))
-    except Exception:
-        return None
-
-
-def _elastic_replacement_warmup_groups(replacement_rank: int):
-    """Return rebuilt first-step communicators that include the replacement rank."""
-    if replacement_rank < 0:
-        return []
-
-    from megatron.core import parallel_state as mpu
-
-    candidates = (
-        ("tp_ep", "collective", lambda: mpu.get_expert_tensor_and_model_parallel_group(
-            check_initialized=False
-        )),
-        ("ep", "collective", lambda: mpu.get_expert_model_parallel_group(check_initialized=False)),
-        ("pipeline", "p2p", lambda: mpu.get_pipeline_model_parallel_group(
-            check_initialized=False
-        )),
-        ("dp", "collective", lambda: mpu.get_data_parallel_group(with_context_parallel=False)),
-        ("dp_cp", "collective", lambda: mpu.get_data_parallel_group(with_context_parallel=True)),
-        (
-            "tensor_data",
-            "collective",
-            lambda: mpu.get_tensor_and_data_parallel_group(check_initialized=False),
-        ),
-        (
-            "tensor_data_cp",
-            "collective",
-            lambda: mpu.get_tensor_and_data_parallel_group(
-                check_initialized=False, with_context_parallel=True
-            ),
-        ),
-        ("embedding", "collective", lambda: mpu.get_embedding_group(check_initialized=False)),
-        (
-            "position_embedding",
-            "collective",
-            lambda: mpu.get_position_embedding_group(check_initialized=False),
-        ),
-    )
-    selected_env = os.environ.get("ELASTIC_POST_REBUILD_WARMUP_GROUPS")
-    selected = None
-    if selected_env:
-        selected = {name.strip() for name in selected_env.split(",") if name.strip()}
-    rank = dist.get_rank()
-    groups = []
-    seen = set()
-    for name, kind, getter in candidates:
-        if selected is not None and name not in selected:
-            continue
-        try:
-            group = getter()
-        except Exception as exc:
-            logger.debug("[elastic] post-rebuild communicator warmup: %s unavailable: %s", name, exc)
-            continue
-        if group is None:
-            continue
-        ranks = _elastic_group_ranks(group)
-        if ranks is None or len(ranks) <= 1:
-            continue
-        if rank not in ranks or replacement_rank not in ranks:
-            continue
-        key = id(group)
-        if key in seen:
-            continue
-        seen.add(key)
-        groups.append((name, kind, ranks, group))
-    return groups
-
-
-def elastic_warmup_post_rebuild_communicators(iteration: int) -> bool:
-    """Optionally warm replacement-facing communicators before the first real forward.
-
-    Keep this opt-in.  Megatron normally creates communicators lazily in the
-    exact order used by forward/backward.  Probing replacement-facing groups at
-    recovery time can introduce a new order that does not match all ranks
-    (for example pipeline P2P vs embedding/model collectives), so the default
-    is to rely on the aligned first train step to initialize them naturally.
-    """
-    if not elastic_is_post_rebuild_trace_active(iteration):
-        return False
-    if os.environ.get("ELASTIC_POST_REBUILD_COMM_WARMUP_DONE") == "1":
-        return False
-    if os.environ.get("ELASTIC_POST_REBUILD_COMM_WARMUP", "0") == "0":
-        os.environ["ELASTIC_POST_REBUILD_COMM_WARMUP_DONE"] = "1"
-        if dist.is_available() and dist.is_initialized():
-            logger.warning(
-                "[elastic] Rank %d: skipping post-rebuild communicator warmup; "
-                "using Megatron's lazy first-step communicator order",
-                dist.get_rank(),
-            )
-        return False
-    if not dist.is_available() or not dist.is_initialized() or not torch.cuda.is_available():
-        return False
-
-    replacement_rank = _elastic_replacement_rank_from_env()
-    world_size = dist.get_world_size()
-    timeout = _elastic_phase_timeout_seconds()
-    group_timeout = float(
-        os.environ.get(
-            "ELASTIC_POST_REBUILD_COMM_WARMUP_TIMEOUT",
-            os.environ.get("ELASTIC_REBUILD_WARMUP_GROUP_TIMEOUT", str(min(timeout, 60.0))),
-        )
-    )
-    start_phase = "post_rebuild_comm_warmup_start"
-    done_phase = "post_rebuild_comm_warmup_done"
-
-    elastic_report_recovery_phase(start_phase, step=iteration, replacement_rank=replacement_rank)
-    if not elastic_wait_for_recovery_phase_count(start_phase, world_size, timeout):
-        raise RuntimeError(
-            f"[elastic] Not all {world_size} ranks reached {start_phase} "
-            f"within {timeout}s"
-        )
-
-    groups = _elastic_replacement_warmup_groups(replacement_rank)
-    rank = dist.get_rank()
-    if groups:
-        warmup = torch.ones(1, device=torch.cuda.current_device())
-        for name, kind, ranks, group in groups:
-            logger.warning(
-                "[elastic] Rank %d: warming post-rebuild communicator %s ranks=%s",
-                rank,
-                name,
-                list(ranks),
-            )
-            if kind == "p2p":
-                _elastic_warmup_pipeline_p2p(group, ranks, group_timeout)
-            else:
-                work = dist.all_reduce(warmup, group=group, async_op=True)
-                _elastic_wait_distributed_works(
-                    [work],
-                    group_timeout,
-                    f"post-rebuild-comm-warmup rank={rank} group={name} ranks={list(ranks)}",
-                )
-            logger.warning(
-                "[elastic] Rank %d: warmed post-rebuild communicator %s",
-                rank,
-                name,
-            )
-        torch.cuda.synchronize()
-    else:
-        logger.info(
-            "[elastic] Rank %d: no replacement-facing communicator to warm "
-            "(replacement=%d)",
-            rank,
-            replacement_rank,
-        )
-
-    elastic_report_recovery_phase(done_phase, step=iteration, replacement_rank=replacement_rank)
-    if not elastic_wait_for_recovery_phase_count(done_phase, world_size, timeout):
-        raise RuntimeError(
-            f"[elastic] Not all {world_size} ranks reached {done_phase} within {timeout}s"
-        )
-    os.environ["ELASTIC_POST_REBUILD_COMM_WARMUP_DONE"] = "1"
-    return bool(groups)
-
-
 def elastic_trace_post_rebuild_phase(
     phase: str, iteration: Optional[int] = None, optimizer=None
 ):
-    """Report a diagnostic phase for the first post-rebuild train step."""
+    """Report recovery details without turning every rank into a TCP client."""
     if not elastic_is_post_rebuild_trace_active(iteration):
         return
-    if phase == "optimizer_step_start" and optimizer is not None:
+    if (
+        phase == "optimizer_step_start"
+        and optimizer is not None
+        and os.environ.get("ELASTIC_RECOVERY_STATE") == "post_rebuild_trace"
+    ):
         elastic_validate_optimizer_process_groups(optimizer, iteration)
+    try:
+        local_rank = int(os.environ.get("LOCAL_RANK", "-1"))
+    except ValueError:
+        local_rank = -1
+    if local_rank != 0 and not is_rebuild_mode():
+        return
     extra = {}
     if iteration is not None:
         extra["step"] = iteration
@@ -1260,12 +1102,10 @@ def elastic_wait_for_recovery_phase_count(
 def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
     """Advance or commit recovery at a true train-loop boundary.
 
-    A phase report is asynchronous, so reporting ``step_complete`` and then
-    immediately clearing the recovery state lets fast ranks enter the next
-    iteration before slow ranks have left Megatron's post-step callbacks.  Use
-    recovery-epoch barriers to make the commit atomic from the training ranks'
-    point of view.  This function is a no-op outside the
-    explicit post-rebuild trace window.
+    Each train-loop boundary uses one all-rank recovery-epoch barrier.  The next
+    iteration's ready barrier provides the handoff into stabilization, so a
+    second adjacent acknowledgement would only duplicate the same quorum.
+    This function is a no-op outside the explicit post-rebuild trace window.
     """
     if not elastic_is_post_rebuild_trace_active(iteration):
         return False
@@ -1280,22 +1120,12 @@ def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
     timeout = _elastic_phase_timeout_seconds()
     if recovery_state == "post_rebuild_trace":
         completed_phase = "post_rebuild_step_complete"
-        stabilization_phase = "post_rebuild_stabilization_pending"
 
         elastic_report_recovery_phase(completed_phase, step=iteration)
         if not elastic_wait_for_recovery_phase_count(completed_phase, world_size, timeout):
             raise RuntimeError(
                 f"[elastic] Not all {world_size} ranks completed the first post-rebuild "
                 f"iteration within {timeout}s"
-            )
-
-        elastic_report_recovery_phase(stabilization_phase, step=iteration)
-        if not elastic_wait_for_recovery_phase_count(
-            stabilization_phase, world_size, timeout
-        ):
-            raise RuntimeError(
-                f"[elastic] Not all {world_size} ranks entered post-rebuild "
-                f"stabilization within {timeout}s"
             )
 
         next_iteration = iteration + 1
@@ -1320,21 +1150,13 @@ def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
             f"[elastic] Cannot commit unexpected recovery state {recovery_state!r}"
         )
 
-    completed_phase = "post_rebuild_stabilization_complete"
     commit_phase = "post_rebuild_commit_ready"
-
-    elastic_report_recovery_phase(completed_phase, step=iteration)
-    if not elastic_wait_for_recovery_phase_count(completed_phase, world_size, timeout):
-        raise RuntimeError(
-            f"[elastic] Not all {world_size} ranks completed the post-rebuild "
-            f"stabilization iteration within {timeout}s"
-        )
 
     elastic_report_recovery_phase(commit_phase, step=iteration)
     if not elastic_wait_for_recovery_phase_count(commit_phase, world_size, timeout):
         raise RuntimeError(
-            f"[elastic] Not all {world_size} ranks acknowledged the post-rebuild "
-            f"commit within {timeout}s"
+            f"[elastic] Not all {world_size} ranks completed stabilization and "
+            f"acknowledged the post-rebuild commit within {timeout}s"
         )
 
     logger.warning(
