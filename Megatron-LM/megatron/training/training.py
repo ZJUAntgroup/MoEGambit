@@ -2422,7 +2422,12 @@ def train(
         )
         prof.start()
 
-    start_iteration = iteration
+    # A replacement loads the checkpoint iteration and is then advanced to the
+    # recovery safe point. Preserve the checkpoint-era training start so that
+    # one-time branches (notably update_pg_timeout's world barrier) stay aligned
+    # with survivors instead of firing only on the replacement.
+    start_iteration = int(getattr(args, "elastic_train_start_iteration", iteration))
+    args.elastic_train_start_iteration = start_iteration
     # Disable forward pre-hook to start training to ensure that errors in checkpoint loading
     # or random initialization don't propagate to all ranks in first all-gather (which is a
     # no-op if things work correctly).

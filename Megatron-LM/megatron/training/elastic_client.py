@@ -1077,7 +1077,8 @@ def _send_one_shot_to_watcher(msg: dict) -> bool:
 
 def _elastic_effective_recovery_phase(phase: str) -> str:
     if (
-        os.environ.get("ELASTIC_RECOVERY_STATE") == "post_rebuild_stabilization_trace"
+        os.environ.get("ELASTIC_RECOVERY_STATE")
+        in ("post_rebuild_stabilization_pending", "post_rebuild_stabilization_trace")
         and phase in _POST_REBUILD_STABILIZATION_PHASES
     ):
         return f"stabilization_{phase}"
@@ -2950,6 +2951,12 @@ def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool
     from megatron.core.rerun_state_machine import RerunState, get_rerun_state_machine
 
     machine = get_rerun_state_machine()
+    from megatron.training import get_args
+
+    args = get_args()
+    train_start_iteration = int(
+        getattr(args, "elastic_train_start_iteration", args.iteration)
+    )
     local = {
         "mode": machine.mode.value,
         "state": machine.state.value,
@@ -2960,6 +2967,7 @@ def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool
         "checkpoint_requested": machine.checkpoint_requested,
         "restart_again_requested": machine.restart_again_requested,
         "continue_requested": machine.continue_requested,
+        "train_start_iteration": train_start_iteration,
     }
     expected = (
         machine.state == RerunState.NOT_RUNNING_YET
@@ -3338,8 +3346,11 @@ def elastic_replacement_sync_params(model, optimizer, opt_param_scheduler=None):
     from megatron.training import get_args
 
     resume_iteration = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
+    args = get_args()
+    if not hasattr(args, "elastic_train_start_iteration"):
+        args.elastic_train_start_iteration = int(args.iteration)
     aligned_iteration = elastic_align_resume_state(
-        get_args(), opt_param_scheduler, resume_iteration
+        args, opt_param_scheduler, resume_iteration
     )
     if aligned_iteration is None or aligned_iteration < 0:
         raise RuntimeError(

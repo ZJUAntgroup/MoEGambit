@@ -630,6 +630,7 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     assert "state_contract=canonical" in elastic_source
     assert "_elastic_validate_rerun_state_machine(iteration" in elastic_source
     assert 'state_contract=local' in elastic_source
+    assert '"train_start_iteration": train_start_iteration' in elastic_source
     assert _PHASE_ORDER["state_contract_ready"] < _PHASE_ORDER["rerun_state_reset"]
     assert _PHASE_ORDER["rerun_state_reset"] < _PHASE_ORDER["train_ready"]
     assert _PHASE_ORDER["post_rebuild_iteration_ready"] < _PHASE_ORDER[
@@ -641,6 +642,23 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     assert _PHASE_ORDER["post_rebuild_stabilization_ready"] < _PHASE_ORDER[
         "stabilization_rerun_state_contract_start"
     ]
+
+    training_path = (
+        root
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "training.py"
+    )
+    training_source = training_path.read_text()
+    assert 'getattr(args, "elastic_train_start_iteration", iteration)' in training_source
+    capture = elastic_source.index(
+        "args.elastic_train_start_iteration = int(args.iteration)"
+    )
+    align = elastic_source.index(
+        "aligned_iteration = elastic_align_resume_state(", capture
+    )
+    assert capture < align
 
 
 def test_post_rebuild_commit_requires_a_stabilization_iteration():
