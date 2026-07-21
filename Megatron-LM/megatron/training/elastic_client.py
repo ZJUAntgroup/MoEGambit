@@ -71,6 +71,37 @@ _POST_REBUILD_STATE_ENV = (
     "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN",
 )
 
+_POST_REBUILD_STABILIZATION_PHASES = {
+    "iteration_prologue_start",
+    "iteration_prologue_done",
+    "iteration_safe_point_start",
+    "iteration_safe_point_done",
+    "moegambit_before_iteration_start",
+    "moegambit_before_iteration_done",
+    "forward_backward_start",
+    "pipeline_p2p_start",
+    "pipeline_p2p_returned",
+    "moe_first_collective_prepared",
+    "moe_first_collective_store_ready",
+    "moe_first_collective_store_error",
+    "moe_first_collective_start",
+    "moe_first_collective_done",
+    "moe_first_collective_error",
+    "moe_first_collective_timeout",
+    "optimizer_pg_contract_ready",
+    "optimizer_pg_contract_error",
+    "optimizer_step_start",
+    "optimizer_step_done",
+    "optimizer_skipped",
+    "train_step_finalize_done",
+    "training_log_start",
+    "training_log_done",
+    "post_step_callbacks_start",
+    "post_step_callbacks_done",
+    "checkpoint_exit_start",
+    "checkpoint_exit_done",
+}
+
 
 def _elastic_ipv4_interface_for_peer(peer_host):
     """Return the interface carrying IPv4 traffic to a recovery peer."""
@@ -277,8 +308,11 @@ def _launcher_control_send(event: str, **extra) -> bool:
 
 
 def elastic_is_post_rebuild_trace_active(iteration: Optional[int] = None) -> bool:
-    """Return True only inside the explicit first-step post-rebuild window."""
-    if os.environ.get("ELASTIC_RECOVERY_STATE") != "post_rebuild_trace":
+    """Return True only inside an explicit post-rebuild validation step."""
+    if os.environ.get("ELASTIC_RECOVERY_STATE") not in (
+        "post_rebuild_trace",
+        "post_rebuild_stabilization_trace",
+    ):
         return False
     if os.environ.get("ELASTIC_POST_REBUILD_PENDING") != "0":
         return False
@@ -775,10 +809,14 @@ def elastic_mark_post_rebuild_pending(iteration: Optional[int] = None):
 
 
 def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
-    """Control-plane barrier immediately before the first post-rebuild train step."""
+    """Align the first recovered step or its stabilization successor."""
     if os.environ.get("ELASTIC_POST_REBUILD_PENDING") != "1":
         return False
-    if os.environ.get("ELASTIC_RECOVERY_STATE") != "post_rebuild_pending":
+    recovery_state = os.environ.get("ELASTIC_RECOVERY_STATE")
+    if recovery_state not in (
+        "post_rebuild_pending",
+        "post_rebuild_stabilization_pending",
+    ):
         logger.warning(
             "[elastic] Ignoring stale post-rebuild pending flag without recovery state "
             "(state=%s)",
@@ -792,7 +830,12 @@ def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
     os.environ["ELASTIC_RESUME_ITERATION"] = str(iteration)
     world_size = dist.get_world_size()
     timeout = _elastic_phase_timeout_seconds()
-    phase = "post_rebuild_iteration_ready"
+    stabilization = recovery_state == "post_rebuild_stabilization_pending"
+    phase = (
+        "post_rebuild_stabilization_ready"
+        if stabilization
+        else "post_rebuild_iteration_ready"
+    )
     elastic_report_recovery_phase(phase, step=iteration)
     if not elastic_wait_for_recovery_phase_count(phase, world_size, timeout):
         raise RuntimeError(
@@ -802,15 +845,20 @@ def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
 
     os.environ["ELASTIC_POST_REBUILD_PENDING"] = "0"
     os.environ["ELASTIC_POST_REBUILD_TRACE_ACTIVE"] = "1"
-    os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_trace"
+    os.environ["ELASTIC_RECOVERY_STATE"] = (
+        "post_rebuild_stabilization_trace" if stabilization else "post_rebuild_trace"
+    )
     os.environ["ELASTIC_POST_REBUILD_TRACE_ITERATION"] = str(iteration)
     trace_token = _elastic_post_rebuild_token(iteration)
+    if stabilization:
+        trace_token = f"{trace_token}:stabilization"
     os.environ["ELASTIC_POST_REBUILD_TRACE_TOKEN"] = trace_token
     os.environ["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN"] = trace_token
     logger.warning(
-        "[elastic] Rank %d: all ranks aligned before first post-rebuild train step "
+        "[elastic] Rank %d: all ranks aligned before %s post-rebuild train step "
         "(iteration=%d token=%s)",
         dist.get_rank(),
+        "stabilization" if stabilization else "first",
         iteration,
         trace_token,
     )
@@ -1023,10 +1071,21 @@ def _send_one_shot_to_watcher(msg: dict) -> bool:
     return False
 
 
+def _elastic_effective_recovery_phase(phase: str) -> str:
+    if (
+        os.environ.get("ELASTIC_RECOVERY_STATE") == "post_rebuild_stabilization_trace"
+        and phase in _POST_REBUILD_STABILIZATION_PHASES
+    ):
+        return f"stabilization_{phase}"
+    return phase
+
+
 def elastic_report_recovery_phase(phase: str, **extra):
     """Report a rebuild/replacement milestone to the watcher for diagnostics."""
     if not os.environ.get("ELASTIC_WATCHER_ADDR"):
         return
+
+    phase = _elastic_effective_recovery_phase(phase)
 
     rank = int(os.environ.get("RANK", "-1"))
     node_rank = int(os.environ.get("NODE_RANK", "-1"))
@@ -1189,13 +1248,13 @@ def elastic_wait_for_recovery_phase_count(
 
 
 def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
-    """Commit the first recovered iteration at a true train-loop boundary.
+    """Advance or commit recovery at a true train-loop boundary.
 
     A phase report is asynchronous, so reporting ``step_complete`` and then
     immediately clearing the recovery state lets fast ranks enter the next
     iteration before slow ranks have left Megatron's post-step callbacks.  Use
-    a two-stage watcher barrier to make the recovery epoch commit atomic from
-    the training ranks' point of view.  This function is a no-op outside the
+    recovery-epoch barriers to make the commit atomic from the training ranks'
+    point of view.  This function is a no-op outside the
     explicit post-rebuild trace window.
     """
     if not elastic_is_post_rebuild_trace_active(iteration):
@@ -1206,16 +1265,59 @@ def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
             "process group"
         )
 
+    recovery_state = os.environ.get("ELASTIC_RECOVERY_STATE")
     world_size = dist.get_world_size()
     timeout = _elastic_phase_timeout_seconds()
-    completed_phase = "post_rebuild_step_complete"
+    if recovery_state == "post_rebuild_trace":
+        completed_phase = "post_rebuild_step_complete"
+        stabilization_phase = "post_rebuild_stabilization_pending"
+
+        elastic_report_recovery_phase(completed_phase, step=iteration)
+        if not elastic_wait_for_recovery_phase_count(completed_phase, world_size, timeout):
+            raise RuntimeError(
+                f"[elastic] Not all {world_size} ranks completed the first post-rebuild "
+                f"iteration within {timeout}s"
+            )
+
+        elastic_report_recovery_phase(stabilization_phase, step=iteration)
+        if not elastic_wait_for_recovery_phase_count(
+            stabilization_phase, world_size, timeout
+        ):
+            raise RuntimeError(
+                f"[elastic] Not all {world_size} ranks entered post-rebuild "
+                f"stabilization within {timeout}s"
+            )
+
+        next_iteration = iteration + 1
+        os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_stabilization_pending"
+        os.environ["ELASTIC_POST_REBUILD_PENDING"] = "1"
+        os.environ["ELASTIC_POST_REBUILD_TRACE_ACTIVE"] = "0"
+        os.environ["ELASTIC_POST_REBUILD_TRACE_ITERATION"] = str(next_iteration)
+        os.environ["ELASTIC_RESUME_ITERATION"] = str(next_iteration)
+        os.environ.pop("ELASTIC_POST_REBUILD_TRACE_TOKEN", None)
+        os.environ.pop("ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN", None)
+        logger.warning(
+            "[elastic] Rank %d: first recovered iteration %d completed; "
+            "stabilization iteration %d required before recovery commit",
+            dist.get_rank(),
+            iteration,
+            next_iteration,
+        )
+        return True
+
+    if recovery_state != "post_rebuild_stabilization_trace":
+        raise RuntimeError(
+            f"[elastic] Cannot commit unexpected recovery state {recovery_state!r}"
+        )
+
+    completed_phase = "post_rebuild_stabilization_complete"
     commit_phase = "post_rebuild_commit_ready"
 
     elastic_report_recovery_phase(completed_phase, step=iteration)
     if not elastic_wait_for_recovery_phase_count(completed_phase, world_size, timeout):
         raise RuntimeError(
-            f"[elastic] Not all {world_size} ranks completed the first post-rebuild "
-            f"iteration within {timeout}s"
+            f"[elastic] Not all {world_size} ranks completed the post-rebuild "
+            f"stabilization iteration within {timeout}s"
         )
 
     elastic_report_recovery_phase(commit_phase, step=iteration)
@@ -1226,7 +1328,7 @@ def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
         )
 
     logger.warning(
-        "[elastic] Rank %d: recovery epoch committed after iteration %d",
+        "[elastic] Rank %d: recovery epoch committed after stabilization iteration %d",
         dist.get_rank(),
         iteration,
     )
@@ -2485,13 +2587,14 @@ def elastic_validate_optimizer_process_groups(optimizer, iteration=None):
         )
         raise
 
+    ready_phase = _elastic_effective_recovery_phase("optimizer_pg_contract_ready")
     elastic_report_recovery_phase(
         "optimizer_pg_contract_ready", optimizer_pg_contract=contracts
     )
     world_size = dist.get_world_size()
     timeout = _elastic_phase_timeout_seconds()
     if not elastic_wait_for_recovery_phase_count(
-        "optimizer_pg_contract_ready", world_size, timeout
+        ready_phase, world_size, timeout
     ):
         error = (
             "not all ranks validated optimizer ProcessGroups before the first "

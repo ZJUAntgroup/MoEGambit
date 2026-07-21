@@ -284,9 +284,12 @@ class MoETokenDispatcher:
         if not self._elastic_post_rebuild_trace_active():
             return
         attr_name = f"_elastic_trace_{key}"
-        if getattr(self, attr_name, False):
+        trace_token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
+        traced_tokens = getattr(self, attr_name, set())
+        if trace_token in traced_tokens:
             return
-        setattr(self, attr_name, True)
+        traced_tokens.add(trace_token)
+        setattr(self, attr_name, traced_tokens)
         rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
         logger.warning("[elastic] Rank %d: " + message, rank, *args)
 
@@ -331,13 +334,13 @@ class MoETokenDispatcher:
     def _elastic_validate_first_collective_store(name: str, group, ranks):
         """Verify that all members see rank zero through this PG's exact PrefixStore."""
         replacement_rank = int(os.environ.get("ELASTIC_REPLACEMENT_RANK", "-1"))
-        store_key = (name, tuple(ranks), replacement_rank)
+        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
+        store_key = (token, name, tuple(ranks), replacement_rank)
         if store_key in _ELASTIC_MOE_FIRST_COLLECTIVE_STORES:
             return
 
         contract = MoETokenDispatcher._elastic_process_group_contract(group)
         timeout = float(os.environ.get("ELASTIC_MOE_STORE_CANARY_TIMEOUT", "30"))
-        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
         canary_key = f"elastic_canary:{token}:{name}"
         expected = (
             f"{token}|{name}|{contract['group_name']}|"
@@ -404,7 +407,8 @@ class MoETokenDispatcher:
         if rank not in ranks or replacement_rank not in ranks:
             return
 
-        barrier_key = (name, tuple(ranks), replacement_rank)
+        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
+        barrier_key = (token, name, tuple(ranks), replacement_rank)
         if barrier_key in _ELASTIC_MOE_FIRST_COLLECTIVE_BARRIERS:
             return
 
@@ -469,7 +473,8 @@ class MoETokenDispatcher:
         """Run one tiny same-order collective before the first real MoE collective."""
         if os.environ.get("ELASTIC_MOE_FIRST_COLLECTIVE_WARMUP", "0") == "0":
             return
-        warmup_key = (name, tuple(ranks), replacement_rank)
+        token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
+        warmup_key = (token, name, tuple(ranks), replacement_rank)
         if warmup_key in _ELASTIC_MOE_FIRST_COLLECTIVE_WARMUPS:
             return
 

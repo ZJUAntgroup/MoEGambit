@@ -400,6 +400,18 @@ def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():
         "post_rebuild_step_complete"
     ]
     assert _PHASE_ORDER["post_rebuild_step_complete"] < _PHASE_ORDER[
+        "post_rebuild_stabilization_pending"
+    ]
+    assert _PHASE_ORDER["post_rebuild_stabilization_ready"] < _PHASE_ORDER[
+        "stabilization_iteration_prologue_start"
+    ]
+    assert _PHASE_ORDER["stabilization_forward_backward_done"] < _PHASE_ORDER[
+        "stabilization_optimizer_step_start"
+    ]
+    assert _PHASE_ORDER["stabilization_checkpoint_exit_done"] < _PHASE_ORDER[
+        "post_rebuild_stabilization_complete"
+    ]
+    assert _PHASE_ORDER["post_rebuild_stabilization_complete"] < _PHASE_ORDER[
         "post_rebuild_commit_ready"
     ]
 
@@ -528,7 +540,7 @@ def test_recovery_contract_is_committed_at_train_loop_boundary():
     )
 
 
-def test_post_rebuild_commit_uses_two_phase_control_plane_barrier():
+def test_post_rebuild_commit_requires_a_stabilization_iteration():
     elastic_client_path = (
         Path(__file__).parents[1]
         / "Megatron-LM"
@@ -546,15 +558,88 @@ def test_post_rebuild_commit_uses_two_phase_control_plane_barrier():
     )
     commit_source = ast.get_source_segment(source, commit_node)
 
-    completed_report = commit_source.index(
+    first_completed_report = commit_source.index(
         "elastic_report_recovery_phase(completed_phase"
     )
-    completed_wait = commit_source.index(
+    first_completed_wait = commit_source.index(
         "elastic_wait_for_recovery_phase_count(completed_phase"
     )
-    ready_report = commit_source.index("elastic_report_recovery_phase(commit_phase")
+    stabilization_pending = commit_source.index(
+        "elastic_report_recovery_phase(stabilization_phase", first_completed_wait
+    )
+    stabilization_state = commit_source.index(
+        'os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_stabilization_pending"',
+        stabilization_pending,
+    )
+    stabilization_complete = commit_source.index(
+        'completed_phase = "post_rebuild_stabilization_complete"', stabilization_state
+    )
+    ready_report = commit_source.index(
+        "elastic_report_recovery_phase(commit_phase", stabilization_complete
+    )
     ready_wait = commit_source.index(
         "elastic_wait_for_recovery_phase_count(commit_phase"
     )
     trace_clear = commit_source.index("elastic_clear_post_rebuild_trace()")
-    assert completed_report < completed_wait < ready_report < ready_wait < trace_clear
+    assert (
+        first_completed_report
+        < first_completed_wait
+        < stabilization_pending
+        < stabilization_state
+        < stabilization_complete
+        < ready_report
+        < ready_wait
+        < trace_clear
+    )
+
+    validator_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "elastic_validate_optimizer_process_groups"
+    )
+    validator_source = ast.get_source_segment(source, validator_node)
+    effective_phase = validator_source.index(
+        '_elastic_effective_recovery_phase("optimizer_pg_contract_ready")'
+    )
+    phase_wait = validator_source.index(
+        "elastic_wait_for_recovery_phase_count(\n        ready_phase"
+    )
+    assert effective_phase < phase_wait
+
+
+def test_pipeline_p2p_diagnostics_are_recovery_gated_and_non_blocking():
+    p2p_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "core"
+        / "pipeline_parallel"
+        / "p2p_communication.py"
+    )
+    source = p2p_path.read_text()
+    tree = ast.parse(source)
+    communicator = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "P2PCommunicator"
+    )
+    trace_node = next(
+        node
+        for node in communicator.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_elastic_trace_p2p_once"
+    )
+    communicate_node = next(
+        node
+        for node in communicator.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_communicate"
+    )
+    trace_source = ast.get_source_segment(source, trace_node)
+    communicate_source = ast.get_source_segment(source, communicate_node)
+
+    assert "elastic_is_post_rebuild_trace_active()" in trace_source
+    assert "elastic_wait_for" not in trace_source
+    start_trace = communicate_source.index('"pipeline_p2p_start"')
+    p2p_call = communicate_source.index("p2p_reqs = p2p_func(")
+    returned_trace = communicate_source.index('"pipeline_p2p_returned"', p2p_call)
+    assert start_trace < p2p_call < returned_trace

@@ -2457,6 +2457,11 @@ def train(
 
     buffered_rollouts = None
     while iteration < args.train_iters:
+        # A recovery epoch is certified only after a second, consecutive train
+        # step. This call is a no-op during normal training and on the first
+        # recovered step, whose pending state is created later by rebuild.
+        elastic_post_rebuild_iteration_barrier(iteration)
+        elastic_trace_post_rebuild_phase("iteration_prologue_start", iteration)
         if args.profile and torch.distributed.get_rank() in args.profile_ranks:
             if args.use_pytorch_profiler:
                 prof.step()
@@ -2520,6 +2525,7 @@ def train(
                     )
         num_microbatches = get_num_microbatches()
         update_num_microbatches(args.consumed_train_samples, consistency_check=True, verbose=True)
+        elastic_trace_post_rebuild_phase("iteration_prologue_done", iteration)
 
         # Capture CUDA Graphs.
         if (
@@ -2568,6 +2574,7 @@ def train(
             phase="iteration_safe_point",
             step_tag=iteration,
         )
+        elastic_trace_post_rebuild_phase("iteration_safe_point_start", iteration)
         if elastic_check_pause():
             logger.warning(
                 "[elastic] Iteration %d: pause requested, entering rebuild...",
@@ -2578,9 +2585,12 @@ def train(
                 iteration = elastic_resume_iteration
                 args.curr_iteration = iteration
             logger.warning("[elastic] Rebuild complete, resuming at iteration %d", iteration)
+        elastic_trace_post_rebuild_phase("iteration_safe_point_done", iteration)
 
         # MOEGAMBIT-MoE: safe-point hook (before forward pass).
+        elastic_trace_post_rebuild_phase("moegambit_before_iteration_start", iteration)
         moegambit_before_iteration(iteration)
+        elastic_trace_post_rebuild_phase("moegambit_before_iteration_done", iteration)
         elastic_post_rebuild_iteration_barrier(iteration)
         elastic_warmup_post_rebuild_communicators(iteration)
 
