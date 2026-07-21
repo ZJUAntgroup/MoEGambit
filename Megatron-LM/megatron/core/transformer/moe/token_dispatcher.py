@@ -603,7 +603,7 @@ class MoETokenDispatcher:
                     f"[elastic] first MoE {name} collective timed out after {timeout:.1f}s "
                     f"rank={rank} ranks={ranks} token={token}. "
                     "The rebuilt replacement-facing NCCL communicator is not usable; "
-                    "fall back to checkpoint/relaunch or node-level replacement."
+                    "abort this in-place recovery run."
                 )
 
             try:

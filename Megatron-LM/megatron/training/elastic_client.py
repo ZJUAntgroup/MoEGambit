@@ -556,7 +556,11 @@ def _exit_if_fallback_relaunch_requested():
     if info is None:
         return
     exit_code = _fallback_exit_code(info)
-    logger.error("[elastic] Exiting for fallback relaunch: %s", info)
+    logger.error(
+        "[elastic] Exiting for recovery action=%s: %s",
+        info.get("action", "checkpoint_relaunch"),
+        info,
+    )
     os._exit(exit_code)
 
 
@@ -567,8 +571,9 @@ def _request_fallback_relaunch(msg):
     try:
         pgid = os.getpgid(ppid)
         logger.error(
-            "[elastic] Requesting checkpoint relaunch: sending SIGTERM to launcher "
+            "[elastic] Requesting recovery action=%s: sending SIGTERM to launcher "
             "process group pgid=%s exit_code=%s",
+            msg.get("action", "checkpoint_relaunch") if isinstance(msg, dict) else "checkpoint_relaunch",
             pgid,
             exit_code,
         )
@@ -2946,6 +2951,28 @@ def _elastic_reset_rerun_state_machine(resume_iteration: int):
     return summary
 
 
+def _elastic_train_start_contract(
+    iteration: int,
+    train_start_iteration: int,
+    post_init_timeout_enabled: bool,
+):
+    """Canonicalize rank-local train starts by their next-step behavior."""
+    if iteration < train_start_iteration:
+        lifecycle_phase = "before_initial_step"
+    elif iteration == train_start_iteration:
+        lifecycle_phase = "initial_step"
+    else:
+        lifecycle_phase = "steady_state"
+
+    return {
+        "train_lifecycle_phase": lifecycle_phase,
+        "post_init_timeout_due": bool(
+            post_init_timeout_enabled
+            and iteration == train_start_iteration + 1
+        ),
+    }
+
+
 def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool):
     """Verify the local rerun FSM contract before a recovered train step."""
     from megatron.core.rerun_state_machine import RerunState, get_rerun_state_machine
@@ -2969,6 +2996,30 @@ def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool
         "continue_requested": machine.continue_requested,
         "train_start_iteration": train_start_iteration,
     }
+    # Survivors retain the original train start while a replacement retains the
+    # checkpoint-era start.  Those raw values are expected to differ.  Compare
+    # the FSM plus the branches that the values select, not the launch history.
+    canonical = {
+        key: local[key]
+        for key in (
+            "mode",
+            "state",
+            "state_name",
+            "current_iteration",
+            "first_iteration_complete",
+            "rerun_requested",
+            "checkpoint_requested",
+            "restart_again_requested",
+            "continue_requested",
+        )
+    }
+    canonical.update(
+        _elastic_train_start_contract(
+            int(iteration),
+            train_start_iteration,
+            getattr(args, "distributed_timeout_seconds_after_init", None) is not None,
+        )
+    )
     expected = (
         machine.state == RerunState.NOT_RUNNING_YET
         and machine.current_iteration == int(iteration)
@@ -2982,7 +3033,10 @@ def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool
     epoch = os.environ.get("ELASTIC_RECOVERY_EPOCH", "0")
     stage = "stabilization" if stabilization else "first"
     elastic_report_recovery_phase(
-        "rerun_state_contract_start", rerun_state=local, contract_ok=expected
+        "rerun_state_contract_start",
+        rerun_state=local,
+        state_contract=canonical,
+        contract_ok=expected,
     )
     matched = elastic_wait_for_ordinal_barrier(
         f"rerun_state_pre_step:{epoch}:{iteration}:{stage}",
@@ -2994,21 +3048,26 @@ def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool
         group_size=world_size,
         group_ranks=list(range(world_size)),
         barrier_stage=f"pre_{stage}_recovered_step",
-        state_contract=local,
+        state_contract=canonical,
     )
     if not matched or not expected:
         elastic_report_recovery_phase(
             "rerun_state_contract_error",
             rerun_state=local,
+            state_contract=canonical,
             manifest_matched=matched,
             contract_ok=expected,
         )
         raise RuntimeError(
             "[elastic] rerun-state contract invalid before recovered train step: "
-            f"stage={stage} manifest_matched={matched} local={local}"
+            f"stage={stage} manifest_matched={matched} "
+            f"contract={canonical} local={local}"
         )
     elastic_report_recovery_phase(
-        "rerun_state_contract_ready", rerun_state=local, contract_ok=True
+        "rerun_state_contract_ready",
+        rerun_state=local,
+        state_contract=canonical,
+        contract_ok=True,
     )
 
 

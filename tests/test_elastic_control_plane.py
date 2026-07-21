@@ -1,4 +1,5 @@
 import ast
+import json
 import os
 import tempfile
 import time
@@ -34,6 +35,7 @@ def _args(fault_dir, training_nnodes=2, nproc_per_node=2):
         disconnect_grace_timeout=15.0,
         fallback_relaunch=True,
         fallback_exit_code=75,
+        recovery_abort_exit_code=76,
         fallback_restart_standby=True,
         fault_inject_step=17,
         fault_inject_node=0,
@@ -129,6 +131,97 @@ def test_fallback_stays_latched_until_the_next_attempt_quorum():
         assert watcher.startup_released_attempt == 1
         assert not watcher.fallback_initiated
         assert standby_restarts == ["started"]
+
+
+def test_disabled_fallback_aborts_all_launchers_without_reset_or_relaunch():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        args = _args(fault_dir)
+        args.fallback_relaunch = False
+        watcher = ElasticWatcher(args)
+        connections = [_Connection(), _Connection()]
+        watcher.recovery_in_progress = True
+        watcher.recovery_epoch = 3
+        watcher.failed_node = 0
+        watcher.killed_local_rank = 1
+        watcher.node_connections = {0: connections[0], 1: connections[1]}
+
+        watcher._initiate_fallback_relaunch("ordinal_barrier_timeout", {"count": 3})
+
+        assert watcher.fallback_initiated
+        assert watcher.recovery_in_progress
+        assert not watcher.running
+        assert watcher.exit_code == 76
+        requests = [json.loads(conn.messages[-1]) for conn in connections]
+        assert all(request["action"] == "abort_training" for request in requests)
+        assert all(request["exit_code"] == 76 for request in requests)
+        assert all("resume_iteration" not in request for request in requests)
+        manifest = json.loads(Path(watcher.recovery_abort_file).read_text())
+        assert manifest["reason"] == "ordinal_barrier_timeout"
+        assert manifest["action"] == "abort_training"
+
+
+def test_recovery_abort_prefers_launcher_control_connections():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        args = _args(fault_dir)
+        args.fallback_relaunch = False
+        watcher = ElasticWatcher(args)
+        worker_connections = [_Connection(), _Connection()]
+        launcher_connections = [_Connection(), _Connection()]
+        watcher.recovery_in_progress = True
+        watcher.node_connections = {
+            0: worker_connections[0],
+            1: worker_connections[1],
+        }
+        watcher.launcher_connections = {
+            0: launcher_connections[0],
+            1: launcher_connections[1],
+        }
+
+        watcher._initiate_fallback_relaunch("test_abort")
+
+        assert all(not conn.messages for conn in worker_connections)
+        assert all(
+            '"action": "abort_training"' in conn.messages[-1]
+            for conn in launcher_connections
+        )
+
+
+def test_recovery_abort_releases_pending_ordinal_barriers():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        args = _args(fault_dir)
+        args.fallback_relaunch = False
+        watcher = ElasticWatcher(args)
+        watcher.recovery_in_progress = True
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            waiting = executor.submit(
+                watcher._wait_for_ordinal_barrier,
+                "pending-recovery-barrier",
+                0,
+                2,
+                30.0,
+                {"group_ranks": [0, 1]},
+            )
+            deadline = time.time() + 1.0
+            while "pending-recovery-barrier" not in watcher.ordinal_barriers:
+                assert time.time() < deadline
+                time.sleep(0.01)
+
+            watcher._initiate_fallback_relaunch("test_abort")
+
+            count, missing, arrived, manifest_ok = waiting.result(timeout=1.0)
+            assert (count, missing, arrived, manifest_ok) == (1, [1], [0], True)
+
+
+def test_hotspare_fail_fast_is_terminal_and_cannot_relaunch():
+    script = (Path(__file__).parents[1] / "test_hotspare_replace.sh").read_text()
+
+    assert "export ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS=70" in script
+    assert "export ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST=1" in script
+    assert "export ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT=70" in script
+    assert "export ELASTIC_FALLBACK_RELAUNCH=0" in script
+    assert "export ELASTIC_FALLBACK_RESTART_STANDBY=0" in script
+    assert "HOTSPARE_MAX_RETRIES=0" in script
 
 
 def test_active_attempt_heartbeats_are_ignored_during_fallback_shutdown():
@@ -624,13 +717,22 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     assert '"first_iteration_complete": self.first_iteration_complete' in reset_source
 
     elastic_source = elastic_client_path.read_text()
+    elastic_tree = ast.parse(elastic_source)
     assert elastic_source.count("_elastic_reset_rerun_state_machine(") == 3
     assert 'elastic_report_recovery_phase("rerun_state_reset"' in elastic_source
     assert 'group_desc="RERUN_STATE_MACHINE"' in elastic_source
     assert "state_contract=canonical" in elastic_source
     assert "_elastic_validate_rerun_state_machine(iteration" in elastic_source
-    assert 'state_contract=local' in elastic_source
     assert '"train_start_iteration": train_start_iteration' in elastic_source
+    validator_node = next(
+        node
+        for node in elastic_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_elastic_validate_rerun_state_machine"
+    )
+    validator_source = ast.get_source_segment(elastic_source, validator_node)
+    assert "state_contract=canonical" in validator_source
+    assert "state_contract=local" not in validator_source
     assert _PHASE_ORDER["state_contract_ready"] < _PHASE_ORDER["rerun_state_reset"]
     assert _PHASE_ORDER["rerun_state_reset"] < _PHASE_ORDER["train_ready"]
     assert _PHASE_ORDER["post_rebuild_iteration_ready"] < _PHASE_ORDER[
@@ -659,6 +761,26 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
         "aligned_iteration = elastic_align_resume_state(", capture
     )
     assert capture < align
+
+    contract_node = next(
+        node
+        for node in elastic_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_elastic_train_start_contract"
+    )
+    contract_module = ast.Module(body=[contract_node], type_ignores=[])
+    ast.fix_missing_locations(contract_module)
+    namespace = {}
+    exec(compile(contract_module, str(elastic_client_path), "exec"), namespace)
+    contract = namespace["_elastic_train_start_contract"]
+
+    # A survivor started at iteration 0 while its replacement loaded the
+    # iteration-10 checkpoint.  At recovery iteration 18 they select the same
+    # next-step branches and therefore must not mismatch the global manifest.
+    assert contract(18, 0, True) == contract(18, 10, True)
+    # Keep detecting a real branch divergence, such as only the replacement
+    # being due to update process-group timeouts after checkpoint startup.
+    assert contract(11, 0, True) != contract(11, 10, True)
 
 
 def test_post_rebuild_commit_requires_a_stabilization_iteration():

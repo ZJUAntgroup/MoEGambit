@@ -742,8 +742,9 @@ def main():
         fallback_request = _read_fallback_relaunch_request()
         if fallback_request is not None:
             exit_code = _fallback_exit_code(fallback_request)
+            recovery_action = fallback_request.get("action", "checkpoint_relaunch")
             print(
-                "[launcher] Fallback relaunch requested "
+                f"[launcher] Recovery action requested action={recovery_action} "
                 f"(exit_code={exit_code}, request={fallback_request}); terminating workers",
                 flush=True,
             )

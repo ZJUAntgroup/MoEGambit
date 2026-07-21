@@ -30,7 +30,7 @@ Protocol (TCP, JSON lines):
   - Watcher → Training: {"type": "pause", "failed_node": N}
   - Watcher → Training: {"type": "rebuild", "failed_node": N, "new_master_addr": ..., "new_master_port": ..., "killed_rank": R}
   - Watcher → Training: {"type": "kill_rank", "target_node": N, "local_rank": R}
-  - Watcher → Training: {"type": "fallback_relaunch", "action": "checkpoint_relaunch", "recovery_epoch": E, "reason": "..."}
+  - Watcher → Training: {"type": "fallback_relaunch", "action": "checkpoint_relaunch|abort_training", "recovery_epoch": E, "reason": "..."}
 """
 
 import argparse
@@ -187,6 +187,7 @@ class ElasticWatcher:
         self.fallback_relaunch = args.fallback_relaunch
         self.fallback_exit_code = args.fallback_exit_code
         self.fallback_restart_standby = args.fallback_restart_standby
+        self.recovery_abort_exit_code = getattr(args, "recovery_abort_exit_code", 76)
 
         # Fault injection config
         self.fault_inject_step = args.fault_inject_step
@@ -196,7 +197,9 @@ class ElasticWatcher:
 
         # State
         self.running = True
+        self.exit_code = 0
         self.node_connections = {}  # node_rank -> socket
+        self.launcher_connections = {}  # node_rank -> launcher control socket
         self.last_heartbeat = {}   # node_rank -> timestamp
         self.node_disconnected_at = {}  # node_rank -> TCP EOF/reset timestamp
         self.node_steps = {}       # node_rank -> last reported step
@@ -236,6 +239,7 @@ class ElasticWatcher:
             history_root / "moegambit_expert_staleness_history.json"
         )
         self.fallback_relaunch_file = self.fault_dir / "fallback_relaunch.json"
+        self.recovery_abort_file = self.fault_dir / "recovery_abort.json"
         self.recorded_contract_epochs = set()
         self.lock = threading.Lock()
         self.phase_cv = threading.Condition(self.lock)
@@ -260,9 +264,11 @@ class ElasticWatcher:
         else:
             log.info("Recovery ordinal stall fail-fast: disabled")
         log.info(
-            "Fallback relaunch: enabled=%s exit_code=%s restart_standby=%s",
+            "Recovery failure policy: fallback_relaunch=%s fallback_exit_code=%s "
+            "abort_exit_code=%s restart_standby=%s",
             self.fallback_relaunch,
             self.fallback_exit_code,
+            self.recovery_abort_exit_code,
             self.fallback_restart_standby,
         )
         if self.fault_inject_step >= 0:
@@ -298,6 +304,7 @@ class ElasticWatcher:
                 break
 
         log.info("Watcher shutting down")
+        return self.exit_code
 
     def _rebuild_master_port(self, recovery_epoch=None):
         if recovery_epoch is None:
@@ -351,6 +358,8 @@ class ElasticWatcher:
                             node_rank,
                             self.disconnect_grace_timeout,
                         )
+                    if self.launcher_connections.get(node_rank) is conn:
+                        del self.launcher_connections[node_rank]
             conn.close()
 
     def _record_startup_manifest_locked(self, node_rank, manifest, conn):
@@ -483,7 +492,11 @@ class ElasticWatcher:
             log.error("Startup attempt %s rejected: %s", attempt, reason)
             return
 
-        for path in (self.fallback_relaunch_file, self.fault_dir / "fallback_relaunch_signal.json"):
+        for path in (
+            self.fallback_relaunch_file,
+            self.recovery_abort_file,
+            self.fault_dir / "fallback_relaunch_signal.json",
+        ):
             try:
                 path.unlink()
             except OSError:
@@ -523,6 +536,8 @@ class ElasticWatcher:
                 self.node_control_owners[node_rank] = msg.get(
                     "control_owner", "training_rank"
                 )
+                if msg.get("control_owner") == "launcher":
+                    self.launcher_connections[node_rank] = conn
                 connected_nodes = sorted(
                     rank
                     for rank in self.node_connections
@@ -1087,6 +1102,15 @@ class ElasticWatcher:
                 return len(state["arrived"]), [], sorted(state["arrived"]), False
 
             while len(state["arrived"]) < min_count:
+                if self.fallback_initiated:
+                    arrived = sorted(state["arrived"])
+                    group_ranks = msg.get("group_ranks")
+                    if isinstance(group_ranks, list) and len(group_ranks) == min_count:
+                        expected = [int(r) for r in group_ranks]
+                    else:
+                        expected = list(range(min_count))
+                    missing = [r for r in expected if r not in state["arrived"]]
+                    return len(arrived), missing, arrived, True
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     arrived = sorted(state["arrived"])
@@ -2196,7 +2220,7 @@ class ElasticWatcher:
             self.standby_proc = None
             return
         log.warning(
-            "Terminating spare/replacement pid=%s due to fallback relaunch (%s)",
+            "Terminating spare/replacement pid=%s due to recovery shutdown (%s)",
             proc.pid,
             reason,
         )
@@ -2232,13 +2256,26 @@ class ElasticWatcher:
             self.replacement_ready_event.clear()
             self.phase_cv.notify_all()
 
+    def _shutdown_connections_locked(self):
+        """Return one control connection per node, preferring its launcher."""
+        node_ranks = set(self.node_connections) | set(self.launcher_connections)
+        return [
+            (
+                node_rank,
+                self.launcher_connections.get(
+                    node_rank, self.node_connections.get(node_rank)
+                ),
+            )
+            for node_rank in sorted(node_ranks)
+            if self.launcher_connections.get(
+                node_rank, self.node_connections.get(node_rank)
+            )
+            is not None
+        ]
+
     def _initiate_fallback_relaunch(self, reason, details=None):
         if not self.fallback_relaunch:
-            log.error(
-                "Fallback relaunch requested but disabled: reason=%s details=%s",
-                reason,
-                details,
-            )
+            self._initiate_recovery_abort(reason, details)
             return
 
         with self.lock:
@@ -2263,7 +2300,7 @@ class ElasticWatcher:
             node_step_tags = dict(self.node_step_tags)
             node_phases = dict(self.node_train_phases)
             recovery_phases = dict(self.recovery_phases)
-            connections = list(self.node_connections.items())
+            connections = self._shutdown_connections_locked()
 
         resume_iteration = self._select_fallback_resume_iteration(
             ready_steps,
@@ -2326,6 +2363,79 @@ class ElasticWatcher:
             log.info(
                 "Warm standby restart deferred until every launcher joins the next attempt"
             )
+
+    def _initiate_recovery_abort(self, reason, details=None):
+        """Terminate the whole training job after an unrecoverable recovery error."""
+        with self.lock:
+            if self.fallback_initiated:
+                log.info("Recovery termination already initiated; ignoring reason=%s", reason)
+                return
+            if not self.recovery_in_progress:
+                log.info(
+                    "Ignoring recovery abort outside recovery: reason=%s details=%s",
+                    reason,
+                    details,
+                )
+                return
+            # Reuse the existing shutdown latch so cascading worker failures do
+            # not trigger a second fault epoch while launchers are exiting.
+            self.fallback_initiated = True
+            recovery_epoch = self.recovery_epoch
+            failed_node = self.failed_node
+            killed_local_rank = self.killed_local_rank
+            connections = self._shutdown_connections_locked()
+            recovery_phases = dict(self.recovery_phases)
+            node_steps = dict(self.node_steps)
+            node_step_tags = dict(self.node_step_tags)
+            node_phases = dict(self.node_train_phases)
+            self.phase_cv.notify_all()
+
+        request = {
+            # Keep the established transport message and signal filename; the
+            # action and distinct exit code make this a terminal abort.
+            "type": "fallback_relaunch",
+            "action": "abort_training",
+            "reason": reason,
+            "details": details or {},
+            "timestamp": time.time(),
+            "recovery_epoch": recovery_epoch,
+            "failed_node": failed_node,
+            "killed_local_rank": killed_local_rank,
+            "killed_global_rank": (
+                failed_node * self.nproc_per_node + killed_local_rank
+                if failed_node is not None and killed_local_rank >= 0
+                else -1
+            ),
+            "exit_code": self.recovery_abort_exit_code,
+            "descriptor": str(self.recovery_descriptor_file),
+            "last_steps": node_steps,
+            "last_step_tags": node_step_tags,
+            "last_phases": node_phases,
+            "recovery_phases": recovery_phases,
+        }
+        self._write_json_atomic(self.recovery_abort_file, request)
+        epoch_path = self.fault_dir / f"recovery_abort_epoch_{recovery_epoch}.json"
+        self._write_json_atomic(epoch_path, request)
+        log.error(
+            "Recovery failed; aborting all training launchers without relaunch: "
+            "epoch=%s reason=%s exit_code=%s manifest=%s",
+            recovery_epoch,
+            reason,
+            self.recovery_abort_exit_code,
+            self.recovery_abort_file,
+        )
+
+        payload = (json.dumps(request) + "\n").encode()
+        for node_rank, conn in connections:
+            try:
+                conn.sendall(payload)
+                log.warning("Sent terminal recovery abort to node %s", node_rank)
+            except (BrokenPipeError, OSError) as exc:
+                log.warning("Failed to send terminal recovery abort to node %s: %s", node_rank, exc)
+
+        self._terminate_spare_process(reason)
+        self.exit_code = self.recovery_abort_exit_code
+        self.running = False
 
     def _handle_fault(
         self,
@@ -2993,7 +3103,7 @@ def main():
     parser.add_argument(
         "--fallback-relaunch",
         type=_str_to_bool,
-        default=_env_bool("ELASTIC_FALLBACK_RELAUNCH", True),
+        default=_env_bool("ELASTIC_FALLBACK_RELAUNCH", False),
         help="When true, failed recovery epochs ask training nodes to relaunch from checkpoint",
     )
     parser.add_argument(
@@ -3003,9 +3113,15 @@ def main():
         help="Exit code requested for local fallback relaunch exits",
     )
     parser.add_argument(
+        "--recovery-abort-exit-code",
+        type=int,
+        default=int(os.environ.get("ELASTIC_RECOVERY_ABORT_EXIT_CODE", "76")),
+        help="Terminal exit code requested when recovery fails and fallback is disabled",
+    )
+    parser.add_argument(
         "--fallback-restart-standby",
         type=_str_to_bool,
-        default=_env_bool("ELASTIC_FALLBACK_RESTART_STANDBY", True),
+        default=_env_bool("ELASTIC_FALLBACK_RESTART_STANDBY", False),
         help="Restart a warm standby process after fallback relaunch is requested",
     )
     # Fault injection args
@@ -3018,7 +3134,7 @@ def main():
     args = parser.parse_args()
 
     watcher = ElasticWatcher(args)
-    watcher.start()
+    raise SystemExit(watcher.start())
 
 
 if __name__ == "__main__":
