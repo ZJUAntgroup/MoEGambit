@@ -102,6 +102,7 @@ from megatron.training.elastic_client import (
     elastic_warmup_post_rebuild_communicators,
     elastic_trace_post_rebuild_phase,
     elastic_clear_post_rebuild_trace,
+    elastic_commit_post_rebuild_iteration,
     elastic_sanitize_recovery_env_for_startup,
     is_rebuild_mode,
 )
@@ -2923,8 +2924,6 @@ def train(
             num_zeros_in_grad,
         )
         elastic_trace_post_rebuild_phase("training_log_done", args.curr_iteration)
-        elastic_trace_post_rebuild_phase("post_rebuild_step_complete", args.curr_iteration)
-        elastic_clear_post_rebuild_trace()
 
         # Evaluation.
         if args.eval_interval and iteration % args.eval_interval == 0 and args.do_valid:
@@ -2966,6 +2965,7 @@ def train(
 
         # Miscellaneous post-training-step functions (e.g., FT heartbeats, GC).
         # Some of these only happen at specific iterations.
+        elastic_trace_post_rebuild_phase("post_step_callbacks_start", args.curr_iteration)
         post_training_step_callbacks(
             model,
             optimizer,
@@ -2974,8 +2974,10 @@ def train(
             prof,
             num_floating_point_operations_since_last_log_event,
         )
+        elastic_trace_post_rebuild_phase("post_step_callbacks_done", args.curr_iteration)
 
         # Checkpoint and decide whether to exit.
+        elastic_trace_post_rebuild_phase("checkpoint_exit_start", args.curr_iteration)
         should_exit = checkpoint_and_decide_exit(
             model,
             optimizer,
@@ -2985,6 +2987,8 @@ def train(
             checkpointing_context,
             train_data_iterator,
         )
+        elastic_trace_post_rebuild_phase("checkpoint_exit_done", args.curr_iteration)
+        elastic_commit_post_rebuild_iteration(args.curr_iteration)
         if should_exit:
             break
 

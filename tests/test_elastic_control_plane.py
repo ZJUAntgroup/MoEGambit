@@ -391,7 +391,16 @@ def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():
     ]
     assert _PHASE_ORDER["training_log_start"] < _PHASE_ORDER["training_log_done"]
     assert _PHASE_ORDER["training_log_done"] < _PHASE_ORDER[
+        "post_step_callbacks_start"
+    ]
+    assert _PHASE_ORDER["post_step_callbacks_done"] < _PHASE_ORDER[
+        "checkpoint_exit_start"
+    ]
+    assert _PHASE_ORDER["checkpoint_exit_done"] < _PHASE_ORDER[
         "post_rebuild_step_complete"
+    ]
+    assert _PHASE_ORDER["post_rebuild_step_complete"] < _PHASE_ORDER[
+        "post_rebuild_commit_ready"
     ]
 
 
@@ -475,7 +484,7 @@ def test_aux_loss_reduction_skips_single_rank_process_groups():
     assert len(_Torch.distributed.calls) == 4
 
 
-def test_recovery_contract_is_committed_after_training_log():
+def test_recovery_contract_is_committed_at_train_loop_boundary():
     training_path = (
         Path(__file__).parents[1]
         / "Megatron-LM"
@@ -501,8 +510,51 @@ def test_recovery_contract_is_committed_after_training_log():
     assert '"post_rebuild_step_complete"' not in train_step_source
     training_log_call = train_source.index("report_memory_flag = training_log(")
     training_log_done = train_source.index('"training_log_done"', training_log_call)
-    recovery_complete = train_source.index(
-        '"post_rebuild_step_complete"', training_log_done
+    callbacks_call = train_source.index(
+        "post_training_step_callbacks(", training_log_done
     )
-    trace_clear = train_source.index("elastic_clear_post_rebuild_trace()", recovery_complete)
-    assert training_log_call < training_log_done < recovery_complete < trace_clear
+    checkpoint_call = train_source.index(
+        "should_exit = checkpoint_and_decide_exit(", callbacks_call
+    )
+    recovery_commit = train_source.index(
+        "elastic_commit_post_rebuild_iteration(args.curr_iteration)", checkpoint_call
+    )
+    assert (
+        training_log_call
+        < training_log_done
+        < callbacks_call
+        < checkpoint_call
+        < recovery_commit
+    )
+
+
+def test_post_rebuild_commit_uses_two_phase_control_plane_barrier():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    source = elastic_client_path.read_text()
+    tree = ast.parse(source)
+    commit_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "elastic_commit_post_rebuild_iteration"
+    )
+    commit_source = ast.get_source_segment(source, commit_node)
+
+    completed_report = commit_source.index(
+        "elastic_report_recovery_phase(completed_phase"
+    )
+    completed_wait = commit_source.index(
+        "elastic_wait_for_recovery_phase_count(completed_phase"
+    )
+    ready_report = commit_source.index("elastic_report_recovery_phase(commit_phase")
+    ready_wait = commit_source.index(
+        "elastic_wait_for_recovery_phase_count(commit_phase"
+    )
+    trace_clear = commit_source.index("elastic_clear_post_rebuild_trace()")
+    assert completed_report < completed_wait < ready_report < ready_wait < trace_clear

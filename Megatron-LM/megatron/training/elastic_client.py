@@ -1188,6 +1188,52 @@ def elastic_wait_for_recovery_phase_count(
     return False
 
 
+def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
+    """Commit the first recovered iteration at a true train-loop boundary.
+
+    A phase report is asynchronous, so reporting ``step_complete`` and then
+    immediately clearing the recovery state lets fast ranks enter the next
+    iteration before slow ranks have left Megatron's post-step callbacks.  Use
+    a two-stage watcher barrier to make the recovery epoch commit atomic from
+    the training ranks' point of view.  This function is a no-op outside the
+    explicit post-rebuild trace window.
+    """
+    if not elastic_is_post_rebuild_trace_active(iteration):
+        return False
+    if not dist.is_available() or not dist.is_initialized():
+        raise RuntimeError(
+            "[elastic] Cannot commit post-rebuild iteration without an initialized "
+            "process group"
+        )
+
+    world_size = dist.get_world_size()
+    timeout = _elastic_phase_timeout_seconds()
+    completed_phase = "post_rebuild_step_complete"
+    commit_phase = "post_rebuild_commit_ready"
+
+    elastic_report_recovery_phase(completed_phase, step=iteration)
+    if not elastic_wait_for_recovery_phase_count(completed_phase, world_size, timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks completed the first post-rebuild "
+            f"iteration within {timeout}s"
+        )
+
+    elastic_report_recovery_phase(commit_phase, step=iteration)
+    if not elastic_wait_for_recovery_phase_count(commit_phase, world_size, timeout):
+        raise RuntimeError(
+            f"[elastic] Not all {world_size} ranks acknowledged the post-rebuild "
+            f"commit within {timeout}s"
+        )
+
+    logger.warning(
+        "[elastic] Rank %d: recovery epoch committed after iteration %d",
+        dist.get_rank(),
+        iteration,
+    )
+    elastic_clear_post_rebuild_trace()
+    return True
+
+
 def elastic_wait_for_ordinal_barrier(
     barrier_id: str,
     rank: int,

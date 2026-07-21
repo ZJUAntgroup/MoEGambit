@@ -117,7 +117,12 @@ _PHASE_ORDER = {
     "train_step_finalize_done": 160,
     "training_log_start": 170,
     "training_log_done": 180,
-    "post_rebuild_step_complete": 190,
+    "post_step_callbacks_start": 190,
+    "post_step_callbacks_done": 200,
+    "checkpoint_exit_start": 210,
+    "checkpoint_exit_done": 220,
+    "post_rebuild_step_complete": 230,
+    "post_rebuild_commit_ready": 240,
 }
 
 
@@ -666,8 +671,8 @@ class ElasticWatcher:
                 if role == "replacement" and phase in ("init_pg_start", "pg_ready"):
                     self.replacement_ready_event.set()
                 if (
-                    phase == "post_rebuild_step_complete"
-                    and self._phase_count_locked("post_rebuild_step_complete")
+                    phase == "post_rebuild_commit_ready"
+                    and self._phase_count_locked("post_rebuild_commit_ready")
                     >= self.training_nnodes * self.nproc_per_node
                 ):
                     if self.recovery_epoch not in self.recorded_contract_epochs:
@@ -682,8 +687,8 @@ class ElasticWatcher:
                     self.rebuild_ready_phases = {}
                     self.ordinal_barriers = {}
                     log.info(
-                        "All training ranks completed the first post-rebuild step; "
-                        "recovery contract committed"
+                        "All training ranks acknowledged the completed post-rebuild "
+                        "iteration; recovery contract committed"
                     )
                 self.phase_cv.notify_all()
             extra_text = self._format_recovery_phase_extra(msg)
@@ -2034,9 +2039,14 @@ class ElasticWatcher:
                         "train_step_finalize_done",
                         "training_log_start",
                         "training_log_done",
+                        "post_step_callbacks_start",
+                        "post_step_callbacks_done",
+                        "checkpoint_exit_start",
+                        "checkpoint_exit_done",
                         "post_rebuild_step_complete",
+                        "post_rebuild_commit_ready",
                     ],
-                    "debt_commit_point": "post_rebuild_step_complete",
+                    "debt_commit_point": "post_rebuild_commit_ready",
                 },
             },
             "recovery": {
