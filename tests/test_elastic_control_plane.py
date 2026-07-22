@@ -501,6 +501,7 @@ def test_planned_fault_prearms_the_exact_replacement_runtime():
         assert env["ELASTIC_RECOVERY_EPOCH"] == "1"
         assert env["MASTER_PORT"] == "20124"
         assert env["ELASTIC_REBUILD_TIMEOUT_MINUTES"] == "999"
+        assert env["ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS"] == "59940.0"
         assert env["ELASTIC_SELECTIVE_GROUP_REBUILD"] == "1"
         assert watcher.standby_prearmed
         assert watcher.standby_prearmed_epoch == 1
@@ -760,6 +761,7 @@ def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
     )
 
     init_pg_start_line = None
+    standby_activation_line = None
     rebuild_store_line = None
     for node in ast.walk(initialize_distributed):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
@@ -773,12 +775,17 @@ def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
             init_pg_start_line = node.lineno
         elif node.func.id == "elastic_create_rebuild_store":
             rebuild_store_line = node.lineno
+        elif node.func.id == "elastic_refresh_prearmed_standby_assignment":
+            standby_activation_line = node.lineno
 
+    assert _PHASE_ORDER["init_pg_start"] < _PHASE_ORDER["standby_activated"]
+    assert _PHASE_ORDER["standby_activated"] < _PHASE_ORDER["rebuild_store_ready"]
     assert _PHASE_ORDER["init_pg_start"] < _PHASE_ORDER["rebuild_store_ready"]
     assert _PHASE_ORDER["rebuild_store_ready"] < _PHASE_ORDER["pg_ready"]
     assert init_pg_start_line is not None
+    assert standby_activation_line is not None
     assert rebuild_store_line is not None
-    assert init_pg_start_line < rebuild_store_line
+    assert init_pg_start_line < standby_activation_line < rebuild_store_line
 
 
 def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():

@@ -461,6 +461,15 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             standby_prearmed=os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1",
             standby_runtime=standby_runtime,
         )
+        standby_activation = None
+        if os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1":
+            # Do not open TCPStore while the future recovery endpoint is still
+            # absent. A long-lived client otherwise enters TCPStore's retry
+            # backoff and can miss the server by tens of seconds when the
+            # failure is finally injected. The assignment file is the exact
+            # recovery-epoch activation gate for this already-warm process.
+            standby_activation = elastic_refresh_prearmed_standby_assignment()
+            _elastic_report_phase_safely("standby_activated", **standby_activation)
         if _is_elastic_rebuild_mode() and store is None:
             # This must happen after init_pg_start.  The watcher uses that phase
             # to release survivors, and survivor rank zero owns the TCPStore
@@ -489,9 +498,6 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             )
         torch.distributed.init_process_group(**init_process_group_kwargs)
         inprocess_restart.maybe_force_nccl_backend_init(device_id)
-        if os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1":
-            activation = elastic_refresh_prearmed_standby_assignment()
-            _elastic_report_phase_safely("standby_activated", **activation)
         _elastic_report_phase_safely("pg_ready")
 
     # Set the tensor model-parallel, pipeline model-parallel, and

@@ -214,8 +214,9 @@ def elastic_prearm_standby_cuda_runtime(device):
 
         with torch.no_grad():
             te_linear = te.Linear(64, 64, bias=False).to(device)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                cache["te_output"] = te_linear(probe)
             cache["te_linear"] = te_linear
-            cache["te_output"] = te_linear(probe)
     except Exception as exc:
         te_status = f"import_only:{type(exc).__name__}"
         logger.warning("[elastic] standby TE operator warmup skipped: %s", exc)
@@ -242,6 +243,12 @@ def elastic_refresh_prearmed_standby_assignment():
     timeout = float(os.environ.get("ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS", "30"))
     deadline = time.time() + timeout
     assignment = None
+    logger.warning(
+        "[elastic] prearmed standby waiting for activation assignment before "
+        "TCPStore: path=%s timeout=%.1fs",
+        assignment_path,
+        timeout,
+    )
     while time.time() < deadline:
         try:
             with open(assignment_path, "r", encoding="utf-8") as assignment_file:

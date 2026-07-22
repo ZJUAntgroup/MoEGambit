@@ -77,7 +77,7 @@ def _env_bool(name, default=False):
 _PHASE_ORDER = {
     "init_pg_start": 10,
     "rebuild_store_ready": 15,
-    "standby_activated": 18,
+    "standby_activated": 12,
     "pg_ready": 20,
     "mpu_init_start": 30,
     "mpu_group_start": 32,
@@ -2927,14 +2927,15 @@ class ElasticWatcher:
             env["ELASTIC_SPARE_ASSIGNMENT_FILE"] = str(
                 self.standby_assignment_file
             )
-            env["ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS"] = os.environ.get(
-                "ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS",
-                "30",
-            )
-            env["ELASTIC_REBUILD_TIMEOUT_MINUTES"] = os.environ.get(
+            standby_store_timeout_minutes = os.environ.get(
                 "ELASTIC_STANDBY_STORE_TIMEOUT_MINUTES",
                 "1440",
             )
+            env["ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS"] = os.environ.get(
+                "ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS",
+                str(float(standby_store_timeout_minutes) * 60.0),
+            )
+            env["ELASTIC_REBUILD_TIMEOUT_MINUTES"] = standby_store_timeout_minutes
             self.standby_prearmed = True
             self.standby_prearmed_ready = False
             self.standby_prearmed_epoch = next_epoch
