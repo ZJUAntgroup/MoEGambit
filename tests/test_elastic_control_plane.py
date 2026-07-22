@@ -186,6 +186,66 @@ def test_recovery_abort_prefers_launcher_control_connections():
         )
 
 
+def test_peer_endpoint_prefers_advertised_host_over_connection_source():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        peer_id = "zero2-memory:1:owner=0:holder=1"
+
+        watcher._process_message(
+            {
+                "type": "peer_sync_endpoint",
+                "node_rank": 8,
+                "rank": 1,
+                "peer_id": peer_id,
+                "host": "33.181.106.20",
+                "port": 33895,
+                "src_rank": 0,
+                "dst_rank": 1,
+            },
+            _Connection(),
+            addr=("127.0.0.1", 45000),
+        )
+
+        endpoint = watcher.peer_sync_endpoints[peer_id]
+        assert endpoint["host"] == "33.181.106.20"
+        assert endpoint["port"] == 33895
+
+
+def test_recovery_peer_publishers_include_a_routable_host():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    source = elastic_client_path.read_text()
+    tree = ast.parse(source)
+    zero2_publisher = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_zero2_publish_endpoint"
+    )
+    peer_stream = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "_PeerSyncStream"
+    )
+    peer_publisher = next(
+        node
+        for node in peer_stream.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_open_source"
+    )
+
+    zero2_source = ast.get_source_segment(source, zero2_publisher)
+    peer_source = ast.get_source_segment(source, peer_publisher)
+    assert "_elastic_peer_sync_advertise_host()" in zero2_source
+    assert 'msg["host"] = advertised_host' in zero2_source
+    assert "_elastic_peer_sync_advertise_host()" in peer_source
+    assert 'endpoint_msg["host"] = advertised_host' in peer_source
+
+
 def test_recovery_abort_releases_pending_ordinal_barriers():
     with tempfile.TemporaryDirectory() as fault_dir:
         args = _args(fault_dir)

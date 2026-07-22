@@ -298,9 +298,24 @@ class Zero2MemoryReplicaManager:
         endpoint = self._wait_endpoint_fn(outgoing_id, self.timeout)
         if endpoint is None:
             raise RuntimeError(f"timed out waiting for optimizer replica endpoint {outgoing_id}")
-        outgoing = socket.create_connection(
-            (str(endpoint["host"]), int(endpoint["port"])), timeout=self.timeout
-        )
+        endpoint_address = (str(endpoint["host"]), int(endpoint["port"]))
+        deadline = time.monotonic() + self.timeout
+        last_error = None
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ConnectionError(
+                    "timed out connecting to optimizer replica endpoint "
+                    f"{endpoint_address[0]}:{endpoint_address[1]}: {last_error}"
+                ) from last_error
+            try:
+                outgoing = socket.create_connection(
+                    endpoint_address, timeout=min(10.0, remaining)
+                )
+                break
+            except OSError as exc:
+                last_error = exc
+                time.sleep(min(0.2, remaining))
         outgoing.settimeout(self.timeout)
         self._outgoing = outgoing
         if not self._incoming_ready.wait(self.timeout):

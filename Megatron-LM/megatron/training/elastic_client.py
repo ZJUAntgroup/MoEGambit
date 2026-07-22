@@ -110,6 +110,25 @@ def _elastic_ipv4_interface_for_peer(peer_host):
     return None, local_ip
 
 
+def _elastic_peer_sync_advertise_host():
+    """Return a routable IPv4 address for peer-to-peer recovery sockets."""
+    configured = os.environ.get("ELASTIC_PEER_SYNC_ADVERTISE_ADDR")
+    if configured:
+        return configured
+
+    # A replacement worker commonly reaches a watcher on localhost because
+    # the watcher launches it. Advertising the watcher's observed source in
+    # that case publishes 127.0.0.1 to remote training ranks. Route probing
+    # toward MASTER_ADDR selects the replacement's training-network address.
+    peer_host = os.environ.get("MASTER_ADDR")
+    if peer_host in (None, "", "127.0.0.1", "localhost", "::1"):
+        peer_host = os.environ.get("ELASTIC_WATCHER_ADDR")
+    _, local_ip = _elastic_ipv4_interface_for_peer(peer_host)
+    if local_ip and local_ip not in ("0.0.0.0", "127.0.0.1"):
+        return local_ip
+    return None
+
+
 def elastic_configure_recovery_nccl_transport():
     """Pin recovery NCCL to the control-plane-reachable IPv4 socket path."""
     enabled = os.environ.get("ELASTIC_RECOVERY_NCCL_SOCKET_ONLY", "0").lower() in (
@@ -3866,6 +3885,9 @@ def _zero2_publish_endpoint(peer_id, port, src_rank, dst_rank):
         "src_rank": int(src_rank),
         "dst_rank": int(dst_rank),
     }
+    advertised_host = _elastic_peer_sync_advertise_host()
+    if advertised_host:
+        msg["host"] = advertised_host
     if int(os.environ.get("ELASTIC_PG_GENERATION", "0")) > 0:
         msg.update(_elastic_recovery_epoch_payload())
     return _send_one_shot_to_watcher(msg)
@@ -4099,6 +4121,9 @@ class _PeerSyncStream:
             "src_rank": self.src_rank,
             "dst_rank": self.dst_rank,
         }
+        advertised_host = _elastic_peer_sync_advertise_host()
+        if advertised_host:
+            endpoint_msg["host"] = advertised_host
         endpoint_msg.update(_elastic_recovery_epoch_payload())
         if not _send_one_shot_to_watcher(endpoint_msg):
             raise RuntimeError(f"[elastic] failed publishing peer sync endpoint {peer_id}")

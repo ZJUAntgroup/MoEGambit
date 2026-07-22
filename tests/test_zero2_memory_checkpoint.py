@@ -60,8 +60,21 @@ def test_ring_neighbors_use_the_next_dp_rank_as_backup_holder():
         zero2.ring_neighbors([1], 1)
 
 
-def test_optimizer_snapshot_h2h_commit_and_nonexpert_restore():
+def test_optimizer_snapshot_h2h_commit_and_nonexpert_restore(monkeypatch):
     registry = _EndpointRegistry()
+    real_create_connection = zero2.socket.create_connection
+    connection_attempts = 0
+
+    def create_connection_with_one_transient_failure(*args, **kwargs):
+        nonlocal connection_attempts
+        connection_attempts += 1
+        if connection_attempts == 1:
+            raise ConnectionRefusedError("listener endpoint is not ready yet")
+        return real_create_connection(*args, **kwargs)
+
+    monkeypatch.setattr(
+        zero2.socket, "create_connection", create_connection_with_one_transient_failure
+    )
     rank0_tensors = (
         torch.tensor([1.0, 2.0]),
         torch.tensor([3.0]),
@@ -131,6 +144,7 @@ def test_optimizer_snapshot_h2h_commit_and_nonexpert_restore():
         next_snapshot = manager1.get_peer_snapshot(owner_rank=0, step=8)
         assert next_snapshot.step == 8
         assert next_snapshot.manifest_hash == snapshot.manifest_hash
+        assert connection_attempts >= 3
 
         with pytest.raises(RuntimeError, match="unavailable"):
             manager1.get_peer_snapshot(owner_rank=0, step=9)
