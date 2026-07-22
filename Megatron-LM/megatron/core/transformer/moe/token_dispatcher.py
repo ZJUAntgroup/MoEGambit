@@ -131,7 +131,7 @@ class MoETokenDispatcher:
 
         self._elastic_post_rebuild_group_refresh_token = token
         rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else -1
-        trace = os.environ.get("ELASTIC_TRACE_MOE_GROUP_REBIND", "1").lower() in (
+        trace = os.environ.get("ELASTIC_TRACE_MOE_GROUP_REBIND", "0").lower() in (
             "1",
             "true",
             "yes",
@@ -282,6 +282,8 @@ class MoETokenDispatcher:
 
     def _elastic_trace_once(self, key: str, message: str, *args):
         if not self._elastic_post_rebuild_trace_active():
+            return
+        if os.environ.get("ELASTIC_TRACE_MOE_DISPATCH", "0") != "1":
             return
         attr_name = f"_elastic_trace_{key}"
         trace_token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")

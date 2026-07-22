@@ -77,6 +77,7 @@ def _env_bool(name, default=False):
 _PHASE_ORDER = {
     "init_pg_start": 10,
     "rebuild_store_ready": 15,
+    "standby_activated": 18,
     "pg_ready": 20,
     "mpu_init_start": 30,
     "mpu_group_start": 32,
@@ -121,41 +122,7 @@ _PHASE_ORDER = {
     "post_step_callbacks_done": 200,
     "checkpoint_exit_start": 210,
     "checkpoint_exit_done": 220,
-    "post_rebuild_step_complete": 230,
-    "post_rebuild_stabilization_ready": 250,
-    "stabilization_rerun_state_contract_start": 252,
-    "stabilization_rerun_state_contract_ready": 254,
-    "stabilization_rerun_state_contract_error": 256,
-    "stabilization_iteration_prologue_start": 260,
-    "stabilization_iteration_prologue_done": 270,
-    "stabilization_iteration_safe_point_start": 280,
-    "stabilization_iteration_safe_point_done": 290,
-    "stabilization_moegambit_before_iteration_start": 300,
-    "stabilization_moegambit_before_iteration_done": 310,
-    "stabilization_forward_backward_start": 320,
-    "stabilization_pipeline_p2p_start": 321,
-    "stabilization_pipeline_p2p_returned": 323,
-    "stabilization_moe_first_collective_prepared": 321,
-    "stabilization_moe_first_collective_store_ready": 322,
-    "stabilization_moe_first_collective_store_error": 323,
-    "stabilization_moe_first_collective_start": 324,
-    "stabilization_moe_first_collective_done": 326,
-    "stabilization_moe_first_collective_error": 328,
-    "stabilization_moe_first_collective_timeout": 329,
-    "stabilization_forward_backward_done": 330,
-    "stabilization_optimizer_pg_contract_ready": 335,
-    "stabilization_optimizer_pg_contract_error": 336,
-    "stabilization_optimizer_step_start": 340,
-    "stabilization_optimizer_step_done": 350,
-    "stabilization_optimizer_skipped": 355,
-    "stabilization_train_step_finalize_done": 360,
-    "stabilization_training_log_start": 370,
-    "stabilization_training_log_done": 380,
-    "stabilization_post_step_callbacks_start": 390,
-    "stabilization_post_step_callbacks_done": 400,
-    "stabilization_checkpoint_exit_start": 410,
-    "stabilization_checkpoint_exit_done": 420,
-    "post_rebuild_commit_ready": 440,
+    "post_rebuild_commit_ready": 230,
 }
 
 
@@ -226,6 +193,10 @@ class ElasticWatcher:
         self.rebuild_triggered = False
         self.replacement_ready_event = threading.Event()
         self.standby_proc = None
+        self.standby_prearmed = False
+        self.standby_prearmed_ready = False
+        self.standby_prearmed_epoch = None
+        self.standby_prearmed_rank = None
         self.standby_assignment_file = self.fault_dir / "spare_assignment.json"
         self.recovery_descriptor_file = self.fault_dir / "recovery_descriptor.json"
         history_root = Path(os.environ.get("CKPT_DIR", str(self.fault_dir)))
@@ -681,12 +652,7 @@ class ElasticWatcher:
                 "moe_first_collective_error",
                 "moe_first_collective_timeout",
                 "optimizer_pg_contract_error",
-                "stabilization_moe_first_collective_error",
-                "stabilization_moe_first_collective_timeout",
-                "stabilization_moe_first_collective_store_error",
-                "stabilization_optimizer_pg_contract_error",
                 "rerun_state_contract_error",
-                "stabilization_rerun_state_contract_error",
             }
             record_contract_epoch = None
             with self.lock:
@@ -722,6 +688,12 @@ class ElasticWatcher:
                         "role": role,
                         "extra": extra,
                     }
+                if (
+                    role == "replacement"
+                    and phase == "init_pg_start"
+                    and msg.get("standby_prearmed") is True
+                ):
+                    self.standby_prearmed_ready = True
                 if role == "replacement" and phase in ("init_pg_start", "pg_ready"):
                     self.replacement_ready_event.set()
                 if (
@@ -1003,6 +975,13 @@ class ElasticWatcher:
         with self.lock:
             current_epoch = self.recovery_epoch
             in_recovery = self.recovery_in_progress
+        if (
+            msg_type == "recovery_phase"
+            and msg.get("standby_prearmed") is True
+            and not in_recovery
+            and msg_epoch == current_epoch + 1
+        ):
+            return False
         if msg_epoch != current_epoch:
             log.warning(
                 "Ignoring stale recovery message type=%s epoch=%s current_epoch=%s "
@@ -2108,29 +2087,6 @@ class ElasticWatcher:
                         "post_step_callbacks_done",
                         "checkpoint_exit_start",
                         "checkpoint_exit_done",
-                        "post_rebuild_step_complete",
-                        "post_rebuild_stabilization_ready",
-                        "stabilization_rerun_state_contract_start",
-                        "stabilization_rerun_state_contract_ready",
-                        "stabilization_iteration_prologue_start",
-                        "stabilization_iteration_prologue_done",
-                        "stabilization_iteration_safe_point_start",
-                        "stabilization_iteration_safe_point_done",
-                        "stabilization_moegambit_before_iteration_start",
-                        "stabilization_moegambit_before_iteration_done",
-                        "stabilization_forward_backward_start",
-                        "stabilization_pipeline_p2p_start",
-                        "stabilization_pipeline_p2p_returned",
-                        "stabilization_forward_backward_done",
-                        "stabilization_optimizer_step_start",
-                        "stabilization_optimizer_step_done",
-                        "stabilization_train_step_finalize_done",
-                        "stabilization_training_log_start",
-                        "stabilization_training_log_done",
-                        "stabilization_post_step_callbacks_start",
-                        "stabilization_post_step_callbacks_done",
-                        "stabilization_checkpoint_exit_start",
-                        "stabilization_checkpoint_exit_done",
                         "post_rebuild_commit_ready",
                     ],
                     "debt_commit_point": "post_rebuild_commit_ready",
@@ -2210,6 +2166,10 @@ class ElasticWatcher:
         proc = self.standby_proc
         if proc is None or proc.poll() is not None:
             self.standby_proc = None
+            self.standby_prearmed = False
+            self.standby_prearmed_ready = False
+            self.standby_prearmed_epoch = None
+            self.standby_prearmed_rank = None
             return
         log.warning(
             "Terminating spare/replacement pid=%s due to recovery shutdown (%s)",
@@ -2227,6 +2187,10 @@ class ElasticWatcher:
         except OSError:
             pass
         self.standby_proc = None
+        self.standby_prearmed = False
+        self.standby_prearmed_ready = False
+        self.standby_prearmed_epoch = None
+        self.standby_prearmed_rank = None
 
     def _reset_after_fallback(self):
         with self.lock:
@@ -2760,9 +2724,17 @@ class ElasticWatcher:
             self.rebuild_ready_step_tags = {}
             self.rebuild_ready_phases = {}
 
-    def _build_spare_env(self, failed_node, killed_local_rank, resume_iteration=-1):
+    def _build_spare_env(
+        self,
+        failed_node,
+        killed_local_rank,
+        resume_iteration=-1,
+        recovery_epoch=None,
+    ):
         killed_global_rank = failed_node * self.nproc_per_node + killed_local_rank
         physical_node_rank = os.environ.get("NODE_RANK", str(self.training_nnodes))
+        if recovery_epoch is None:
+            recovery_epoch = self.recovery_epoch
 
         env = os.environ.copy()
         # The replacement uses our standalone TCPStore, not torchrun's agent
@@ -2788,8 +2760,8 @@ class ElasticWatcher:
         env["RANK"] = str(killed_global_rank)
         env["ELASTIC_REPLACEMENT_RANK"] = str(killed_global_rank)
         env["ELASTIC_RESUME_ITERATION"] = str(resume_iteration)
-        env["ELASTIC_RECOVERY_EPOCH"] = str(self.recovery_epoch)
-        env["ELASTIC_PG_GENERATION"] = str(self.recovery_epoch)
+        env["ELASTIC_RECOVERY_EPOCH"] = str(recovery_epoch)
+        env["ELASTIC_PG_GENERATION"] = str(recovery_epoch)
         env["ELASTIC_RECOVERY_DESCRIPTOR"] = str(self.recovery_descriptor_file)
         try:
             with self.recovery_descriptor_file.open("r", encoding="utf-8") as f:
@@ -2811,12 +2783,16 @@ class ElasticWatcher:
             "1" if r2_contract.get("two_phase_enabled", False) else "0"
         )
         env["MASTER_ADDR"] = self.master_addr
-        env["MASTER_PORT"] = str(self._rebuild_master_port(self.recovery_epoch))
+        env["MASTER_PORT"] = str(self._rebuild_master_port(recovery_epoch))
         env["ELASTIC_WATCHER_ADDR"] = os.environ.get(
             "ELASTIC_REPLACEMENT_WATCHER_ADDR", "127.0.0.1"
         )
         env["ELASTIC_WATCHER_PORT"] = str(self.port)
         env["ELASTIC_REBUILD_MODE"] = "1"
+        env["ELASTIC_SELECTIVE_GROUP_REBUILD"] = os.environ.get(
+            "ELASTIC_SELECTIVE_GROUP_REBUILD",
+            "1",
+        )
         env["NNODES"] = str(self.training_nnodes)
         env["ELASTIC_TRAINING_NPROC_PER_NODE"] = str(self.nproc_per_node)
         env["WORLD_SIZE"] = str(self.training_nnodes * self.nproc_per_node)
@@ -2885,7 +2861,7 @@ class ElasticWatcher:
         )
         env["ELASTIC_RECOVERY_NCCL_DEBUG"] = os.environ.get(
             "ELASTIC_RECOVERY_NCCL_DEBUG",
-            "INFO",
+            "WARN",
         )
         if os.environ.get("ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME"):
             env["ELASTIC_RECOVERY_NCCL_SOCKET_IFNAME"] = os.environ[
@@ -2925,13 +2901,50 @@ class ElasticWatcher:
             pass
 
         env = os.environ.copy()
-        env["ELASTIC_STANDBY_MODE"] = "1"
         env["ELASTIC_SPARE_ASSIGNMENT_FILE"] = str(self.standby_assignment_file)
         env["ELASTIC_WATCHER_ADDR"] = os.environ.get(
             "ELASTIC_REPLACEMENT_WATCHER_ADDR", "127.0.0.1"
         )
         env["ELASTIC_WATCHER_PORT"] = str(self.port)
         env["PYTHONUNBUFFERED"] = "1"
+
+        prearm_planned = (
+            os.environ.get("ELASTIC_PREARM_PLANNED_SPARE", "1") == "1"
+            and self.fault_inject_step >= 0
+            and self.fault_inject_node >= 0
+            and self.fault_inject_local_rank >= 0
+        )
+        if prearm_planned:
+            next_epoch = self.recovery_epoch + 1
+            env = self._build_spare_env(
+                self.fault_inject_node,
+                self.fault_inject_local_rank,
+                resume_iteration=-1,
+                recovery_epoch=next_epoch,
+            )
+            env["ELASTIC_PREARMED_STANDBY"] = "1"
+            env.pop("ELASTIC_STANDBY_MODE", None)
+            env["ELASTIC_SPARE_ASSIGNMENT_FILE"] = str(
+                self.standby_assignment_file
+            )
+            env["ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS"] = os.environ.get(
+                "ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS",
+                "30",
+            )
+            env["ELASTIC_REBUILD_TIMEOUT_MINUTES"] = os.environ.get(
+                "ELASTIC_STANDBY_STORE_TIMEOUT_MINUTES",
+                "1440",
+            )
+            self.standby_prearmed = True
+            self.standby_prearmed_ready = False
+            self.standby_prearmed_epoch = next_epoch
+            self.standby_prearmed_rank = int(env["RANK"])
+        else:
+            env["ELASTIC_STANDBY_MODE"] = "1"
+            self.standby_prearmed = False
+            self.standby_prearmed_ready = False
+            self.standby_prearmed_epoch = None
+            self.standby_prearmed_rank = None
 
         proc = subprocess.Popen(
             self._script_cmd(),
@@ -2940,11 +2953,23 @@ class ElasticWatcher:
             stderr=subprocess.STDOUT,
         )
         self.standby_proc = proc
-        log.info(
-            "Warm standby worker pid=%s started; waiting on %s",
-            proc.pid,
-            self.standby_assignment_file,
-        )
+        if prearm_planned:
+            log.info(
+                "Prearmed GPU standby pid=%s target_rank=%s epoch=%s "
+                "store=%s:%s gpu=%s",
+                proc.pid,
+                env["RANK"],
+                next_epoch,
+                env["MASTER_ADDR"],
+                env["MASTER_PORT"],
+                env["CUDA_VISIBLE_DEVICES"],
+            )
+        else:
+            log.info(
+                "Warm standby worker pid=%s started; waiting on %s",
+                proc.pid,
+                self.standby_assignment_file,
+            )
         t = threading.Thread(
             target=self._log_spare_output,
             args=(proc, "spare-standby"),
@@ -2954,6 +2979,24 @@ class ElasticWatcher:
 
     def _activate_standby_worker(self, env):
         if self.standby_proc is None or self.standby_proc.poll() is not None:
+            self.standby_prearmed = False
+            self.standby_prearmed_ready = False
+            self.standby_prearmed_epoch = None
+            self.standby_prearmed_rank = None
+            return None
+        if self.standby_prearmed and (
+            int(env["RANK"]) != self.standby_prearmed_rank
+            or int(env["ELASTIC_RECOVERY_EPOCH"]) != self.standby_prearmed_epoch
+        ):
+            log.warning(
+                "Prearmed standby role does not match failure: armed_rank=%s "
+                "armed_epoch=%s actual_rank=%s actual_epoch=%s; using cold launch",
+                self.standby_prearmed_rank,
+                self.standby_prearmed_epoch,
+                env["RANK"],
+                env["ELASTIC_RECOVERY_EPOCH"],
+            )
+            self._terminate_spare_process("prearmed-role-mismatch")
             return None
 
         assignment = {
@@ -2971,13 +3014,19 @@ class ElasticWatcher:
                 "ELASTIC_REPLACEMENT_RANK",
                 "ELASTIC_RESUME_ITERATION",
                 "ELASTIC_RECOVERY_EPOCH",
+                "ELASTIC_PG_GENERATION",
                 "ELASTIC_RECOVERY_DESCRIPTOR",
                 "ELASTIC_RECOVERY_DESCRIPTOR_SHA256",
+                "ELASTIC_CHECKPOINT_STEP",
+                "ELASTIC_EXPERT_STALENESS_DELTA",
+                "ELASTIC_MOEGAMBIT_RECOVERY_MODE",
+                "ELASTIC_TWO_PHASE_RECOVERY",
                 "MASTER_ADDR",
                 "MASTER_PORT",
                 "ELASTIC_WATCHER_ADDR",
                 "ELASTIC_WATCHER_PORT",
                 "ELASTIC_REBUILD_MODE",
+                "ELASTIC_SELECTIVE_GROUP_REBUILD",
                 "NNODES",
                 "ELASTIC_TRAINING_NPROC_PER_NODE",
                 "WORLD_SIZE",
@@ -3006,8 +3055,11 @@ class ElasticWatcher:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(assignment, f)
         os.replace(tmp_path, self.standby_assignment_file)
+        if self.standby_prearmed and self.standby_prearmed_ready:
+            self.replacement_ready_event.set()
         log.info(
-            "Activated warm standby pid=%s for replacement rank=%s",
+            "Activated %s standby pid=%s for replacement rank=%s",
+            "prearmed GPU" if self.standby_prearmed else "warm shell",
             self.standby_proc.pid,
             env["RANK"],
         )

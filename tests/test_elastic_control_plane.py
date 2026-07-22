@@ -216,6 +216,7 @@ def test_recovery_abort_releases_pending_ordinal_barriers():
 def test_hotspare_fail_fast_is_terminal_and_cannot_relaunch():
     script = (Path(__file__).parents[1] / "test_hotspare_replace.sh").read_text()
 
+    assert 'ELASTIC_RECOVERY_NCCL_DEBUG:-WARN' in script
     assert "export ELASTIC_RECOVERY_STALL_TIMEOUT_SECONDS=70" in script
     assert "export ELASTIC_MOE_FIRST_COLLECTIVE_FAIL_FAST=1" in script
     assert "export ELASTIC_MOE_FIRST_COLLECTIVE_TIMEOUT=70" in script
@@ -341,7 +342,7 @@ def test_ordinal_barrier_rejects_different_rerun_state_contracts():
             "group_backend": "control_plane",
             "group_size": 2,
             "group_ranks": [0, 1],
-            "barrier_stage": "pre_stabilization_recovered_step",
+            "barrier_stage": "pre_first_recovered_step",
         }
         canonical = {
             "mode": "validate_results",
@@ -460,6 +461,289 @@ def test_replacement_env_drops_inherited_torchelastic_store_namespace():
         assert "TORCHELASTIC_RUN_ID" not in env
 
 
+def test_planned_fault_prearms_the_exact_replacement_runtime():
+    class _Proc:
+        pid = 1234
+        stdout = None
+
+        @staticmethod
+        def poll():
+            return None
+
+    captured = {}
+
+    def _popen(command, env, stdout, stderr):
+        captured.update(command=command, env=dict(env), stdout=stdout, stderr=stderr)
+        return _Proc()
+
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "NODE_RANK": "2",
+                    "ELASTIC_PREARM_PLANNED_SPARE": "1",
+                    "ELASTIC_STANDBY_STORE_TIMEOUT_MINUTES": "999",
+                },
+                clear=False,
+            ),
+            patch("elastic_watcher.subprocess.Popen", side_effect=_popen),
+            patch("elastic_watcher.threading.Thread.start", return_value=None),
+        ):
+            watcher._start_standby_worker()
+
+        env = captured["env"]
+        assert env["ELASTIC_PREARMED_STANDBY"] == "1"
+        assert "ELASTIC_STANDBY_MODE" not in env
+        assert env["RANK"] == "1"
+        assert env["CUDA_VISIBLE_DEVICES"] == "1"
+        assert env["ELASTIC_RECOVERY_EPOCH"] == "1"
+        assert env["MASTER_PORT"] == "20124"
+        assert env["ELASTIC_REBUILD_TIMEOUT_MINUTES"] == "999"
+        assert env["ELASTIC_SELECTIVE_GROUP_REBUILD"] == "1"
+        assert watcher.standby_prearmed
+        assert watcher.standby_prearmed_epoch == 1
+        spare_script = (Path(__file__).parents[1] / "run_spare_single_rank.sh").read_text()
+        assert '[ "${ELASTIC_PREARMED_STANDBY:-0}" = "1" ]' in spare_script
+
+
+def test_future_prearmed_phase_is_the_only_future_epoch_message_accepted():
+    with tempfile.TemporaryDirectory() as fault_dir:
+        watcher = ElasticWatcher(_args(fault_dir))
+        prearmed = {
+            "recovery_epoch": 1,
+            "standby_prearmed": True,
+        }
+        assert not watcher._is_stale_recovery_message(prearmed, "recovery_phase")
+        assert watcher._is_stale_recovery_message(
+            {"recovery_epoch": 1}, "recovery_phase"
+        )
+        assert watcher._is_stale_recovery_message(prearmed, "ready_to_rebuild")
+
+
+def test_prearmed_assignment_refreshes_only_dynamic_recovery_metadata():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    tree = ast.parse(elastic_client_path.read_text())
+    refresh_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "elastic_refresh_prearmed_standby_assignment"
+    )
+    namespace = {
+        "json": json,
+        "os": os,
+        "time": time,
+        "logger": type("_Logger", (), {"warning": lambda *args, **kwargs: None})(),
+        "_PREARMED_STANDBY_RUNTIME": {
+            "summary": {"te_status": "imported"},
+            "cache": {},
+        },
+    }
+    module = ast.Module(body=[refresh_node], type_ignores=[])
+    exec(compile(module, str(elastic_client_path), "exec"), namespace)
+
+    with tempfile.TemporaryDirectory() as directory:
+        assignment_path = Path(directory) / "assignment.json"
+        assignment_path.write_text(
+            json.dumps(
+                {
+                    "RANK": "1",
+                    "WORLD_SIZE": "4",
+                    "LOCAL_RANK": "0",
+                    "MASTER_ADDR": "10.0.0.1",
+                    "MASTER_PORT": "20124",
+                    "CUDA_VISIBLE_DEVICES": "1",
+                    "ELASTIC_RESUME_ITERATION": "18",
+                    "ELASTIC_RECOVERY_DESCRIPTOR_SHA256": "digest",
+                }
+            )
+        )
+        with patch.dict(
+            os.environ,
+            {
+                "ELASTIC_PREARMED_STANDBY": "1",
+                "ELASTIC_SPARE_ASSIGNMENT_FILE": str(assignment_path),
+                "RANK": "1",
+                "WORLD_SIZE": "4",
+                "LOCAL_RANK": "0",
+                "MASTER_ADDR": "10.0.0.1",
+                "MASTER_PORT": "20124",
+                "CUDA_VISIBLE_DEVICES": "1",
+            },
+            clear=False,
+        ):
+            result = namespace[
+                "elastic_refresh_prearmed_standby_assignment"
+            ]()
+            assert result["warm_runtime"]["te_status"] == "imported"
+            assert os.environ["ELASTIC_RESUME_ITERATION"] == "18"
+            assert os.environ["ELASTIC_STANDBY_ACTIVATED"] == "1"
+
+
+def test_selective_rebuild_detaches_and_restores_healthy_c10d_group():
+    parallel_state_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "core"
+        / "parallel_state.py"
+    )
+    tree = ast.parse(parallel_state_path.read_text())
+    function_names = {
+        "_elastic_snapshot_registered_group",
+        "_elastic_detach_registered_group",
+        "_elastic_restore_registered_group",
+    }
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in function_names
+    ]
+
+    group = object()
+
+    class _World:
+        pg_map = {group: ("nccl", "store")}
+        pg_names = {group: "7"}
+        pg_group_ranks = {group: {0: 0, 2: 1}}
+        pg_backend_config = {group: "cuda:nccl"}
+        pg_to_tag = {group: "ptd:7"}
+        tags_to_pg = {"ptd:7": [group], "": [group]}
+        pg_coalesce_state = {}
+
+    class _C10d:
+        _world = _World()
+        registered = {}
+
+        @classmethod
+        def _register_process_group(cls, name, process_group):
+            cls.registered[name] = process_group
+
+    class _Distributed:
+        distributed_c10d = _C10d
+
+    class _Torch:
+        distributed = _Distributed
+
+    namespace = {"torch": _Torch}
+    module = ast.Module(body=functions, type_ignores=[])
+    exec(compile(module, str(parallel_state_path), "exec"), namespace)
+
+    snapshot = namespace["_elastic_snapshot_registered_group"](group)
+    namespace["_elastic_detach_registered_group"](snapshot)
+    assert group not in _World.pg_map
+    assert group not in _World.pg_names
+    assert group not in _World.tags_to_pg.get("ptd:7", [])
+
+    restored = namespace["_elastic_restore_registered_group"](
+        snapshot, "elastic_retained_1_0"
+    )
+    assert restored is group
+    assert _World.pg_map[group] == ("nccl", "store")
+    assert _World.pg_names[group] == "elastic_retained_1_0"
+    assert _C10d.registered["elastic_retained_1_0"] is group
+
+
+def test_selective_group_retention_precedes_world_teardown():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    source = elastic_client_path.read_text()
+    tree = ast.parse(source)
+    rebuild_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "elastic_do_rebuild"
+    )
+    rebuild_source = ast.get_source_segment(source, rebuild_node)
+    retain = rebuild_source.index("prepare_elastic_selective_group_rebuild(")
+    teardown = rebuild_source.index("_elastic_destroy_process_group_generation(")
+    assert retain < teardown
+
+    parallel_state_source = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "core"
+        / "parallel_state.py"
+    ).read_text()
+    parallel_state_tree = ast.parse(parallel_state_source)
+    create_group_node = next(
+        node
+        for node in parallel_state_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "create_group"
+    )
+    create_group_source = ast.get_source_segment(
+        parallel_state_source, create_group_node
+    )
+    reuse_branch = create_group_source.index("if reuse_group:")
+    new_group = create_group_source.index("torch.distributed.new_group(**kwargs)")
+    assert reuse_branch < new_group
+
+
+def test_selective_finalize_keeps_auxiliary_group_in_next_manifest():
+    parallel_state_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "core"
+        / "parallel_state.py"
+    )
+    tree = ast.parse(parallel_state_path.read_text())
+    finalize = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "finalize_elastic_selective_group_rebuild"
+    )
+    signature = ("AUX", (0, 2), "nccl", False)
+    group = object()
+    namespace = {
+        "os": os,
+        "logger": type("_Logger", (), {"warning": lambda *args, **kwargs: None})(),
+        "_ELASTIC_MPU_GROUP_SPECS": [],
+        "_ELASTIC_RETAINED_MPU_GROUPS": {signature: [{"group": group}]},
+        "_ELASTIC_SELECTIVE_REBUILD_ACTIVE": True,
+        "_ELASTIC_SELECTIVE_REBUILD_RANK": 1,
+        "_ELASTIC_SELECTIVE_REBUILD_STATS": {
+            "retained": 1,
+            "reused": 0,
+            "rebuilt": 0,
+            "skipped_nonmember": 0,
+        },
+        "_global_process_group_list": [None],
+        "_elastic_restore_registered_group": lambda snapshot, alias: snapshot["group"],
+    }
+    module = ast.Module(body=[finalize], type_ignores=[])
+    exec(compile(module, str(parallel_state_path), "exec"), namespace)
+
+    result = namespace["finalize_elastic_selective_group_rebuild"]()
+
+    assert result["reused"] == 1
+    assert namespace["_ELASTIC_MPU_GROUP_SPECS"] == [
+        {
+            "signature": signature,
+            "ranks": (0, 2),
+            "backend": "nccl",
+            "group_desc": "AUX",
+            "use_local_synchronization": False,
+            "group": group,
+        }
+    ]
+
+
 def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
     initialize_path = (
         Path(__file__).parents[1]
@@ -557,18 +841,6 @@ def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():
         "checkpoint_exit_start"
     ]
     assert _PHASE_ORDER["checkpoint_exit_done"] < _PHASE_ORDER[
-        "post_rebuild_step_complete"
-    ]
-    assert _PHASE_ORDER["post_rebuild_step_complete"] < _PHASE_ORDER[
-        "post_rebuild_stabilization_ready"
-    ]
-    assert _PHASE_ORDER["post_rebuild_stabilization_ready"] < _PHASE_ORDER[
-        "stabilization_iteration_prologue_start"
-    ]
-    assert _PHASE_ORDER["stabilization_forward_backward_done"] < _PHASE_ORDER[
-        "stabilization_optimizer_step_start"
-    ]
-    assert _PHASE_ORDER["stabilization_checkpoint_exit_done"] < _PHASE_ORDER[
         "post_rebuild_commit_ready"
     ]
 
@@ -758,10 +1030,6 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     assert _PHASE_ORDER["rerun_state_contract_ready"] < _PHASE_ORDER[
         "forward_backward_start"
     ]
-    assert _PHASE_ORDER["post_rebuild_stabilization_ready"] < _PHASE_ORDER[
-        "stabilization_rerun_state_contract_start"
-    ]
-
     training_path = (
         root
         / "Megatron-LM"
@@ -800,7 +1068,7 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     assert contract(11, 0, True) != contract(11, 10, True)
 
 
-def test_post_rebuild_commit_uses_one_barrier_per_iteration():
+def test_post_rebuild_commit_uses_one_barrier_after_first_recovered_iteration():
     elastic_client_path = (
         Path(__file__).parents[1]
         / "Megatron-LM"
@@ -818,33 +1086,16 @@ def test_post_rebuild_commit_uses_one_barrier_per_iteration():
     )
     commit_source = ast.get_source_segment(source, commit_node)
 
-    first_completed_report = commit_source.index(
-        "elastic_report_recovery_phase(completed_phase"
-    )
-    first_completed_wait = commit_source.index(
-        "elastic_wait_for_recovery_phase_count(completed_phase"
-    )
-    stabilization_state = commit_source.index(
-        'os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_stabilization_pending"',
-        first_completed_wait,
-    )
-    ready_report = commit_source.index(
-        "elastic_report_recovery_phase(commit_phase", stabilization_state
-    )
+    ready_report = commit_source.index("elastic_report_recovery_phase(commit_phase")
     ready_wait = commit_source.index(
         "elastic_wait_for_recovery_phase_count(commit_phase"
     )
     trace_clear = commit_source.index("elastic_clear_post_rebuild_trace()")
-    assert (
-        first_completed_report
-        < first_completed_wait
-        < stabilization_state
-        < ready_report
-        < ready_wait
-        < trace_clear
-    )
-    assert "elastic_report_recovery_phase(stabilization_phase" not in commit_source
-    assert 'completed_phase = "post_rebuild_stabilization_complete"' not in commit_source
+    assert ready_report < ready_wait < trace_clear
+    assert "post_rebuild_step_complete" not in commit_source
+    assert "stabilization" not in commit_source
+    assert "post_rebuild_stabilization" not in source
+    assert not any(phase.startswith("stabilization_") for phase in _PHASE_ORDER)
 
     validator_node = next(
         node
@@ -854,12 +1105,38 @@ def test_post_rebuild_commit_uses_one_barrier_per_iteration():
     )
     validator_source = ast.get_source_segment(source, validator_node)
     effective_phase = validator_source.index(
-        '_elastic_effective_recovery_phase("optimizer_pg_contract_ready")'
+        'ready_phase = "optimizer_pg_contract_ready"'
     )
     phase_wait = validator_source.index(
         "elastic_wait_for_recovery_phase_count(\n        ready_phase"
     )
     assert effective_phase < phase_wait
+
+
+def test_disabled_rebuild_warmup_skips_the_global_control_barrier():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    source = elastic_client_path.read_text()
+    tree = ast.parse(source)
+    warmup_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_elastic_warmup_rebuild_communicators"
+    )
+    warmup_source = ast.get_source_segment(source, warmup_node)
+
+    disabled_guard = warmup_source.index("if not selected_group_names:")
+    disabled_return = warmup_source.index("return", disabled_guard)
+    barrier_report = warmup_source.index(
+        'elastic_report_recovery_phase("comm_warmup_start")'
+    )
+    assert disabled_guard < disabled_return < barrier_report
 
 
 def test_moe_first_collective_fail_fast_is_one_shot_per_recovery_step():

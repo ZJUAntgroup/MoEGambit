@@ -55,6 +55,7 @@ _PAUSE_REQUESTED = False
 _REBUILD_INFO: Optional[dict] = None
 _FALLBACK_RELAUNCH_INFO: Optional[dict] = None
 _REBUILD_STORE = None
+_PREARMED_STANDBY_RUNTIME = {}
 _LOCK = threading.Lock()
 _CURRENT_STEP = -1
 _CURRENT_STEP_TAG = -1
@@ -69,41 +70,6 @@ _POST_REBUILD_STATE_ENV = (
     "ELASTIC_POST_REBUILD_TRACE_ITERATION",
     "ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN",
 )
-
-_POST_REBUILD_STABILIZATION_PHASES = {
-    "rerun_state_contract_start",
-    "rerun_state_contract_ready",
-    "rerun_state_contract_error",
-    "iteration_prologue_start",
-    "iteration_prologue_done",
-    "iteration_safe_point_start",
-    "iteration_safe_point_done",
-    "moegambit_before_iteration_start",
-    "moegambit_before_iteration_done",
-    "forward_backward_start",
-    "pipeline_p2p_start",
-    "pipeline_p2p_returned",
-    "moe_first_collective_prepared",
-    "moe_first_collective_store_ready",
-    "moe_first_collective_store_error",
-    "moe_first_collective_start",
-    "moe_first_collective_done",
-    "moe_first_collective_error",
-    "moe_first_collective_timeout",
-    "optimizer_pg_contract_ready",
-    "optimizer_pg_contract_error",
-    "optimizer_step_start",
-    "optimizer_step_done",
-    "optimizer_skipped",
-    "train_step_finalize_done",
-    "training_log_start",
-    "training_log_done",
-    "post_step_callbacks_start",
-    "post_step_callbacks_done",
-    "checkpoint_exit_start",
-    "checkpoint_exit_done",
-}
-
 
 def _elastic_ipv4_interface_for_peer(peer_host):
     """Return the interface carrying IPv4 traffic to a recovery peer."""
@@ -222,6 +188,108 @@ def elastic_create_rebuild_store(host, port, world_size, rank, timeout):
     return store
 
 
+def elastic_prearm_standby_cuda_runtime(device):
+    """Materialize CUDA and Transformer Engine before a planned replacement.
+
+    A prearmed replacement has its physical GPU and logical role fixed before
+    the injected failure. It can therefore retain the expensive Python/CUDA/TE
+    runtime while waiting on the next-generation TCPStore. Megatron model and
+    optimizer construction still starts after the replacement WORLD exists,
+    because their PP/EP process-group handles are part of those objects.
+    """
+    global _PREARMED_STANDBY_RUNTIME
+    if os.environ.get("ELASTIC_PREARMED_STANDBY", "0") != "1":
+        return {"enabled": False}
+    if _PREARMED_STANDBY_RUNTIME:
+        return dict(_PREARMED_STANDBY_RUNTIME["summary"])
+
+    torch.cuda.set_device(device)
+    cache = {}
+    with torch.no_grad():
+        probe = torch.ones((64, 64), device=device, dtype=torch.bfloat16)
+        cache["cuda_probe"] = torch.matmul(probe, probe)
+    te_status = "imported"
+    try:
+        import transformer_engine.pytorch as te
+
+        with torch.no_grad():
+            te_linear = te.Linear(64, 64, bias=False).to(device)
+            cache["te_linear"] = te_linear
+            cache["te_output"] = te_linear(probe)
+    except Exception as exc:
+        te_status = f"import_only:{type(exc).__name__}"
+        logger.warning("[elastic] standby TE operator warmup skipped: %s", exc)
+    torch.cuda.synchronize(device)
+    summary = {
+        "enabled": True,
+        "device": str(device),
+        "te_status": te_status,
+        "allocated_bytes": int(torch.cuda.memory_allocated(device)),
+        "reserved_bytes": int(torch.cuda.memory_reserved(device)),
+    }
+    _PREARMED_STANDBY_RUNTIME = {"cache": cache, "summary": summary}
+    logger.warning("[elastic] prearmed standby CUDA runtime ready: %s", summary)
+    return dict(summary)
+
+
+def elastic_refresh_prearmed_standby_assignment():
+    """Apply dynamic recovery metadata without replacing the warm process."""
+    global _PREARMED_STANDBY_RUNTIME
+    if os.environ.get("ELASTIC_PREARMED_STANDBY", "0") != "1":
+        return {"enabled": False}
+
+    assignment_path = os.environ.get("ELASTIC_SPARE_ASSIGNMENT_FILE")
+    timeout = float(os.environ.get("ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS", "30"))
+    deadline = time.time() + timeout
+    assignment = None
+    while time.time() < deadline:
+        try:
+            with open(assignment_path, "r", encoding="utf-8") as assignment_file:
+                assignment = json.load(assignment_file)
+            break
+        except (OSError, ValueError, TypeError):
+            time.sleep(0.05)
+    if not isinstance(assignment, dict):
+        raise RuntimeError(
+            f"[elastic] prearmed standby assignment unavailable: {assignment_path}"
+        )
+
+    immutable = (
+        "RANK",
+        "WORLD_SIZE",
+        "LOCAL_RANK",
+        "MASTER_ADDR",
+        "MASTER_PORT",
+        "CUDA_VISIBLE_DEVICES",
+    )
+    mismatches = []
+    for key in immutable:
+        if key in assignment and str(assignment[key]) != os.environ.get(key):
+            mismatches.append(
+                f"{key}={os.environ.get(key)!r}->{str(assignment[key])!r}"
+            )
+    if mismatches:
+        raise RuntimeError(
+            "[elastic] prearmed standby assignment changed its static role: "
+            + ",".join(mismatches)
+        )
+    for key, value in assignment.items():
+        os.environ[str(key)] = str(value)
+    os.environ["ELASTIC_STANDBY_ACTIVATED"] = "1"
+
+    # The warmup tensors are no longer needed, but releasing their Python
+    # references leaves the CUDA context and caching allocator resident.
+    summary = dict(_PREARMED_STANDBY_RUNTIME.get("summary", {}))
+    _PREARMED_STANDBY_RUNTIME = {}
+    logger.warning(
+        "[elastic] prearmed standby activated in-process: rank=%s epoch=%s resume=%s",
+        os.environ.get("RANK"),
+        os.environ.get("ELASTIC_RECOVERY_EPOCH"),
+        os.environ.get("ELASTIC_RESUME_ITERATION"),
+    )
+    return {"enabled": True, "warm_runtime": summary}
+
+
 def elastic_sanitize_recovery_env_for_startup():
     """Clear one-shot recovery state for a fresh, non-rebuild training process."""
     if is_rebuild_mode():
@@ -311,10 +379,7 @@ def _launcher_control_send(event: str, **extra) -> bool:
 
 def elastic_is_post_rebuild_trace_active(iteration: Optional[int] = None) -> bool:
     """Return True only inside an explicit post-rebuild validation step."""
-    if os.environ.get("ELASTIC_RECOVERY_STATE") not in (
-        "post_rebuild_trace",
-        "post_rebuild_stabilization_trace",
-    ):
+    if os.environ.get("ELASTIC_RECOVERY_STATE") != "post_rebuild_trace":
         return False
     if os.environ.get("ELASTIC_POST_REBUILD_PENDING") != "0":
         return False
@@ -816,14 +881,11 @@ def elastic_mark_post_rebuild_pending(iteration: Optional[int] = None):
 
 
 def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
-    """Align the first recovered step or its stabilization successor."""
+    """Align all ranks before the first recovered training step."""
     if os.environ.get("ELASTIC_POST_REBUILD_PENDING") != "1":
         return False
     recovery_state = os.environ.get("ELASTIC_RECOVERY_STATE")
-    if recovery_state not in (
-        "post_rebuild_pending",
-        "post_rebuild_stabilization_pending",
-    ):
+    if recovery_state != "post_rebuild_pending":
         logger.warning(
             "[elastic] Ignoring stale post-rebuild pending flag without recovery state "
             "(state=%s)",
@@ -837,36 +899,26 @@ def elastic_post_rebuild_iteration_barrier(iteration: int) -> bool:
     os.environ["ELASTIC_RESUME_ITERATION"] = str(iteration)
     world_size = dist.get_world_size()
     timeout = _elastic_phase_timeout_seconds()
-    stabilization = recovery_state == "post_rebuild_stabilization_pending"
-    phase = (
-        "post_rebuild_stabilization_ready"
-        if stabilization
-        else "post_rebuild_iteration_ready"
-    )
+    phase = "post_rebuild_iteration_ready"
     elastic_report_recovery_phase(phase, step=iteration)
     if not elastic_wait_for_recovery_phase_count(phase, world_size, timeout):
         raise RuntimeError(
             f"[elastic] Not all {world_size} ranks reached {phase} "
             f"before first post-rebuild train step within {timeout}s"
         )
-    _elastic_validate_rerun_state_machine(iteration, stabilization=stabilization)
+    _elastic_validate_rerun_state_machine(iteration)
 
     os.environ["ELASTIC_POST_REBUILD_PENDING"] = "0"
     os.environ["ELASTIC_POST_REBUILD_TRACE_ACTIVE"] = "1"
-    os.environ["ELASTIC_RECOVERY_STATE"] = (
-        "post_rebuild_stabilization_trace" if stabilization else "post_rebuild_trace"
-    )
+    os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_trace"
     os.environ["ELASTIC_POST_REBUILD_TRACE_ITERATION"] = str(iteration)
     trace_token = _elastic_post_rebuild_token(iteration)
-    if stabilization:
-        trace_token = f"{trace_token}:stabilization"
     os.environ["ELASTIC_POST_REBUILD_TRACE_TOKEN"] = trace_token
     os.environ["ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN"] = trace_token
     logger.warning(
-        "[elastic] Rank %d: all ranks aligned before %s post-rebuild train step "
+        "[elastic] Rank %d: all ranks aligned before first post-rebuild train step "
         "(iteration=%d token=%s)",
         dist.get_rank(),
-        "stabilization" if stabilization else "first",
         iteration,
         trace_token,
     )
@@ -922,22 +974,10 @@ def _send_one_shot_to_watcher(msg: dict) -> bool:
     return False
 
 
-def _elastic_effective_recovery_phase(phase: str) -> str:
-    if (
-        os.environ.get("ELASTIC_RECOVERY_STATE")
-        in ("post_rebuild_stabilization_pending", "post_rebuild_stabilization_trace")
-        and phase in _POST_REBUILD_STABILIZATION_PHASES
-    ):
-        return f"stabilization_{phase}"
-    return phase
-
-
 def elastic_report_recovery_phase(phase: str, **extra):
     """Report a rebuild/replacement milestone to the watcher for diagnostics."""
     if not os.environ.get("ELASTIC_WATCHER_ADDR"):
         return
-
-    phase = _elastic_effective_recovery_phase(phase)
 
     rank = int(os.environ.get("RANK", "-1"))
     node_rank = int(os.environ.get("NODE_RANK", "-1"))
@@ -1100,13 +1140,7 @@ def elastic_wait_for_recovery_phase_count(
 
 
 def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
-    """Advance or commit recovery at a true train-loop boundary.
-
-    Each train-loop boundary uses one all-rank recovery-epoch barrier.  The next
-    iteration's ready barrier provides the handoff into stabilization, so a
-    second adjacent acknowledgement would only duplicate the same quorum.
-    This function is a no-op outside the explicit post-rebuild trace window.
-    """
+    """Commit recovery after one complete post-rebuild training step."""
     if not elastic_is_post_rebuild_trace_active(iteration):
         return False
     if not dist.is_available() or not dist.is_initialized():
@@ -1116,51 +1150,23 @@ def elastic_commit_post_rebuild_iteration(iteration: int) -> bool:
         )
 
     recovery_state = os.environ.get("ELASTIC_RECOVERY_STATE")
-    world_size = dist.get_world_size()
-    timeout = _elastic_phase_timeout_seconds()
-    if recovery_state == "post_rebuild_trace":
-        completed_phase = "post_rebuild_step_complete"
-
-        elastic_report_recovery_phase(completed_phase, step=iteration)
-        if not elastic_wait_for_recovery_phase_count(completed_phase, world_size, timeout):
-            raise RuntimeError(
-                f"[elastic] Not all {world_size} ranks completed the first post-rebuild "
-                f"iteration within {timeout}s"
-            )
-
-        next_iteration = iteration + 1
-        os.environ["ELASTIC_RECOVERY_STATE"] = "post_rebuild_stabilization_pending"
-        os.environ["ELASTIC_POST_REBUILD_PENDING"] = "1"
-        os.environ["ELASTIC_POST_REBUILD_TRACE_ACTIVE"] = "0"
-        os.environ["ELASTIC_POST_REBUILD_TRACE_ITERATION"] = str(next_iteration)
-        os.environ["ELASTIC_RESUME_ITERATION"] = str(next_iteration)
-        os.environ.pop("ELASTIC_POST_REBUILD_TRACE_TOKEN", None)
-        os.environ.pop("ELASTIC_MOE_FIRST_COLLECTIVE_BARRIER_TOKEN", None)
-        logger.warning(
-            "[elastic] Rank %d: first recovered iteration %d completed; "
-            "stabilization iteration %d required before recovery commit",
-            dist.get_rank(),
-            iteration,
-            next_iteration,
-        )
-        return True
-
-    if recovery_state != "post_rebuild_stabilization_trace":
+    if recovery_state != "post_rebuild_trace":
         raise RuntimeError(
             f"[elastic] Cannot commit unexpected recovery state {recovery_state!r}"
         )
-
+    world_size = dist.get_world_size()
+    timeout = _elastic_phase_timeout_seconds()
     commit_phase = "post_rebuild_commit_ready"
 
     elastic_report_recovery_phase(commit_phase, step=iteration)
     if not elastic_wait_for_recovery_phase_count(commit_phase, world_size, timeout):
         raise RuntimeError(
-            f"[elastic] Not all {world_size} ranks completed stabilization and "
-            f"acknowledged the post-rebuild commit within {timeout}s"
+            f"[elastic] Not all {world_size} ranks completed the first post-rebuild "
+            f"iteration and acknowledged commit within {timeout}s"
         )
 
     logger.warning(
-        "[elastic] Rank %d: recovery epoch committed after stabilization iteration %d",
+        "[elastic] Rank %d: recovery epoch committed after iteration %d",
         dist.get_rank(),
         iteration,
     )
@@ -1495,6 +1501,14 @@ def _elastic_warmup_rebuild_communicators(replacement_rank: int = -1, timeout: O
         # collectives can deadlock here because rebuilt ranks have not yet
         # re-entered Megatron's normal forward-order communicator creation path.
         selected_group_names = set()
+    if not selected_group_names:
+        if rank == 0 or rank == replacement_rank:
+            logger.info(
+                "[elastic] Rank %d: rebuild communicator warmup disabled; "
+                "using Megatron's real training order",
+                rank,
+            )
+        return
     group_timeout = float(
         os.environ.get(
             "ELASTIC_REBUILD_WARMUP_GROUP_TIMEOUT",
@@ -1712,12 +1726,12 @@ def _elastic_c10d_generation_state():
 
 
 def _elastic_destroy_process_group_generation(mpu, rank):
-    """Atomically retire one c10d generation before rebuilding another.
+    """Retire WORLD and replacement-facing groups before rebuilding.
 
-    PyTorch's WORLD teardown sorts and shuts down every registered subgroup,
-    clears the Python/C++ registries, and resets the implicit group-name
-    counter. Destroying each rank's Megatron subgroup list first bypasses that
-    recovery path and is asymmetric because pipeline stages own different PGs.
+    Selective rebuild may detach healthy NCCL subgroups from c10d immediately
+    before this call. WORLD teardown then shuts down the default process group
+    and every replacement-facing subgroup still registered, while detached
+    groups remain alive for registration in the next c10d generation.
     """
     global _REBUILD_STORE
 
@@ -1811,6 +1825,8 @@ def _initialize_model_parallel_for_rebuild(mpu, args):
             high_priority_stream_groups=getattr(args, "high_priority_stream_groups", None),
             sharp_enabled_group=getattr(args, "sharp_enabled_group", None),
         )
+        if hasattr(mpu, "finalize_elastic_selective_group_rebuild"):
+            mpu.finalize_elastic_selective_group_rebuild()
     finally:
         if old_trace_mpu_groups is None:
             os.environ.pop("ELASTIC_TRACE_MPU_GROUPS", None)
@@ -2419,7 +2435,7 @@ def elastic_validate_optimizer_process_groups(optimizer, iteration=None):
         )
         raise
 
-    ready_phase = _elastic_effective_recovery_phase("optimizer_pg_contract_ready")
+    ready_phase = "optimizer_pg_contract_ready"
     elastic_report_recovery_phase(
         "optimizer_pg_contract_ready", optimizer_pg_contract=contracts
     )
@@ -2795,7 +2811,7 @@ def _elastic_train_start_contract(
     }
 
 
-def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool):
+def _elastic_validate_rerun_state_machine(iteration: int):
     """Verify the local rerun FSM contract before a recovered train step."""
     from megatron.core.rerun_state_machine import RerunState, get_rerun_state_machine
 
@@ -2853,7 +2869,7 @@ def _elastic_validate_rerun_state_machine(iteration: int, *, stabilization: bool
     rank = dist.get_rank()
     world_size = dist.get_world_size()
     epoch = os.environ.get("ELASTIC_RECOVERY_EPOCH", "0")
-    stage = "stabilization" if stabilization else "first"
+    stage = "first"
     elastic_report_recovery_phase(
         "rerun_state_contract_start",
         rerun_state=local,
@@ -2920,9 +2936,39 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     logger.warning(f"[elastic] Rank {rank}: entering rebuild sequence")
 
-    # CRITICAL: Destroy the complete c10d generation before waiting for the
-    # rebuild signal. WORLD teardown owns subgroup shutdown order and registry
-    # reset; per-subgroup teardown is not a valid generation boundary.
+    # Read the target identity while the old process-group registry is still
+    # available. Healthy subgroups can only be retained before WORLD teardown.
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    node_rank = int(os.environ.get("NODE_RANK", "0"))
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    pause_file = os.path.join(fault_dir, "pause_signal")
+    pause_info = _read_pause_signal_info(pause_file)
+    failed_node_hint = int(pause_info.get("failed_node", -1))
+    killed_local_rank_hint = int(pause_info.get("killed_local_rank", -1))
+    nproc_per_node = int(
+        os.environ.get(
+            "ELASTIC_TRAINING_NPROC_PER_NODE",
+            os.environ.get("LOCAL_WORLD_SIZE", "1"),
+        )
+    )
+    killed_global_rank_hint = (
+        failed_node_hint * nproc_per_node + killed_local_rank_hint
+        if failed_node_hint >= 0 and killed_local_rank_hint >= 0
+        else -1
+    )
+    if os.environ.get("ELASTIC_SELECTIVE_GROUP_REBUILD", "0") == "1":
+        retained_summary = mpu.prepare_elastic_selective_group_rebuild(
+            killed_global_rank_hint
+        )
+        logger.warning(
+            "[elastic] Rank %d: selective subgroup retention prepared: %s",
+            rank,
+            retained_summary,
+        )
+
+    # Destroy WORLD and every group that was not retained before waiting for
+    # the rebuild signal. WORLD teardown still owns shutdown order and resets
+    # the implicit c10d name counter for replacement-facing group creation.
     # The NCCL watchdog runs in a C++ background thread and will SIGABRT
     # the process if it detects a timeout on any process group — even while
     # Python is blocked waiting for the rebuild signal.  Destroying the
@@ -2948,11 +2994,6 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     # BEFORE sending ready_to_rebuild.  This way, when the watcher receives
     # all ready_to_rebuild messages, the target rank is already dead and the
     # watcher can immediately launch the spare + send rebuild.
-    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    node_rank = int(os.environ.get("NODE_RANK", "0"))
-    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
-    pause_file = os.path.join(fault_dir, "pause_signal")
-    pause_info = _read_pause_signal_info(pause_file)
     recovery_epoch = pause_info.get("recovery_epoch")
     if recovery_epoch is not None:
         os.environ["ELASTIC_RECOVERY_EPOCH"] = str(recovery_epoch)

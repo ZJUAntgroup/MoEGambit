@@ -401,6 +401,8 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             from megatron.training.elastic_client import (
                 elastic_configure_recovery_nccl_transport,
                 elastic_create_rebuild_store,
+                elastic_prearm_standby_cuda_runtime,
+                elastic_refresh_prearmed_standby_assignment,
             )
 
             elastic_configure_recovery_nccl_transport()
@@ -410,6 +412,10 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             device_id = torch.device(f'cuda:{args.local_rank}')
         else:
             device_id = None
+
+        standby_runtime = {"enabled": False}
+        if _is_elastic_rebuild_mode() and device_id is not None:
+            standby_runtime = elastic_prearm_standby_cuda_runtime(device_id)
 
         # Set to non-default stream for cudagraph capturing.
         if args.cuda_graph_impl == "transformer_engine":
@@ -452,6 +458,8 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             pg_device_id_enabled=use_init_pg_device_id,
             pg_device_id=str(device_id) if device_id is not None else None,
             store_connect_pending=_is_elastic_rebuild_mode() and store is None,
+            standby_prearmed=os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1",
+            standby_runtime=standby_runtime,
         )
         if _is_elastic_rebuild_mode() and store is None:
             # This must happen after init_pg_start.  The watcher uses that phase
@@ -481,6 +489,9 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
             )
         torch.distributed.init_process_group(**init_process_group_kwargs)
         inprocess_restart.maybe_force_nccl_backend_init(device_id)
+        if os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1":
+            activation = elastic_refresh_prearmed_standby_assignment()
+            _elastic_report_phase_safely("standby_activated", **activation)
         _elastic_report_phase_safely("pg_ready")
 
     # Set the tensor model-parallel, pipeline model-parallel, and
@@ -525,6 +536,8 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
                     high_priority_stream_groups=args.high_priority_stream_groups,
                     sharp_enabled_group=args.sharp_enabled_group,
                 )
+                if hasattr(mpu, "finalize_elastic_selective_group_rebuild"):
+                    mpu.finalize_elastic_selective_group_rebuild()
             finally:
                 if _is_elastic_rebuild_mode() and old_trace_mpu_groups is None:
                     os.environ.pop("ELASTIC_TRACE_MPU_GROUPS", None)
