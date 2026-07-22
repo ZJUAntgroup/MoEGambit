@@ -75,6 +75,7 @@ def _env_bool(name, default=False):
         return default
 
 _PHASE_ORDER = {
+    "zero2_memory_quiesce_ready": 5,
     "init_pg_start": 10,
     "rebuild_store_ready": 15,
     "standby_activated": 12,

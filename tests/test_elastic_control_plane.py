@@ -778,6 +778,7 @@ def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
         elif node.func.id == "elastic_refresh_prearmed_standby_assignment":
             standby_activation_line = node.lineno
 
+    assert _PHASE_ORDER["zero2_memory_quiesce_ready"] < _PHASE_ORDER["init_pg_start"]
     assert _PHASE_ORDER["init_pg_start"] < _PHASE_ORDER["standby_activated"]
     assert _PHASE_ORDER["standby_activated"] < _PHASE_ORDER["rebuild_store_ready"]
     assert _PHASE_ORDER["init_pg_start"] < _PHASE_ORDER["rebuild_store_ready"]
@@ -786,6 +787,55 @@ def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
     assert standby_activation_line is not None
     assert rebuild_store_line is not None
     assert init_pg_start_line < standby_activation_line < rebuild_store_line
+
+
+def test_zero2_quiesce_aligns_all_ranks_before_transport_close():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    source = elastic_client_path.read_text()
+    tree = ast.parse(source)
+    quiesce_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "elastic_zero2_quiesce_for_recovery"
+    )
+    quiesce_source = ast.get_source_segment(source, quiesce_node)
+
+    local_ack = quiesce_source.index("wait_until_replicated(step)")
+    global_alignment = quiesce_source.index("elastic_wait_for_ordinal_barrier(")
+    transport_close = quiesce_source.index("stop_transport()")
+    assert local_ack < global_alignment < transport_close
+    assert '"zero2_memory_quiesce_ready"' in quiesce_source
+    assert 'barrier_stage="before_transport_close"' in quiesce_source
+
+
+def test_rebuild_binds_recovery_epoch_before_zero2_quiesce():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    source = elastic_client_path.read_text()
+    tree = ast.parse(source)
+    rebuild_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "elastic_do_rebuild"
+    )
+    rebuild_source = ast.get_source_segment(source, rebuild_node)
+
+    read_pause = rebuild_source.index("pause_info = _read_pause_signal_info")
+    bind_epoch = rebuild_source.index('os.environ["ELASTIC_RECOVERY_EPOCH"]')
+    quiesce = rebuild_source.index("elastic_zero2_quiesce_for_recovery(")
+    assert read_pause < bind_epoch < quiesce
 
 
 def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():

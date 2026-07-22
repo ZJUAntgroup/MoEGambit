@@ -2955,6 +2955,19 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     logger.warning(f"[elastic] Rank {rank}: entering rebuild sequence")
 
+    # Bind control-plane messages to this recovery epoch before quiescing the
+    # old optimizer replication generation. The generation itself remains the
+    # pre-fault one until the rebuilt process group is installed below.
+    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
+    pause_file = os.path.join(fault_dir, "pause_signal")
+    pause_info = _read_pause_signal_info(pause_file)
+    recovery_epoch_hint = pause_info.get("recovery_epoch")
+    if recovery_epoch_hint is not None:
+        os.environ["ELASTIC_RECOVERY_EPOCH"] = str(recovery_epoch_hint)
+    descriptor_hint = pause_info.get("descriptor")
+    if descriptor_hint:
+        os.environ["ELASTIC_RECOVERY_DESCRIPTOR"] = str(descriptor_hint)
+
     # Commit the exact safe-point optimizer version before the target worker
     # can be terminated.  This uses only the dedicated PHOENIX TCP ring and
     # must finish before any training process group is retired.
@@ -2966,9 +2979,6 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     # available. Healthy subgroups can only be retained before WORLD teardown.
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     node_rank = int(os.environ.get("NODE_RANK", "0"))
-    fault_dir = os.environ.get("ELASTIC_FAULT_DIR", "/tmp/elastic_faults")
-    pause_file = os.path.join(fault_dir, "pause_signal")
-    pause_info = _read_pause_signal_info(pause_file)
     failed_node_hint = int(pause_info.get("failed_node", -1))
     killed_local_rank_hint = int(pause_info.get("killed_local_rank", -1))
     nproc_per_node = int(
@@ -3959,15 +3969,54 @@ def elastic_zero2_schedule_after_optimizer_step(step: int):
 
 
 def elastic_zero2_quiesce_for_recovery(step: int):
-    """Commit the safe-point snapshot before the faulted rank is terminated."""
+    """Commit every safe-point snapshot before retiring the old TCP ring."""
     if _ZERO2_MEMORY_MANAGER is None:
         return None
-    _ZERO2_MEMORY_MANAGER.wait_until_replicated(int(step))
+    step = int(step)
+    _ZERO2_MEMORY_MANAGER.wait_until_replicated(step)
     summary = {
-        "step": int(step),
+        "step": step,
         "local_replicated_step": _ZERO2_MEMORY_MANAGER.local_replicated_step,
         "peer_committed_step": _ZERO2_MEMORY_MANAGER.peer_committed_step,
     }
+
+    # An outgoing ACK does not prove that this rank's predecessor has finished
+    # writing to our incoming socket. Retire the ring only after every rank has
+    # received its ACK, otherwise one early close cascades as BrokenPipe errors.
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    generation = int(_ZERO2_MEMORY_MANAGER.generation)
+    phase_timeout = _elastic_phase_timeout_seconds()
+    barrier_id = f"zero2-memory-quiesce:generation={generation}:step={step}"
+    elastic_report_recovery_phase(
+        "zero2_memory_quiesce_ready",
+        optimizer_replica=summary,
+        replication_generation=generation,
+    )
+    if os.environ.get("ELASTIC_WATCHER_ADDR"):
+        quiesced = elastic_wait_for_ordinal_barrier(
+            barrier_id,
+            rank,
+            world_size,
+            phase_timeout,
+            group_desc="ZERO2_MEMORY_REPLICATION_RING",
+            group_size=world_size,
+            group_ranks=list(range(world_size)),
+            group_ordinal=generation,
+            barrier_stage="before_transport_close",
+            state_contract=f"optimizer_step={step}",
+        )
+    else:
+        # Hot-spare runs always provide the watcher. Keep a safe fallback for
+        # focused tests and deployments that use this module independently.
+        dist.barrier()
+        quiesced = True
+    if not quiesced:
+        raise RuntimeError(
+            f"[elastic-zero2] not all {world_size} ranks committed optimizer "
+            f"step {step} before retiring replication generation {generation}"
+        )
+
     _ZERO2_MEMORY_MANAGER.stop_transport()
     logger.warning("[elastic-zero2] rank=%d quiesced: %s", dist.get_rank(), summary)
     return summary
