@@ -94,6 +94,13 @@ export MOEGAMBIT_EXPOSURE_WINDOW_STEPS="${MOEGAMBIT_EXPOSURE_WINDOW_STEPS:-20000
 export MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY="${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY:-0.1}"
 export MOEGAMBIT_NUM_EXPERTS="${MOEGAMBIT_NUM_EXPERTS:-128}"
 export ELASTIC_TWO_PHASE_RECOVERY=0
+export ELASTIC_ZERO2_MEMORY_REPLICATION="${ELASTIC_ZERO2_MEMORY_REPLICATION:-0}"
+export ELASTIC_ZERO2_RESTORE_SCOPE="${ELASTIC_ZERO2_RESTORE_SCOPE:-non_expert}"
+export ELASTIC_ZERO2_REPLICATION_TIMEOUT="${ELASTIC_ZERO2_REPLICATION_TIMEOUT:-300}"
+export ELASTIC_ZERO2_MAX_HOST_GB_PER_RANK="${ELASTIC_ZERO2_MAX_HOST_GB_PER_RANK:-0}"
+# Existing checkpoints were written by the non-sharded optimizer.  Set this to
+# 1 only with a checkpoint that contains distrib_optim.pt (or a fresh CKPT_DIR).
+export ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER="${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER:-0}"
 
 # NO MOEGAMBIT fault injection — we do real kills via the watcher
 # (MOEGAMBIT's hard_failure doesn't actually kill processes)
@@ -102,8 +109,28 @@ unset MOEGAMBIT_FAULT_INJECT_STEP 2>/dev/null || true
 
 # Checkpoint: 每 10 步保存一次（确保故障时有近期 checkpoint）
 export SAVE_INTERVAL=10
-export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/726hotspare/test_replace_ckpt}"
+export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/727hotspare/test_replace_ckpt}"
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
+
+if [ "${ELASTIC_ZERO2_MEMORY_REPLICATION}" = "1" ] && \
+   [ "${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER}" != "1" ]; then
+  echo "[test-replace] ERROR: optimizer memory replication requires ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER=1" >&2
+  exit 64
+fi
+if [ "${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER}" = "1" ] && \
+   [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ]; then
+  ZERO2_CKPT_STEP="$(tr -d '[:space:]' < "${CKPT_DIR}/latest_checkpointed_iteration.txt")"
+  if [[ "${ZERO2_CKPT_STEP}" =~ ^[0-9]+$ ]]; then
+    ZERO2_CKPT_DIR="${CKPT_DIR}/$(printf 'iter_%07d' "${ZERO2_CKPT_STEP}")"
+    ZERO2_OPTIM_CKPT="$(find "${ZERO2_CKPT_DIR}" -mindepth 2 -maxdepth 2 \
+      -name distrib_optim.pt -print -quit 2>/dev/null)"
+    if [ -z "${ZERO2_OPTIM_CKPT}" ]; then
+      echo "[test-replace] ERROR: ${ZERO2_CKPT_DIR} was written by the unsharded optimizer." >&2
+      echo "[test-replace] Use a fresh CKPT_DIR before enabling PHOENIX ZeRO-2 replication." >&2
+      exit 64
+    fi
+  fi
+fi
 
 # ============================================================================
 # NCCL configuration for a topology that may move one logical rank across nodes
@@ -226,6 +253,7 @@ echo "[test-replace] Recovery failure: fallback=${ELASTIC_FALLBACK_RELAUNCH}, ab
 echo "[test-replace] Control plane:   launcher=${ELASTIC_LAUNCHER_CONTROL_PLANE}, heartbeat=${ELASTIC_LAUNCHER_HEARTBEAT_INTERVAL}s"
 echo "[test-replace] Watcher startup: ${ELASTIC_WATCHER_ADDR}:${ELASTIC_WATCHER_PORT}, timeout=${ELASTIC_WATCHER_STARTUP_TIMEOUT_SECONDS}s"
 echo "[test-replace] Quiescence:      timeout=${ELASTIC_QUIESCENCE_TIMEOUT_SECONDS}s"
+echo "[test-replace] Optimizer memory: enabled=${ELASTIC_ZERO2_MEMORY_REPLICATION}, restore=${ELASTIC_ZERO2_RESTORE_SCOPE}, distributed=${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER}"
 echo "[test-replace] R2 contract:      gap=[${MOEGAMBIT_DELTA_TIME_MIN_GAP},${MOEGAMBIT_MAX_SINGLE_GAP}], window=${MOEGAMBIT_EXPOSURE_WINDOW_STEPS}, phi_max=${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY}, experts=${MOEGAMBIT_NUM_EXPERTS}"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
@@ -293,6 +321,11 @@ if [ "${MOEGAMBIT_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
     --moe-moegambit-exposure-window-steps "${MOEGAMBIT_EXPOSURE_WINDOW_STEPS}"
     --moe-moegambit-max-expert-staleness-density "${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY}"
   )
+fi
+
+ZERO2_ARGS=()
+if [ "${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER}" = "1" ]; then
+  ZERO2_ARGS+=(--use-distributed-optimizer)
 fi
 
 wait_for_watcher() {
@@ -416,6 +449,7 @@ run_training() {
   --moe-token-dispatcher-type alltoall \
   --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
+  "${ZERO2_ARGS[@]}" \
   "${MOEGAMBIT_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
   --split 100,0,0 \

@@ -120,6 +120,16 @@ export MOEGAMBIT_EXPOSURE_WINDOW_STEPS="${MOEGAMBIT_EXPOSURE_WINDOW_STEPS:-20000
 export MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY="${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY:-0.1}"
 export MOEGAMBIT_NUM_EXPERTS="${MOEGAMBIT_NUM_EXPERTS:-128}"
 export ELASTIC_TWO_PHASE_RECOVERY="${ELASTIC_TWO_PHASE_RECOVERY:-0}"
+export ELASTIC_ZERO2_MEMORY_REPLICATION="${ELASTIC_ZERO2_MEMORY_REPLICATION:-0}"
+export ELASTIC_ZERO2_RESTORE_SCOPE="${ELASTIC_ZERO2_RESTORE_SCOPE:-non_expert}"
+export ELASTIC_ZERO2_REPLICATION_TIMEOUT="${ELASTIC_ZERO2_REPLICATION_TIMEOUT:-300}"
+export ELASTIC_ZERO2_MAX_HOST_GB_PER_RANK="${ELASTIC_ZERO2_MAX_HOST_GB_PER_RANK:-0}"
+export ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER="${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER:-0}"
+if [ "${ELASTIC_ZERO2_MEMORY_REPLICATION}" = "1" ] && \
+   [ "${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER}" != "1" ]; then
+  echo "[spare-rank] ERROR: optimizer memory replication requires distributed optimizer" >&2
+  exit 64
+fi
 # Replacement is launched directly by the watcher, not by elastic_launcher.
 unset ELASTIC_LAUNCHER_CONTROL_SOCKET 2>/dev/null || true
 
@@ -178,6 +188,11 @@ MOEGAMBIT_ARGS=(
   --moe-moegambit-exposure-window-steps "${MOEGAMBIT_EXPOSURE_WINDOW_STEPS}"
   --moe-moegambit-max-expert-staleness-density "${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY}"
 )
+
+ZERO2_ARGS=()
+if [ "${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER}" = "1" ]; then
+  ZERO2_ARGS+=(--use-distributed-optimizer)
+fi
 
 LOAD_ARGS=()
 if [ "${ELASTIC_PREARMED_STANDBY:-0}" = "1" ] || \
@@ -239,6 +254,7 @@ exec python3 ./Megatron-LM/pretrain_gpt.py \
   --moe-token-dispatcher-type alltoall \
   --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
+  "${ZERO2_ARGS[@]}" \
   "${MOEGAMBIT_ARGS[@]}" \
   --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
   --split 100,0,0 \

@@ -103,6 +103,9 @@ from megatron.training.elastic_client import (
     elastic_clear_post_rebuild_trace,
     elastic_commit_post_rebuild_iteration,
     elastic_sanitize_recovery_env_for_startup,
+    elastic_zero2_initialize,
+    elastic_zero2_wait_before_optimizer_step,
+    elastic_zero2_schedule_after_optimizer_step,
     is_rebuild_mode,
 )
 from megatron.core.full_cuda_graph import FullCudaGraphWrapper
@@ -839,6 +842,12 @@ def pretrain(
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type, checkpointing_context=checkpointing_context
     )
+    elastic_zero2_initialize(
+        model,
+        optimizer,
+        initial_step=int(args.iteration),
+        start_transport=not _elastic_rebuild,
+    )
     if _elastic_rebuild:
         elastic_report_recovery_phase("model_optimizer_ready")
 
@@ -1514,6 +1523,9 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
     elastic_trace_post_rebuild_phase(
         "optimizer_step_start", args.curr_iteration, optimizer=optimizer
     )
+    # PHOENIX invariant I3: the pre-update optimizer state must be committed
+    # on its DP-ring neighbor before optimizer.step() mutates that state.
+    elastic_zero2_wait_before_optimizer_step(args.curr_iteration)
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()
@@ -1552,6 +1564,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
     if update_successful:
         increment = get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
         opt_param_scheduler.step(increment=increment)
+        elastic_zero2_schedule_after_optimizer_step(args.curr_iteration + 1)
         skipped_iter = 0
         elastic_client_update_step(
             args.curr_iteration,
@@ -1559,6 +1572,10 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             step_tag=args.curr_iteration + 1,
         )
     else:
+        # Loss-scale skips still advance the outer training iteration.  The
+        # optimizer bytes are unchanged, but the recoverable version tag must
+        # advance with the safe-point iteration.
+        elastic_zero2_schedule_after_optimizer_step(args.curr_iteration + 1)
         skipped_iter = 1
         elastic_client_update_step(
             args.curr_iteration,

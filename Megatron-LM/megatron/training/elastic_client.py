@@ -47,6 +47,15 @@ from typing import Optional
 import torch
 import torch.distributed as dist
 
+from megatron.training.zero2_memory_checkpoint import (
+    OptimizerMemorySnapshot,
+    OptimizerScalarRef,
+    OptimizerTensorRef,
+    Zero2MemoryReplicaManager,
+    apply_optimizer_snapshot,
+    backup_holder_for_owner,
+)
+
 logger = logging.getLogger(__name__)
 
 # Module state
@@ -61,6 +70,9 @@ _CURRENT_STEP = -1
 _CURRENT_STEP_TAG = -1
 _CURRENT_TRAIN_PHASE = "startup"
 _LAUNCHER_STATUS_SOCKET = None
+_ZERO2_MEMORY_MANAGER: Optional[Zero2MemoryReplicaManager] = None
+_ZERO2_OPTIMIZER = None
+_ZERO2_MODEL_PARAM_TO_NAME = None
 
 _POST_REBUILD_STATE_ENV = (
     "ELASTIC_RECOVERY_STATE",
@@ -2943,6 +2955,13 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
 
     logger.warning(f"[elastic] Rank {rank}: entering rebuild sequence")
 
+    # Commit the exact safe-point optimizer version before the target worker
+    # can be terminated.  This uses only the dedicated PHOENIX TCP ring and
+    # must finish before any training process group is retired.
+    zero2_quiesce_summary = elastic_zero2_quiesce_for_recovery(
+        int(args.curr_iteration)
+    )
+
     # Read the target identity while the old process-group registry is still
     # available. Healthy subgroups can only be retained before WORLD teardown.
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -3178,6 +3197,14 @@ def elastic_do_rebuild(model, optimizer, opt_param_scheduler):
     elastic_report_recovery_phase("param_sync_start")
     _sync_params_to_new_rank(model, optimizer, replacement_rank=killed_global_rank)
     elastic_report_recovery_phase("param_sync_done")
+    zero2_reconfigure_summary = elastic_zero2_reconfigure_after_rebuild(
+        resume_iteration
+    )
+    if zero2_reconfigure_summary is not None:
+        elastic_report_recovery_phase(
+            "zero2_memory_reconfigured",
+            optimizer_replica=zero2_reconfigure_summary,
+        )
     _elastic_reset_rerun_state_machine(resume_iteration)
 
     # Step 5: Barrier to ensure all ranks are ready.  Ranks outside the
@@ -3272,6 +3299,14 @@ def elastic_replacement_sync_params(model, optimizer, opt_param_scheduler=None):
             "checkpoint-restored expert params"
         )
     elastic_report_recovery_phase("param_sync_done")
+    zero2_reconfigure_summary = elastic_zero2_reconfigure_after_rebuild(
+        int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
+    )
+    if zero2_reconfigure_summary is not None:
+        elastic_report_recovery_phase(
+            "zero2_memory_reconfigured",
+            optimizer_replica=zero2_reconfigure_summary,
+        )
     from megatron.training import get_args
 
     resume_iteration = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
@@ -3739,10 +3774,227 @@ def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
     return summary
 
 
+def _zero2_memory_replication_enabled() -> bool:
+    return os.environ.get("ELASTIC_ZERO2_MEMORY_REPLICATION", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _zero2_optimizer_refs(optimizer, model_param_to_name):
+    tensor_refs = []
+    scalar_refs = []
+    unmapped = []
+    for wrapper_index, megatron_optimizer in enumerate(
+        _iter_megatron_optimizers(optimizer)
+    ):
+        inner_optimizer, param_to_name, param_to_is_expert = (
+            _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name)
+        )
+        if inner_optimizer is None:
+            raise RuntimeError(
+                "[elastic-zero2] optimizer wrapper has no inner optimizer: "
+                f"index={wrapper_index} type={type(megatron_optimizer).__name__}"
+            )
+        for group_index, group in enumerate(inner_optimizer.param_groups):
+            for param_index, param in enumerate(group.get("params", [])):
+                name = param_to_name.get(param)
+                if name is None:
+                    unmapped.append((wrapper_index, group_index, param_index))
+                    continue
+                is_expert = param_to_is_expert.get(
+                    param, _is_expert_param_name(name)
+                )
+                prefix = (
+                    f"w{wrapper_index}/g{group_index}/p{param_index}:"
+                    f"{name}"
+                )
+                tensor_refs.append(
+                    OptimizerTensorRef(
+                        identity=f"{prefix}:main_param",
+                        tensor=param.data,
+                        is_expert=is_expert,
+                    )
+                )
+                state = inner_optimizer.state.get(param, {})
+                for key, value in sorted(state.items(), key=lambda item: str(item[0])):
+                    identity = f"{prefix}:state:{key}"
+                    if isinstance(value, torch.Tensor):
+                        tensor_refs.append(
+                            OptimizerTensorRef(
+                                identity=identity,
+                                tensor=value,
+                                is_expert=is_expert,
+                            )
+                        )
+                    elif isinstance(value, (bool, int, float, str)):
+                        scalar_refs.append(
+                            OptimizerScalarRef(
+                                identity=identity,
+                                state=state,
+                                key=key,
+                                is_expert=is_expert,
+                            )
+                        )
+    if unmapped:
+        raise RuntimeError(
+            "[elastic-zero2] optimizer shard metadata is incomplete: "
+            f"unmapped={len(unmapped)} sample={unmapped[:8]}"
+        )
+    return tensor_refs, scalar_refs
+
+
+def _zero2_publish_endpoint(peer_id, port, src_rank, dst_rank):
+    msg = {
+        "type": "peer_sync_endpoint",
+        "node_rank": int(os.environ.get("NODE_RANK", "-1")),
+        "rank": dist.get_rank(),
+        "peer_id": peer_id,
+        "port": int(port),
+        "src_rank": int(src_rank),
+        "dst_rank": int(dst_rank),
+    }
+    if int(os.environ.get("ELASTIC_PG_GENERATION", "0")) > 0:
+        msg.update(_elastic_recovery_epoch_payload())
+    return _send_one_shot_to_watcher(msg)
+
+
+def elastic_zero2_initialize(model, optimizer, initial_step: int, *, start_transport: bool):
+    """Prepare PHOENIX-style optimizer replication after optimizer creation."""
+    global _ZERO2_MEMORY_MANAGER, _ZERO2_OPTIMIZER, _ZERO2_MODEL_PARAM_TO_NAME
+
+    if not _zero2_memory_replication_enabled():
+        return None
+    if optimizer is None:
+        raise RuntimeError("[elastic-zero2] optimizer is required")
+    from megatron.training import get_args
+
+    args = get_args()
+    if (
+        not getattr(args, "use_distributed_optimizer", False)
+        and os.environ.get("ELASTIC_ZERO2_ALLOW_UNSHARDED", "0") != "1"
+    ):
+        raise RuntimeError(
+            "[elastic-zero2] PHOENIX replication requires Megatron's "
+            "--use-distributed-optimizer; refusing to replicate an unsharded "
+            "optimizer because its four host buffers can exhaust node memory"
+        )
+
+    model_param_to_name = _build_model_param_name_map(model)
+    # Build once now so unsupported optimizer layouts fail before training.
+    tensor_refs, _ = _zero2_optimizer_refs(optimizer, model_param_to_name)
+    if not tensor_refs:
+        raise RuntimeError("[elastic-zero2] optimizer contains no mapped tensor state")
+    payload_bytes = sum(
+        ref.tensor.numel() * ref.tensor.element_size() for ref in tensor_refs
+    )
+    # Two local staging buffers plus two peer receive buffers, as in PHOENIX.
+    estimated_host_bytes = 4 * payload_bytes
+    max_host_gb = float(os.environ.get("ELASTIC_ZERO2_MAX_HOST_GB_PER_RANK", "0"))
+    if max_host_gb > 0 and estimated_host_bytes > max_host_gb * 1024**3:
+        raise RuntimeError(
+            "[elastic-zero2] estimated host footprint exceeds configured limit: "
+            f"payload={payload_bytes / 1024**3:.2f}GiB "
+            f"double_local_plus_peer={estimated_host_bytes / 1024**3:.2f}GiB "
+            f"limit={max_host_gb:.2f}GiB"
+        )
+    logger.warning(
+        "[elastic-zero2] rank=%d optimizer payload=%.2fGiB estimated host buffers=%.2fGiB",
+        dist.get_rank(),
+        payload_bytes / 1024**3,
+        estimated_host_bytes / 1024**3,
+    )
+
+    rank = dist.get_rank()
+    timeout = float(os.environ.get("ELASTIC_ZERO2_REPLICATION_TIMEOUT", "300"))
+    _ZERO2_OPTIMIZER = optimizer
+    _ZERO2_MODEL_PARAM_TO_NAME = model_param_to_name
+    _ZERO2_MEMORY_MANAGER = Zero2MemoryReplicaManager(
+        rank=rank,
+        tensor_refs_fn=lambda: _zero2_optimizer_refs(
+            _ZERO2_OPTIMIZER, _ZERO2_MODEL_PARAM_TO_NAME
+        )[0],
+        scalar_refs_fn=lambda: _zero2_optimizer_refs(
+            _ZERO2_OPTIMIZER, _ZERO2_MODEL_PARAM_TO_NAME
+        )[1],
+        publish_endpoint_fn=_zero2_publish_endpoint,
+        wait_endpoint_fn=_elastic_wait_for_peer_sync_endpoint,
+        timeout=timeout,
+    )
+    if not start_transport:
+        logger.warning(
+            "[elastic-zero2] rank=%d replacement layout ready; transport deferred",
+            rank,
+        )
+        return {"rank": rank, "transport": "deferred"}
+
+    from megatron.core import parallel_state as mpu
+
+    group_ranks = list(dist.get_process_group_ranks(mpu.get_data_parallel_group()))
+    generation = int(os.environ.get("ELASTIC_PG_GENERATION", "0"))
+    _ZERO2_MEMORY_MANAGER.start_transport(group_ranks, generation=generation)
+    summary = _ZERO2_MEMORY_MANAGER.schedule_snapshot(int(initial_step))
+    logger.warning(
+        "[elastic-zero2] rank=%d initial optimizer snapshot staged: %s",
+        rank,
+        summary,
+    )
+    return summary
+
+
+def elastic_zero2_wait_before_optimizer_step(step: int):
+    if _ZERO2_MEMORY_MANAGER is None:
+        return
+    _ZERO2_MEMORY_MANAGER.wait_until_replicated(int(step))
+
+
+def elastic_zero2_schedule_after_optimizer_step(step: int):
+    if _ZERO2_MEMORY_MANAGER is None:
+        return None
+    summary = _ZERO2_MEMORY_MANAGER.schedule_snapshot(int(step))
+    logger.info("[elastic-zero2] rank=%d staged optimizer snapshot %s", dist.get_rank(), summary)
+    return summary
+
+
+def elastic_zero2_quiesce_for_recovery(step: int):
+    """Commit the safe-point snapshot before the faulted rank is terminated."""
+    if _ZERO2_MEMORY_MANAGER is None:
+        return None
+    _ZERO2_MEMORY_MANAGER.wait_until_replicated(int(step))
+    summary = {
+        "step": int(step),
+        "local_replicated_step": _ZERO2_MEMORY_MANAGER.local_replicated_step,
+        "peer_committed_step": _ZERO2_MEMORY_MANAGER.peer_committed_step,
+    }
+    _ZERO2_MEMORY_MANAGER.stop_transport()
+    logger.warning("[elastic-zero2] rank=%d quiesced: %s", dist.get_rank(), summary)
+    return summary
+
+
+def elastic_zero2_reconfigure_after_rebuild(step: int):
+    if _ZERO2_MEMORY_MANAGER is None:
+        return None
+    from megatron.core import parallel_state as mpu
+
+    group_ranks = list(dist.get_process_group_ranks(mpu.get_data_parallel_group()))
+    generation = int(os.environ.get("ELASTIC_PG_GENERATION", "0"))
+    _ZERO2_MEMORY_MANAGER.start_transport(group_ranks, generation=generation)
+    summary = _ZERO2_MEMORY_MANAGER.schedule_snapshot(int(step))
+    logger.warning(
+        "[elastic-zero2] rank=%d post-rebuild optimizer replication staged: %s",
+        dist.get_rank(),
+        summary,
+    )
+    return summary
+
+
 class _PeerSyncStream:
-    def __init__(self, src_rank: int, dst_rank: int):
+    def __init__(self, src_rank: int, dst_rank: int, purpose: str = "params"):
         self.src_rank = src_rank
         self.dst_rank = dst_rank
+        self.purpose = str(purpose)
         self.rank = dist.get_rank()
         self.sock = None
         self.server_sock = None
@@ -3777,6 +4029,7 @@ class _PeerSyncStream:
                 os.environ.get("ELASTIC_RESUME_ITERATION", "-1"),
                 str(self.src_rank),
                 str(self.dst_rank),
+                self.purpose,
             ]
         )
 
@@ -3857,6 +4110,64 @@ class _PeerSyncStream:
         header = self._recvall(8)
         (size,) = struct.unpack("!Q", header)
         return self._recvall(size)
+
+    def send_raw_buffer(self, payload):
+        if self.sock is None:
+            raise RuntimeError("[elastic] peer sync socket is not connected")
+        if isinstance(payload, torch.Tensor):
+            cpu_payload = payload.detach().contiguous().view(torch.uint8).cpu()
+            view = memoryview(cpu_payload.numpy()).cast("B")
+        else:
+            view = memoryview(payload).cast("B")
+        self.sock.sendall(struct.pack("!Q", len(view)))
+        self.sock.sendall(view)
+
+    def recv_raw_buffer(
+        self,
+        expected_size: int,
+        *,
+        dtype_name: Optional[str] = None,
+        numel: Optional[int] = None,
+    ):
+        if self.sock is None:
+            raise RuntimeError("[elastic] peer sync socket is not connected")
+        header = self._recvall(8)
+        (size,) = struct.unpack("!Q", header)
+        if int(size) != int(expected_size):
+            raise RuntimeError(
+                "[elastic] peer raw buffer size mismatch: "
+                f"expected={expected_size} remote={size}"
+            )
+        if dtype_name is not None and numel is not None:
+            dtype = getattr(torch, dtype_name.removeprefix("torch."), None)
+            if not isinstance(dtype, torch.dtype):
+                raise RuntimeError(f"[elastic] unsupported raw tensor dtype {dtype_name}")
+            if torch.cuda.is_available():
+                try:
+                    payload = torch.empty(
+                        int(numel), dtype=dtype, device="cpu", pin_memory=True
+                    )
+                except RuntimeError:
+                    payload = torch.empty(int(numel), dtype=dtype, device="cpu")
+            else:
+                payload = torch.empty(int(numel), dtype=dtype, device="cpu")
+            byte_payload = payload.view(torch.uint8)
+            view = memoryview(byte_payload.numpy()).cast("B")
+            if len(view) != size:
+                raise RuntimeError(
+                    "[elastic] peer raw tensor allocation mismatch: "
+                    f"allocated={len(view)} remote={size}"
+                )
+        else:
+            payload = bytearray(size)
+            view = memoryview(payload)
+        offset = 0
+        while offset < size:
+            received = self.sock.recv_into(view[offset:], size - offset)
+            if received <= 0:
+                raise RuntimeError("[elastic] peer sync socket closed during raw transfer")
+            offset += received
+        return payload
 
     def _recvall(self, size: int) -> bytes:
         chunks = []
@@ -4182,6 +4493,100 @@ def _sync_non_expert_optimizer_state_peer(
     return summary
 
 
+def _restore_zero2_optimizer_from_memory_peer(
+    optimizer,
+    model_param_to_name,
+    sync_group_ranks,
+    replacement_rank,
+):
+    """Restore the failed logical rank's optimizer shard from its ring holder."""
+    rank = dist.get_rank()
+    holder_rank = backup_holder_for_owner(sync_group_ranks, replacement_rank)
+    if rank not in (holder_rank, replacement_rank):
+        return None
+    if _ZERO2_MEMORY_MANAGER is None:
+        raise RuntimeError(
+            "[elastic-zero2] memory replication enabled but manager is unavailable"
+        )
+
+    expected_step = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
+    if expected_step < 0:
+        raise RuntimeError("[elastic-zero2] recovery has no valid resume iteration")
+    restore_expert = os.environ.get("ELASTIC_ZERO2_RESTORE_SCOPE", "non_expert") == "all"
+    if restore_expert and os.environ.get("ELASTIC_EXPERT_WEIGHTS_MEMORY_REPLICA", "0") != "1":
+        raise RuntimeError(
+            "[elastic-zero2] refusing all-state optimizer restore without a "
+            "matching current-step expert weight replica"
+        )
+
+    with _PeerSyncStream(
+        holder_rank, replacement_rank, purpose="zero2-optimizer-memory"
+    ) as peer_stream:
+        if rank == holder_rank:
+            snapshot = _ZERO2_MEMORY_MANAGER.get_peer_snapshot(
+                replacement_rank, expected_step
+            )
+            peer_stream.send_json(snapshot.wire_header())
+            for segment in snapshot.segments:
+                peer_stream.send_raw_buffer(snapshot.buffers[segment["dtype"]])
+            result = {
+                "source": "phoenix_h2h_memory_replica",
+                "owner_rank": replacement_rank,
+                "holder_rank": holder_rank,
+                "step": expected_step,
+                "manifest_hash": snapshot.manifest_hash,
+                "bytes": sum(int(item["byte_count"]) for item in snapshot.segments),
+                "restore_scope": "all" if restore_expert else "non_expert",
+            }
+        else:
+            header = peer_stream.recv_json()
+            if int(header.get("owner_rank", -1)) != replacement_rank:
+                raise RuntimeError(
+                    "[elastic-zero2] optimizer replica owner mismatch: "
+                    f"expected={replacement_rank} header={header}"
+                )
+            if int(header.get("holder_rank", -1)) != holder_rank:
+                raise RuntimeError(
+                    "[elastic-zero2] optimizer replica holder mismatch: "
+                    f"expected={holder_rank} header={header}"
+                )
+            if int(header.get("step", -1)) != expected_step:
+                raise RuntimeError(
+                    "[elastic-zero2] optimizer replica version mismatch: "
+                    f"expected={expected_step} header={header.get('step')}"
+                )
+            buffers = {}
+            for segment in header.get("segments", []):
+                buffers[str(segment["dtype"])] = peer_stream.recv_raw_buffer(
+                    int(segment["byte_count"]),
+                    dtype_name=str(segment["dtype"]),
+                    numel=int(segment["numel"]),
+                )
+            snapshot = OptimizerMemorySnapshot.from_wire(header, buffers)
+            tensor_refs, scalar_refs = _zero2_optimizer_refs(
+                optimizer, model_param_to_name
+            )
+            result = apply_optimizer_snapshot(
+                snapshot,
+                tensor_refs,
+                scalar_refs,
+                restore_expert=restore_expert,
+            )
+            role_summary = _optimizer_role_state_summary(
+                optimizer, model_param_to_name, expert=False
+            )
+            _require_optimizer_role_ready(role_summary, "non-expert")
+            result.update(role_summary)
+            result["source"] = "phoenix_h2h_memory_replica"
+
+    logger.warning(
+        "[elastic-zero2] rank=%d optimizer memory restore complete: %s",
+        rank,
+        result,
+    )
+    return result
+
+
 def _sync_params_to_new_rank(
     model, optimizer, replacement_rank: int = -1, model_param_to_name=None
 ):
@@ -4213,15 +4618,22 @@ def _sync_params_to_new_rank(
     sync_src_rank = _select_dp_sync_src_rank(sync_group, replacement_rank)
 
     rank = dist.get_rank()
-    if rank not in (sync_src_rank, replacement_rank):
+    zero2_memory_enabled = _zero2_memory_replication_enabled()
+    zero2_holder_rank = (
+        backup_holder_for_owner(sync_group_ranks, replacement_rank)
+        if zero2_memory_enabled
+        else -1
+    )
+    if rank not in (sync_src_rank, replacement_rank, zero2_holder_rank):
         logger.info(
             "[elastic] Rank %d: skipping peer param sync for pp_rank=%d, dp_rank=%d; "
-            "src=%d replacement=%d",
+            "src=%d replacement=%d zero2_holder=%d",
             rank,
             pp_rank,
             dp_rank,
             sync_src_rank,
             replacement_rank,
+            zero2_holder_rank,
         )
         return None
 
@@ -4233,50 +4645,81 @@ def _sync_params_to_new_rank(
 
     if model_param_to_name is None:
         model_param_to_name = _build_model_param_name_map(model)
-    with _PeerSyncStream(sync_src_rank, replacement_rank) as peer_stream:
-        dense_count = 0
-        expert_count = 0
-        for model_chunk in model:
-            for name, param in model_chunk.named_parameters():
-                if _is_expert_model_param(name, param):
-                    expert_count += 1
-                    continue
-                dense_count += 1
-                _validate_param_peer_manifest(
-                    name,
-                    param.data,
-                    dense_count,
-                    sync_src_rank,
-                    replacement_rank,
-                    peer_stream=peer_stream,
-                )
-                if dense_count <= 3 or param.data.numel() * param.data.element_size() >= 128 * 1024 * 1024:
-                    logger.info(
-                        "[elastic] Rank %d: syncing dense param %d name=%s "
-                        "shape=%s dtype=%s",
-                        rank,
-                        dense_count,
-                        name,
-                        tuple(param.data.shape),
-                        param.data.dtype,
-                    )
-                _sync_tensor_peer_chunked(
-                    param.data,
-                    sync_src_rank,
-                    replacement_rank,
-                    label=f"dense-param:{name}",
-                    peer_stream=peer_stream,
-                )
-
-        logger.warning(
-            "[elastic] Rank %d: dense model param sync complete "
-            "(synced=%d, expert_from_ckpt=%d)",
-            rank,
-            dense_count,
-            expert_count,
+    dense_count = 0
+    expert_count = 0
+    if rank in (sync_src_rank, replacement_rank):
+        peer_stream_context = _PeerSyncStream(
+            sync_src_rank, replacement_rank, purpose="model-params"
         )
-        optimizer_summary = _sync_non_expert_optimizer_state_peer(
-            optimizer, model_param_to_name, sync_src_rank, replacement_rank, peer_stream
+    else:
+        peer_stream_context = None
+
+    if peer_stream_context is not None:
+        peer_stream_context.__enter__()
+    try:
+        peer_stream = peer_stream_context
+        if rank in (sync_src_rank, replacement_rank):
+            for model_chunk in model:
+                for name, param in model_chunk.named_parameters():
+                    if _is_expert_model_param(name, param):
+                        expert_count += 1
+                        continue
+                    dense_count += 1
+                    _validate_param_peer_manifest(
+                        name,
+                        param.data,
+                        dense_count,
+                        sync_src_rank,
+                        replacement_rank,
+                        peer_stream=peer_stream,
+                    )
+                    if dense_count <= 3 or param.data.numel() * param.data.element_size() >= 128 * 1024 * 1024:
+                        logger.info(
+                            "[elastic] Rank %d: syncing dense param %d name=%s "
+                            "shape=%s dtype=%s",
+                            rank,
+                            dense_count,
+                            name,
+                            tuple(param.data.shape),
+                            param.data.dtype,
+                        )
+                    _sync_tensor_peer_chunked(
+                        param.data,
+                        sync_src_rank,
+                        replacement_rank,
+                        label=f"dense-param:{name}",
+                        peer_stream=peer_stream,
+                    )
+
+            logger.warning(
+                "[elastic] Rank %d: dense model param sync complete "
+                "(synced=%d, expert_from_ckpt=%d)",
+                rank,
+                dense_count,
+                expert_count,
+            )
+            if not zero2_memory_enabled:
+                optimizer_summary = _sync_non_expert_optimizer_state_peer(
+                    optimizer,
+                    model_param_to_name,
+                    sync_src_rank,
+                    replacement_rank,
+                    peer_stream,
+                )
+            else:
+                optimizer_summary = None
+        else:
+            optimizer_summary = None
+    finally:
+        if peer_stream_context is not None:
+            peer_stream_context.__exit__(None, None, None)
+
+    if zero2_memory_enabled:
+        optimizer_summary = _restore_zero2_optimizer_from_memory_peer(
+            optimizer,
+            model_param_to_name,
+            sync_group_ranks,
+            replacement_rank,
         )
 
     logger.info(f"[elastic] Rank {rank}: param sync complete")
