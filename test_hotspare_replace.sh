@@ -109,7 +109,7 @@ unset MOEGAMBIT_FAULT_INJECT_STEP 2>/dev/null || true
 
 # Checkpoint: 每 10 步保存一次（确保故障时有近期 checkpoint）
 export SAVE_INTERVAL=10
-export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/728hotspare/test_replace_ckpt}"
+export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/729hotspare/test_replace_ckpt}"
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
 
 if [ "${ELASTIC_ZERO2_MEMORY_REPLICATION}" = "1" ] && \

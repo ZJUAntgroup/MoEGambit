@@ -1363,7 +1363,12 @@ class ChainedOptimizer(MegatronOptimizer):
                     states.append(state_dict)
                     save_states = True
                 else:
-                    assert state_dict is None
+                    # NCCL fallback uses all_gather, so every rank receives a
+                    # temporary state dict. Only the DP root retains it for
+                    # this checkpoint shard; Gloo gather still returns None
+                    # on non-root ranks.
+                    if use_gloo_comm:
+                        assert state_dict is None
                     states.append(None)
 
         if save_states:
