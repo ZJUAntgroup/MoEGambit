@@ -1,15 +1,43 @@
 nohup: ignoring input
 [deepspeed-real-launch] preflight torch=2.6.0+cu126 transformers=5.0.0 deepspeed=0.19.3+0c36f6d grouped_mm=False
-[deepspeed-real-launch] case=hot_swap_pp8_ep8 node=8 PP=8 EP=8 ZeRO=1 hot_swap=1 zero2=0 spare=8 coordinator=33.181.106.76:20230
-2026-07-27 11:38:43,521 INFO __main__: registered standby physical_node=8
-2026-07-27 11:38:54,021 INFO __main__: registered active physical_node=0
-2026-07-27 11:39:01,853 INFO __main__: registered active physical_node=1
-2026-07-27 11:39:08,869 INFO __main__: registered active physical_node=2
-2026-07-27 11:39:17,070 INFO __main__: registered active physical_node=3
-2026-07-27 11:39:28,114 INFO __main__: registered active physical_node=4
-2026-07-27 11:39:36,851 INFO __main__: registered active physical_node=5
-2026-07-27 11:39:44,606 INFO __main__: registered active physical_node=6
-2026-07-27 11:39:53,143 INFO __main__: registered active physical_node=7
-2026-07-27 11:39:53,143 INFO __main__: recovery epoch 0 released mapping={0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7}
-2026-07-27 11:45:13,296 ERROR __main__: initial training runner exited before every logical node reached TRAIN_READY; refusing to consume the hot spare: physical_node=6 return_code=1
-2026-07-27 11:45:14,171 ERROR __main__: hot-spare recovery aborted: initial training runner exited before every logical node reached TRAIN_READY; refusing to consume the hot spare: physical_node=6 return_code=1
+[deepspeed-real-launch] case=hot_swap_pp8_ep8 node=8 PP=8 EP=8 ZeRO=1 hot_swap=1 zero2=0 spare=8 coordinator=33.215.195.83:20215
+2026-07-27 13:09:07,837 INFO __main__: registered standby physical_node=8
+2026-07-27 13:09:17,181 INFO __main__: registered active physical_node=0
+2026-07-27 13:09:25,334 INFO __main__: registered active physical_node=1
+2026-07-27 13:09:30,380 INFO __main__: registered active physical_node=2
+2026-07-27 13:09:42,843 INFO __main__: registered active physical_node=3
+2026-07-27 13:09:51,744 INFO __main__: registered active physical_node=4
+2026-07-27 13:10:01,228 INFO __main__: registered active physical_node=5
+2026-07-27 13:10:09,063 INFO __main__: registered active physical_node=6
+2026-07-27 13:10:18,419 INFO __main__: registered active physical_node=7
+2026-07-27 13:10:18,419 INFO __main__: recovery epoch 0 released mapping={0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7}
+2026-07-27 13:15:44,021 ERROR __main__: worker failure diagnostic from physical_node=6:
+fatal artifact=/mnt/ais-c1/dataset/zds/729hotspare/deepspeed_real/hotspare123-ds-003/hot_swap_pp8_ep8/state/errors/epoch_0_rank_48.json rank=48: AssertionError: bwd_microstep timer has already been started
+Traceback (most recent call last):
+  File "/root/workdir/antllm/bsr2/deepspeed_qwen3_moe_pretrain.py", line 924, in <module>
+    raise SystemExit(main())
+  File "/root/workdir/antllm/bsr2/deepspeed_qwen3_moe_pretrain.py", line 841, in main
+    loss = engine.train_batch(data_iter=batches)
+  File "/root/workdir/antllm/bsr2/DeepSpeed/deepspeed/runtime/pipe/engine.py", line 388, in train_batch
+    self._exec_schedule(sched)
+  File "/root/workdir/antllm/bsr2/DeepSpeed/deepspeed/runtime/pipe/engine.py", line 1394, in _exec_schedule
+    self._exec_instr(**cmd.kwargs)
+  File "/root/workdir/antllm/bsr2/DeepSpeed/deepspeed/runtime/pipe/engine.py", line 872, in _exec_backward_pass
+    out.backward(gradient=grad, retain_graph=(i < len(out_tensors) - 1))
+  File "/opt/conda/lib/python3.10/site-packages/torch/_tensor.py", line 626, in backward
+    torch.autograd.backward(
+  File "/opt/conda/lib/python3.10/site-packages/torch/autograd/__init__.py", line 347, in backward
+    _engine_run_backward(
+  File "/opt/conda/lib/python3.10/site-packages/torch/autograd/graph.py", line 823, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+  File "/root/workdir/antllm/bsr2/DeepSpeed/deepspeed/runtime/utils.py", line 1322, in backward_hook
+    self.preprocess_once_fn()
+  File "/root/workdir/antllm/bsr2/DeepSpeed/deepspeed/runtime/engine.py", line 2803, in _backward_prologue
+    self._start_timers(self.engine_timers.backward_timers)
+  File "/root/workdir/antllm/bsr2/DeepSpeed/deepspeed/runtime/engine.py", line 3362, in _start_timers
+    self.timers(name).start()
+  File "/root/workdir/antllm/bsr2/DeepSpeed/deepspeed/utils/timer.py", line 62, in start
+    assert not self.started_, f"{self.name_} timer has already been started"
+AssertionError: bwd_microstep timer has already been started
+2026-07-27 13:15:44,021 ERROR __main__: initial training runner exited before every logical node reached TRAIN_READY; refusing to consume the hot spare: physical_node=6 return_code=1
+2026-07-27 13:15:45,324 ERROR __main__: hot-spare recovery aborted: initial training runner exited before every logical node reached TRAIN_READY; refusing to consume the hot spare: physical_node=6 return_code=1

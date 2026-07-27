@@ -820,12 +820,6 @@ class PipelineEngine(DeepSpeedEngine):
 
         outputs = self.pipe_buffers['outputs'][buffer_id]
 
-        if self.wall_clock_breakdown():
-            self.timers(BACKWARD_MICRO_TIMER).start()
-            self.timers(BACKWARD_GLOBAL_TIMER).start()
-            self.timers(BACKWARD_INNER_MICRO_TIMER).start()
-            self.timers(BACKWARD_INNER_GLOBAL_TIMER).start()
-
         # Reconstruct if we previously partitioned the output. We must be
         # careful to also restore the computational graph of the tensors we partitioned.
         if self.is_pipe_partitioned:
@@ -854,42 +848,28 @@ class PipelineEngine(DeepSpeedEngine):
             part_grad = None
             #print(f'RANK={self.global_rank} BEFORE-BWD restored grad={self.grad_layer[0].size()} {self.grad_layer[1].size()}')
 
-        if self.using_bf16_optimizer and not self.is_last_stage():
-            # manually call because we don't call optimizer.backward()
-            self.optimizer.clear_lp_grads()
-
-        # Set _running_engine_backward to avoid RuntimeError in post-backward hook
-        # when needs_scaler=True (the hook checks this flag to skip error checking)
-        self._running_engine_backward = True
-        try:
-            # Use tensor.backward(gradient) style which is now supported by DeepSpeed.
-            # This properly integrates with DeepSpeed's hooks and loss scaling.
-            if isinstance(outputs, tuple):
-                out_tensors = [t for t in outputs if t.is_floating_point()]
-                assert len(out_tensors) == len(grad_tensors)
-                # For multiple tensors, use retain_graph for all but the last
-                for i, (out, grad) in enumerate(zip(out_tensors, grad_tensors)):
-                    out.backward(gradient=grad, retain_graph=(i < len(out_tensors) - 1))
-            else:
-                outputs.backward(gradient=grad_tensors)
-        finally:
-            self._running_engine_backward = False
-
-        if self.using_bf16_optimizer and not self.is_last_stage():
-            # manually call because we don't call optimizer.backward()
-            if not self._config.bfloat16_config.immediate_grad_update:
-                self.optimizer.update_hp_grads(clear_lp_grads=False)
+        # DeepSpeedEngine.forward() registered one output hook manager for this
+        # pipeline microbatch. Let that hook own the backward prologue/epilogue,
+        # timers, and optimizer lifecycle. The received pipeline gradients are
+        # already loss-scaled by the last stage, so direct backward is valid.
+        self._manual_backward_expected = True
+        if isinstance(outputs, tuple):
+            out_tensors = [t for t in outputs if t.is_floating_point()]
+            assert len(out_tensors) == len(grad_tensors)
+            torch.autograd.backward(
+                tensors=out_tensors,
+                grad_tensors=grad_tensors,
+            )
+        else:
+            torch.autograd.backward(
+                tensors=(outputs,),
+                grad_tensors=(grad_tensors,),
+            )
 
         # Free up the memory from the output of forward()
         self.pipe_buffers['output_tensors'][buffer_id] = None
         self.pipe_buffers['outputs'][buffer_id] = None
         grad_tensors = None
-
-        if self.wall_clock_breakdown():
-            self.timers(BACKWARD_INNER_MICRO_TIMER).stop()
-            self.timers(BACKWARD_INNER_GLOBAL_TIMER).stop()
-            self.timers(BACKWARD_MICRO_TIMER).stop()
-            self.timers(BACKWARD_GLOBAL_TIMER).stop()
 
     def _exec_load_micro_batch(self, buffer_id):
         if self.wall_clock_breakdown():

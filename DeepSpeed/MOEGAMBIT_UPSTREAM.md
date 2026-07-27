@@ -17,3 +17,10 @@ switches are off. `setup.py` and `deepspeed/git_version_info.py` also pin the
 snapshot's upstream commit instead of inheriting metadata from the enclosing
 MoEGambit repository. `deepspeed/launcher/runner.py` forwards MoEGambit
 feature and recovery variables to remote workers alongside `PYTHONPATH`.
+
+`deepspeed/runtime/pipe/engine.py` contains one compatibility correction for
+the v0.19.3 torch-style backward hooks. Non-final pipeline stages use one
+`torch.autograd.backward()` call and leave backward timers and optimizer
+prologue/epilogue ownership to the output hook manager. This avoids starting
+the same timer twice and preserves one backward state-machine transition for
+pipeline outputs containing multiple differentiable tensors.

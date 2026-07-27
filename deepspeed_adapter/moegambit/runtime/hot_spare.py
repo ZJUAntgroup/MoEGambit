@@ -381,8 +381,22 @@ class HotSpareCoordinator:
         except (KeyError, TypeError, ValueError):
             return
         if self.mapping.get(logical_node) != physical_node:
+            logger.error(
+                "rejecting TRAIN_READY with inconsistent topology: "
+                "physical_node=%d logical_node=%d expected_physical=%s",
+                physical_node,
+                logical_node,
+                self.mapping.get(logical_node),
+            )
             return
         self.ready_logical_nodes.add(logical_node)
+        logger.info(
+            "TRAIN_READY physical_node=%d logical_node=%d (%d/%d)",
+            physical_node,
+            logical_node,
+            len(self.ready_logical_nodes),
+            self.training_nodes,
+        )
         if (
             self.recovery_started_at is not None
             and len(self.ready_logical_nodes) == self.training_nodes
@@ -662,6 +676,7 @@ class AgentSupervisor:
             logical_node, epoch, master_addr, master_port
         )
         environment = os.environ.copy()
+        local_world_size = _command_option(command, "--num_gpus")
         environment.update(
             {
                 "NODE_RANK": str(logical_node),
@@ -675,12 +690,15 @@ class AgentSupervisor:
                 "MOEGAMBIT_HOT_SPARE_RUN_ID": self.run_id,
             }
         )
+        if local_world_size is not None:
+            environment["LOCAL_WORLD_SIZE"] = local_world_size
         logger.warning(
             "starting worker physical_node=%d logical_node=%d epoch=%d "
-            "master=%s:%d command=%s",
+            "local_world_size=%s master=%s:%d command=%s",
             self.physical_node,
             logical_node,
             epoch,
+            environment.get("LOCAL_WORLD_SIZE", "unknown"),
             master_addr,
             master_port,
             command,

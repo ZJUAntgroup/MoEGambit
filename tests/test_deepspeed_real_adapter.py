@@ -28,6 +28,26 @@ def test_real_workload_contains_both_supported_topologies():
     assert 'callable(getattr(torch, "_grouped_mm", None))' in source
 
 
+def test_pipeline_backward_has_single_hook_owned_lifecycle():
+    source = (
+        ROOT
+        / "DeepSpeed"
+        / "deepspeed"
+        / "runtime"
+        / "pipe"
+        / "engine.py"
+    ).read_text(encoding="utf-8")
+    start = source.index("    def _exec_backward_pass(self, buffer_id):")
+    end = source.index("    def _exec_load_micro_batch", start)
+    backward = source[start:end]
+
+    assert "torch.autograd.backward(" in backward
+    assert "out.backward(" not in backward
+    assert "self._running_engine_backward = True" not in backward
+    assert "self.timers(BACKWARD_MICRO_TIMER).start()" not in backward
+    assert "self.optimizer.update_hp_grads" not in backward
+
+
 def test_runtime_hooks_common_optimizer_boundary():
     source = (
         ROOT
@@ -196,6 +216,9 @@ def test_multinode_script_dry_run_builds_real_commands(tmp_path):
     assert "--node_rank \\{logical_node\\}" in result.stdout
     assert "--elastic_training" not in result.stdout
     assert "dry run complete" in result.stdout
+    assert "LOCAL_WORLD_SIZE" in (
+        ROOT / "test_deepspeed_hotspare_replace.sh"
+    ).read_text(encoding="utf-8")
 
 
 def test_hot_spare_coordinator_replaces_failed_logical_node(tmp_path):
@@ -234,6 +257,9 @@ def test_hot_spare_coordinator_replaces_failed_logical_node(tmp_path):
     )
     assert spare["action"] == "standby"
     assert request("poll", 0)["logical_node"] == 0
+    request("worker_ready", 0, epoch=0, logical_node=0)
+    request("worker_ready", 1, epoch=0, logical_node=1)
+    assert coordinator.ready_logical_nodes == {0, 1}
 
     replacement = request(
         "rank_failure",
