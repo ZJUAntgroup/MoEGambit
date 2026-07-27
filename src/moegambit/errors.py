@@ -26,6 +26,19 @@ class MoEGambitError(Exception):
 class RecoverableDistributedError(MoEGambitError):
     """A distributed failure positively classified as fail-stop."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        failed_ranks: tuple = (),
+        failure_class: str = "fail_stop",
+        evidence: object = None,
+    ) -> None:
+        super().__init__(message)
+        self.failed_ranks = tuple(int(rank) for rank in failed_ranks)
+        self.failure_class = str(failure_class)
+        self.evidence = dict(evidence or {})
+
 
 class ContractViolation(MoEGambitError):
     """Topology, state, or step bookkeeping disagreed across participants."""

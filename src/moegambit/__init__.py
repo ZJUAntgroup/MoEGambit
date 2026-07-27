@@ -37,6 +37,8 @@ __all__ = [
     "AdapterCapabilities",
     "RuntimeConfig",
     "MoEGambitError",
+    "RecoveryRuntime",
+    "initialize",
 ]
 
 
@@ -53,4 +55,8 @@ def __getattr__(name: str) -> Any:
         from .errors import MoEGambitError
 
         return MoEGambitError
+    if name in ("RecoveryRuntime", "initialize"):
+        from .runtime import runtime
+
+        return getattr(runtime, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
