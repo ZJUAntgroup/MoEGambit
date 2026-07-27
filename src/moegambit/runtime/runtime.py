@@ -7,6 +7,7 @@ import os
 from typing import Any, Mapping, Optional
 
 from ..config import FallbackMode, RuntimeConfig
+from ..adapters.base import CheckpointResumeAdapter
 from ..control.coordinator import RecoveryAssignment, RecoveryCoordinator, RecoveryRequest
 from ..distributed.c10d_backend import FailureClassification
 from ..errors import MoEGambitError, RecoverableDistributedError
@@ -62,6 +63,11 @@ class RecoveryRuntime:
                 "on",
             }:
                 self._resume_step = int(configured_step)
+                self.epochs.last_committed_step = int(configured_step)
+                if adapter is not None and isinstance(
+                    adapter.training, CheckpointResumeAdapter
+                ):
+                    adapter.training.apply_checkpoint_resume(int(configured_step))
         if self._enabled and adapter is None:
             raise MoEGambitError(
                 "elastic recovery is enabled but no framework adapter was provided"

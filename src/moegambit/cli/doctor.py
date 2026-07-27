@@ -27,20 +27,23 @@ def run_checks(
     config: RuntimeConfig,
     *,
     framework: Optional[str] = None,
+    role: str = "worker",
 ) -> Mapping[str, Any]:
+    if role not in ("worker", "watcher"):
+        raise ValueError("doctor role must be 'worker' or 'watcher'")
     errors = list(config.validate())
     warnings = []
     selected = framework or config.framework
     adapters = available_adapters()
-    if selected not in adapters:
+    if role == "worker" and selected not in adapters:
         errors.append(
             f"framework adapter {selected!r} is unavailable; choices={adapters}"
         )
 
     requirements = []
-    if selected == "generic_ddp":
+    if role == "worker" and selected == "generic_ddp":
         requirements.append("torch")
-    elif selected == "megatron":
+    elif role == "worker" and selected == "megatron":
         requirements.extend(("torch", "megatron"))
     missing = [name for name in requirements if importlib.util.find_spec(name) is None]
     if missing:
@@ -73,6 +76,7 @@ def run_checks(
         "package_role": PACKAGE_ROLE,
         "version": __version__,
         "framework": selected,
+        "role": role,
         "available_adapters": list(adapters),
         "errors": errors,
         "warnings": warnings,
@@ -82,13 +86,16 @@ def run_checks(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Preflight a MoEGambit deployment")
     parser.add_argument("--framework")
+    parser.add_argument("--role", choices=("worker", "watcher"), default="worker")
     parser.add_argument("--json", action="store_true")
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
-    result = run_checks(RuntimeConfig.from_env(), framework=args.framework)
+    result = run_checks(
+        RuntimeConfig.from_env(), framework=args.framework, role=args.role
+    )
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
     else:

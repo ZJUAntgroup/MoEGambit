@@ -101,6 +101,16 @@ def test_registry_builds_generic_adapter_without_importing_torch():
     )
 
 
+def test_generic_ddp_cold_resume_aligns_adapter_progress_without_torch():
+    training = GenericDDPTrainingAdapter(_Module())
+
+    training.apply_checkpoint_resume(12)
+
+    progress = training.current_progress()
+    assert progress.step == 12
+    assert progress.committed
+
+
 def test_observed_backend_is_used_for_rebuild(monkeypatch):
     dist = SimpleNamespace(
         is_available=lambda: True,

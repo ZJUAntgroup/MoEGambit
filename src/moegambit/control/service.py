@@ -617,6 +617,7 @@ class RecoveryCoordinatorService:
     ) -> Mapping[str, Any]:
         key = self._key(job_id, attempt_id, recovery_epoch)
         with self._lock:
+            self._reject_stale(key[:2], int(recovery_epoch))
             store_key = self._assignment_store_key(key)
             record = {
                 "rank": int(rank),
@@ -709,6 +710,7 @@ class RecoveryCoordinatorService:
             "directive_id": directive.directive_id,
         }
         with self._lock:
+            self._reject_stale(scope, int(recovery_epoch))
             directive_record = {
                 "directive": dict(directive.as_dict()),
                 "status": "pending",

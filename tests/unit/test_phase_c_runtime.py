@@ -306,6 +306,18 @@ def test_public_initialize_is_lazy_and_disabled_without_adapter():
     assert not runtime.enabled
 
 
+def test_cold_relaunch_seeds_runtime_resume_cursor(monkeypatch):
+    monkeypatch.setenv("MOEGAMBIT_CHECKPOINT_RELAUNCH", "1")
+    monkeypatch.setenv("MOEGAMBIT_CHECKPOINT_LOCATOR", "checkpoint://step-8")
+    monkeypatch.setenv("MOEGAMBIT_CHECKPOINT_STEP", "8")
+
+    runtime = RecoveryRuntime(_adapter([]), RuntimeConfig(enabled=True))
+
+    assert runtime.resume_step == 8
+    assert runtime.epochs.last_committed_step == 8
+    assert runtime.describe()["latest_checkpoint"]["step"] == 8
+
+
 def test_assignment_digest_is_rechecked_before_execution():
     assignment = _assignment()
     object.__setattr__(

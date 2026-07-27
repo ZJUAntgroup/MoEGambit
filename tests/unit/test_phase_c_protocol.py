@@ -313,6 +313,34 @@ def test_same_epoch_cannot_choose_two_checkpoint_relaunch_targets():
         )
 
 
+def test_stale_epoch_cannot_append_failure_or_relaunch_request():
+    service = _service()
+    response = service.prepare(_service_request(epoch=2), job_id="job", attempt_id="a")
+    service.prepare(_service_request(epoch=3), job_id="job", attempt_id="a")
+
+    with pytest.raises(ContractViolation, match="stale recovery epoch"):
+        service.failed(
+            {"plan_digest": response["plan_digest"], "error": "late"},
+            job_id="job",
+            attempt_id="a",
+            rank=0,
+            recovery_epoch=2,
+        )
+    with pytest.raises(ContractViolation, match="stale recovery epoch"):
+        service.request_checkpoint_relaunch(
+            {
+                "at_step": 9,
+                "reason": "late fallback",
+                "checkpoint_locator": "checkpoint://step-7",
+                "checkpoint_step": 7,
+            },
+            job_id="job",
+            attempt_id="a",
+            rank=0,
+            recovery_epoch=2,
+        )
+
+
 def test_real_control_server_round_trip_on_loopback():
     processor = ControlRequestProcessor(
         _service(),

@@ -115,6 +115,27 @@ def test_memory_replica_can_cover_sharded_optimizer_state():
     assert selected["optim/shard-1"].kind is StateSourceKind.MEMORY_REPLICA
 
 
+def test_planner_never_selects_memory_replica_without_declared_capability():
+    facts = _facts(
+        {
+            "param/weight": (
+                _source(
+                    StateSourceKind.MEMORY_REPLICA,
+                    10,
+                    "memory://preferred-but-disabled",
+                ),
+                _source(StateSourceKind.PEER, 10, "rank://0"),
+            )
+        },
+        capabilities=_capabilities(optimizer_memory_replication=False),
+    )
+
+    decision = PeerOrCheckpointPolicy().decide(facts)
+    selected = DeterministicStateSourcePlanner().select(facts, decision)
+
+    assert selected["param/weight"].kind is StateSourceKind.PEER
+
+
 def test_moe_policy_builds_hybrid_dense_peer_and_unique_expert_checkpoint():
     facts = _facts(
         {

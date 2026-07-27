@@ -1274,6 +1274,25 @@ class GenericDDPTrainingAdapter:
             committed=self._context.pending_step is None,
         )
 
+    def apply_checkpoint_resume(self, step: int) -> None:
+        """Adopt state that the training entry point loaded before initialize."""
+
+        step = int(step)
+        if step < 0:
+            raise ValueError("checkpoint resume step must be non-negative")
+        if self._context.pending_step is not None:
+            raise ContractViolation(
+                "cannot apply a cold checkpoint while an optimizer step is pending"
+            )
+        self._context.committed_step = step
+        self._context.optimizer_generation = step
+        self._context.recovery_epoch = 0
+        self._context.committed_buffers = {
+            name: buffer.detach().clone()
+            for name, buffer in _named_buffers(self._context)
+        }
+        self._context.committed_buffers_step = step
+
     def iteration_boundary(self, step: int) -> None:
         if self._context.pending_step is not None:
             raise ContractViolation(

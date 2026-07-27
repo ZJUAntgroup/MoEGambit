@@ -203,9 +203,13 @@ class DeterministicStateSourcePlanner:
             kinds = (StateSourceKind.CHECKPOINT,)
         elif decision.mode is RecoveryMode.PEER:
             kinds = (
-                StateSourceKind.MEMORY_REPLICA,
-                StateSourceKind.PEER,
-                StateSourceKind.LOCAL,
+                (
+                    StateSourceKind.MEMORY_REPLICA,
+                    StateSourceKind.PEER,
+                    StateSourceKind.LOCAL,
+                )
+                if facts.capabilities.optimizer_memory_replication
+                else (StateSourceKind.PEER, StateSourceKind.LOCAL)
             )
             version = consistent_version(
                 {
@@ -256,13 +260,18 @@ class DeterministicStateSourcePlanner:
             placement = next(iter(classified))
             assert isinstance(placement, Placement)
             placements[identity] = placement
+        live_kinds = (
+            (StateSourceKind.MEMORY_REPLICA, StateSourceKind.PEER)
+            if facts.capabilities.optimizer_memory_replication
+            else (StateSourceKind.PEER,)
+        )
         live_version = consistent_version(
             {
                 identity: tuple(
                     source
                     for source in sources[identity]
                     if source.kind
-                    in (StateSourceKind.MEMORY_REPLICA, StateSourceKind.PEER)
+                    in live_kinds
                 )
                 for identity, placement in placements.items()
                 if placement is not Placement.UNIQUE
@@ -294,7 +303,7 @@ class DeterministicStateSourcePlanner:
                 source = _stable_choice(
                     sources[identity],
                     version=live_version,
-                    kinds=(StateSourceKind.MEMORY_REPLICA, StateSourceKind.PEER),
+                    kinds=live_kinds,
                 )
             if source is None:
                 raise RecoveryRejected(f"hybrid source is missing for {identity!r}")

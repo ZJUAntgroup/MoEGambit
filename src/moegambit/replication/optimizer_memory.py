@@ -530,19 +530,22 @@ class Zero2MemoryReplicaManager:
             raise RuntimeError(
                 f"timed out waiting for optimizer replica endpoint {outgoing_id}"
             )
-        outgoing = connect_with_retry(
-            (str(endpoint["host"]), int(endpoint["port"])),
-            timeout=self.timeout,
-            retry_interval=self.retry_interval,
-        )
-        outgoing.settimeout(self.timeout)
-        self._outgoing = outgoing
-        if not self._incoming_ready.wait(self.timeout):
-            self.stop_transport()
-            raise RuntimeError(
-                "timed out accepting optimizer replica ring predecessor"
+        try:
+            outgoing = connect_with_retry(
+                (str(endpoint["host"]), int(endpoint["port"])),
+                timeout=self.timeout,
+                retry_interval=self.retry_interval,
             )
-        self._raise_if_failed()
+            outgoing.settimeout(self.timeout)
+            self._outgoing = outgoing
+            if not self._incoming_ready.wait(self.timeout):
+                raise RuntimeError(
+                    "timed out accepting optimizer replica ring predecessor"
+                )
+            self._raise_if_failed()
+        except BaseException:
+            self.stop_transport()
+            raise
 
         self._sender_thread = threading.Thread(
             target=self._sender_loop,

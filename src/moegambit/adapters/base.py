@@ -43,6 +43,7 @@ __all__ = [
     "StateAdapter",
     "OptimizerAdapter",
     "TrainingAdapter",
+    "CheckpointResumeAdapter",
     "FrameworkAdapter",
     "ProgressToken",
     "PauseRequest",
@@ -221,6 +222,14 @@ class TrainingAdapter(Protocol):
 
     def warmup_and_validate(self, plan: RecoveryPlan) -> ValidationReport:
         """Run the first post-recovery forward and check it is sane."""
+
+
+@runtime_checkable
+class CheckpointResumeAdapter(Protocol):
+    """Optional cold-relaunch hook after a durable checkpoint was loaded."""
+
+    def apply_checkpoint_resume(self, step: int) -> None:
+        """Align adapter-owned progress/version state to the loaded checkpoint."""
 
 
 @dataclass(frozen=True)

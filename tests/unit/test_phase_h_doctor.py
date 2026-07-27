@@ -27,3 +27,15 @@ def test_doctor_describes_sqlite_ha_boundary(tmp_path):
     result = run_checks(config)
 
     assert any("multi-host watcher HA" in item for item in result["warnings"])
+
+
+def test_watcher_role_does_not_require_training_framework_modules(tmp_path):
+    config = RuntimeConfig(
+        framework="generic_ddp",
+        control_store=ControlStoreConfig(path=str(tmp_path / "control.db")),
+    )
+
+    result = run_checks(config, role="watcher")
+
+    assert not any("torch" in item for item in result["errors"])
+    assert result["role"] == "watcher"
