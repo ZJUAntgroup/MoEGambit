@@ -207,6 +207,7 @@ def test_runtime_executes_frozen_plan_and_commits_after_full_iteration():
     assert runtime.on_distributed_error(_failure())
     assert runtime.resume_step == 9
     assert runtime.epochs.state is EpochState.PROVISIONAL
+    assert calls.index("prepare_rebuild") < calls.index(("quiesce", 1))
     assert not runtime.commit_iteration(9)
     assert runtime.commit_iteration(10)
     assert runtime.epochs.state is EpochState.COMMITTED

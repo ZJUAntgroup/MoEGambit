@@ -100,6 +100,14 @@ class RecoveryExecutor:
             result=RecoveryOutcome.PROVISIONAL,
         )
 
+        # Adapter preflight must happen before quiesce. Some adapters retire
+        # process groups while quiescing, so discovering an unsupported live
+        # wrapper afterwards would leave the job damaged even though recovery
+        # never started.
+        rebuild_handle = self.adapter.topology.prepare_rebuild(plan)
+        if rebuild_handle.recovery_epoch != plan.recovery_epoch:
+            raise ContractViolation("rebuild handle belongs to another epoch")
+
         with record.measure_phase("quiesce"):
             proof = self.adapter.training.quiesce(
                 PauseRequest(
@@ -119,9 +127,6 @@ class RecoveryExecutor:
                 "at_step": int(at_step),
             }
 
-        rebuild_handle = self.adapter.topology.prepare_rebuild(plan)
-        if rebuild_handle.recovery_epoch != plan.recovery_epoch:
-            raise ContractViolation("rebuild handle belongs to another epoch")
         self.adapter.state.load_replacement_base(plan)
 
         with record.measure_phase("group_rebuild"):
