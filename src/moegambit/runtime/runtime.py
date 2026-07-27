@@ -55,6 +55,13 @@ class RecoveryRuntime:
                 raise MoEGambitError(
                     "invalid MOEGAMBIT_CHECKPOINT_LOCATOR/STEP configuration"
                 ) from exc
+            if os.environ.get("MOEGAMBIT_CHECKPOINT_RELAUNCH", "0").lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }:
+                self._resume_step = int(configured_step)
         if self._enabled and adapter is None:
             raise MoEGambitError(
                 "elastic recovery is enabled but no framework adapter was provided"
@@ -465,6 +472,7 @@ def initialize(
     coordinator: Optional[RecoveryCoordinator] = None,
     executor: Optional[RecoveryExecutor] = None,
     fallback_controller: Optional[FallbackController] = None,
+    state_source_resolver: Any = None,
     metrics: Optional[RecoveryMetrics] = None,
     **overrides: object,
 ) -> RecoveryRuntime:
@@ -508,7 +516,10 @@ def initialize(
                 max_message_bytes=resolved.security.max_message_bytes,
             )
         )
-        coordinator = WatcherRecoveryCoordinator(control_client)
+        coordinator = WatcherRecoveryCoordinator(
+            control_client,
+            source_resolver=state_source_resolver,
+        )
     if (
         fallback_controller is None
         and resolved.fallback == FallbackMode.CHECKPOINT_RELAUNCH

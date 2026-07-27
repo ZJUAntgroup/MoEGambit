@@ -14,10 +14,12 @@ from moegambit.policy import (
     MoeHybridPolicy,
     PeerOrCheckpointPolicy,
     RecoveryFacts,
+    MappingStateSourceResolver,
     parse_source_candidates,
     serialize_source_candidates,
 )
 from moegambit.runtime.recovery_plan import RecoveryMode
+from moegambit.runtime.client import WatcherRecoveryCoordinator
 from moegambit.state.catalog import StateSource, StateSourceKind
 from moegambit.state.version import StateVersion
 
@@ -272,3 +274,35 @@ def test_control_service_freezes_sharded_memory_source_and_digest_covers_locator
 def test_serialized_capability_booleans_are_not_truthy_strings():
     with pytest.raises(TypeError, match="must be a boolean"):
         AdapterCapabilities.from_dict({"full_group_rebuild": "false"})
+
+
+def test_watcher_coordinator_resolves_frozen_locators_by_injection():
+    source = _source(StateSourceKind.PEER, 10, "rank://0")
+    from moegambit.runtime.recovery_plan import RecoveryPlan
+
+    plan = RecoveryPlan(
+        protocol_version=1,
+        recovery_epoch=2,
+        failed_ranks=(1,),
+        resume_step=10,
+        mode=RecoveryMode.PEER,
+        state_sources={"param/weight": source},
+    )
+    resolver = MappingStateSourceResolver(
+        {"rank://0": lambda selected: {"loaded": selected.locator}}
+    )
+    coordinator = WatcherRecoveryCoordinator(
+        object(), source_resolver=resolver
+    )
+
+    assignment = coordinator._assignment(
+        {
+            "plan": plan.as_dict(),
+            "plan_digest": plan.digest(),
+            "store": {"host": "127.0.0.1", "port": 23000},
+        }
+    )
+
+    assert assignment.sources.by_identity["param/weight"] == {
+        "loaded": "rank://0"
+    }

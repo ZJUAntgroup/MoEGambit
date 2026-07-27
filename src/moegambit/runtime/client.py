@@ -19,6 +19,7 @@ from ..policy import (
     RecoveryEvidenceProvider,
     SourceQuery,
     StateSourceCandidateProvider,
+    StateSourceResolver,
     serialize_source_candidates,
 )
 from ..runtime.recovery_plan import RecoveryPlan
@@ -292,11 +293,16 @@ def build_recovery_request_payload(
 
 
 class WatcherRecoveryCoordinator(RecoveryCoordinator):
-    def __init__(self, client: ControlClient) -> None:
+    def __init__(
+        self,
+        client: ControlClient,
+        *,
+        source_resolver: Optional[StateSourceResolver] = None,
+    ) -> None:
         self.client = client
+        self.source_resolver = source_resolver
 
-    @staticmethod
-    def _assignment(response: Mapping[str, Any]) -> RecoveryAssignment:
+    def _assignment(self, response: Mapping[str, Any]) -> RecoveryAssignment:
         raw_plan = response.get("plan")
         raw_store = response.get("store")
         if not isinstance(raw_plan, Mapping) or not isinstance(raw_store, Mapping):
@@ -308,10 +314,19 @@ class WatcherRecoveryCoordinator(RecoveryCoordinator):
             prefix=str(raw_store.get("prefix", "moegambit")),
             timeout_s=float(raw_store.get("timeout_s", 300.0)),
         )
+        sources = (
+            StateSources(dict(plan.state_sources))
+            if self.source_resolver is None
+            else self.source_resolver.resolve(plan)
+        )
+        if set(sources.by_identity) != set(plan.state_sources):
+            raise ContractViolation(
+                "resolved state-source identities differ from frozen plan"
+            )
         return RecoveryAssignment(
             plan=plan,
             store=store,
-            sources=StateSources(dict(plan.state_sources)),
+            sources=sources,
             plan_digest=str(response.get("plan_digest", "")),
         )
 

@@ -40,6 +40,44 @@ def build_everything():
     return model, optimizer, batches
 
 
+def load_cold_relaunch_checkpoint(torch, model, optimizer) -> None:
+    """Consume the NodeAgent checkpoint contract before training resumes."""
+
+    if os.environ.get("MOEGAMBIT_CHECKPOINT_RELAUNCH", "0") != "1":
+        return
+    locator = os.environ.get("MOEGAMBIT_CHECKPOINT_LOCATOR", "")
+    if not locator:
+        raise RuntimeError("cold relaunch has no checkpoint locator")
+    payload = torch.load(locator, map_location="cpu")
+    model.load_state_dict(payload["model"])
+    optimizer.load_state_dict(payload["optimizer"])
+
+
+def commit_checkpoint(torch, runtime, model, optimizer, resume_step: int) -> None:
+    """Atomically publish a checkpoint, then make it eligible for fallback."""
+
+    directory = os.environ.get("MOEGAMBIT_CHECKPOINT_DIR", "")
+    interval = int(os.environ.get("MOEGAMBIT_CHECKPOINT_INTERVAL", "0"))
+    if not directory or interval <= 0 or resume_step % interval:
+        return
+    target_dir = Path(directory).expanduser().resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"step-{resume_step}.pt"
+    temporary = target.with_suffix(".pt.tmp")
+    torch.save(
+        {
+            "resume_step": resume_step,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+        },
+        temporary,
+    )
+    os.replace(temporary, target)
+    # This call happens only after the atomic rename.  A partially written
+    # file can therefore never become a relaunch target.
+    runtime.record_checkpoint(str(target), resume_step)
+
+
 def main() -> int:
     try:
         import torch
@@ -55,6 +93,7 @@ def main() -> int:
     )
 
     model, optimizer, batches = build_everything()
+    load_cold_relaunch_checkpoint(torch, model, optimizer)
     if hasattr(model, "reducer"):
         # DDP reconstruction creates a new wrapper/reducer.  The loop keeps a
         # stable owner and therefore automatically calls the rebuilt wrapper.
@@ -68,7 +107,9 @@ def main() -> int:
 
     print(f"moegambit enabled={runtime.enabled} resume_step={runtime.resume_step}")
 
-    for step, (inputs, targets) in enumerate(batches, start=runtime.resume_step):
+    for step, (inputs, targets) in enumerate(
+        batches[runtime.resume_step :], start=runtime.resume_step
+    ):
         # 1. Safe stopping point: no collective is in flight here.
         step = runtime.iteration_boundary(step)
 
@@ -87,6 +128,16 @@ def main() -> int:
 
             # 4. One full iteration done: commit the recovery epoch.
             runtime.commit_iteration(step)
+
+            # The saved state resumes at the next loop cursor.  Publishing it
+            # after commit_iteration preserves optimizer/step consistency.
+            commit_checkpoint(
+                torch,
+                runtime,
+                model,
+                optimizer,
+                resume_step=step + 1,
+            )
 
         except RuntimeError as exc:
             # 5. Ask the runtime whether this was a recoverable failure.

@@ -22,6 +22,7 @@ dependencies = []
 [project.scripts]
 moegambit-launch = "moegambit.cli.launch:main"
 moegambit-watcher = "moegambit.cli.watcher:main"
+moegambit-doctor = "moegambit.cli.doctor:main"
 
 [project.optional-dependencies]
 torch = ["torch>=2.0"]

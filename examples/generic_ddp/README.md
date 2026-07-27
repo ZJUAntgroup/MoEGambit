@@ -21,3 +21,41 @@ python examples/generic_ddp/fault_replacement.py --backend nccl
 The script is a conformance harness, not a production launcher. The production
 deployment path uses the watcher and node supervisor to allocate the spare
 process and distribute the same frozen `RecoveryPlan`.
+
+## Watcher and checkpoint relaunch
+
+`train_loop.py` also demonstrates the cold-relaunch contract. It writes a
+checkpoint to a temporary file, atomically renames it, and only then calls
+`runtime.record_checkpoint(...)`. If in-process recovery fails, the watcher can
+therefore issue a directive for a checkpoint that is known to be complete.
+
+Start one watcher (the rendezvous endpoint is used by rebuilt c10d groups):
+
+```bash
+MOEGAMBIT_REQUIRE_TOKEN=1 MOEGAMBIT_JOB_TOKEN=secret \
+  moegambit-watcher \
+  --rendezvous-host 127.0.0.1 --rendezvous-port 24100
+```
+
+Then start the node agent. The example consumes the injected checkpoint path
+from the environment, so no framework-specific `--checkpoint-arg` is needed:
+
+```bash
+MOEGAMBIT_ENABLED=1 \
+MOEGAMBIT_FALLBACK_RELAUNCH=1 \
+MOEGAMBIT_JOB_ID=ddp-demo \
+MOEGAMBIT_ATTEMPT_ID=attempt-0 \
+MOEGAMBIT_JOB_TOKEN=secret \
+MOEGAMBIT_CHECKPOINT_DIR=/tmp/moegambit-ddp-checkpoints \
+MOEGAMBIT_CHECKPOINT_INTERVAL=5 \
+  moegambit-launch \
+  --nproc-per-node 2 --nnodes 1 --node-rank 0 \
+  --master-addr 127.0.0.1 --master-port 24000 \
+  --watcher-host 127.0.0.1 --watcher-port 20200 \
+  -- python examples/generic_ddp/train_loop.py
+```
+
+For a framework that needs CLI restore flags, pass repeated arguments such as
+`--checkpoint-arg=--load` and
+`--checkpoint-arg={checkpoint_locator}`. They are appended as argv elements;
+no shell interpolation is used.
