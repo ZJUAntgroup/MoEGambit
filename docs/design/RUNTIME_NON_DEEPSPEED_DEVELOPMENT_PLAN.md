@@ -365,6 +365,8 @@ examples/deepspeed/
 
 ### Phase D：Megatron 适配与行为保持
 
+状态：代码实现完成；本机无 torch 环境下的源码、契约和兼容性测试通过，GPU/NCCL 多机热备替换仍需按实机矩阵验证。
+
 - 迁移原 elastic client 到 `adapters/megatron`；
 - 迁移 MoE integration 和恢复模块；
 - 原路径替换为兼容 alias；
