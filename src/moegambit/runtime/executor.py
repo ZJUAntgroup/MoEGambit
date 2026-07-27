@@ -10,6 +10,7 @@ from ..control.protocol import PROTOCOL_VERSION
 from ..errors import ContractViolation, ProtocolVersionMismatch
 from ..observability.events import RecoveryOutcome, RecoveryRecord
 from .lifecycle import RecoveryEpochTracker
+from .recovery_plan import RecoveryMode
 
 __all__ = ["RecoveryExecutionResult", "RecoveryExecutor"]
 
@@ -55,6 +56,33 @@ class RecoveryExecutor:
             )
         if assignment.plan_digest != plan.digest():
             raise ContractViolation("assignment digest changed before execution")
+        if plan.mode is RecoveryMode.ABORT:
+            raise ContractViolation("an abort plan cannot enter RecoveryExecutor")
+        capabilities = self.adapter.capabilities
+        if not capabilities.static_world_replacement:
+            raise ContractViolation(
+                "adapter cannot retain the failed logical rank"
+            )
+        if not (
+            capabilities.selective_group_rebuild
+            or capabilities.full_group_rebuild
+        ):
+            raise ContractViolation("adapter cannot rebuild an affected group")
+        if plan.mode in (RecoveryMode.PEER, RecoveryMode.HYBRID):
+            if not capabilities.peer_parameter_restore:
+                raise ContractViolation("adapter cannot restore state from a peer")
+        if plan.mode is RecoveryMode.HYBRID and not capabilities.moe_state_classification:
+            raise ContractViolation(
+                "adapter cannot classify state required by a hybrid plan"
+            )
+        planned_sources = set(plan.state_sources)
+        resolved_sources = set(assignment.sources.by_identity)
+        if not planned_sources:
+            raise ContractViolation("recovery plan contains no state sources")
+        if planned_sources != resolved_sources:
+            raise ContractViolation(
+                "resolved state-source identities differ from the frozen plan"
+            )
 
         record = RecoveryRecord(
             job_id=self.job_id,

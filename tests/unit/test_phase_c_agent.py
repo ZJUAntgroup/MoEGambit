@@ -133,3 +133,21 @@ def test_node_agent_wait_rejects_an_unstarted_agent():
 
     with pytest.raises(ContractViolation, match="no workers"):
         agent.wait(poll_interval_s=0.01)
+
+
+def test_node_agent_rejects_replacement_of_a_rank_not_marked_failed():
+    agent = NodeAgent(
+        _launch_spec(),
+        supervisor=WorkerSupervisor(process_factory=_FakeProcess, base_env={}),
+    )
+    invalid = RecoveryPlan(
+        protocol_version=1,
+        recovery_epoch=1,
+        failed_ranks=(3,),
+        resume_step=4,
+        mode=RecoveryMode.PEER,
+        replacements={2: WorkerEndpoint("127.0.0.1", 24001, 1, 0)},
+    )
+
+    with pytest.raises(ContractViolation, match="not marked failed"):
+        agent.apply_plan(invalid)

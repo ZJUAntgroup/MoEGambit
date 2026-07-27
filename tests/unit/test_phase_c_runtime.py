@@ -34,7 +34,14 @@ from moegambit.runtime.client import (
 from moegambit.runtime.lifecycle import EpochState, RecoveryEpochTracker
 from moegambit.runtime.recovery_plan import RecoveryMode, RecoveryPlan
 from moegambit.runtime.runtime import RecoveryRuntime
-from moegambit.state.catalog import Placement, StateCatalog, StateKind, StateRef
+from moegambit.state.catalog import (
+    Placement,
+    StateCatalog,
+    StateKind,
+    StateRef,
+    StateSource,
+    StateSourceKind,
+)
 from moegambit.state.version import StateVersion
 
 
@@ -162,6 +169,11 @@ def _adapter(calls, *, state_valid=True, wrong_generation=False):
 
 
 def _assignment(epoch=1):
+    source = StateSource(
+        StateSourceKind.PEER,
+        StateVersion(committed_step=9, optimizer_generation=9),
+        "rank://0",
+    )
     plan = RecoveryPlan(
         protocol_version=1,
         recovery_epoch=epoch,
@@ -170,6 +182,7 @@ def _assignment(epoch=1):
         mode=RecoveryMode.PEER,
         topology_generation=1,
         group_manifest_hash=_topology(0).manifest_hash,
+        state_sources={"parameter/a": source},
     )
     return RecoveryAssignment(
         plan,
@@ -309,6 +322,38 @@ def test_assignment_digest_is_rechecked_before_execution():
             failure_class="fail_stop",
             at_step=9,
         )
+
+
+def test_executor_rechecks_capabilities_and_resolved_source_identities():
+    calls = []
+    incapable = replace(
+        _adapter(calls),
+        capabilities=AdapterCapabilities(
+            static_world_replacement=True,
+            full_group_rebuild=True,
+            peer_parameter_restore=False,
+        ),
+    )
+    incapable_runtime = RecoveryRuntime(
+        incapable,
+        RuntimeConfig(enabled=True),
+        coordinator=StaticRecoveryCoordinator(_assignment()),
+    )
+    assert not incapable_runtime.on_distributed_error(_failure())
+    assert "cannot restore state from a peer" in incapable_runtime.describe()[
+        "last_recovery"
+    ]["validation"]["error"]
+
+    unresolved = replace(_assignment(), sources=StateSources({}))
+    source_runtime = RecoveryRuntime(
+        _adapter([]),
+        RuntimeConfig(enabled=True),
+        coordinator=StaticRecoveryCoordinator(unresolved),
+    )
+    assert not source_runtime.on_distributed_error(_failure())
+    assert "state-source identities" in source_runtime.describe()["last_recovery"][
+        "validation"
+    ]["error"]
 
 
 class _LoopbackSocket:

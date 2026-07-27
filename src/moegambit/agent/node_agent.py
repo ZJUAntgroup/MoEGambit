@@ -167,6 +167,10 @@ class NodeAgent:
         plan_digest = plan.digest()
         replaced = []
         for logical_rank, endpoint in sorted(plan.replacements.items()):
+            if logical_rank not in plan.failed_ranks:
+                raise ContractViolation(
+                    "replacement plan attempts to replace a rank not marked failed"
+                )
             if endpoint.node_rank != self.spec.node_rank:
                 continue
             expected_local_rank = int(logical_rank) % self.spec.nproc_per_node
