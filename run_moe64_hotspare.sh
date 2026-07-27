@@ -96,7 +96,7 @@ export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/hotspare}"
 
 # Environment
 export NCCL_DEBUG=WARN
-export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
+export PYTHONPATH="${PYTHONPATH:-}:./src:./Megatron-LM"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1

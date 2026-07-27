@@ -2,7 +2,7 @@ set -uo pipefail
 set -x
 
 export NCCL_DEBUG=WARN
-export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
+export PYTHONPATH="${PYTHONPATH:-}:./src:./Megatron-LM"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
