@@ -183,7 +183,7 @@ def test_service_rejects_non_replicated_state_and_invalid_commit():
     service = _service()
     sharded = _service_request()
     sharded["state_catalog"][0]["placement"] = "sharded"
-    with pytest.raises(Exception, match="only accepts replicated"):
+    with pytest.raises(Exception, match="policy aborted"):
         service.prepare(sharded, job_id="job", attempt_id="a")
 
     response = service.prepare(_service_request(), job_id="job", attempt_id="b")

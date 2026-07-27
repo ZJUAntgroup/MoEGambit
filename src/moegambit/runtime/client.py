@@ -5,7 +5,7 @@ from __future__ import annotations
 import socket
 import threading
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from ..adapters.base import FrameworkAdapter, StateSources, StoreHandle
 from ..control.coordinator import (
@@ -15,7 +15,14 @@ from ..control.coordinator import (
 )
 from ..control.protocol import Envelope, decode_message
 from ..errors import ContractViolation, RecoveryRejected, RecoveryTimeout
+from ..policy import (
+    RecoveryEvidenceProvider,
+    SourceQuery,
+    StateSourceCandidateProvider,
+    serialize_source_candidates,
+)
 from ..runtime.recovery_plan import RecoveryPlan
+from ..state.catalog import Placement, StateRef, StateSource, StateSourceKind
 
 __all__ = [
     "ControlClientConfig",
@@ -166,7 +173,14 @@ def build_recovery_request_payload(
                 "identity": ref.identity,
                 "kind": ref.kind.value,
                 "placement": ref.placement.value,
-                "owner": int(ref.owner),
+                # A replicated value has no unique logical owner.  Normalizing
+                # this field prevents otherwise identical ranks from producing
+                # different plan-bearing request digests.
+                "owner": (
+                    -1
+                    if ref.placement is Placement.REPLICATED
+                    else int(ref.owner)
+                ),
                 "version": {
                     "committed_step": ref.version.committed_step,
                     "optimizer_generation": ref.version.optimizer_generation,
@@ -186,6 +200,62 @@ def build_recovery_request_payload(
                 "metadata": dict(ref.metadata),
             }
         )
+    query = SourceQuery(
+        failed_ranks=tuple(int(rank) for rank in classification.failed_ranks),
+        resume_step=int(request.at_step),
+        world_size=int(topology.world_size),
+        state_catalog=catalog,
+    )
+    if isinstance(adapter.state, StateSourceCandidateProvider):
+        raw_candidates = adapter.state.source_candidates(query)
+    else:
+        # Compatibility is intentionally conservative.  Replicated state can
+        # be inferred from the global rank set; sharded/unique ownership and
+        # checkpoint locators must be described by an adapter provider.
+        survivors = tuple(
+            rank
+            for rank in range(int(topology.world_size))
+            if rank not in query.failed_ranks
+        )
+        raw_candidates = {
+            ref.identity: tuple(
+                StateSource(
+                    kind=StateSourceKind.PEER,
+                    version=ref.version,
+                    locator=f"rank://{rank}",
+                    metadata={
+                        "kind": ref.kind.value,
+                        "placement": ref.placement.value,
+                        "owner": -1,
+                        "shape": [
+                            int(size)
+                            for size in getattr(ref.tensor, "shape", ())
+                        ],
+                        "dtype": (
+                            str(getattr(ref.tensor, "dtype", ""))
+                            if ref.tensor is not None
+                            else ""
+                        ),
+                        "tags": sorted(ref.tags),
+                        **dict(ref.metadata),
+                    },
+                )
+                for rank in survivors
+            )
+            if ref.placement is Placement.REPLICATED
+            else ()
+            for ref in catalog
+        }
+    candidates = serialize_source_candidates(raw_candidates)
+    checkpoint_steps = [
+        int(source["version"]["committed_step"])
+        for sources in candidates.values()
+        for source in sources
+        if source["kind"] == StateSourceKind.CHECKPOINT.value
+    ]
+    exposure_history: Sequence[Mapping[str, Any]] = ()
+    if isinstance(adapter.state, RecoveryEvidenceProvider):
+        exposure_history = adapter.state.recovery_exposure_history(query)
     return {
         "at_step": request.at_step,
         "recovery_epoch": request.recovery_epoch,
@@ -203,6 +273,11 @@ def build_recovery_request_payload(
         "rank": int(topology.rank),
         "state_manifest": catalog.manifest_digest(),
         "state_catalog": state_catalog,
+        "available_state_sources": candidates,
+        "latest_checkpoint_step": (
+            max(checkpoint_steps) if checkpoint_steps else -1
+        ),
+        "exposure_history": [dict(item) for item in exposure_history],
     }
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import FrozenSet, Mapping
+from typing import Any, FrozenSet, Mapping
 
 __all__ = ["AdapterCapabilities", "SupportLevel"]
 
@@ -56,6 +56,55 @@ class AdapterCapabilities:
             "supported_zero_stages": sorted(self.supported_zero_stages),
             "supported_parallel_axes": sorted(self.supported_parallel_axes),
         }
+
+    @classmethod
+    def from_dict(cls, values: Mapping[str, Any]) -> "AdapterCapabilities":
+        """Parse the stable control-plane representation of capabilities.
+
+        The control service must make policy decisions from serialized facts,
+        not from a framework object living in a worker process.  Keeping the
+        parser beside :meth:`as_dict` prevents the watcher and adapters from
+        growing subtly different interpretations of the same capability set.
+        Unknown fields are ignored for forward compatibility; malformed set
+        fields fail closed instead of being coerced from arbitrary strings.
+        """
+
+        if not isinstance(values, Mapping):
+            raise TypeError("adapter capabilities must be a mapping")
+
+        def _boolean(name: str) -> bool:
+            raw = values.get(name, False)
+            if not isinstance(raw, bool):
+                raise TypeError(f"capability {name!r} must be a boolean")
+            return raw
+
+        def _items(name: str) -> frozenset:
+            raw = values.get(name, ())
+            if isinstance(raw, (str, bytes)) or not isinstance(
+                raw, (list, tuple, set, frozenset)
+            ):
+                raise TypeError(f"capability {name!r} must be a sequence")
+            return frozenset(raw)
+
+        return cls(
+            static_world_replacement=_boolean("static_world_replacement"),
+            selective_group_rebuild=_boolean("selective_group_rebuild"),
+            full_group_rebuild=_boolean("full_group_rebuild"),
+            optimizer_memory_replication=_boolean(
+                "optimizer_memory_replication"
+            ),
+            peer_parameter_restore=_boolean("peer_parameter_restore"),
+            moe_state_classification=_boolean("moe_state_classification"),
+            two_phase_optimizer_restore=_boolean(
+                "two_phase_optimizer_restore"
+            ),
+            supported_zero_stages=frozenset(
+                int(item) for item in _items("supported_zero_stages")
+            ),
+            supported_parallel_axes=frozenset(
+                str(item) for item in _items("supported_parallel_axes")
+            ),
+        )
 
     def digest(self) -> str:
         """Stable hash used for the cross-rank capability agreement check."""

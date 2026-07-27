@@ -8,7 +8,17 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
+from ..capabilities import AdapterCapabilities
 from ..errors import ContractViolation, RecoveryRejected
+from ..policy import (
+    DeterministicStateSourcePlanner,
+    ExposureEvent,
+    PeerOrCheckpointPolicy,
+    RecoveryFacts,
+    RecoveryPolicy,
+    StateSourcePlanner,
+    parse_source_candidates,
+)
 from ..runtime.recovery_plan import RecoveryMode, RecoveryPlan, WorkerEndpoint
 from ..state.catalog import StateSource, StateSourceKind
 from ..state.version import StateVersion
@@ -36,6 +46,9 @@ def _stable_request_digest(payload: Mapping[str, Any]) -> str:
         "world_size": payload.get("world_size"),
         "state_manifest": payload.get("state_manifest"),
         "state_catalog": payload.get("state_catalog"),
+        "available_state_sources": payload.get("available_state_sources"),
+        "latest_checkpoint_step": payload.get("latest_checkpoint_step"),
+        "exposure_history": payload.get("exposure_history"),
     }
     try:
         blob = json.dumps(
@@ -60,12 +73,7 @@ class _FrozenAssignment:
 
 
 class RecoveryCoordinatorService:
-    """Conservative replicated-peer plan freezer.
-
-    Phase C intentionally supports one fail-stop rank and replicated state.
-    Sharded or unique state needs an adapter-aware resolver in later phases and
-    is rejected here instead of being mislabeled as peer-recoverable.
-    """
+    """Policy-driven plan freezer for versioned state-source inventories."""
 
     def __init__(
         self,
@@ -75,10 +83,14 @@ class RecoveryCoordinatorService:
             Callable[[Mapping[str, Any]], Mapping[int, WorkerEndpoint]]
         ] = None,
         control_store: Optional[ControlStore] = None,
+        policy: Optional[RecoveryPolicy] = None,
+        source_planner: Optional[StateSourcePlanner] = None,
     ) -> None:
         self.store_provider = store_provider
         self.replacement_provider = replacement_provider or (lambda payload: {})
         self.control_store = control_store or InMemoryControlStore()
+        self.policy = policy or PeerOrCheckpointPolicy()
+        self.source_planner = source_planner or DeterministicStateSourcePlanner()
         self._assignments: Dict[Tuple[str, str, int], _FrozenAssignment] = {}
         self._latest_epochs: Dict[Tuple[str, str], int] = {}
         self._fallback_requests: Dict[Tuple[str, str], list] = {}
@@ -103,48 +115,47 @@ class RecoveryCoordinatorService:
         return scope[0], scope[1], int(epoch)
 
     @staticmethod
-    def _validate_capabilities(payload: Mapping[str, Any]) -> None:
-        capabilities = payload.get("capabilities")
-        if not isinstance(capabilities, Mapping):
+    def _validate_capabilities(
+        capabilities: AdapterCapabilities,
+        mode: RecoveryMode,
+    ) -> None:
+        if not isinstance(capabilities, AdapterCapabilities):
             raise RecoveryRejected("adapter capabilities are missing")
-        if not capabilities.get("static_world_replacement"):
+        if not capabilities.static_world_replacement:
             raise RecoveryRejected("adapter cannot retain a failed logical rank")
         if not (
-            capabilities.get("full_group_rebuild")
-            or capabilities.get("selective_group_rebuild")
+            capabilities.full_group_rebuild
+            or capabilities.selective_group_rebuild
         ):
             raise RecoveryRejected("adapter cannot rebuild an affected group")
-        if not capabilities.get("peer_parameter_restore"):
+        if mode in (RecoveryMode.PEER, RecoveryMode.HYBRID) and not (
+            capabilities.peer_parameter_restore
+        ):
             raise RecoveryRejected("adapter cannot restore state from a peer")
+        if mode is RecoveryMode.HYBRID and not capabilities.moe_state_classification:
+            raise RecoveryRejected("adapter cannot classify MoE state for hybrid restore")
 
     @staticmethod
-    def _build_sources(
+    def _catalog_descriptors(
         payload: Mapping[str, Any],
-        source_rank: int,
-    ) -> Mapping[str, StateSource]:
+    ) -> Mapping[str, Mapping[str, Any]]:
         raw_catalog = payload.get("state_catalog")
         if not isinstance(raw_catalog, list) or not raw_catalog:
             raise RecoveryRejected("state catalog is empty")
-        sources = {}
+        descriptors: Dict[str, Mapping[str, Any]] = {}
         for descriptor in raw_catalog:
             if not isinstance(descriptor, Mapping):
                 raise RecoveryRejected("state catalog entry must be an object")
             identity = str(descriptor.get("identity", ""))
-            if not identity or identity in sources:
+            if not identity or identity in descriptors:
                 raise RecoveryRejected(
                     "state identities must be non-empty and unique"
-                )
-            placement = str(descriptor.get("placement", ""))
-            if placement != "replicated":
-                raise RecoveryRejected(
-                    "Phase C peer service only accepts replicated state; "
-                    f"{identity!r} is {placement or 'unclassified'}"
                 )
             version_data = descriptor.get("version")
             if not isinstance(version_data, Mapping):
                 raise RecoveryRejected(f"state version is missing for {identity!r}")
             try:
-                version = StateVersion(
+                StateVersion(
                     committed_step=int(version_data["committed_step"]),
                     optimizer_generation=int(version_data["optimizer_generation"]),
                     recovery_epoch=int(version_data.get("recovery_epoch", 0)),
@@ -153,23 +164,132 @@ class RecoveryCoordinatorService:
                 raise RecoveryRejected(
                     f"state version is invalid for {identity!r}: {exc}"
                 ) from exc
+            descriptors[identity] = descriptor
+        return descriptors
+
+    @classmethod
+    def _legacy_candidates(
+        cls,
+        payload: Mapping[str, Any],
+        failed_ranks: Tuple[int, ...],
+        world_size: int,
+    ) -> Mapping[str, Tuple[StateSource, ...]]:
+        """Conservative compatibility path for adapters without a provider.
+
+        Only replicated state is inferred.  Sharded and unique state require
+        explicit adapter-normalized candidates and therefore fail closed.
+        """
+
+        candidates: Dict[str, Tuple[StateSource, ...]] = {}
+        survivors = tuple(
+            rank for rank in range(world_size) if rank not in failed_ranks
+        )
+        for identity, descriptor in cls._catalog_descriptors(payload).items():
+            placement = str(descriptor.get("placement", ""))
+            version_data = dict(descriptor["version"])
+            version = StateVersion(
+                committed_step=int(version_data["committed_step"]),
+                optimizer_generation=int(version_data["optimizer_generation"]),
+                recovery_epoch=int(version_data.get("recovery_epoch", 0)),
+            )
             metadata = dict(descriptor.get("metadata", {}))
             metadata.update(
                 {
                     "kind": descriptor.get("kind"),
                     "placement": placement,
+                    "owner": int(descriptor.get("owner", -1)),
                     "shape": list(descriptor.get("shape", ())),
                     "dtype": descriptor.get("dtype", ""),
                     "tags": list(descriptor.get("tags", ())),
                 }
             )
-            sources[identity] = StateSource(
-                StateSourceKind.PEER,
-                version,
-                f"rank://{source_rank}",
-                metadata=metadata,
+            if placement == "replicated":
+                candidates[identity] = tuple(
+                    StateSource(
+                        StateSourceKind.PEER,
+                        version,
+                        f"rank://{rank}",
+                        metadata=metadata,
+                    )
+                    for rank in survivors
+                )
+            else:
+                candidates[identity] = ()
+        return candidates
+
+    @classmethod
+    def _facts(
+        cls,
+        payload: Mapping[str, Any],
+        failed_ranks: Tuple[int, ...],
+        world_size: int,
+        capabilities: AdapterCapabilities,
+    ) -> RecoveryFacts:
+        raw_candidates = payload.get("available_state_sources")
+        candidates = (
+            parse_source_candidates(raw_candidates)
+            if isinstance(raw_candidates, Mapping)
+            else cls._legacy_candidates(payload, failed_ranks, world_size)
+        )
+        descriptor_ids = set(cls._catalog_descriptors(payload))
+        if set(candidates) != descriptor_ids:
+            raise RecoveryRejected(
+                "state catalog and available source identities differ"
             )
-        return sources
+        checkpoint_steps = {
+            source.version.committed_step
+            for sources in candidates.values()
+            for source in sources
+            if source.kind is StateSourceKind.CHECKPOINT
+        }
+        try:
+            latest_checkpoint_step = int(
+                payload.get(
+                    "latest_checkpoint_step",
+                    max(checkpoint_steps) if checkpoint_steps else -1,
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise RecoveryRejected(
+                "latest_checkpoint_step must be an integer"
+            ) from exc
+        exposure = []
+        raw_exposure = payload.get("exposure_history", ())
+        if isinstance(raw_exposure, (str, bytes)) or not isinstance(
+            raw_exposure, (list, tuple)
+        ):
+            raise RecoveryRejected("exposure_history must be a sequence")
+        for item in raw_exposure:
+            if not isinstance(item, Mapping):
+                raise RecoveryRejected("exposure event must be an object")
+            try:
+                exposure.append(
+                    ExposureEvent(
+                        step=int(item["step"]),
+                        ranks=tuple(int(rank) for rank in item.get("ranks", ())),
+                        reason=str(item.get("reason", "")),
+                        checkpoint_step=(
+                            None
+                            if item.get("checkpoint_step") is None
+                            else int(item["checkpoint_step"])
+                        ),
+                        expert_state_count=(
+                            None
+                            if item.get("expert_state_count") is None
+                            else int(item["expert_state_count"])
+                        ),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise RecoveryRejected(f"invalid exposure event: {exc}") from exc
+        return RecoveryFacts(
+            failed_ranks=failed_ranks,
+            resume_step=int(payload["at_step"]),
+            latest_checkpoint_step=latest_checkpoint_step,
+            available_state_sources=candidates,
+            exposure_history=tuple(exposure),
+            capabilities=capabilities,
+        )
 
     def _reject_stale(self, scope: Tuple[str, str], epoch: int) -> None:
         latest = self._latest_epochs.get(scope, 0)
@@ -191,7 +311,6 @@ class RecoveryCoordinatorService:
             raise RecoveryRejected("recovery_epoch must be an integer") from exc
         key = self._key(job_id, attempt_id, epoch)
         scope = key[:2]
-        self._validate_capabilities(payload)
         classification = payload.get("classification")
         if not isinstance(classification, Mapping) or not classification.get(
             "recoverable"
@@ -209,9 +328,13 @@ class RecoveryCoordinatorService:
             rank < 0 or rank >= world_size for rank in failed_ranks
         ):
             raise RecoveryRejected("failed rank/world_size contract is invalid")
-        source_rank = min(
-            rank for rank in range(world_size) if rank not in failed_ranks
-        )
+        raw_capabilities = payload.get("capabilities")
+        if not isinstance(raw_capabilities, Mapping):
+            raise RecoveryRejected("adapter capabilities are missing")
+        try:
+            capabilities = AdapterCapabilities.from_dict(raw_capabilities)
+        except (TypeError, ValueError) as exc:
+            raise RecoveryRejected(f"adapter capabilities are invalid: {exc}") from exc
         request_digest = _stable_request_digest(payload)
 
         with self._lock:
@@ -224,30 +347,37 @@ class RecoveryCoordinatorService:
                     )
                 return dict(existing.response)
 
-            sources = self._build_sources(payload, source_rank)
-            resume_step = int(payload["at_step"])
-            if any(
-                source.version.committed_step != resume_step
-                for source in sources.values()
-            ):
+            facts = self._facts(payload, failed_ranks, world_size, capabilities)
+            decision = self.policy.decide(facts)
+            if decision.mode is RecoveryMode.ABORT:
                 raise RecoveryRejected(
-                    "state catalog version does not match the agreed resume step"
+                    "recovery policy aborted: " + decision.reason
                 )
+            self._validate_capabilities(capabilities, decision.mode)
+            sources = self.source_planner.select(facts, decision)
+            resume_step = (
+                facts.latest_checkpoint_step
+                if decision.mode is RecoveryMode.CHECKPOINT
+                else facts.resume_step
+            )
+            if resume_step < 0:
+                raise RecoveryRejected("recovery policy selected an invalid resume step")
             plan = RecoveryPlan(
                 protocol_version=PROTOCOL_VERSION,
                 recovery_epoch=epoch,
                 failed_ranks=failed_ranks,
                 replacements=dict(self.replacement_provider(payload)),
                 resume_step=resume_step,
-                mode=RecoveryMode.PEER,
+                mode=decision.mode,
                 topology_generation=int(payload["topology_generation"]),
                 group_manifest_hash=str(payload["group_manifest_hash"]),
                 state_sources=sources,
-                policy_evidence={
-                    "policy": "replicated_peer",
-                    "source_rank": source_rank,
-                    "request_digest": request_digest,
-                },
+                policy_evidence=dict(
+                    decision.evidence,
+                    policy=type(self.policy).__name__,
+                    reason=decision.reason,
+                    request_digest=request_digest,
+                ),
             )
             store = dict(self.store_provider(payload))
             if "host" not in store or "port" not in store:

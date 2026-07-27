@@ -19,6 +19,7 @@ from ..distributed.c10d_backend import ConservativeDistributedBackend
 from ..distributed.topology import GroupSpec, TopologySpec, ValidationReport
 from ..errors import AdapterUnsupportedError, ContractViolation, StateUnavailable
 from ..runtime.recovery_plan import RecoveryPlan
+from ..policy.resolver import SourceQuery
 from ..state.catalog import (
     Placement,
     StateCatalog,
@@ -743,6 +744,52 @@ class GenericDDPStateAdapter:
             + tuple(buffer_refs)
             + tuple(self._optimizer_adapter.local_state_refs())
         )
+
+    def source_candidates(
+        self,
+        query: SourceQuery,
+    ) -> Mapping[str, Sequence[StateSource]]:
+        """Advertise a current peer copy on every surviving DDP rank.
+
+        Plain DDP state is fully replicated.  The locator remains a logical
+        global rank even when this method runs on another rank, making the
+        serialized inventory identical across participants.
+        """
+
+        catalog = self.catalog()
+        if catalog.manifest_digest() != query.state_catalog.manifest_digest():
+            raise ContractViolation(
+                "source query catalog differs from Generic DDP catalog"
+            )
+        survivors = tuple(
+            rank
+            for rank in range(int(query.world_size))
+            if rank not in query.failed_ranks
+        )
+        if not survivors:
+            raise StateUnavailable("no surviving DDP peer can provide state")
+        candidates: Dict[str, Sequence[StateSource]] = {}
+        for ref in catalog:
+            if ref.placement is not Placement.REPLICATED:
+                candidates[ref.identity] = ()
+                continue
+            metadata = {
+                "kind": ref.kind.value,
+                "placement": ref.placement.value,
+                "owner": -1,
+                "tags": sorted(ref.tags),
+                **dict(ref.metadata),
+            }
+            candidates[ref.identity] = tuple(
+                StateSource(
+                    kind=StateSourceKind.PEER,
+                    version=ref.version,
+                    locator=f"rank://{rank}",
+                    metadata=metadata,
+                )
+                for rank in survivors
+            )
+        return candidates
 
     def load_replacement_base(self, plan: RecoveryPlan) -> None:
         if self._context.replacement_loader is not None:
