@@ -12,7 +12,6 @@ import pytest
 
 
 SRC_ROOT = Path(__file__).parents[2] / "src"
-sys.path.insert(0, str(SRC_ROOT))
 
 import moegambit  # noqa: E402
 from moegambit.capabilities import AdapterCapabilities  # noqa: E402
@@ -23,6 +22,7 @@ from moegambit.errors import MoEGambitError  # noqa: E402
 def test_public_package_exports_phase_b_contracts_lazily():
     assert moegambit.__version__ == "0.1.0.dev0"
     assert moegambit.PROTOCOL_VERSION == 1
+    assert moegambit.PACKAGE_ROLE == "core"
     assert moegambit.AdapterCapabilities.__name__ == AdapterCapabilities.__name__
     assert moegambit.AdapterCapabilities.__module__ == "moegambit.capabilities"
     assert moegambit.RuntimeConfig.__name__ == RuntimeConfig.__name__
@@ -58,6 +58,26 @@ assert not any(
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_core_import_fails_closed_when_competing_package_is_visible():
+    competing_root = SRC_ROOT.parent / "deepspeed_adapter"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(SRC_ROOT), str(competing_root)]
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", "import moegambit"],
+        cwd=SRC_ROOT.parent,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "multiple top-level 'moegambit' packages are importable" in result.stderr
+    assert "Do not place both 'src' and 'deepspeed_adapter'" in result.stderr
 
 
 def test_runtime_config_reads_new_names_and_control_identity():
