@@ -479,7 +479,9 @@ examples/deepspeed/
 
 风险：`src/moegambit` 与 `deepspeed_adapter/moegambit` 同时位于 PYTHONPATH 时，导入结果由路径顺序决定。
 
-本轮措施：不修改同事目录；非 DeepSpeed 测试只使用 `src`；最终合并 main 前将该问题列为阻塞项。
+本轮措施：不修改或删除同事目录；默认 core 测试只暴露 `src`，DeepSpeed 测试使用单独进程和显式 profile；wheel 只从 `src` 收集包；核心发现竞争包根目录时 fail closed。具体约定见 `docs/development/PACKAGE_ISOLATION.md`。
+
+限制：这些措施消除当前开发和发布过程中的随机路径选择，但第二份同名包仍然存在。最终合并 main 前，必须迁移并删除 `deepspeed_adapter/moegambit`，或将其改为唯一包名；在此之前不得同时把两个根目录加入 PYTHONPATH。
 
 ### 12.2 当前 main 与 generalize 行为差异
 
