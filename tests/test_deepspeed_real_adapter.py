@@ -33,6 +33,8 @@ def test_real_workload_contains_both_supported_topologies():
         ROOT / "test_deepspeed_hotspare_replace.sh"
     ).read_text(encoding="utf-8")
     assert 'callable(getattr(torch, "_grouped_mm", None))' in source
+    assert "exit_code = main()" in source
+    assert "raise SystemExit(main())" not in source
 
 
 def test_pipeline_backward_has_single_hook_owned_lifecycle():
@@ -609,6 +611,45 @@ def test_hot_spare_coordinator_tracks_recovery_worker_phases(tmp_path):
     }
 
 
+def test_hot_spare_coordinator_does_not_persist_heartbeat_or_poll(
+    tmp_path, monkeypatch
+):
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="test-run",
+        training_nodes=1,
+        spare_physical_node=1,
+        base_master_port=24000,
+        state_path=tmp_path / "state.json",
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "test-run",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        ).payload
+
+    request("register", 0, role="active", advertise_addr="10.0.0.1")
+    request("register", 1, role="standby", advertise_addr="10.0.0.2")
+    persisted = []
+    monkeypatch.setattr(
+        coordinator, "_persist", lambda: persisted.append(True)
+    )
+
+    request("heartbeat", 0, epoch=0)
+    request("poll", 0, epoch=0)
+
+    assert persisted == []
+
+
 def test_hot_spare_coordinator_fails_closed_without_second_spare():
     from moegambit.runtime.hot_spare import HotSpareCoordinator
     from moegambit.runtime.protocol import WireMessage
@@ -769,6 +810,29 @@ def test_hot_spare_prefetch_selects_replacement_checkpoint_shards(tmp_path):
         "layer_0_expert_0_mp_rank_00_model_states.pt",
         "bf16_zero_pp_rank_0_mp_rank_00_optim_states.pt",
     }
+
+
+def test_hot_spare_prefetch_rewarms_dataset_index(tmp_path, monkeypatch):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    data_path = tmp_path / "dataset"
+    index_path = Path(str(data_path) + ".idx")
+    index_path.write_bytes(b"index")
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=2,
+        role="standby",
+        advertise_addr="127.0.0.1",
+        command=("train.py", "--data-path", str(data_path)),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    monkeypatch.setenv("MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB", "1")
+    supervisor._prefetch_stop.clear()
+
+    assert supervisor._prefetch_dataset_index("recovery") == len(b"index")
 
 
 def test_hot_spare_relays_local_rank_zero_log_incrementally(

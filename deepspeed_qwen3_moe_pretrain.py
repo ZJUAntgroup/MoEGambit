@@ -916,7 +916,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        exit_code = main()
     except BaseException as exc:
         try:
             write_fatal_artifact(exc)
@@ -927,3 +927,4 @@ if __name__ == "__main__":
             )
         log(f"FATAL {type(exc).__name__}: {exc}")
         raise
+    raise SystemExit(exit_code)

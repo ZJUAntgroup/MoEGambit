@@ -284,6 +284,11 @@ class HotSpareCoordinator:
 
         with self._lock:
             now = time.monotonic()
+            durable_state_before = (
+                self.status,
+                self.epoch,
+                self.abort_reason,
+            )
             if message.kind == "register":
                 self._register(
                     physical_node,
@@ -323,7 +328,16 @@ class HotSpareCoordinator:
 
             self._activate_when_formed()
             self._detect_timeouts(now)
-            self._persist()
+            durable_state_changed = durable_state_before != (
+                self.status,
+                self.epoch,
+                self.abort_reason,
+            )
+            if (
+                message.kind not in {"heartbeat", "poll"}
+                or durable_state_changed
+            ):
+                self._persist()
             return WireMessage("command", self._command_for(physical_node))
 
     def _register(
@@ -892,6 +906,11 @@ class AgentSupervisor:
         failure_step: int | None = None,
     ) -> None:
         self._stop_standby_prefetch()
+        if self.role == "standby" and epoch > 0:
+            # Checkpoint streaming can evict the dataset index from the page
+            # cache. Warm it once before eight local workers open it together.
+            self._prefetch_stop.clear()
+            self._prefetch_dataset_index("recovery")
         self._stop_worker()
         command = self._formatted_command(
             logical_node, epoch, master_addr, master_port
@@ -1113,12 +1132,35 @@ class AgentSupervisor:
         )
         return tag, selected
 
+    def _prefetch_dataset_index(self, reason: str) -> int:
+        data_path = _command_option(self.command, "--data-path")
+        if not data_path:
+            return 0
+        max_gib = float(
+            os.environ.get("MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB", "128")
+        )
+        max_bytes = max(0, int(max_gib * 1024**3))
+        if not max_bytes:
+            return 0
+        index_path = Path(data_path + ".idx")
+        started = time.monotonic()
+        warmed = self._prefetch_file(index_path, max_bytes)
+        if warmed:
+            logger.info(
+                "standby prefetched dataset index reason=%s path=%s "
+                "bytes=%d seconds=%.2f",
+                reason,
+                index_path,
+                warmed,
+                time.monotonic() - started,
+            )
+        return warmed
+
     def _standby_prefetch_loop(self) -> None:
         max_gib = float(
             os.environ.get("MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB", "128")
         )
         max_bytes = max(0, int(max_gib * 1024**3))
-        data_path = _command_option(self.command, "--data-path")
         checkpoint_text = _command_option(
             self.command, "--checkpoint-dir"
         )
@@ -1127,18 +1169,7 @@ class AgentSupervisor:
                 "MOEGAMBIT_STANDBY_PREFETCH_LOGICAL_NODE", "0"
             )
         )
-        if data_path and max_bytes:
-            index_path = Path(data_path + ".idx")
-            started = time.monotonic()
-            warmed = self._prefetch_file(index_path, max_bytes)
-            if warmed:
-                logger.info(
-                    "standby prefetched dataset index path=%s bytes=%d "
-                    "seconds=%.2f",
-                    index_path,
-                    warmed,
-                    time.monotonic() - started,
-                )
+        self._prefetch_dataset_index("standby")
 
         while not self._prefetch_stop.wait(2.0):
             if not checkpoint_text or not max_bytes:
@@ -1168,6 +1199,7 @@ class AgentSupervisor:
                     warmed,
                     time.monotonic() - started,
                 )
+                self._prefetch_dataset_index("post-checkpoint")
 
     def _ensure_standby_prefetch(self) -> None:
         enabled = os.environ.get(
