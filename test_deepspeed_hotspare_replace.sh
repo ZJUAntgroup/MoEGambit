@@ -124,6 +124,7 @@ if [[ "${TEST_MODE}" != "zero2" ]]; then
 fi
 
 export PYTHONUNBUFFERED=1
+export PYTHONFAULTHANDLER=1
 export PYTHONPATH="${ADAPTER_ROOT}:${DEEPSPEED_ROOT}:${SCRIPT_DIR}/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}}"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -170,7 +171,8 @@ assert Version(transformers.__version__) >= Version("5.0.0"), (
 print(
     "[deepspeed-real-launch] preflight "
     f"torch={torch.__version__} transformers={transformers.__version__} "
-    f"deepspeed={deepspeed.__version__}",
+    f"deepspeed={deepspeed.__version__} "
+    f"grouped_mm={callable(getattr(torch, '_grouped_mm', None))}",
     flush=True,
 )
 PY
@@ -310,6 +312,7 @@ run_case() {
     --node_rank "${launch_node_rank}" \
     --num_nodes "${TRAINING_NNODES}" \
     --num_gpus "${NPROC_PER_NODE}" \
+    --enable_each_rank_log "${state_dir}/rank_logs" \
     --master_addr "${launch_master_addr}" \
     --master_port "${launch_master_port}"
   )

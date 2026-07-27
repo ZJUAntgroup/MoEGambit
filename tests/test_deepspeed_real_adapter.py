@@ -24,6 +24,8 @@ def test_real_workload_contains_both_supported_topologies():
     assert "PipelineModule" in source
     assert "AutoEPMoELayer" in source
     assert "DeepSpeed PipelineModule is incompatible with ZeRO stage 2" in source
+    assert "MOEGAMBIT_AUTOEP_GROUPED_MM" in source
+    assert 'callable(getattr(torch, "_grouped_mm", None))' in source
 
 
 def test_runtime_hooks_common_optimizer_boundary():

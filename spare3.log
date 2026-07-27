@@ -228,3 +228,18 @@ deepspeed_qwen3_moe_pretrain.py: error: argument --activation-checkpointing: exp
 [2026-07-27 11:12:35,221] [ERROR] [launch.py:341:sigkill_handler] ['/opt/conda/bin/python3', '-u', '/root/workdir/antllm/bsr2/deepspeed_qwen3_moe_pretrain.py', '--local_rank=7', '--case-name', 'hot_swap_pp8_ep8', '--model-config', '/root/workdir/antllm/bsr2/tokenizer', '--data-path', '/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document', '--checkpoint-dir', '/mnt/ais-c1/dataset/zds/729hotspare/deepspeed_real/hotspare123-ds-001/hot_swap_pp8_ep8/checkpoint', '--state-dir', '/mnt/ais-c1/dataset/zds/729hotspare/deepspeed_real/hotspare123-ds-001/hot_swap_pp8_ep8/state', '--pipeline-parallel-size', '8', '--expert-parallel-size', '8', '--zero-stage', '1', '--micro-batch-size', '1', '--gradient-accumulation-steps', '1', '--sequence-length', '4096', '--train-iters', '100', '--fault-step', '17', '--fault-rank', '1', '--activation-checkpointing'] exits with return code = 2
 2026-07-27 11:12:36,946 ERROR __main__: no hot spare available for logical node 4: runner_exit_2
 2026-07-27 11:12:36,960 ERROR __main__: hot-spare recovery aborted: no hot spare available for logical node 4: runner_exit_2
+nohup: ignoring input
+[deepspeed-real-launch] preflight torch=2.6.0+cu126 transformers=5.0.0 deepspeed=0.19.3+0c36f6d
+[deepspeed-real-launch] case=hot_swap_pp8_ep8 node=8 PP=8 EP=8 ZeRO=1 hot_swap=1 zero2=0 spare=8 coordinator=33.181.106.76:20228
+2026-07-27 11:21:32,195 INFO __main__: registered standby physical_node=8
+2026-07-27 11:21:51,422 INFO __main__: registered active physical_node=0
+2026-07-27 11:21:59,358 INFO __main__: registered active physical_node=1
+2026-07-27 11:22:06,461 INFO __main__: registered active physical_node=2
+2026-07-27 11:22:16,294 INFO __main__: registered active physical_node=3
+2026-07-27 11:22:24,384 INFO __main__: registered active physical_node=4
+2026-07-27 11:22:33,144 INFO __main__: registered active physical_node=5
+2026-07-27 11:22:40,004 INFO __main__: registered active physical_node=6
+2026-07-27 11:22:48,991 INFO __main__: registered active physical_node=7
+2026-07-27 11:22:48,991 INFO __main__: recovery epoch 0 released mapping={0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7}
+2026-07-27 11:24:39,004 ERROR __main__: initial training runner exited before every logical node reached TRAIN_READY; refusing to consume the hot spare: physical_node=2 return_code=1
+2026-07-27 11:24:39,981 ERROR __main__: hot-spare recovery aborted: initial training runner exited before every logical node reached TRAIN_READY; refusing to consume the hot spare: physical_node=2 return_code=1

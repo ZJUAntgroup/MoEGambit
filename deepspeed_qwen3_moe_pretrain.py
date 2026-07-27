@@ -13,7 +13,10 @@ import argparse
 import json
 import os
 import signal
+import socket
+import sys
 import time
+import traceback
 from functools import partial
 from pathlib import Path
 from typing import Iterator
@@ -79,6 +82,48 @@ def log(message: str, *, rank: int | None = None) -> None:
         rank = int(os.environ.get("RANK", "-1"))
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     print(f"[deepspeed-real][{stamp}][rank={rank}] {message}", flush=True)
+
+
+def write_fatal_artifact(exc: BaseException) -> None:
+    state_dir = None
+    for index, argument in enumerate(sys.argv):
+        if argument == "--state-dir" and index + 1 < len(sys.argv):
+            state_dir = sys.argv[index + 1]
+            break
+        if argument.startswith("--state-dir="):
+            state_dir = argument.split("=", 1)[1]
+            break
+    if not state_dir:
+        return
+
+    rank = int(os.environ.get("RANK", "-1"))
+    epoch = int(
+        os.environ.get(
+            "MOEGAMBIT_RECOVERY_EPOCH",
+            os.environ.get("TORCHELASTIC_RESTART_COUNT", "0"),
+        )
+    )
+    error_dir = Path(state_dir) / "errors"
+    error_dir.mkdir(parents=True, exist_ok=True)
+    destination = error_dir / f"epoch_{epoch}_rank_{rank}.json"
+    temporary = destination.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "epoch": epoch,
+                "error": f"{type(exc).__name__}: {exc}",
+                "hostname": socket.gethostname(),
+                "pid": os.getpid(),
+                "rank": rank,
+                "time": time.time(),
+                "traceback": traceback.format_exc(),
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, destination)
 
 
 def load_qwen_config(path: str, sequence_length: int):
@@ -449,8 +494,31 @@ class DeterministicBatchIterator(Iterator):
         return inputs, labels
 
 
+def resolve_grouped_mm() -> bool:
+    setting = os.environ.get(
+        "MOEGAMBIT_AUTOEP_GROUPED_MM", "auto"
+    ).strip().lower()
+    available = callable(getattr(torch, "_grouped_mm", None))
+    if setting == "auto":
+        return available
+    if setting in {"0", "false", "no", "off"}:
+        return False
+    if setting in {"1", "true", "yes", "on"}:
+        if not available:
+            raise RuntimeError(
+                "MOEGAMBIT_AUTOEP_GROUPED_MM requested grouped GEMM, "
+                "but this PyTorch build does not provide torch._grouped_mm"
+            )
+        return True
+    raise ValueError(
+        "MOEGAMBIT_AUTOEP_GROUPED_MM must be auto, 0/1, or false/true"
+    )
+
+
 def deepspeed_config(
-    args: argparse.Namespace, world_size: int
+    args: argparse.Namespace,
+    world_size: int,
+    use_grouped_mm: bool,
 ) -> dict:
     data_parallel_size = world_size // args.pipeline_parallel_size
     train_batch_size = (
@@ -462,7 +530,7 @@ def deepspeed_config(
         "enabled": True,
         "autoep_size": args.expert_parallel_size,
         "preset_model": "qwen3_moe",
-        "use_grouped_mm": True,
+        "use_grouped_mm": use_grouped_mm,
     }
     if args.pipeline_parallel_size > 1:
         expert_parallel["moe_layer_pattern"] = r"\d+\.mlp"
@@ -669,6 +737,7 @@ def main() -> int:
     torch.cuda.manual_seed(args.seed)
     config = load_qwen_config(args.model_config, args.sequence_length)
     config._moegambit_router_aux_loss_coeff = args.router_aux_loss_coeff
+    use_grouped_mm = resolve_grouped_mm()
     Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=True)
     Path(args.state_dir).mkdir(parents=True, exist_ok=True)
 
@@ -677,12 +746,14 @@ def main() -> int:
         f"case={args.case_name} world={world_size} "
         f"PP={args.pipeline_parallel_size} EP={args.expert_parallel_size} "
         f"ZeRO={args.zero_stage} recovery_epoch="
-        f"{os.environ.get('MOEGAMBIT_RECOVERY_EPOCH', os.environ.get('TORCHELASTIC_RESTART_COUNT', '0'))}",
+        f"{os.environ.get('MOEGAMBIT_RECOVERY_EPOCH', os.environ.get('TORCHELASTIC_RESTART_COUNT', '0'))} "
+        f"grouped_mm={use_grouped_mm}",
         rank=rank,
     )
 
     original_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.bfloat16)
+    log("MODEL_BUILD_START", rank=rank)
     try:
         if args.pipeline_parallel_size > 1:
             model = build_pipeline_model(
@@ -694,13 +765,16 @@ def main() -> int:
             model = build_full_model(config)
     finally:
         torch.set_default_dtype(original_dtype)
+    log("MODEL_BUILD_DONE", rank=rank)
     maybe_log_memory(rank, "model-built-before-autoep", args.log_memory)
 
+    log("DEEPSPEED_ENGINE_INIT_START", rank=rank)
     engine, _, _, _ = deepspeed.initialize(
         model=model,
         model_parameters=None,
-        config=deepspeed_config(args, world_size),
+        config=deepspeed_config(args, world_size, use_grouped_mm),
     )
+    log("DEEPSPEED_ENGINE_INIT_DONE", rank=rank)
     maybe_log_memory(rank, "engine-ready-after-autoep", args.log_memory)
 
     from deepspeed.module_inject.auto_ep_layer import AutoEPMoELayer
@@ -849,5 +923,12 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except BaseException as exc:
+        try:
+            write_fatal_artifact(exc)
+        except Exception as artifact_exc:
+            log(
+                "FATAL_ARTIFACT_WRITE_FAILED "
+                f"{type(artifact_exc).__name__}: {artifact_exc}"
+            )
         log(f"FATAL {type(exc).__name__}: {exc}")
         raise

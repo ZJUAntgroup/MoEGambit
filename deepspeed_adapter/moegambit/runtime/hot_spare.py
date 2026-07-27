@@ -55,6 +55,7 @@ class HotSpareCoordinator:
     retired: set[int] = field(default_factory=set)
     completed: set[int] = field(default_factory=set)
     completion_acks: set[int] = field(default_factory=set)
+    abort_acks: set[int] = field(default_factory=set)
     failure: dict[str, Any] | None = None
     abort_reason: str | None = None
     recovery_started_at: float | None = None
@@ -130,6 +131,8 @@ class HotSpareCoordinator:
                 self._handle_worker_ready(physical_node, payload)
             elif message.kind == "ack_complete":
                 self.completion_acks.add(physical_node)
+            elif message.kind == "ack_abort":
+                self.abort_acks.add(physical_node)
             elif message.kind not in {
                 "register",
                 "heartbeat",
@@ -676,6 +679,12 @@ class AgentSupervisor:
                         "hot-spare recovery aborted: %s",
                         command.get("reason", "unknown reason"),
                     )
+                    try:
+                        self._request(
+                            "ack_abort", epoch=epoch, state="aborted"
+                        )
+                    except (ConnectionError, OSError):
+                        pass
                     return 70
                 else:
                     raise RuntimeError(
@@ -806,14 +815,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         deadline = time.monotonic() + max(
             10.0, args.heartbeat_timeout
         )
-        while coordinator.status == "complete" and time.monotonic() < deadline:
+        while (
+            coordinator.status in {"complete", "aborted"}
+            and time.monotonic() < deadline
+        ):
             now = time.monotonic()
             expected_acks = {
                 physical
                 for physical, record in coordinator.agents.items()
                 if now - record.last_seen <= args.heartbeat_timeout
             }
-            if expected_acks.issubset(coordinator.completion_acks):
+            observed_acks = (
+                coordinator.completion_acks
+                if coordinator.status == "complete"
+                else coordinator.abort_acks
+            )
+            if expected_acks.issubset(observed_acks):
                 break
             time.sleep(0.2)
         return return_code
