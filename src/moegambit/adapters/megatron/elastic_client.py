@@ -47,7 +47,7 @@ from typing import Optional
 import torch
 import torch.distributed as dist
 
-from megatron.training.zero2_memory_checkpoint import (
+from ...replication import (
     OptimizerMemorySnapshot,
     OptimizerScalarRef,
     OptimizerTensorRef,
