@@ -379,6 +379,8 @@ examples/deepspeed/
 
 ### Phase E：Generic DDP conformance
 
+状态：实现完成；已在隔离的 PyTorch 2.8.0 环境完成两进程 CPU/Gloo logical-rank replacement。GPU/NCCL 程序已提供，但当前机器无可用 GPU，尚未执行。
+
 - 提供 `RebindableModel`；
 - 重建 DDP wrapper/reducer；
 - 实现参数与 optimizer peer restore；
@@ -386,6 +388,11 @@ examples/deepspeed/
 - 提供 CPU/Gloo 与 GPU/NCCL 故障程序。
 
 退出条件：在无 Megatron 环境完成至少一次真实 logical rank replacement。
+
+退出条件已由 `examples/generic_ddp/fault_replacement.py --backend gloo`
+满足：rank 1 fail-stop 后以相同 logical rank 重启，重建 c10d 与 DDP reducer，
+从 rank 0 恢复参数和 AdamW 状态，并在继续训练后通过跨 rank 参数摘要一致性检查。
+具体证据和能力边界见 `docs/development/PHASE_E_IMPLEMENTATION.md`。
 
 ### Phase F：发布工程和文档
 
