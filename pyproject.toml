@@ -25,6 +25,7 @@ dev = ["pytest>=7.0"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+license-files = ["LICENSE", "LEGAL.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

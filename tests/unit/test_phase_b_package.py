@@ -12,6 +12,7 @@ import pytest
 
 
 SRC_ROOT = Path(__file__).parents[2] / "src"
+REPOSITORY_ROOT = SRC_ROOT.parent
 
 import moegambit  # noqa: E402
 from moegambit.capabilities import AdapterCapabilities  # noqa: E402
@@ -174,3 +175,16 @@ def test_capability_digest_is_stable_and_sensitive():
 def test_unknown_public_attribute_raises_attribute_error():
     with pytest.raises(AttributeError):
         getattr(moegambit, "not_a_public_contract")
+
+
+def test_repository_legal_files_are_present_and_packaged():
+    license_text = (REPOSITORY_ROOT / "LICENSE").read_text(encoding="utf-8")
+    legal_text = (REPOSITORY_ROOT / "LEGAL.md").read_text(encoding="utf-8")
+    project_metadata = (REPOSITORY_ROOT / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Apache License" in license_text
+    assert "DeepSpeed/" in legal_text
+    assert "Megatron-LM/" in legal_text
+    assert 'license-files = ["LICENSE", "LEGAL.md"]' in project_metadata
