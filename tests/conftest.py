@@ -1,52 +1,83 @@
-"""Test-process isolation for the two temporary ``moegambit`` package roots.
+"""Process-level isolation for the two temporary ``moegambit`` packages.
 
-The runtime branch introduces the canonical package under ``src/`` while the
-existing DeepSpeed work still carries a private package under
-``deepspeed_adapter/``.  Until the future integration decision removes that
-duplication, tests must not let one implementation remain cached while testing
-the other.  This hook changes no production import behaviour and is narrowly
-scoped to the two affected test groups.
+Switching ``sys.modules`` between tests is not safe: test modules retain class
+objects imported during collection, and production code can never rely on
+pytest hooks.  The default ``core`` profile therefore exposes only ``src`` and
+does not collect the DeepSpeed-owned suite.  That suite can be run explicitly
+in a fresh interpreter with the ``deepspeed`` profile, which exposes only
+``deepspeed_adapter``.
 """
 
 from __future__ import annotations
 
+import importlib.util
+import os
 import sys
 from pathlib import Path
-from typing import Optional
+
+import pytest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_SOURCE_ROOT = REPOSITORY_ROOT / "src"
 DEEPSPEED_SOURCE_ROOT = REPOSITORY_ROOT / "deepspeed_adapter"
+PROFILE_ENV = "MOEGAMBIT_TEST_PACKAGE_PROFILE"
+CORE_PROFILE = "core"
+DEEPSPEED_PROFILE = "deepspeed"
+DEEPSPEED_TEST = "test_deepspeed_real_adapter.py"
 
-_active_source_root: Optional[Path] = None
+_profile = os.environ.get(PROFILE_ENV, CORE_PROFILE).strip().lower()
+if _profile not in (CORE_PROFILE, DEEPSPEED_PROFILE):
+    raise pytest.UsageError(
+        f"{PROFILE_ENV} must be {CORE_PROFILE!r} or {DEEPSPEED_PROFILE!r}, "
+        f"not {_profile!r}"
+    )
 
 
-def _purge_moegambit_modules() -> None:
-    prefixes = ("moegambit", "moegambit_deepspeed", "moegambit_megatron")
-    for module_name in tuple(sys.modules):
-        if any(
-            module_name == prefix or module_name.startswith(prefix + ".")
-            for prefix in prefixes
-        ):
-            sys.modules.pop(module_name, None)
+def _resolved_path(value: str) -> Path:
+    return Path(value or os.getcwd()).resolve()
 
 
 def _activate_source_root(source_root: Path) -> None:
-    global _active_source_root
-    if _active_source_root == source_root:
-        return
+    excluded = {RUNTIME_SOURCE_ROOT.resolve(), DEEPSPEED_SOURCE_ROOT.resolve()}
+    retained = []
+    for value in sys.path:
+        try:
+            if _resolved_path(value) in excluded:
+                continue
+        except (OSError, RuntimeError):
+            pass
+        retained.append(value)
+    sys.path[:] = [str(source_root), *retained]
 
-    _purge_moegambit_modules()
-    source_strings = {str(RUNTIME_SOURCE_ROOT), str(DEEPSPEED_SOURCE_ROOT)}
-    sys.path[:] = [item for item in sys.path if item not in source_strings]
-    sys.path.insert(0, str(source_root))
-    _active_source_root = source_root
+
+_active_source_root = (
+    RUNTIME_SOURCE_ROOT if _profile == CORE_PROFILE else DEEPSPEED_SOURCE_ROOT
+)
+_activate_source_root(_active_source_root)
 
 
-def pytest_runtest_setup(item) -> None:
-    test_name = Path(str(item.path)).name
-    if test_name == "test_deepspeed_real_adapter.py":
-        _activate_source_root(DEEPSPEED_SOURCE_ROOT)
-    elif test_name.startswith("test_phase_b_"):
-        _activate_source_root(RUNTIME_SOURCE_ROOT)
+def pytest_ignore_collect(collection_path: Path, config):
+    del config
+    test_name = collection_path.name
+    if not test_name.startswith("test") or collection_path.suffix != ".py":
+        return None
+    if _profile == CORE_PROFILE:
+        return True if test_name == DEEPSPEED_TEST else None
+    return True if test_name != DEEPSPEED_TEST else None
+
+
+def pytest_sessionstart(session) -> None:
+    del session
+    spec = importlib.util.find_spec("moegambit")
+    expected = (_active_source_root / "moegambit" / "__init__.py").resolve()
+    if spec is None or spec.origin is None:
+        raise pytest.UsageError(
+            f"the {_profile} test profile cannot resolve the moegambit package"
+        )
+    actual = Path(spec.origin).resolve()
+    if actual != expected:
+        raise pytest.UsageError(
+            f"the {_profile} test profile resolved moegambit from {actual}; "
+            f"expected {expected}"
+        )

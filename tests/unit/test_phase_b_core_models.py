@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import sys
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
-
-
-sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 
 from moegambit.distributed.topology import GroupSpec, TopologySpec  # noqa: E402
 from moegambit.runtime.recovery_plan import (  # noqa: E402
