@@ -350,6 +350,8 @@ examples/deepspeed/
 
 ### Phase C：控制面、agent 与恢复执行器
 
+状态：已完成（框架无关源码、无 torch 单测和本机回环控制链路）。
+
 - 迁移 launcher、node agent、worker supervisor；
 - 建立 versioned protocol 和 HMAC；
 - 建立 watcher service、coordinator、state store；
@@ -358,6 +360,8 @@ examples/deepspeed/
 - 建立结构化事件、metrics 和 RecoveryRecord。
 
 退出条件：fake adapter 可以端到端执行同一冻结计划，旧 epoch 和 split-brain 被拒绝。
+
+实现证据和能力边界见 `docs/development/PHASE_C_IMPLEMENTATION.md`。Phase C 的通用计划服务当前只接受单 rank fail-stop 和 replicated peer state；sharded/unique state、Megatron 行为迁移及目标集群验证分别属于后续阶段，不能据此标记为生产 Supported。
 
 ### Phase D：Megatron 适配与行为保持
 
