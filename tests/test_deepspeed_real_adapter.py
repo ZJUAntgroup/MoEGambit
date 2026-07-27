@@ -55,6 +55,36 @@ def test_pipeline_backward_has_single_hook_owned_lifecycle():
     assert "self.optimizer.update_hp_grads" not in backward
 
 
+def test_autoep_group_creation_receives_pipeline_topology_explicitly():
+    engine = (
+        ROOT / "DeepSpeed" / "deepspeed" / "runtime" / "engine.py"
+    ).read_text(encoding="utf-8")
+    groups = (
+        ROOT / "DeepSpeed" / "deepspeed" / "utils" / "groups.py"
+    ).read_text(encoding="utf-8")
+
+    assert "pipeline_mpu=self.mpu" in engine
+    assert "AutoEP group crosses pipeline stages" in engine
+    assert "topology_mpu = pipeline_mpu" in groups
+    assert "topology_mpu._topo.filter_match(pipe=stage)" in groups
+
+
+def test_training_reports_barrier_and_first_iteration_boundaries():
+    source = (
+        ROOT / "deepspeed_qwen3_moe_pretrain.py"
+    ).read_text(encoding="utf-8")
+
+    phases = [
+        "train_barrier_start",
+        "train_barrier_done",
+        "first_iteration_start",
+        "first_iteration_done",
+    ]
+    offsets = [source.index(f'"{phase}"') for phase in phases]
+
+    assert offsets == sorted(offsets)
+
+
 def test_deepspeed_rank_log_directory_creation_is_idempotent():
     source = (
         ROOT

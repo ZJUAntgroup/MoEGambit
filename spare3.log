@@ -1,34 +1,96 @@
 nohup: ignoring input
 [deepspeed-real-launch] recovery timeout  300s is shorter than cold-start timeout  600s; using 600s
 [deepspeed-real-launch] preflight torch=2.6.0+cu126 transformers=5.0.0 deepspeed=0.19.3+0c36f6d grouped_mm=False
-[deepspeed-real-launch] case=hot_swap_pp8_ep8 node=8 PP=8 EP=8 ZeRO=1 hot_swap=1 zero2=0 hybrid_restore=1 spare=8 coordinator=33.181.100.97:20220 recovery_timeout=600s
-[deepspeed-real-launch] full_rank_logs=/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real/hotspare123-ds-003/hot_swap_pp8_ep8/state/rank_logs/epoch_{recovery_epoch}/node_{physical_node}
-2026-07-27 16:43:09,405 INFO __main__: registered standby physical_node=8
-2026-07-27 16:43:09,467 INFO __main__: standby prefetched dataset index path=/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document.idx bytes=75260042 seconds=0.02
-2026-07-27 16:43:19,365 INFO __main__: registered active physical_node=0
-2026-07-27 16:43:27,659 INFO __main__: registered active physical_node=1
-2026-07-27 16:43:35,397 INFO __main__: registered active physical_node=2
-2026-07-27 16:43:45,314 INFO __main__: registered active physical_node=3
-2026-07-27 16:43:53,043 INFO __main__: registered active physical_node=4
-2026-07-27 16:44:01,340 INFO __main__: registered active physical_node=5
-2026-07-27 16:44:09,759 INFO __main__: registered active physical_node=6
-2026-07-27 16:44:16,593 INFO __main__: registered active physical_node=7
-2026-07-27 16:44:16,593 INFO __main__: recovery epoch 0 released mapping={0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7}
-2026-07-27 16:44:38,806 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=distributed_ready
-2026-07-27 16:44:38,823 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=distributed_ready
-2026-07-27 16:44:38,838 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=model_build_start
-2026-07-27 16:44:38,885 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=model_build_start
-2026-07-27 16:44:39,082 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=distributed_ready
-2026-07-27 16:44:39,103 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=model_build_start
-2026-07-27 16:44:39,556 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=distributed_ready
-2026-07-27 16:44:39,577 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=distributed_ready
-2026-07-27 16:44:39,592 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=distributed_ready
-2026-07-27 16:44:39,609 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=distributed_ready
-2026-07-27 16:44:39,625 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=model_build_start
-2026-07-27 16:44:39,640 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=model_build_start
-2026-07-27 16:44:39,653 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=model_build_start
-2026-07-27 16:44:39,667 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=model_build_start
-2026-07-27 16:44:40,745 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=distributed_ready
-2026-07-27 16:44:40,769 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=model_build_start
-2026-07-27 16:45:09,794 ERROR __main__: initial training agent disappeared before every logical node reached TRAIN_READY; refusing to consume the hot spare: physical_node=1
-2026-07-27 16:45:10,320 ERROR __main__: hot-spare recovery aborted: initial training agent disappeared before every logical node reached TRAIN_READY; refusing to consume the hot spare: physical_node=1
+[deepspeed-real-launch] case=hot_swap_pp8_ep8 node=8 PP=8 EP=8 ZeRO=1 hot_swap=1 zero2=0 hybrid_restore=1 spare=8 coordinator=33.181.100.97:20221 recovery_timeout=600s
+[deepspeed-real-launch] full_rank_logs=/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real/hotspare123-ds-004/hot_swap_pp8_ep8/state/rank_logs/epoch_{recovery_epoch}/node_{physical_node}
+2026-07-27 16:55:11,913 INFO __main__: registered standby physical_node=8
+2026-07-27 16:55:11,966 INFO __main__: standby prefetched dataset index path=/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document.idx bytes=75260042 seconds=0.02
+2026-07-27 16:55:21,850 INFO __main__: registered active physical_node=0
+2026-07-27 16:55:32,454 INFO __main__: registered active physical_node=1
+2026-07-27 16:55:41,491 INFO __main__: registered active physical_node=2
+2026-07-27 16:55:49,308 INFO __main__: registered active physical_node=3
+2026-07-27 16:55:56,553 INFO __main__: registered active physical_node=4
+2026-07-27 16:56:04,798 INFO __main__: registered active physical_node=5
+2026-07-27 16:56:12,864 INFO __main__: registered active physical_node=6
+2026-07-27 16:56:20,906 INFO __main__: registered active physical_node=7
+2026-07-27 16:56:20,907 INFO __main__: recovery epoch 0 released mapping={0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7}
+2026-07-27 16:56:42,762 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=distributed_ready
+2026-07-27 16:56:43,087 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=distributed_ready
+2026-07-27 16:56:43,102 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=model_build_start
+2026-07-27 16:56:43,114 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=model_build_start
+2026-07-27 16:56:43,677 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=distributed_ready
+2026-07-27 16:56:44,040 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=distributed_ready
+2026-07-27 16:56:44,079 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=distributed_ready
+2026-07-27 16:56:44,250 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=distributed_ready
+2026-07-27 16:56:44,263 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=model_build_start
+2026-07-27 16:56:44,276 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=model_build_start
+2026-07-27 16:56:44,288 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=model_build_start
+2026-07-27 16:56:44,301 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=distributed_ready
+2026-07-27 16:56:44,315 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=distributed_ready
+2026-07-27 16:56:44,328 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=model_build_start
+2026-07-27 16:56:44,340 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=model_build_start
+2026-07-27 16:56:44,353 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=model_build_start
+2026-07-27 16:58:23,744 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=model_build_done
+2026-07-27 16:58:23,763 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=engine_init_start
+2026-07-27 16:58:23,775 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=model_build_done
+2026-07-27 16:58:23,788 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=engine_init_start
+2026-07-27 16:58:23,845 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=model_build_done
+2026-07-27 16:58:23,871 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=engine_init_start
+2026-07-27 16:58:23,941 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=model_build_done
+2026-07-27 16:58:24,791 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=model_build_done
+2026-07-27 16:58:24,816 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=model_build_done
+2026-07-27 16:58:24,844 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=model_build_done
+2026-07-27 16:58:25,236 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=engine_init_start
+2026-07-27 16:58:25,501 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=model_build_done
+2026-07-27 16:58:25,514 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=engine_init_start
+2026-07-27 16:58:25,527 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=engine_init_start
+2026-07-27 16:58:25,541 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=engine_init_start
+2026-07-27 16:58:25,579 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=engine_init_start
+2026-07-27 16:58:30,283 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=engine_init_done
+2026-07-27 16:58:30,297 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=engine_init_done
+2026-07-27 16:58:30,310 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=engine_init_done
+2026-07-27 16:58:30,322 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=engine_init_done
+2026-07-27 16:58:30,336 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=engine_init_done
+2026-07-27 16:58:30,347 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=engine_init_done
+2026-07-27 16:58:30,361 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=engine_init_done
+2026-07-27 16:58:30,731 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=engine_init_done
+2026-07-27 16:58:30,744 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=pipeline_validation_start
+2026-07-27 16:58:30,756 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=pipeline_validation_start
+2026-07-27 16:58:30,768 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=pipeline_validation_start
+2026-07-27 16:58:30,780 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=pipeline_validation_start
+2026-07-27 16:58:30,791 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=pipeline_validation_start
+2026-07-27 16:58:30,804 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=pipeline_validation_start
+2026-07-27 16:58:30,816 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=pipeline_validation_start
+2026-07-27 16:58:31,431 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=pipeline_validation_start
+2026-07-27 16:58:31,588 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=pipeline_validation_done
+2026-07-27 16:58:31,601 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=pipeline_validation_done
+2026-07-27 16:58:31,614 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=pipeline_validation_done
+2026-07-27 16:58:31,626 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=pipeline_validation_done
+2026-07-27 16:58:31,639 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=pipeline_validation_done
+2026-07-27 16:58:31,650 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=pipeline_validation_done
+2026-07-27 16:58:31,861 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=pipeline_validation_done
+2026-07-27 16:58:31,873 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=pipeline_validation_done
+2026-07-27 16:58:31,885 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=dataset_init_start
+2026-07-27 16:58:31,896 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=dataset_init_start
+2026-07-27 16:58:31,907 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=dataset_init_start
+2026-07-27 16:58:31,919 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=dataset_init_start
+2026-07-27 16:58:31,932 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=dataset_init_start
+2026-07-27 16:58:31,945 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=dataset_init_start
+2026-07-27 16:58:31,981 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=dataset_init_start
+2026-07-27 16:58:31,993 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=dataset_init_start
+2026-07-27 16:58:32,996 INFO __main__: WORKER_PHASE physical_node=5 logical_node=5 phase=dataset_init_done
+2026-07-27 16:58:33,011 INFO __main__: WORKER_PHASE physical_node=4 logical_node=4 phase=dataset_init_done
+2026-07-27 16:58:33,024 INFO __main__: TRAIN_READY physical_node=5 logical_node=5 (1/8)
+2026-07-27 16:58:33,037 INFO __main__: WORKER_PHASE physical_node=1 logical_node=1 phase=dataset_init_done
+2026-07-27 16:58:33,210 INFO __main__: TRAIN_READY physical_node=4 logical_node=4 (2/8)
+2026-07-27 16:58:33,223 INFO __main__: WORKER_PHASE physical_node=3 logical_node=3 phase=dataset_init_done
+2026-07-27 16:58:33,236 INFO __main__: WORKER_PHASE physical_node=7 logical_node=7 phase=dataset_init_done
+2026-07-27 16:58:33,249 INFO __main__: WORKER_PHASE physical_node=0 logical_node=0 phase=dataset_init_done
+2026-07-27 16:58:33,261 INFO __main__: WORKER_PHASE physical_node=6 logical_node=6 phase=dataset_init_done
+2026-07-27 16:58:33,273 INFO __main__: WORKER_PHASE physical_node=2 logical_node=2 phase=dataset_init_done
+2026-07-27 16:58:33,284 INFO __main__: TRAIN_READY physical_node=1 logical_node=1 (3/8)
+2026-07-27 16:58:33,307 INFO __main__: TRAIN_READY physical_node=3 logical_node=3 (4/8)
+2026-07-27 16:58:33,323 INFO __main__: TRAIN_READY physical_node=7 logical_node=7 (5/8)
+2026-07-27 16:58:33,335 INFO __main__: TRAIN_READY physical_node=0 logical_node=0 (6/8)
+2026-07-27 16:58:33,348 INFO __main__: TRAIN_READY physical_node=6 logical_node=6 (7/8)
+2026-07-27 16:58:33,361 INFO __main__: TRAIN_READY physical_node=2 logical_node=2 (8/8)

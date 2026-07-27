@@ -306,7 +306,8 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
                                      pp_size=None,
                                      mp_mode="tp",
                                      use_data_before_expert_parallel_=False,
-                                     folding_spec=None):
+                                     folding_spec=None,
+                                     pipeline_mpu=None):
     """Create expert and data parallel groups.
 
     When mp_size is None or 1: legacy consecutive ordering (backward compatible).
@@ -330,6 +331,8 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
         mp_mode (str): "tp" for TP-strided ordering, "sp" for consecutive ordering.
         use_data_before_expert_parallel_ (bool): Use the D + E instead of E + D topology.
         folding_spec: Optional AutoEP+AutoTP folding topology spec.
+        pipeline_mpu: Optional explicit pipeline topology provider. This avoids
+            relying on the module-global mpu during early engine setup.
     """
     assert dist.is_initialized()
 
@@ -340,10 +343,15 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
     world_size = dist.get_world_size()
 
     # Resolve pp_size
+    topology_mpu = pipeline_mpu if pipeline_mpu is not None else mpu
     if pp_size is not None:
         pp_world_size = pp_size
     else:
-        pp_world_size = 1 if mpu is None else bwc_pipeline_parallel_world_size(mpu)
+        pp_world_size = (
+            1
+            if topology_mpu is None
+            else bwc_pipeline_parallel_world_size(topology_mpu)
+        )
 
     rank = dist.get_rank()
 
@@ -357,10 +365,10 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
     global _EXPERT_PARALLEL_GROUP
     global _EXPERT_PARALLEL_GROUP_RANKS
 
-    if mpu is not None and hasattr(mpu, "_topo"):
+    if topology_mpu is not None and hasattr(topology_mpu, "_topo"):
         pipeline_stage_ranks = [
-            sorted(mpu._topo.filter_match(pipe=stage))
-            for stage in range(mpu._topo.get_dim("pipe"))
+            sorted(topology_mpu._topo.filter_match(pipe=stage))
+            for stage in range(topology_mpu._topo.get_dim("pipe"))
         ]
     else:
         pipeline_stage_ranks = [

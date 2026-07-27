@@ -591,11 +591,26 @@ class DeepSpeedEngine(Module):
             mp_mode=mp_mode,
             use_data_before_expert_parallel_=self._config.use_data_before_expert_parallel_,
             folding_spec=folding_spec if tp_size > 1 else None,
+            pipeline_mpu=self.mpu,
         )
 
         # Derive EP rank
         ep_group_name = f"ep_size_{ep_size}"
         ep_group = groups._get_expert_parallel_group(ep_group_name)
+        if self.mpu is not None and hasattr(self.mpu, "_topo"):
+            ep_ranks = list(
+                groups._get_expert_parallel_group_ranks(ep_group_name)
+            )
+            ep_stages = {
+                self.mpu._topo.get_coord(rank).pipe
+                for rank in ep_ranks
+            }
+            if len(ep_stages) != 1:
+                raise RuntimeError(
+                    "AutoEP group crosses pipeline stages: "
+                    f"group={ep_group_name} ranks={ep_ranks} "
+                    f"stages={sorted(ep_stages)}"
+                )
         ep_rank = dist.get_rank(group=ep_group)
 
         # Detect and replace MoE layers

@@ -1,32 +1,6 @@
 nohup: ignoring input
 [deepspeed-real-launch] recovery timeout  300s is shorter than cold-start timeout  600s; using 600s
 [deepspeed-real-launch] preflight torch=2.6.0+cu126 transformers=5.0.0 deepspeed=0.19.3+0c36f6d grouped_mm=False
-[deepspeed-real-launch] case=hot_swap_pp8_ep8 node=0 PP=8 EP=8 ZeRO=1 hot_swap=1 zero2=0 hybrid_restore=1 spare=8 coordinator=33.181.100.97:20220 recovery_timeout=600s
-[deepspeed-real-launch] full_rank_logs=/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real/hotspare123-ds-003/hot_swap_pp8_ep8/state/rank_logs/epoch_{recovery_epoch}/node_{physical_node}
-2026-07-27 16:44:16,958 WARNING __main__: starting worker physical_node=0 logical_node=0 epoch=0 local_world_size=8 master=33.163.47.152:20120 rank_logs=/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real/hotspare123-ds-003/hot_swap_pp8_ep8/state/rank_logs/epoch_0/node_0
-[worker-rank0] [deepspeed-real][2026-07-27 16:46:25][rank=0] FATAL RuntimeError: failed to report TRAIN_READY to hot-spare coordinator
-[worker-rank0] [rank0]: Traceback (most recent call last):
-[worker-rank0] [rank0]: ConnectionRefusedError: [Errno 111] Connection refused
-[worker-rank0] [rank0]: Traceback (most recent call last):
-[worker-rank0] [rank0]: RuntimeError: failed to report TRAIN_READY to hot-spare coordinator
-Traceback (most recent call last):
-  File "/opt/conda/lib/python3.10/runpy.py", line 196, in _run_module_as_main
-    return _run_code(code, main_globals, None,
-  File "/opt/conda/lib/python3.10/runpy.py", line 86, in _run_code
-    exec(code, run_globals)
-  File "/root/workdir/antllm/bsr2/deepspeed_adapter/moegambit/runtime/hot_spare.py", line 1481, in <module>
-    raise SystemExit(main())
-  File "/root/workdir/antllm/bsr2/deepspeed_adapter/moegambit/runtime/hot_spare.py", line 1428, in main
-    return supervisor.run()
-  File "/root/workdir/antllm/bsr2/deepspeed_adapter/moegambit/runtime/hot_spare.py", line 1332, in run
-    command = self._request(
-  File "/root/workdir/antllm/bsr2/deepspeed_adapter/moegambit/runtime/hot_spare.py", line 783, in _request
-    response = self.client.request(
-  File "/root/workdir/antllm/bsr2/deepspeed_adapter/moegambit/runtime/watcher_client.py", line 23, in request
-    with socket.create_connection(
-  File "/opt/conda/lib/python3.10/socket.py", line 857, in create_connection
-    raise err
-  File "/opt/conda/lib/python3.10/socket.py", line 845, in create_connection
-    sock.connect(sa)
-ConnectionRefusedError: [Errno 111] Connection refused
-[2026-07-27 16:46:29,836] [ERROR] [launch.py:343:sigkill_handler] ['/opt/conda/bin/python3', '-u', '/root/workdir/antllm/bsr2/deepspeed_qwen3_moe_pretrain.py', '--local_rank=7', '--case-name', 'hot_swap_pp8_ep8', '--model-config', '/root/workdir/antllm/bsr2/tokenizer', '--data-path', '/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document', '--checkpoint-dir', '/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real/hotspare123-ds-003/hot_swap_pp8_ep8/checkpoint', '--state-dir', '/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real/hotspare123-ds-003/hot_swap_pp8_ep8/state', '--pipeline-parallel-size', '8', '--expert-parallel-size', '8', '--zero-stage', '1', '--micro-batch-size', '1', '--gradient-accumulation-steps', '1', '--sequence-length', '4096', '--train-iters', '100', '--fault-step', '17', '--fault-rank', '1', '--activation-checkpointing', '1'] exits with return code = 1
+[deepspeed-real-launch] case=hot_swap_pp8_ep8 node=0 PP=8 EP=8 ZeRO=1 hot_swap=1 zero2=0 hybrid_restore=1 spare=8 coordinator=33.181.100.97:20221 recovery_timeout=600s
+[deepspeed-real-launch] full_rank_logs=/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real/hotspare123-ds-004/hot_swap_pp8_ep8/state/rank_logs/epoch_{recovery_epoch}/node_{physical_node}
+2026-07-27 16:56:21,859 WARNING __main__: starting worker physical_node=0 logical_node=0 epoch=0 local_world_size=8 master=33.163.47.152:20121 rank_logs=/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real/hotspare123-ds-004/hot_swap_pp8_ep8/state/rank_logs/epoch_0/node_0

@@ -822,10 +822,14 @@ def main() -> int:
             raise RuntimeError(
                 "failed to report TRAIN_READY to hot-spare coordinator"
             ) from exc
+    report_worker_phase("train_barrier_start", rank)
     torch_dist.barrier()
+    report_worker_phase("train_barrier_done", rank)
 
     while int(engine.global_steps) < args.train_iters:
         iteration_started = time.monotonic()
+        if int(engine.global_steps) == 0:
+            report_worker_phase("first_iteration_start", rank)
         if args.pipeline_parallel_size > 1:
             loss = engine.train_batch(data_iter=batches)
         else:
@@ -838,6 +842,8 @@ def main() -> int:
             engine.backward(loss)
             engine.step()
         step = int(engine.global_steps)
+        if step == 1:
+            report_worker_phase("first_iteration_done", rank)
         elapsed = time.monotonic() - iteration_started
         if rank == 0:
             loss_value = float(loss.detach().float().mean().cpu())
