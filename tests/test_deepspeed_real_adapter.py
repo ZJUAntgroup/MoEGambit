@@ -337,6 +337,42 @@ def test_hot_spare_does_not_mask_initial_program_failure():
     assert "refusing to consume the hot spare" in aborted["reason"]
 
 
+def test_hot_spare_surfaces_rank_failure_artifact(tmp_path):
+    from moegambit.runtime.hot_spare import (
+        collect_worker_failure_diagnostic,
+    )
+
+    state_dir = tmp_path / "state"
+    error_dir = state_dir / "errors"
+    error_dir.mkdir(parents=True)
+    artifact = error_dir / "epoch_0_rank_17.json"
+    artifact.write_text(
+        (
+            '{"error":"RuntimeError: test failure",'
+            '"traceback":"Traceback\\nRuntimeError: test failure"}'
+        ),
+        encoding="utf-8",
+    )
+    diagnostic = collect_worker_failure_diagnostic(
+        (
+            "python",
+            "-m",
+            "deepspeed.launcher.runner",
+            "--num_gpus",
+            "8",
+            "train.py",
+            "--state-dir",
+            str(state_dir),
+        ),
+        epoch=0,
+        logical_node=2,
+        process_started_at=None,
+    )
+
+    assert "epoch_0_rank_17.json" in diagnostic
+    assert "RuntimeError: test failure" in diagnostic
+
+
 def test_hot_spare_coordinator_aborts_stalled_recovery():
     from moegambit.runtime.hot_spare import HotSpareCoordinator
     from moegambit.runtime.protocol import WireMessage

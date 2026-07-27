@@ -29,6 +29,109 @@ from moegambit.runtime.watcher_client import WatcherClient, WatcherEndpoint
 logger = logging.getLogger(__name__)
 
 
+def _command_option(
+    command: Sequence[str], option: str
+) -> str | None:
+    prefix = f"{option}="
+    for index, item in enumerate(command):
+        if item == option and index + 1 < len(command):
+            return command[index + 1]
+        if item.startswith(prefix):
+            return item[len(prefix):]
+    return None
+
+
+def _tail_text(path: Path, line_count: int = 100) -> str:
+    try:
+        lines = path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-line_count:])
+
+
+def collect_worker_failure_diagnostic(
+    command: Sequence[str],
+    *,
+    epoch: int,
+    logical_node: int,
+    process_started_at: float | None,
+) -> str:
+    """Recover the first local-rank traceback hidden by DeepSpeed logging."""
+    local_world_size_text = _command_option(command, "--num_gpus")
+    try:
+        local_world_size = int(local_world_size_text or "1")
+    except ValueError:
+        local_world_size = 1
+    first_rank = logical_node * local_world_size
+    ranks = range(first_rank, first_rank + local_world_size)
+
+    state_dir_text = _command_option(command, "--state-dir")
+    if state_dir_text:
+        error_dir = Path(state_dir_text) / "errors"
+        for rank in ranks:
+            artifact = error_dir / f"epoch_{epoch}_rank_{rank}.json"
+            if not artifact.is_file():
+                continue
+            try:
+                payload = json.loads(
+                    artifact.read_text(encoding="utf-8")
+                )
+            except (OSError, ValueError):
+                continue
+            error = str(payload.get("error", "unknown worker error"))
+            traceback_text = str(payload.get("traceback", "")).strip()
+            result = (
+                f"fatal artifact={artifact} rank={rank}: {error}"
+            )
+            if traceback_text:
+                result = f"{result}\n{traceback_text}"
+            return result[-16000:]
+
+    log_dir_text = _command_option(
+        command, "--enable_each_rank_log"
+    )
+    if not log_dir_text:
+        return ""
+    log_dir = Path(log_dir_text)
+    candidates: list[Path] = []
+    for rank in ranks:
+        candidates.extend(log_dir.glob(f"*_rank{rank}.log"))
+    candidates = [
+        path
+        for path in candidates
+        if process_started_at is None
+        or path.stat().st_mtime >= process_started_at - 5.0
+    ]
+    candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    markers = (
+        "Traceback (most recent call last)",
+        "FATAL ",
+        "RuntimeError:",
+        "OutOfMemoryError:",
+        "Error:",
+        "Exception:",
+    )
+    fallback = ""
+    fallback_path: Path | None = None
+    for path in candidates:
+        tail = _tail_text(path)
+        if not tail:
+            continue
+        if not fallback:
+            fallback = tail
+            fallback_path = path
+        if any(marker in tail for marker in markers):
+            return f"rank log={path}\n{tail}"[-16000:]
+    if fallback_path is not None:
+        return (
+            f"no traceback marker found; newest rank log="
+            f"{fallback_path}\n{fallback}"
+        )[-16000:]
+    return ""
+
+
 @dataclass
 class AgentRecord:
     physical_node: int
@@ -230,6 +333,13 @@ class HotSpareCoordinator:
         )
         if logical_node is None:
             return
+        diagnostic = str(payload.get("diagnostic", "")).strip()
+        if diagnostic:
+            logger.error(
+                "worker failure diagnostic from physical_node=%d:\n%s",
+                physical_node,
+                diagnostic,
+            )
         if (
             self.epoch == 0
             and len(self.ready_logical_nodes) < self.training_nodes
@@ -488,6 +598,7 @@ class AgentSupervisor:
         self.process_epoch: int | None = None
         self.completed_epoch: int | None = None
         self.retired_logged = False
+        self.process_started_at: float | None = None
 
     def _request(
         self, kind: str, **payload: Any
@@ -579,6 +690,7 @@ class AgentSupervisor:
             env=environment,
             start_new_session=True,
         )
+        self.process_started_at = time.time()
         self.process_epoch = epoch
         self.completed_epoch = None
 
@@ -626,6 +738,35 @@ class AgentSupervisor:
                     if self.process is not None:
                         return_code = self.process.poll()
                         if return_code is not None:
+                            diagnostic = ""
+                            if return_code != 0:
+                                diagnostic = (
+                                    collect_worker_failure_diagnostic(
+                                        self.command,
+                                        epoch=epoch,
+                                        logical_node=logical_node,
+                                        process_started_at=(
+                                            self.process_started_at
+                                        ),
+                                    )
+                                )
+                                if diagnostic:
+                                    logger.error(
+                                        "worker failure diagnostic "
+                                        "physical_node=%d logical_node=%d "
+                                        "epoch=%d:\n%s",
+                                        self.physical_node,
+                                        logical_node,
+                                        epoch,
+                                        diagnostic,
+                                    )
+                                else:
+                                    logger.error(
+                                        "worker exited with code %d but no "
+                                        "fatal artifact or rank traceback "
+                                        "was found",
+                                        return_code,
+                                    )
                             self.process = None
                             if return_code == 0:
                                 self.completed_epoch = epoch
@@ -653,6 +794,7 @@ class AgentSupervisor:
                                 state="failed",
                                 return_code=return_code,
                                 reason=f"runner_exit_{return_code}",
+                                diagnostic=diagnostic[-8000:],
                             )
                             continue
 
