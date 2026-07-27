@@ -129,6 +129,7 @@ def test_hybrid_restore_runs_after_checkpoint_and_has_no_later_phase():
     )
     assert '"expert_source": "checkpoint"' in hybrid
     assert '"non_expert_source": "live_dp_peer"' in hybrid
+    assert '"peer_state_origin": "checkpoint_relaunch"' in hybrid
     assert '"optimizer_source": "checkpoint"' in hybrid
     assert '"two_phase": False' in hybrid
 
@@ -321,6 +322,44 @@ def test_hybrid_restore_rejects_a_stale_peer_version():
             manifest=manifest,
             manifest_hash="hash",
         )
+
+
+def test_hybrid_restore_uses_common_relaunch_checkpoint_version():
+    from moegambit_deepspeed.hybrid_restore import (
+        validate_relaunch_checkpoint_steps,
+    )
+
+    assert (
+        validate_relaunch_checkpoint_steps([10] * 64, failure_step=17) == 10
+    )
+
+
+def test_hybrid_restore_rejects_mixed_relaunch_checkpoint_versions():
+    from moegambit_deepspeed.hybrid_restore import (
+        DeepSpeedHybridRestoreError,
+        validate_relaunch_checkpoint_steps,
+    )
+
+    with pytest.raises(
+        DeepSpeedHybridRestoreError,
+        match="different checkpoint versions",
+    ):
+        validate_relaunch_checkpoint_steps(
+            [10, 10, 15, 10], failure_step=17
+        )
+
+
+def test_hybrid_restore_rejects_checkpoint_newer_than_failure():
+    from moegambit_deepspeed.hybrid_restore import (
+        DeepSpeedHybridRestoreError,
+        validate_relaunch_checkpoint_steps,
+    )
+
+    with pytest.raises(
+        DeepSpeedHybridRestoreError,
+        match="newer than the recorded failure",
+    ):
+        validate_relaunch_checkpoint_steps([20] * 4, failure_step=17)
 
 
 def test_local_adapter_discovers_bsr_vendored_deepspeed():

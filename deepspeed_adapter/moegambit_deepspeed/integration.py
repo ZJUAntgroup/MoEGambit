@@ -117,13 +117,36 @@ class DeepSpeedRecoveryRuntime:
     def _restore_non_expert_from_peer(self) -> None:
         from moegambit_deepspeed.hybrid_restore import (
             restore_non_expert_model_from_peer,
+            validate_relaunch_checkpoint_steps,
         )
+        import torch.distributed as dist
 
         failed_logical_node = int(
             os.environ["MOEGAMBIT_RECOVERY_FAILED_LOGICAL_NODE"]
         )
         local_world_size = int(os.environ["LOCAL_WORLD_SIZE"])
-        expected_step = int(os.environ["MOEGAMBIT_RECOVERY_FAILURE_STEP"])
+        failure_step = int(os.environ["MOEGAMBIT_RECOVERY_FAILURE_STEP"])
+        local_checkpoint_step = int(getattr(self.engine, "global_steps", -1))
+        checkpoint_steps: list[int | None] = [
+            None
+        ] * dist.get_world_size()
+        dist.all_gather_object(checkpoint_steps, local_checkpoint_step)
+        expected_step = validate_relaunch_checkpoint_steps(
+            (
+                step
+                for step in checkpoint_steps
+                if step is not None
+            ),
+            failure_step=failure_step,
+        )
+        logger.warning(
+            "MoEGambit recovery version selected checkpoint_step=%d "
+            "failure_step=%d rollback_steps=%d",
+            expected_step,
+            failure_step,
+            failure_step - expected_step,
+        )
+        self._report_phase("recovery_version_validated")
         first_rank = failed_logical_node * local_world_size
         replacement_ranks = range(
             first_rank, first_rank + local_world_size
@@ -134,6 +157,8 @@ class DeepSpeedRecoveryRuntime:
             replacement_ranks=replacement_ranks,
             expected_step=expected_step,
         )
+        summary["failure_step"] = failure_step
+        summary["rollback_steps"] = failure_step - expected_step
         self._report_phase("non_expert_peer_restore_done")
         logger.warning(
             "MoEGambit single-stage hybrid restore complete: %s", summary

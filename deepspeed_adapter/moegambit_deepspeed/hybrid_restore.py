@@ -1,4 +1,4 @@
-"""Single-stage MoE model recovery from checkpoint and a live DP peer."""
+"""Single-stage MoE recovery from checkpoint and a compatible DP peer."""
 
 from __future__ import annotations
 
@@ -129,6 +129,46 @@ def build_peer_restore_plans(
     return plans
 
 
+def validate_relaunch_checkpoint_steps(
+    checkpoint_steps: Iterable[int],
+    *,
+    failure_step: int,
+) -> int:
+    """Select the common checkpoint version for a full-epoch relaunch.
+
+    A recovery epoch reconstructs every worker, so a donor's in-memory state
+    comes from the checkpoint it just loaded, not from the later failure step.
+    """
+    steps = tuple(int(step) for step in checkpoint_steps)
+    if not steps:
+        raise DeepSpeedHybridRestoreError(
+            "recovery checkpoint step set is empty"
+        )
+    if failure_step < 0:
+        raise DeepSpeedHybridRestoreError(
+            f"failure step must be non-negative; got {failure_step}"
+        )
+    invalid = sorted({step for step in steps if step < 0})
+    if invalid:
+        raise DeepSpeedHybridRestoreError(
+            "recovery ranks reported invalid checkpoint steps: "
+            f"{invalid}"
+        )
+    unique_steps = sorted(set(steps))
+    if len(unique_steps) != 1:
+        raise DeepSpeedHybridRestoreError(
+            "recovery ranks loaded different checkpoint versions: "
+            f"{unique_steps}"
+        )
+    checkpoint_step = unique_steps[0]
+    if checkpoint_step > failure_step:
+        raise DeepSpeedHybridRestoreError(
+            "recovery checkpoint is newer than the recorded failure: "
+            f"checkpoint_step={checkpoint_step} failure_step={failure_step}"
+        )
+    return checkpoint_step
+
+
 def _validate_peer_header(
     header: dict[str, Any],
     *,
@@ -162,7 +202,7 @@ def restore_non_expert_model_from_peer(
     replacement_ranks: Iterable[int],
     expected_step: int,
 ) -> dict[str, Any]:
-    """Overwrite checkpoint-loaded non-expert state from a live DP peer.
+    """Overwrite non-expert state from a checkpoint-restored DP peer.
 
     All world ranks must call this function. Process groups are created in a
     global deterministic order, while only each source/replacement pair moves
@@ -246,6 +286,7 @@ def restore_non_expert_model_from_peer(
         "copied_bytes": copied_bytes,
         "expert_source": "checkpoint",
         "non_expert_source": "live_dp_peer",
+        "peer_state_origin": "checkpoint_relaunch",
         "optimizer_source": "checkpoint",
         "two_phase": False,
     }
