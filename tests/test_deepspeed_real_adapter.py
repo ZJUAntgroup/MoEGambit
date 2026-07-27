@@ -295,6 +295,46 @@ def test_hot_spare_coordinator_fails_closed_without_second_spare():
     assert coordinator.status == "aborted"
 
 
+def test_hot_spare_does_not_mask_initial_program_failure():
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="test-run",
+        training_nodes=2,
+        spare_physical_node=2,
+        base_master_port=24000,
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "test-run",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        ).payload
+
+    request("register", 0, role="active", advertise_addr="10.0.0.1")
+    request("register", 1, role="active", advertise_addr="10.0.0.2")
+    request("register", 2, role="standby", advertise_addr="10.0.0.3")
+    aborted = request(
+        "runner_failure",
+        1,
+        epoch=0,
+        return_code=2,
+        reason="argument_error",
+    )
+
+    assert aborted["action"] == "abort"
+    assert coordinator.epoch == 0
+    assert coordinator.mapping == {0: 0, 1: 1}
+    assert "refusing to consume the hot spare" in aborted["reason"]
+
+
 def test_hot_spare_coordinator_aborts_stalled_recovery():
     from moegambit.runtime.hot_spare import HotSpareCoordinator
     from moegambit.runtime.protocol import WireMessage
@@ -342,9 +382,28 @@ def test_hot_spare_supervisors_execute_recovery_epoch(tmp_path):
         """
 import os
 import time
+from moegambit.runtime.protocol import WireMessage
+from moegambit.runtime.watcher_client import WatcherClient, WatcherEndpoint
 
 epoch = int(os.environ["MOEGAMBIT_RECOVERY_EPOCH"])
 physical = int(os.environ["MOEGAMBIT_PHYSICAL_NODE_RANK"])
+logical = int(os.environ["MOEGAMBIT_LOGICAL_NODE_RANK"])
+WatcherClient(
+    WatcherEndpoint(
+        os.environ["MOEGAMBIT_HOT_SPARE_COORDINATOR_ADDR"],
+        int(os.environ["MOEGAMBIT_HOT_SPARE_COORDINATOR_PORT"]),
+    )
+).request(
+    WireMessage(
+        "worker_ready",
+        {
+            "run_id": os.environ["MOEGAMBIT_HOT_SPARE_RUN_ID"],
+            "physical_node": physical,
+            "logical_node": logical,
+            "epoch": epoch,
+        },
+    )
+)
 if epoch == 0 and physical == 0:
     time.sleep(0.3)
     raise SystemExit(23)
@@ -392,6 +451,8 @@ time.sleep(0.2)
             env.get("PYTHONPATH", ""),
         ]
     )
+    env["MOEGAMBIT_HOT_SPARE_COORDINATOR_ADDR"] = "127.0.0.1"
+    env["MOEGAMBIT_HOT_SPARE_COORDINATOR_PORT"] = str(port)
 
     processes = [
         subprocess.Popen(

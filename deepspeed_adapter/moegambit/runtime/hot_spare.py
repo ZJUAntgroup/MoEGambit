@@ -227,6 +227,19 @@ class HotSpareCoordinator:
         )
         if logical_node is None:
             return
+        if (
+            self.epoch == 0
+            and len(self.ready_logical_nodes) < self.training_nodes
+        ):
+            self.status = "aborted"
+            self.abort_reason = (
+                "initial training runner exited before every logical node "
+                "reached TRAIN_READY; refusing to consume the hot spare: "
+                f"physical_node={physical_node} "
+                f"return_code={payload.get('return_code', 'unknown')}"
+            )
+            logger.error(self.abort_reason)
+            return
         self._start_failover(
             logical_node,
             physical_node,
@@ -352,6 +365,18 @@ class HotSpareCoordinator:
                 and now - record.last_seen <= self.heartbeat_timeout
             ):
                 continue
+            if (
+                self.epoch == 0
+                and len(self.ready_logical_nodes) < self.training_nodes
+            ):
+                self.status = "aborted"
+                self.abort_reason = (
+                    "initial training agent disappeared before every logical "
+                    "node reached TRAIN_READY; refusing to consume the hot "
+                    f"spare: physical_node={physical_node}"
+                )
+                logger.error(self.abort_reason)
+                return
             self._start_failover(
                 logical_node,
                 physical_node,

@@ -329,7 +329,7 @@ run_case() {
     --train-iters "${TRAIN_ITERS}" \
     --fault-step "${fault_step}" \
     --fault-rank "${fault_rank}" \
-    --activation-checkpointing
+    --activation-checkpointing 1
   )
   local -a supervised_command=("${launch_command[@]}")
   if [[ "${hot_swap}" == "1" ]]; then
