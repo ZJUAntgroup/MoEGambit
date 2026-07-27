@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import socket
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from ..adapters.base import FrameworkAdapter, StateSources, StoreHandle
@@ -65,6 +65,16 @@ class ControlClient:
         self.config = config
         self._socket_factory = socket_factory
         self._lock = threading.Lock()
+
+    def with_attempt(self, attempt_id: str) -> "ControlClient":
+        """Return a client for the next cold-relaunch attempt."""
+
+        if not isinstance(attempt_id, str) or not attempt_id:
+            raise ValueError("control attempt_id must be non-empty")
+        return type(self)(
+            replace(self.config, attempt_id=attempt_id),
+            socket_factory=self._socket_factory,
+        )
 
     def _encode(self, envelope: Envelope) -> bytes:
         if self.config.job_token:

@@ -168,3 +168,56 @@ def test_sqlite_store_require_same_epoch_detects_incomplete_or_mixed_state(tmp_p
     with pytest.raises(ContractViolation, match="complete epoch"):
         store.require_same_epoch("a", "b")
 
+
+def test_checkpoint_relaunch_directive_survives_watcher_restart(tmp_path):
+    path = tmp_path / "control.db"
+    first = _service(SQLiteControlStore(str(path)))
+    result = first.request_checkpoint_relaunch(
+        {
+            "at_step": 10,
+            "reason": "fast path failed",
+            "checkpoint_locator": "checkpoint://step-8",
+            "checkpoint_step": 8,
+            "command_digest": "sha256:command",
+        },
+        job_id="job",
+        attempt_id="attempt",
+        rank=0,
+        recovery_epoch=2,
+    )
+
+    restarted = _service(SQLiteControlStore(str(path)))
+    heartbeat = restarted.heartbeat(
+        {
+            "role": "node_agent",
+            "node_rank": 0,
+            "command_digest": "sha256:command",
+        },
+        job_id="job",
+        attempt_id="attempt",
+    )
+    restarted.acknowledge_checkpoint_relaunch(
+        {
+            "directive_id": result["directive"]["directive_id"],
+            "next_attempt_id": result["directive"]["next_attempt_id"],
+            "command_digest": "sha256:command",
+            "worker_count": 2,
+        },
+        job_id="job",
+        attempt_id="attempt",
+        node_rank=0,
+        recovery_epoch=2,
+    )
+    restarted_again = _service(SQLiteControlStore(str(path)))
+    after_ack = restarted_again.heartbeat(
+        {
+            "role": "node_agent",
+            "node_rank": 0,
+            "command_digest": "sha256:command",
+        },
+        job_id="job",
+        attempt_id="attempt",
+    )
+
+    assert heartbeat["relaunch"] == result["directive"]
+    assert "relaunch" not in after_ack

@@ -19,6 +19,10 @@ classifiers = [
 ]
 dependencies = []
 
+[project.scripts]
+moegambit-launch = "moegambit.cli.launch:main"
+moegambit-watcher = "moegambit.cli.watcher:main"
+
 [project.optional-dependencies]
 torch = ["torch>=2.0"]
 dev = ["pytest>=7.0"]

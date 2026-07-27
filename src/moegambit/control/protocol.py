@@ -33,6 +33,7 @@ class MessageType:
     RECOVERY_COMMITTED = "recovery_committed"
     RECOVERY_FAILED = "recovery_failed"
     CHECKPOINT_RELAUNCH_REQUEST = "checkpoint_relaunch_request"
+    CHECKPOINT_RELAUNCH_ACK = "checkpoint_relaunch_ack"
 
 
 @dataclass

@@ -24,6 +24,7 @@ from ..runtime.recovery_plan import RecoveryMode, RecoveryPlan, WorkerEndpoint
 from ..state.catalog import StateSource, StateSourceKind
 from ..state.version import StateVersion
 from .protocol import PROTOCOL_VERSION
+from .relaunch import RelaunchDirective
 from .state_store import ControlStore, InMemoryControlStore
 
 __all__ = ["RecoveryCoordinatorService"]
@@ -113,6 +114,10 @@ class RecoveryCoordinatorService:
     @classmethod
     def _fallback_store_key(cls, scope: Tuple[str, str]) -> str:
         return f"fallback/{cls._scope_token(scope)}"
+
+    @classmethod
+    def _relaunch_store_key(cls, scope: Tuple[str, str]) -> str:
+        return f"relaunch/{cls._scope_token(scope)}"
 
     @staticmethod
     def _frozen_record(frozen: _FrozenAssignment) -> Mapping[str, Any]:
@@ -658,17 +663,77 @@ class RecoveryCoordinatorService:
         recovery_epoch: int,
     ) -> Mapping[str, Any]:
         scope = self._scope(job_id, attempt_id)
+        try:
+            at_step = int(payload.get("at_step", -1))
+            checkpoint_step = int(payload.get("checkpoint_step", -1))
+        except (TypeError, ValueError) as exc:
+            raise RecoveryRejected(
+                "checkpoint relaunch steps must be integers"
+            ) from exc
+        checkpoint_locator = str(payload.get("checkpoint_locator") or "").strip()
+        if at_step < 0:
+            raise RecoveryRejected("checkpoint relaunch at_step is required")
+        if checkpoint_step < 0 or not checkpoint_locator:
+            raise RecoveryRejected(
+                "checkpoint relaunch requires a committed checkpoint locator and step"
+            )
+        if checkpoint_step > at_step:
+            raise RecoveryRejected(
+                "checkpoint relaunch target cannot be newer than the failed step"
+            )
+        reason = str(payload.get("reason", ""))[:1000]
+        if not reason:
+            raise RecoveryRejected("checkpoint relaunch reason is required")
+        directive = RelaunchDirective.create(
+            job_id=job_id,
+            attempt_id=attempt_id,
+            recovery_epoch=int(recovery_epoch),
+            checkpoint_locator=checkpoint_locator,
+            checkpoint_step=checkpoint_step,
+            reason=reason,
+            command_digest=(
+                str(payload["command_digest"])
+                if payload.get("command_digest")
+                else None
+            ),
+        )
         record = {
             "rank": int(rank),
             "recovery_epoch": int(recovery_epoch),
-            "at_step": int(payload.get("at_step", -1)),
-            "reason": str(payload.get("reason", ""))[:1000],
+            "at_step": at_step,
+            "reason": reason,
             "error_type": str(payload.get("error_type", "unknown")),
             "evidence": dict(payload.get("evidence", {})),
+            "checkpoint_locator": checkpoint_locator,
+            "checkpoint_step": checkpoint_step,
+            "directive_id": directive.directive_id,
         }
-        if not record["reason"]:
-            raise RecoveryRejected("checkpoint relaunch reason is required")
         with self._lock:
+            directive_record = {
+                "directive": dict(directive.as_dict()),
+                "status": "pending",
+                "acknowledged_nodes": {},
+            }
+            relaunch_key = self._relaunch_store_key(scope)
+            if not self.control_store.put_if_epoch(
+                relaunch_key,
+                directive_record,
+                max(0, int(recovery_epoch)),
+            ):
+                existing = self.control_store.get(relaunch_key)
+                if not isinstance(existing, Mapping) or not isinstance(
+                    existing.get("directive"), Mapping
+                ):
+                    raise ContractViolation(
+                        "persisted checkpoint relaunch directive is invalid"
+                    )
+                frozen = RelaunchDirective.from_dict(existing["directive"])
+                if frozen.directive_id != directive.directive_id:
+                    raise ContractViolation(
+                        "ranks requested different checkpoint relaunch targets for one epoch"
+                    )
+                directive = frozen
+
             store_key = self._fallback_store_key(scope)
             for _attempt in range(16):
                 current = self.control_store.get(store_key)
@@ -698,10 +763,87 @@ class RecoveryCoordinatorService:
                     "concurrent checkpoint relaunch requests did not converge"
                 )
             self._fallback_requests[scope] = records
-        return {"ok": True, "action": "checkpoint_relaunch"}
+        return {
+            "ok": True,
+            "action": "checkpoint_relaunch",
+            "directive": dict(directive.as_dict()),
+        }
+
+    def acknowledge_checkpoint_relaunch(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        job_id: str,
+        attempt_id: str,
+        node_rank: int,
+        recovery_epoch: int,
+    ) -> Mapping[str, Any]:
+        if int(node_rank) < 0:
+            raise RecoveryRejected("checkpoint relaunch acknowledgement needs node_rank")
+        scope = self._scope(job_id, attempt_id)
+        store_key = self._relaunch_store_key(scope)
+        for _attempt in range(16):
+            current = self.control_store.get(store_key)
+            if not isinstance(current, Mapping) or not isinstance(
+                current.get("directive"), Mapping
+            ):
+                raise RecoveryRejected("checkpoint relaunch directive is not pending")
+            directive = RelaunchDirective.from_dict(current["directive"])
+            if directive.recovery_epoch != int(recovery_epoch):
+                raise ContractViolation(
+                    "checkpoint relaunch acknowledgement epoch does not match"
+                )
+            if str(payload.get("directive_id", "")) != directive.directive_id:
+                raise ContractViolation(
+                    "checkpoint relaunch acknowledgement digest does not match"
+                )
+            if str(payload.get("next_attempt_id", "")) != directive.next_attempt_id:
+                raise ContractViolation(
+                    "checkpoint relaunch acknowledgement attempt does not match"
+                )
+            command_digest = str(payload.get("command_digest", ""))
+            if directive.command_digest and command_digest != directive.command_digest:
+                raise ContractViolation(
+                    "checkpoint relaunch command digest does not match"
+                )
+            acknowledgements = dict(current.get("acknowledged_nodes", {}))
+            node_key = str(int(node_rank))
+            acknowledgement = {
+                "next_attempt_id": directive.next_attempt_id,
+                "command_digest": command_digest,
+                "worker_count": int(payload.get("worker_count", 0)),
+            }
+            previous = acknowledgements.get(node_key)
+            if previous is not None:
+                if previous != acknowledgement:
+                    raise ContractViolation(
+                        "node changed its checkpoint relaunch acknowledgement"
+                    )
+                return {
+                    "ok": True,
+                    "acknowledged_nodes": len(acknowledgements),
+                }
+            acknowledgements[node_key] = acknowledgement
+            updated = dict(current)
+            updated["acknowledged_nodes"] = acknowledgements
+            updated["status"] = "acknowledged"
+            if self.control_store.compare_and_set(
+                store_key,
+                current,
+                updated,
+                max(0, int(recovery_epoch)),
+            ):
+                return {
+                    "ok": True,
+                    "acknowledged_nodes": len(acknowledgements),
+                }
+        raise ContractViolation(
+            "concurrent checkpoint relaunch acknowledgements did not converge"
+        )
 
     def heartbeat(
         self,
+        payload: Optional[Mapping[str, Any]] = None,
         *,
         job_id: str,
         attempt_id: str,
@@ -710,11 +852,31 @@ class RecoveryCoordinatorService:
         with self._lock:
             fallback = self.control_store.get(self._fallback_store_key(scope))
             fallback_count = len(fallback) if isinstance(fallback, list) else 0
-            return {
+            response = {
                 "ok": True,
                 "latest_recovery_epoch": self._load_latest_epoch(scope),
                 "fallback_requests": fallback_count,
             }
+            heartbeat = dict(payload or {})
+            if str(heartbeat.get("role", "")) == "node_agent":
+                raw = self.control_store.get(self._relaunch_store_key(scope))
+                if isinstance(raw, Mapping) and isinstance(
+                    raw.get("directive"), Mapping
+                ):
+                    directive = RelaunchDirective.from_dict(raw["directive"])
+                    node_rank = int(heartbeat.get("node_rank", -1))
+                    command_digest = str(heartbeat.get("command_digest", ""))
+                    if (
+                        directive.command_digest
+                        and command_digest != directive.command_digest
+                    ):
+                        raise ContractViolation(
+                            "node agent command digest differs from relaunch directive"
+                        )
+                    acknowledged = dict(raw.get("acknowledged_nodes", {}))
+                    if node_rank >= 0 and str(node_rank) not in acknowledged:
+                        response["relaunch"] = dict(directive.as_dict())
+            return response
 
     def snapshot(self, job_id: str, attempt_id: str) -> Mapping[str, Any]:
         scope = self._scope(job_id, attempt_id)
@@ -734,8 +896,10 @@ class RecoveryCoordinatorService:
                 else []
             )
             self._fallback_requests[scope] = fallback_records
+            relaunch = self.control_store.get(self._relaunch_store_key(scope))
             return {
                 "latest_epoch": latest,
                 "assignments": assignments,
                 "fallback_requests": fallback_records,
+                "relaunch": relaunch,
             }

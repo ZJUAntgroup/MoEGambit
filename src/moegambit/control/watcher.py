@@ -106,6 +106,13 @@ class ControlRequestProcessor:
         except (TypeError, ValueError):
             return -1
 
+    @staticmethod
+    def _node_rank(envelope: Envelope) -> int:
+        try:
+            return int(envelope.sender.get("node_rank", -1))
+        except (TypeError, ValueError):
+            return -1
+
     def _dispatch(self, envelope: Envelope) -> Mapping[str, object]:
         common = {
             "job_id": envelope.job_id,
@@ -140,8 +147,15 @@ class ControlRequestProcessor:
                 recovery_epoch=envelope.recovery_epoch,
                 **common,
             )
+        if envelope.type == MessageType.CHECKPOINT_RELAUNCH_ACK:
+            return self.service.acknowledge_checkpoint_relaunch(
+                envelope.payload,
+                node_rank=self._node_rank(envelope),
+                recovery_epoch=envelope.recovery_epoch,
+                **common,
+            )
         if envelope.type == MessageType.HEARTBEAT:
-            return self.service.heartbeat(**common)
+            return self.service.heartbeat(envelope.payload, **common)
         raise RecoveryRejected(f"unsupported control message type {envelope.type!r}")
 
     def process(self, raw: bytes) -> bytes:

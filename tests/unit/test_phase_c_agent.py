@@ -12,6 +12,7 @@ import pytest
 from moegambit.errors import ContractViolation
 from moegambit.agent.node_agent import NodeAgent, NodeLaunchSpec
 from moegambit.agent.worker_supervisor import WorkerSupervisor
+from moegambit.control.relaunch import RelaunchDirective
 from moegambit.runtime.recovery_plan import RecoveryMode, RecoveryPlan, WorkerEndpoint
 
 
@@ -151,3 +152,75 @@ def test_node_agent_rejects_replacement_of_a_rank_not_marked_failed():
 
     with pytest.raises(ContractViolation, match="not marked failed"):
         agent.apply_plan(invalid)
+
+
+def test_node_agent_cold_relaunches_all_workers_with_checkpoint_contract(monkeypatch):
+    monkeypatch.setattr("os.killpg", lambda pid, signal: None)
+    supervisor = WorkerSupervisor(process_factory=_FakeProcess, base_env={})
+    spec = NodeLaunchSpec(
+        nnodes=1,
+        nproc_per_node=2,
+        node_rank=0,
+        master_addr="127.0.0.1",
+        master_port=24000,
+        argv=("python", "train.py"),
+        job_id="job",
+        attempt_id="attempt-0",
+        checkpoint_argv_template=("--load", "{checkpoint_locator}"),
+    )
+    agent = NodeAgent(spec, supervisor=supervisor)
+    old = agent.start_all()
+    directive = RelaunchDirective.create(
+        job_id="job",
+        attempt_id="attempt-0",
+        recovery_epoch=3,
+        checkpoint_locator="/checkpoints/iter_0000008",
+        checkpoint_step=8,
+        reason="peer restore failed",
+        command_digest=spec.command_digest,
+    )
+
+    class _Client:
+        def __init__(self):
+            self.notifications = []
+
+        def notify(self, message_type, payload, recovery_epoch):
+            self.notifications.append((message_type, payload, recovery_epoch))
+            return {"ok": True}
+
+    client = _Client()
+    relaunched = agent.apply_relaunch_directive(client, directive.as_dict())
+
+    assert all(not handle.running for handle in old)
+    assert [handle.generation for handle in relaunched] == [1, 1]
+    assert relaunched[0].process.argv[-2:] == [
+        "--load",
+        "/checkpoints/iter_0000008",
+    ]
+    environment = relaunched[0].process.kwargs["env"]
+    assert environment["MOEGAMBIT_ATTEMPT_ID"] == "attempt-0.r3"
+    assert environment["MOEGAMBIT_CHECKPOINT_STEP"] == "8"
+    assert environment["MOEGAMBIT_REPLACEMENT"] == "0"
+    assert client.notifications[0][0] == "checkpoint_relaunch_ack"
+    assert agent.current_attempt_id == "attempt-0.r3"
+
+
+def test_node_agent_rejects_relaunch_command_mismatch_before_teardown(monkeypatch):
+    monkeypatch.setattr("os.killpg", lambda pid, signal: None)
+    supervisor = WorkerSupervisor(process_factory=_FakeProcess, base_env={})
+    agent = NodeAgent(_launch_spec(), supervisor=supervisor)
+    handles = agent.start_all()
+    directive = RelaunchDirective.create(
+        job_id="job",
+        attempt_id="0",
+        recovery_epoch=1,
+        checkpoint_locator="checkpoint://step-4",
+        checkpoint_step=4,
+        reason="test",
+        command_digest="sha256:wrong",
+    )
+
+    with pytest.raises(ContractViolation, match="command digest"):
+        agent.relaunch_from_checkpoint(directive)
+
+    assert all(handle.running for handle in handles)

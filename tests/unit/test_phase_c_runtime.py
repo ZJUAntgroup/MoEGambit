@@ -269,9 +269,12 @@ def test_checkpoint_fallback_is_requested_but_not_reported_as_in_place_recovery(
         RuntimeConfig(enabled=True, fallback=FallbackMode.CHECKPOINT_RELAUNCH),
         fallback_controller=fallback,
     )
+    runtime.record_checkpoint("checkpoint://step-8", 8)
 
     assert not runtime.on_distributed_error(_failure())
     assert len(fallback.requests) == 1
+    assert fallback.requests[0].checkpoint_locator == "checkpoint://step-8"
+    assert fallback.requests[0].checkpoint_step == 8
     assert runtime.describe()["last_recovery"]["result"] == "fallback"
 
 

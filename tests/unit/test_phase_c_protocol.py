@@ -217,6 +217,8 @@ def test_checkpoint_relaunch_request_is_auditable():
             "reason": "peer restore failed",
             "error_type": "StateUnavailable",
             "evidence": {"source": "peer"},
+            "checkpoint_locator": "checkpoint:///models/job/iter_0000007",
+            "checkpoint_step": 7,
         },
         job_id="job",
         attempt_id="a",
@@ -224,9 +226,91 @@ def test_checkpoint_relaunch_request_is_auditable():
         recovery_epoch=2,
     )
 
-    assert result == {"ok": True, "action": "checkpoint_relaunch"}
+    assert result["ok"] is True
+    assert result["action"] == "checkpoint_relaunch"
+    assert result["directive"]["checkpoint_step"] == 7
     snapshot = service.snapshot("job", "a")
     assert snapshot["fallback_requests"][0]["reason"] == "peer restore failed"
+
+
+def test_node_agent_heartbeat_receives_and_acknowledges_relaunch_once():
+    service = _service()
+    result = service.request_checkpoint_relaunch(
+        {
+            "at_step": 9,
+            "reason": "peer restore failed",
+            "error_type": "StateUnavailable",
+            "checkpoint_locator": "checkpoint://step-7",
+            "checkpoint_step": 7,
+            "command_digest": "sha256:command",
+        },
+        job_id="job",
+        attempt_id="a",
+        rank=0,
+        recovery_epoch=2,
+    )
+    heartbeat = service.heartbeat(
+        {
+            "role": "node_agent",
+            "node_rank": 0,
+            "command_digest": "sha256:command",
+        },
+        job_id="job",
+        attempt_id="a",
+    )
+
+    assert heartbeat["relaunch"] == result["directive"]
+    acknowledgement = service.acknowledge_checkpoint_relaunch(
+        {
+            "directive_id": result["directive"]["directive_id"],
+            "next_attempt_id": result["directive"]["next_attempt_id"],
+            "command_digest": "sha256:command",
+            "worker_count": 8,
+        },
+        job_id="job",
+        attempt_id="a",
+        node_rank=0,
+        recovery_epoch=2,
+    )
+    repeated = service.heartbeat(
+        {
+            "role": "node_agent",
+            "node_rank": 0,
+            "command_digest": "sha256:command",
+        },
+        job_id="job",
+        attempt_id="a",
+    )
+
+    assert acknowledgement["acknowledged_nodes"] == 1
+    assert "relaunch" not in repeated
+
+
+def test_same_epoch_cannot_choose_two_checkpoint_relaunch_targets():
+    service = _service()
+    base = {
+        "at_step": 9,
+        "reason": "test",
+        "checkpoint_locator": "checkpoint://step-7",
+        "checkpoint_step": 7,
+    }
+    service.request_checkpoint_relaunch(
+        base,
+        job_id="job",
+        attempt_id="a",
+        rank=0,
+        recovery_epoch=2,
+    )
+    changed = dict(base, checkpoint_locator="checkpoint://other-step-7")
+
+    with pytest.raises(ContractViolation, match="different checkpoint"):
+        service.request_checkpoint_relaunch(
+            changed,
+            job_id="job",
+            attempt_id="a",
+            rank=1,
+            recovery_epoch=2,
+        )
 
 
 def test_real_control_server_round_trip_on_loopback():

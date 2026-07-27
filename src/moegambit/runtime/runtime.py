@@ -45,6 +45,16 @@ class RecoveryRuntime:
         self._last_execution: Optional[RecoveryExecutionResult] = None
         self._last_record: Optional[RecoveryRecord] = None
         self._last_record_observed = False
+        self._latest_checkpoint: Optional[tuple[str, int]] = None
+        configured_locator = os.environ.get("MOEGAMBIT_CHECKPOINT_LOCATOR", "")
+        configured_step = os.environ.get("MOEGAMBIT_CHECKPOINT_STEP", "")
+        if configured_locator and configured_step:
+            try:
+                self.record_checkpoint(configured_locator, int(configured_step))
+            except (TypeError, ValueError) as exc:
+                raise MoEGambitError(
+                    "invalid MOEGAMBIT_CHECKPOINT_LOCATOR/STEP configuration"
+                ) from exc
         if self._enabled and adapter is None:
             raise MoEGambitError(
                 "elastic recovery is enabled but no framework adapter was provided"
@@ -68,6 +78,23 @@ class RecoveryRuntime:
     @property
     def recovery_epoch(self) -> int:
         return self.epochs.epoch
+
+    def record_checkpoint(self, locator: str, step: int) -> None:
+        """Publish the latest fully committed checkpoint for fallback use.
+
+        Training integrations call this only after the checkpoint manifest and
+        all shards are durable.  Merely reaching a training step is not proof
+        that a restartable checkpoint exists.
+        """
+
+        if not isinstance(locator, str) or not locator.strip():
+            raise ValueError("checkpoint locator must be non-empty")
+        step = int(step)
+        if step < 0:
+            raise ValueError("checkpoint step must be non-negative")
+        if self._latest_checkpoint is not None and step < self._latest_checkpoint[1]:
+            raise ValueError("latest checkpoint step cannot move backwards")
+        self._latest_checkpoint = (locator.strip(), step)
 
     def iteration_boundary(self, step: int) -> int:
         if not self._enabled:
@@ -279,6 +306,17 @@ class RecoveryRuntime:
             reason=reason,
             error_type=type(exc).__name__,
             evidence=dict(evidence or {}),
+            checkpoint_locator=(
+                None
+                if self._latest_checkpoint is None
+                else self._latest_checkpoint[0]
+            ),
+            checkpoint_step=(
+                -1
+                if self._latest_checkpoint is None
+                else self._latest_checkpoint[1]
+            ),
+            command_digest=os.environ.get("MOEGAMBIT_COMMAND_DIGEST") or None,
         )
         try:
             accepted = bool(
@@ -412,6 +450,11 @@ class RecoveryRuntime:
         if self._last_record is not None:
             info["last_recovery"] = self._last_record.to_dict()
         info["metrics"] = self.metrics.snapshot()
+        if self._latest_checkpoint is not None:
+            info["latest_checkpoint"] = {
+                "locator": self._latest_checkpoint[0],
+                "step": self._latest_checkpoint[1],
+            }
         return info
 
 
