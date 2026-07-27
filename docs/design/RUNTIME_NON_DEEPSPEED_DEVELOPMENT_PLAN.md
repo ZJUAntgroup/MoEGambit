@@ -361,7 +361,10 @@ examples/deepspeed/
 
 退出条件：fake adapter 可以端到端执行同一冻结计划，旧 epoch 和 split-brain 被拒绝。
 
-实现证据和能力边界见 `docs/development/PHASE_C_IMPLEMENTATION.md`。Phase C 的通用计划服务当前只接受单 rank fail-stop 和 replicated peer state；sharded/unique state、Megatron 行为迁移及目标集群验证分别属于后续阶段，不能据此标记为生产 Supported。
+实现证据和当时边界见 `docs/development/PHASE_C_IMPLEMENTATION.md`。后续 Phase H
+已把通用计划扩展到显式 sharded/unique/memory/checkpoint 来源，并加入持久化 store
+和 checkpoint relaunch；单 epoch 多 rank 同时故障与目标集群验证仍未完成，不能
+据此标记为生产 Supported。
 
 ### Phase D：Megatron 适配与行为保持
 
@@ -397,6 +400,8 @@ slots 和 param-group options，并在继续训练后通过完整训练状态摘
 
 ### Phase F：发布工程和文档
 
+状态：CLI 与包工程实现完成；本机 wheel/测试复核及目标集群矩阵见实施文档。
+
 - 完成 CLI `launch|watcher|doctor`；
 - 构建 wheel 并验证 LICENSE/LEGAL；
 - 整理设计、实施状态、限制和实机测试说明；
@@ -404,6 +409,20 @@ slots 和 param-group options，并在继续训练后通过完整训练状态摘
 - 清理内部路径、token 和不可发布配置。
 
 退出条件：全新环境可复现安装与示例，不依赖开发者机器隐式文件。
+
+### Phase F+：非 DeepSpeed 通用能力闭环
+
+状态：通用源码和无 torch 正确性测试完成；GPU/NCCL/Megatron 实机矩阵待执行。
+
+- 实现 adapter-normalized state-source inventory、recovery policy 和 resolver；
+- 支持 replicated、sharded、unique、memory replica 和 checkpoint 的确定性规划；
+- 将 optimizer memory replication 提取到 `src/moegambit/replication`；
+- 实现 SQLite persistent ControlStore 与 watcher restart/CAS；
+- 接通 checkpoint fallback、RelaunchDirective、NodeAgent cold relaunch 和 ACK；
+- 补齐 `launch|watcher|doctor` CLI 与 checkpoint timing 示例。
+
+实现证据、边界和实机待办见
+`docs/development/PHASE_H_CAPABILITY_CLOSURE.md`。
 
 ### Phase G：未来系统集成门槛
 
@@ -534,4 +553,9 @@ slots 和 param-group options，并在继续训练后通过完整训练状态摘
 
 ## 14. 下一步
 
-设计文档评审通过后，按 Phase B 开始迁移包骨架和公共契约。第一批代码提交不触碰 Megatron 恢复语义，也不触碰 DeepSpeed 目录，先建立可安装、可测试、依赖方向明确的核心基础。
+通用非 DeepSpeed 源码闭环完成后，下一步不是继续扩大本机“已支持”声明，而是：
+
+1. 在目标 GPU 集群执行 Megatron 和 Generic DDP 的完整故障矩阵；
+2. 决定跨主机 watcher HA 所使用的平台 ControlStore；
+3. 与 DeepSpeed 负责人确认 adapter 注入和唯一包身份后，在 system 分支集成；
+4. 只有取得可复核的实机结果后，才提升对应 support level。

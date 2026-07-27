@@ -114,17 +114,23 @@ Phase C 单元和端到端测试覆盖：
 
 ## 明确限制
 
-以下内容没有被 Phase C 的通过结果覆盖：
+以下内容没有被当时 Phase C 的通过结果覆盖。后续 Phase H 已补齐其中的通用代码，
+详见 `PHASE_H_CAPABILITY_CLOSURE.md`；本节保留为 Phase C 历史边界，不能继续用来
+描述当前 `runtime` HEAD：
 
 1. 通用计划服务当前只支持单个 failed rank 和 `replicated` peer state。
-   `sharded` 与 `unique` state 会 fail closed；对应 resolver 在 Megatron 和
-   Generic DDP 阶段实现。
+   `sharded` 与 `unique` state 当时会 fail closed。Phase H 已加入显式 candidate
+   inventory、policy、deterministic planner 和 resolver；adapter 不提供证据时仍
+   fail closed。
 2. `InMemoryControlStore` 只适用于单 watcher 和单进程测试。跨 watcher HA
-   需要映射到平台存储或具备一致性的外部 store。
+   需要映射到平台存储或具备一致性的外部 store。Phase H 已实现 SQLite 单机
+   持久化/CAS；跨主机 HA 仍需平台 store。
 3. checkpoint fallback 已完成签名请求、审计与运行时语义，但旧 launcher
-   的实际退出/relaunch 接线要在后续兼容迁移时完成。
+   的实际退出/relaunch 接线要在后续兼容迁移时完成。Phase H 已接通新 NodeAgent
+   冷重启与 ACK；旧 launcher 通过显式开关进入新路径。
 4. NodeAgent 已具备启动和 replacement 原语，但尚未替换 main 中的旧
-   `elastic_launcher.py`；旧路径 shim 和 Megatron 接入属于 Phase D。
+   `elastic_launcher.py`；旧路径 shim 和 Megatron 接入属于 Phase D。Phase H
+   已增加 `--moegambit-runtime` 显式 shim；不带开关仍保留旧 launcher 行为。
 5. 没有进行 GPU、NCCL、Megatron 或真实多机验证。因此这些能力仍是
    Experimental，不能标记为生产 Supported。
 6. ZeRO-2 测试需要 PyTorch；当前本地无 torch 环境不执行该测试。
