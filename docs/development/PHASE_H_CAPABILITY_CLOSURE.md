@@ -133,7 +133,7 @@ PyTorch optimizer tensor ring 测试在安装 torch 的环境执行；没有 tor
 
 2026-07-28 在当前开发机完成的最终复核结果：
 
-- `python3 -m pytest -q -rs`：`147 passed, 2 skipped`；
+- `python3 -m pytest -q -rs`：`152 passed, 2 skipped`；
 - skip 1：未安装 PyTorch，`test_zero2_memory_checkpoint.py` 不收集真实 tensor ring；
 - skip 2：当前执行沙箱不允许测试创建 loopback listener；其余基于同一
   `ControlRequestProcessor` 的签名回环和 client/server 契约测试通过；
