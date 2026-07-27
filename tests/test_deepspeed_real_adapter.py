@@ -54,6 +54,18 @@ def test_pipeline_backward_has_single_hook_owned_lifecycle():
     assert "self.optimizer.update_hp_grads" not in backward
 
 
+def test_deepspeed_rank_log_directory_creation_is_idempotent():
+    source = (
+        ROOT
+        / "DeepSpeed"
+        / "deepspeed"
+        / "launcher"
+        / "launch.py"
+    ).read_text(encoding="utf-8")
+
+    assert "os.makedirs(args.enable_each_rank_log, exist_ok=True)" in source
+
+
 def test_runtime_hooks_common_optimizer_boundary():
     source = (
         ROOT
@@ -727,6 +739,78 @@ def test_hot_spare_relays_local_rank_zero_log_incrementally(
         "[worker-rank16] first",
         "[worker-rank16] second",
     ]
+
+
+def test_hot_spare_key_relay_keeps_progress_and_suppresses_noise(
+    tmp_path, capsys, monkeypatch
+):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    monkeypatch.setenv("MOEGAMBIT_RELAY_RANK_LOG", "key")
+    log_dir = tmp_path / "rank_logs" / "epoch_1" / "node_8"
+    log_dir.mkdir(parents=True)
+    rank_log = log_dir / "20260727120000_rank0.log"
+    rank_log.write_text(
+        "NCCL_IB_HCA=mlx5_bond\n"
+        "[deepspeed-real] iteration 18/100 loss=1.0\n"
+        "MoEGambit single-stage hybrid restore complete\n",
+        encoding="utf-8",
+    )
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=8,
+        role="active",
+        advertise_addr="127.0.0.1",
+        command=("runner", "--num_gpus", "8"),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    supervisor.process_command = (
+        "runner",
+        "--num_gpus",
+        "8",
+        "--enable_each_rank_log",
+        str(log_dir),
+    )
+    supervisor.process_logical_node = 0
+
+    supervisor._relay_worker_log()
+
+    output = capsys.readouterr().out
+    assert "NCCL_IB_HCA" not in output
+    assert "iteration 18/100" in output
+    assert "single-stage hybrid restore complete" in output
+
+
+def test_hot_spare_formats_rank_logs_by_epoch_and_physical_node():
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=8,
+        role="active",
+        advertise_addr="127.0.0.1",
+        command=(
+            "runner",
+            "--enable_each_rank_log",
+            "/tmp/logs/epoch_{recovery_epoch}/node_{physical_node}",
+        ),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+
+    command = supervisor._formatted_command(
+        logical_node=0,
+        epoch=1,
+        master_addr="10.0.0.1",
+        master_port=24001,
+    )
+
+    assert command[-1] == "/tmp/logs/epoch_1/node_8"
 
 
 def test_hot_spare_coordinator_aborts_stalled_recovery():

@@ -769,6 +769,7 @@ class AgentSupervisor:
         self.retired_logged = False
         self.process_started_at: float | None = None
         self.process_logical_node: int | None = None
+        self.process_command: tuple[str, ...] | None = None
         self._relay_log_path: Path | None = None
         self._relay_log_offset = 0
         self._relay_log_buffer = ""
@@ -871,17 +872,21 @@ class AgentSupervisor:
             environment.pop("MOEGAMBIT_RECOVERY_FAILURE_STEP", None)
         if local_world_size is not None:
             environment["LOCAL_WORLD_SIZE"] = local_world_size
+        rank_log_dir = _command_option(
+            command, "--enable_each_rank_log"
+        )
         logger.warning(
             "starting worker physical_node=%d logical_node=%d epoch=%d "
-            "local_world_size=%s master=%s:%d command=%s",
+            "local_world_size=%s master=%s:%d rank_logs=%s",
             self.physical_node,
             logical_node,
             epoch,
             environment.get("LOCAL_WORLD_SIZE", "unknown"),
             master_addr,
             master_port,
-            command,
+            rank_log_dir or "disabled",
         )
+        logger.debug("worker command=%s", command)
         self.process = subprocess.Popen(
             command,
             env=environment,
@@ -889,6 +894,7 @@ class AgentSupervisor:
         )
         self.process_started_at = time.time()
         self.process_logical_node = logical_node
+        self.process_command = command
         self.process_epoch = epoch
         self.completed_epoch = None
         self._relay_log_path = None
@@ -899,7 +905,8 @@ class AgentSupervisor:
         if self.process_logical_node is None:
             return None
         log_dir_text = _command_option(
-            self.command, "--enable_each_rank_log"
+            self.process_command or self.command,
+            "--enable_each_rank_log",
         )
         if not log_dir_text:
             return None
@@ -923,10 +930,12 @@ class AgentSupervisor:
         return max(candidates, key=lambda path: path.stat().st_mtime)
 
     def _relay_worker_log(self) -> None:
-        if os.environ.get(
-            "MOEGAMBIT_RELAY_RANK_LOG", "1"
-        ).strip().lower() not in {"1", "true", "yes", "on"}:
+        relay_mode = os.environ.get(
+            "MOEGAMBIT_RELAY_RANK_LOG", "key"
+        ).strip().lower()
+        if relay_mode in {"0", "false", "no", "off", "none"}:
             return
+        relay_all = relay_mode in {"1", "true", "yes", "on", "full"}
         path = self._rank_log_path()
         if path is None:
             return
@@ -949,6 +958,21 @@ class AgentSupervisor:
         if lines and not lines[-1].endswith(("\n", "\r")):
             self._relay_log_buffer = lines.pop()
         for line in lines:
+            if not relay_all and not any(
+                marker in line
+                for marker in (
+                    "iteration ",
+                    "FAULT_",
+                    "single-stage hybrid restore",
+                    "Traceback (most recent call last)",
+                    "FATAL ",
+                    "RuntimeError:",
+                    "OutOfMemoryError:",
+                    "Error:",
+                    "Exception:",
+                )
+            ):
+                continue
             print(
                 f"[worker-rank{rank_text}] {line}",
                 end="",
@@ -1178,7 +1202,8 @@ class AgentSupervisor:
                             if return_code != 0:
                                 diagnostic = (
                                     collect_worker_failure_diagnostic(
-                                        self.command,
+                                        self.process_command
+                                        or self.command,
                                         epoch=epoch,
                                         logical_node=logical_node,
                                         process_started_at=(
@@ -1272,7 +1297,7 @@ class AgentSupervisor:
                         and logical_node is not None
                     ):
                         diagnostic = collect_worker_failure_diagnostic(
-                            self.command,
+                            self.process_command or self.command,
                             epoch=epoch,
                             logical_node=logical_node,
                             process_started_at=self.process_started_at,

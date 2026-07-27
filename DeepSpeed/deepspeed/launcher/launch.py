@@ -226,13 +226,15 @@ def main():
             # prepare the log path and the file name prefix
             if os.path.isfile(args.enable_each_rank_log):
                 raise ValueError(f"{args.enable_each_rank_log} should not be a file, it should be a directory.")
-            if not os.path.exists(args.enable_each_rank_log):
-                try:
-                    os.makedirs(args.enable_each_rank_log)
-                except Exception as e:
-                    print(e)
-                    raise ValueError(f"unable to create directory {args.enable_each_rank_log} for each rank log.")
-            log_name_prefix = time.strftime("%Y%m%d%H%M%S", time.localtime())
+            try:
+                os.makedirs(args.enable_each_rank_log, exist_ok=True)
+            except Exception as e:
+                print(e)
+                raise ValueError(f"unable to create directory {args.enable_each_rank_log} for each rank log.")
+            log_name_prefix = (
+                time.strftime("%Y%m%d%H%M%S", time.localtime())
+                + f"_pid{os.getpid()}"
+            )
 
         for local_proc in range(0, num_local_procs):
             # each process's rank

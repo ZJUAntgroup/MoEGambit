@@ -149,8 +149,9 @@ export MOEGAMBIT_ZERO2_REPLICATION_TIMEOUT="${MOEGAMBIT_ZERO2_REPLICATION_TIMEOU
 # optimizer shards of host memory per rank for this 30B-class model.
 export MOEGAMBIT_ZERO2_BUFFER_SLOTS="${MOEGAMBIT_ZERO2_BUFFER_SLOTS:-1}"
 export MOEGAMBIT_DEEPSPEED_APPLICATION_CHECKPOINT=0
-export MOEGAMBIT_RELAY_RANK_LOG="${MOEGAMBIT_RELAY_RANK_LOG:-1}"
+export MOEGAMBIT_RELAY_RANK_LOG="${MOEGAMBIT_RELAY_RANK_LOG:-key}"
 export MOEGAMBIT_DEEPSPEED_LOG_LEVEL="${MOEGAMBIT_DEEPSPEED_LOG_LEVEL:-info}"
+export MOEGAMBIT_LAUNCHER_LOG_LEVEL="${MOEGAMBIT_LAUNCHER_LOG_LEVEL:-warning}"
 export MOEGAMBIT_STANDBY_PREFETCH="${MOEGAMBIT_STANDBY_PREFETCH:-1}"
 export MOEGAMBIT_STANDBY_PREFETCH_LOGICAL_NODE="$FAULT_INJECT_NODE"
 export MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB="${MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB:-128}"
@@ -318,11 +319,15 @@ run_case() {
   local launch_node_rank="${NODE_RANK}"
   local launch_master_addr="${MASTER_ADDR}"
   local launch_master_port="${case_port}"
+  local rank_log_dir="${state_dir}/rank_logs/epoch_0/node_${NODE_RANK}"
   if [[ "${hot_swap}" == "1" ]]; then
     launch_node_rank="{logical_node}"
     launch_master_addr="{master_addr}"
     launch_master_port="{master_port}"
+    rank_log_dir="${state_dir}/rank_logs/epoch_{recovery_epoch}/node_{physical_node}"
   fi
+  mkdir -p "${state_dir}/rank_logs"
+  echo "[deepspeed-real-launch] full_rank_logs=${rank_log_dir}"
   local -a launch_command=(
     "${PYTHON_BIN}" -u -m deepspeed.launcher.runner \
     --hostfile "${HOSTFILE}" \
@@ -330,7 +335,8 @@ run_case() {
     --node_rank "${launch_node_rank}" \
     --num_nodes "${TRAINING_NNODES}" \
     --num_gpus "${NPROC_PER_NODE}" \
-    --enable_each_rank_log "${state_dir}/rank_logs" \
+    --enable_each_rank_log "${rank_log_dir}" \
+    --log_level "${MOEGAMBIT_LAUNCHER_LOG_LEVEL}" \
     --master_addr "${launch_master_addr}" \
     --master_port "${launch_master_port}"
   )

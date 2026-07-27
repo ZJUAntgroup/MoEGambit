@@ -166,7 +166,7 @@ Moegambit/
 
 ## Architecture Guide
 
-See [`docs/architecture.md`](docs/architecture.md) for the engine-neutral runtime and adapter design. For a deeper code-guided explanation of the project structure, hot replacement workflow, hybrid state recovery, and ZeRO-2/distributed optimizer behavior, see [`docs/PROJECT_ARCHITECTURE_HOT_REPLACEMENT_ZERO2.md`](docs/PROJECT_ARCHITECTURE_HOT_REPLACEMENT_ZERO2.md).
+See [`docs/architecture.md`](docs/architecture.md) for the engine-neutral runtime and adapter design. For a deeper project overview, hot replacement workflow, hybrid state recovery, and ZeRO-2/distributed optimizer behavior, see [`docs/PROJECT_ARCHITECTURE_HOT_REPLACEMENT_ZERO2.md`](docs/PROJECT_ARCHITECTURE_HOT_REPLACEMENT_ZERO2.md). For a code-level call-chain walkthrough of the recovery flow, see [`docs/CODE_WALKTHROUGH_RECOVERY_FLOW.md`](docs/CODE_WALKTHROUGH_RECOVERY_FLOW.md).
 
 ## Requirements
 
