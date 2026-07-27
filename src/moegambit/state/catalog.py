@@ -30,6 +30,7 @@ __all__ = [
 
 class StateKind(Enum):
     PARAMETER = "parameter"
+    BUFFER = "buffer"
     OPTIMIZER_TENSOR = "optimizer_tensor"
     OPTIMIZER_SCALAR = "optimizer_scalar"
     RNG = "rng"

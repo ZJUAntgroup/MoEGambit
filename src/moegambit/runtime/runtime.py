@@ -73,6 +73,9 @@ class RecoveryRuntime:
         if not self._enabled:
             return int(step)
         self.trace(LifecyclePhase.ITERATION_BOUNDARY, step=step)
+        boundary = getattr(self.adapter.training, "iteration_boundary", None)
+        if callable(boundary):
+            boundary(int(step))
         driver = getattr(self.adapter, "recovery_driver", None)
         if driver is None:
             return int(step)
