@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -811,6 +812,39 @@ def test_hot_spare_formats_rank_logs_by_epoch_and_physical_node():
     )
 
     assert command[-1] == "/tmp/logs/epoch_1/node_8"
+
+
+def test_hot_spare_heartbeat_runs_independently_of_supervision():
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=3,
+        role="active",
+        advertise_addr="127.0.0.1",
+        command=("runner",),
+        heartbeat_interval=0.01,
+        startup_timeout=1,
+    )
+    received = threading.Event()
+    calls = []
+
+    def request(kind, **payload):
+        calls.append((kind, payload))
+        received.set()
+        return {"action": "run"}
+
+    supervisor._request = request
+    supervisor._start_heartbeat()
+    try:
+        assert received.wait(timeout=1.0)
+    finally:
+        supervisor._stop_heartbeat()
+
+    assert calls[0][0] == "heartbeat"
+    assert calls[0][1]["state"] == "active"
 
 
 def test_hot_spare_coordinator_aborts_stalled_recovery():

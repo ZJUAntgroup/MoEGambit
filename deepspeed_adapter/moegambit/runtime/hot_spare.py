@@ -776,6 +776,9 @@ class AgentSupervisor:
         self._prefetch_stop = threading.Event()
         self._prefetch_thread: threading.Thread | None = None
         self._prefetched_checkpoint_tag: str | None = None
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread: threading.Thread | None = None
+        self._last_control_warning = 0.0
 
     def _request(
         self, kind: str, **payload: Any
@@ -810,6 +813,58 @@ class AgentSupervisor:
         raise TimeoutError(
             f"could not register with hot-spare coordinator: {last_error}"
         )
+
+    def _heartbeat_loop(self) -> None:
+        last_warning = 0.0
+        while not self._heartbeat_stop.wait(self.heartbeat_interval):
+            process = self.process
+            state = (
+                "running"
+                if process is not None and process.poll() is None
+                else self.role
+            )
+            try:
+                self._request(
+                    "heartbeat",
+                    epoch=int(self.process_epoch or 0),
+                    state=state,
+                )
+            except (
+                ConnectionError,
+                OSError,
+                RuntimeError,
+                TimeoutError,
+            ) as exc:
+                now = time.monotonic()
+                if now - last_warning >= 30.0:
+                    logger.warning(
+                        "heartbeat request failed physical_node=%d: %s",
+                        self.physical_node,
+                        exc,
+                    )
+                    last_warning = now
+
+    def _start_heartbeat(self) -> None:
+        if (
+            self._heartbeat_thread is not None
+            and self._heartbeat_thread.is_alive()
+        ):
+            return
+        self._heartbeat_stop.clear()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name=f"moegambit-heartbeat-{self.physical_node}",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
+
+    def _stop_heartbeat(self) -> None:
+        thread = self._heartbeat_thread
+        if thread is None:
+            return
+        self._heartbeat_stop.set()
+        thread.join(timeout=max(2.0, self.heartbeat_interval * 2))
+        self._heartbeat_thread = None
 
     def _formatted_command(
         self,
@@ -918,16 +973,26 @@ class AgentSupervisor:
         except ValueError:
             local_world_size = 1
         rank = self.process_logical_node * local_world_size
-        candidates = list(Path(log_dir_text).glob(f"*_rank{rank}.log"))
-        candidates = [
-            path
-            for path in candidates
-            if self.process_started_at is None
-            or path.stat().st_mtime >= self.process_started_at - 5.0
-        ]
-        if not candidates:
+        try:
+            candidates = list(
+                Path(log_dir_text).glob(f"*_rank{rank}.log")
+            )
+        except OSError:
             return None
-        return max(candidates, key=lambda path: path.stat().st_mtime)
+        eligible: list[tuple[float, Path]] = []
+        for path in candidates:
+            try:
+                modified = path.stat().st_mtime
+            except OSError:
+                continue
+            if (
+                self.process_started_at is None
+                or modified >= self.process_started_at - 5.0
+            ):
+                eligible.append((modified, path))
+        if not eligible:
+            return None
+        return max(eligible, key=lambda item: item[0])[1]
 
     def _relay_worker_log(self) -> None:
         relay_mode = os.environ.get(
@@ -936,6 +1001,12 @@ class AgentSupervisor:
         if relay_mode in {"0", "false", "no", "off", "none"}:
             return
         relay_all = relay_mode in {"1", "true", "yes", "on", "full"}
+        if (
+            not relay_all
+            and self.process_logical_node != 0
+            and self.role != "standby"
+        ):
+            return
         path = self._rank_log_path()
         if path is None:
             return
@@ -1149,6 +1220,7 @@ class AgentSupervisor:
 
     def run(self) -> int:
         command = self._register()
+        self._start_heartbeat()
         try:
             while True:
                 action = str(command.get("action", "wait"))
@@ -1329,17 +1401,33 @@ class AgentSupervisor:
                     )
 
                 time.sleep(self.heartbeat_interval)
-                command = self._request(
-                    "heartbeat",
-                    epoch=epoch,
-                    state=(
-                        "running"
-                        if self.process is not None
-                        and self.process.poll() is None
-                        else action
-                    ),
-                )
+                try:
+                    command = self._request(
+                        "poll",
+                        epoch=epoch,
+                        state=(
+                            "running"
+                            if self.process is not None
+                            and self.process.poll() is None
+                            else action
+                        ),
+                    )
+                except (
+                    ConnectionError,
+                    OSError,
+                    TimeoutError,
+                ) as exc:
+                    now = time.monotonic()
+                    if now - self._last_control_warning >= 30.0:
+                        logger.warning(
+                            "control poll failed physical_node=%d; "
+                            "keeping current command: %s",
+                            self.physical_node,
+                            exc,
+                        )
+                        self._last_control_warning = now
         finally:
+            self._stop_heartbeat()
             self._stop_standby_prefetch()
             self._stop_worker()
 
