@@ -1,13 +1,15 @@
 # Generic DDP conformance example
 
 `train_loop.py` shows the five explicit lifecycle hooks. `fault_replacement.py`
-is the stronger test: it kills logical rank 1, starts a new process for the same
-logical rank, rebuilds c10d and DDP, restores parameters and AdamW state from a
-survivor, then checks that both ranks finish with the same model digest.
+is the stronger test: it kills either logical rank, starts a new process for the
+same logical rank, rebuilds c10d and DDP, restores parameters, committed model
+buffers, AdamW slots, and optimizer param-group options from a survivor, then
+checks that both ranks finish with the same complete training-state digest.
 
 ```bash
 pip install -e '.[torch]'
 python examples/generic_ddp/fault_replacement.py
+python examples/generic_ddp/fault_replacement.py --fail-rank 0
 ```
 
 For NCCL, use a machine with two visible GPUs:

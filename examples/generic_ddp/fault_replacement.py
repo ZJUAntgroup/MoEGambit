@@ -4,23 +4,25 @@ This is intentionally a small controller rather than a production launcher.
 It proves the architecture's critical claim without importing Megatron:
 
 1. train ordinary DDP for two committed steps;
-2. kill logical rank 1;
-3. launch a new process that owns logical rank 1;
+2. kill the selected logical rank;
+3. launch a new process that owns that logical rank;
 4. rebuild WORLD and the DDP reducer at a new rendezvous;
-5. materialize and restore AdamW state from surviving rank 0;
-6. run additional steps and compare final parameter digests.
+5. restore parameters, committed buffers, AdamW slots, and param-group options;
+6. run additional steps and compare complete training-state digests.
 
 Run from a source checkout (PyTorch required)::
 
     python examples/generic_ddp/fault_replacement.py
 
 Use ``--backend nccl`` on a machine with at least two GPUs.
+Use ``--fail-rank 0`` to exercise the rank-0 replacement path.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import os
 import queue
 import socket
@@ -85,6 +87,7 @@ def _new_model_optimizer(torch: Any, device: Any):
     torch.manual_seed(1234)
     model = torch.nn.Sequential(
         torch.nn.Linear(8, 16),
+        torch.nn.BatchNorm1d(16),
         torch.nn.Tanh(),
         torch.nn.Linear(16, 2),
     ).to(device)
@@ -92,13 +95,29 @@ def _new_model_optimizer(torch: Any, device: Any):
     return model, optimizer
 
 
-def _wrap_ddp(torch: Any, module: Any, group: Any, device: Any):
+def _wrap_ddp(
+    torch: Any,
+    module: Any,
+    group: Any,
+    device: Any,
+    *,
+    init_sync: bool = True,
+):
     if hasattr(module, "module"):
         cleanup = getattr(module, "_remove_autograd_hooks", None)
         if callable(cleanup):
             cleanup()
         module = module.module
     kwargs = {"process_group": group}
+    if not init_sync:
+        parameters = inspect.signature(
+            torch.nn.parallel.DistributedDataParallel
+        ).parameters
+        if "init_sync" not in parameters:
+            raise RuntimeError(
+                "this PyTorch version cannot safely disable DDP constructor sync"
+            )
+        kwargs["init_sync"] = False
     if device.type == "cuda":
         kwargs.update(device_ids=[device.index], output_device=device.index)
     return torch.nn.parallel.DistributedDataParallel(module, **kwargs)
@@ -112,16 +131,65 @@ def _batch(torch: Any, step: int, device: Any):
     return inputs, targets
 
 
-def _digest(torch: Any, model: Any) -> str:
+def _tensor_bytes(torch: Any, tensor: Any) -> bytes:
+    raw = (
+        tensor.detach()
+        .cpu()
+        .contiguous()
+        .reshape(-1)
+        .view(torch.uint8)
+        .tolist()
+    )
+    return bytes(raw)
+
+
+def _digest_value(torch: Any, hasher: Any, value: Any) -> None:
+    if torch.is_tensor(value):
+        hasher.update(str(value.dtype).encode())
+        hasher.update(str(tuple(value.shape)).encode())
+        hasher.update(_tensor_bytes(torch, value))
+        return
+    hasher.update(repr(value).encode())
+
+
+def _model_digest(torch: Any, model: Any) -> str:
     hasher = hashlib.sha256()
     current = model.current
     module = current.module if hasattr(current, "module") else current
     for name, tensor in sorted(module.state_dict().items()):
         hasher.update(name.encode())
-        # Do not make the conformance harness depend on NumPy. Viewing the
-        # contiguous tensor as bytes preserves the exact parameter payload.
-        raw = tensor.detach().cpu().contiguous().view(torch.uint8).flatten().tolist()
-        hasher.update(bytes(raw))
+        _digest_value(torch, hasher, tensor)
+    return hasher.hexdigest()
+
+
+def _optimizer_digest(torch: Any, model: Any, optimizer: Any) -> str:
+    hasher = hashlib.sha256()
+    current = model.current
+    module = current.module if hasattr(current, "module") else current
+    parameter_names = {parameter: name for name, parameter in module.named_parameters()}
+    for parameter, values in sorted(
+        optimizer.state.items(), key=lambda item: parameter_names[item[0]]
+    ):
+        hasher.update(parameter_names[parameter].encode())
+        for key, value in sorted(values.items(), key=lambda item: repr(item[0])):
+            hasher.update(repr(key).encode())
+            _digest_value(torch, hasher, value)
+    for index, group in enumerate(optimizer.param_groups):
+        hasher.update(f"group:{index}".encode())
+        names = [parameter_names[parameter] for parameter in group["params"]]
+        hasher.update(repr(names).encode())
+        for key, value in sorted(group.items(), key=lambda item: repr(item[0])):
+            if key in ("params", "param_names"):
+                continue
+            hasher.update(repr(key).encode())
+            _digest_value(torch, hasher, value)
+    return hasher.hexdigest()
+
+
+def _training_state_digest(torch: Any, model: Any, optimizer: Any) -> str:
+    hasher = hashlib.sha256()
+    hasher.update(_model_digest(torch, model).encode())
+    hasher.update(_optimizer_digest(torch, model, optimizer).encode())
     return hasher.hexdigest()
 
 
@@ -134,14 +202,25 @@ def _build_runtime(
     device: Any,
     coordinator: Any,
     committed_step: int,
+    failed_rank: int,
 ):
     from moegambit.adapters.generic_ddp import build_generic_ddp_adapter
     from moegambit.config import RuntimeConfig
     from moegambit.distributed.c10d_backend import FailureClassification
     from moegambit.runtime.runtime import RecoveryRuntime
 
+    rebuild_events = []
+
     def rebuild(old, group):
-        return _wrap_ddp(torch, old, group, device)
+        rebuild_events.append(group)
+        return _wrap_ddp(torch, old, group, device, init_sync=False)
+
+    def validate_restored_state(plan):
+        expected = plan.policy_evidence.get("expected_state_digest")
+        return bool(
+            expected
+            and _training_state_digest(torch, owner, optimizer) == expected
+        )
 
     adapter = build_generic_ddp_adapter(
         module=owner,
@@ -151,11 +230,12 @@ def _build_runtime(
         world_size=2,
         committed_step=committed_step,
         replacement_loader=lambda plan: None,
+        warmup_validator=validate_restored_state,
         module_rebuilder=rebuild,
         error_classifier=lambda exc: FailureClassification(
             True,
             failure_class="injected_fail_stop",
-            failed_ranks=(1,),
+            failed_ranks=(failed_rank,),
             evidence={"demo": True, "exception": type(exc).__name__},
         ),
     )
@@ -164,7 +244,7 @@ def _build_runtime(
         RuntimeConfig(enabled=True, framework="generic_ddp"),
         coordinator=coordinator,
     )
-    return adapter, runtime
+    return adapter, runtime, rebuild_events
 
 
 def _initial_worker(
@@ -175,6 +255,7 @@ def _initial_worker(
     reports: Any,
     total_steps: int,
     fail_step: int,
+    failed_rank: int,
 ) -> None:
     import torch
     import torch.nn.functional as functional
@@ -191,14 +272,23 @@ def _initial_worker(
     )
     module, optimizer = _new_model_optimizer(torch, device)
     owner = RebindableModel(_wrap_ddp(torch, module, None, device))
-    adapter, runtime = _build_runtime(
-        torch, rank, backend, owner, optimizer, device, _QueueCoordinator(commands), -1
+    adapter, runtime, rebuild_events = _build_runtime(
+        torch,
+        rank,
+        backend,
+        owner,
+        optimizer,
+        device,
+        _QueueCoordinator(commands),
+        -1,
+        failed_rank,
     )
 
     step = 0
     recovered = False
     while step < total_steps:
-        if rank == 1 and not recovered and step == fail_step:
+        step = runtime.iteration_boundary(step)
+        if rank == failed_rank and not recovered and step == fail_step:
             # os._exit models fail-stop: no Python cleanup and no graceful PG leave.
             os._exit(42)
         inputs, targets = _batch(torch, step, device)
@@ -208,19 +298,24 @@ def _initial_worker(
             loss.backward()
             runtime.before_optimizer_step(step)
             optimizer.step()
+            optimizer.param_groups[0]["lr"] *= 0.9
             runtime.after_optimizer_step(step, committed=True)
             runtime.commit_iteration(step)
             step += 1
         except RuntimeError as exc:
-            if rank != 0 or recovered:
+            if rank == failed_rank or recovered:
                 raise
-            sources = dict(peer_state_sources(adapter.state, source_rank=0))
+            expected_state_digest = _training_state_digest(torch, owner, optimizer)
+            source_rank = rank
+            sources = dict(peer_state_sources(adapter.state, source_rank=source_rank))
             reports.put(
                 {
                     "type": "recovery_needed",
                     "rank": rank,
                     "resume_step": fail_step - 1,
                     "sources": sources,
+                    "source_rank": source_rank,
+                    "expected_state_digest": expected_state_digest,
                     "error": str(exc),
                 }
             )
@@ -233,8 +328,12 @@ def _initial_worker(
         {
             "type": "done",
             "rank": rank,
-            "digest": _digest(torch, owner),
+            "model_digest": _model_digest(torch, owner),
+            "optimizer_digest": _optimizer_digest(torch, owner, optimizer),
+            "state_digest": _training_state_digest(torch, owner, optimizer),
             "recovered": recovered,
+            "rebuild_count": len(rebuild_events),
+            "is_ddp": hasattr(owner.current, "reducer"),
         }
     )
     if torch.distributed.is_initialized():
@@ -246,6 +345,7 @@ def _replacement_worker(
     assignment: Any,
     reports: Any,
     total_steps: int,
+    failed_rank: int,
 ) -> None:
     import torch
     import torch.nn.functional as functional
@@ -253,13 +353,14 @@ def _replacement_worker(
     from moegambit.adapters.generic_ddp import RebindableModel
     from moegambit.control.coordinator import StaticRecoveryCoordinator
 
-    rank = 1
+    rank = failed_rank
     device = _device(torch, backend, rank)
     module, optimizer = _new_model_optimizer(torch, device)
     # The replacement starts before the new process group exists.  Rebind wraps
     # this bare module in a fresh DDP object after rendezvous.
     owner = RebindableModel(module)
-    _adapter, runtime = _build_runtime(
+    optimizer_was_empty = not bool(optimizer.state)
+    _adapter, runtime, rebuild_events = _build_runtime(
         torch,
         rank,
         backend,
@@ -268,17 +369,20 @@ def _replacement_worker(
         device,
         StaticRecoveryCoordinator(assignment),
         assignment.plan.resume_step,
+        failed_rank,
     )
     runtime.execute_assignment(assignment, at_step=assignment.plan.resume_step)
 
     step = runtime.resume_step + 1
     while step < total_steps:
+        step = runtime.iteration_boundary(step)
         inputs, targets = _batch(torch, step, device)
         optimizer.zero_grad(set_to_none=True)
         loss = functional.cross_entropy(owner(inputs), targets)
         loss.backward()
         runtime.before_optimizer_step(step)
         optimizer.step()
+        optimizer.param_groups[0]["lr"] *= 0.9
         runtime.after_optimizer_step(step, committed=True)
         runtime.commit_iteration(step)
         step += 1
@@ -287,8 +391,13 @@ def _replacement_worker(
         {
             "type": "done",
             "rank": rank,
-            "digest": _digest(torch, owner),
+            "model_digest": _model_digest(torch, owner),
+            "optimizer_digest": _optimizer_digest(torch, owner, optimizer),
+            "state_digest": _training_state_digest(torch, owner, optimizer),
             "recovered": True,
+            "rebuild_count": len(rebuild_events),
+            "is_ddp": hasattr(owner.current, "reducer"),
+            "optimizer_was_empty": optimizer_was_empty,
         }
     )
     if torch.distributed.is_initialized():
@@ -300,6 +409,7 @@ def main(argv=None) -> int:
     parser.add_argument("--backend", choices=("gloo", "nccl"), default="gloo")
     parser.add_argument("--steps", type=int, default=6)
     parser.add_argument("--fail-step", type=int, default=2)
+    parser.add_argument("--fail-rank", type=int, choices=(0, 1), default=1)
     args = parser.parse_args(argv)
     try:
         import torch
@@ -321,16 +431,26 @@ def main(argv=None) -> int:
     reports = context.Queue()
     commands = context.Queue()
     initial_port = _free_port()
-    rank0 = context.Process(
-        target=_initial_worker,
-        args=(0, args.backend, initial_port, commands, reports, args.steps, args.fail_step),
-    )
-    victim = context.Process(
-        target=_initial_worker,
-        args=(1, args.backend, initial_port, commands, reports, args.steps, args.fail_step),
-    )
-    rank0.start()
-    victim.start()
+    workers = {
+        rank: context.Process(
+            target=_initial_worker,
+            args=(
+                rank,
+                args.backend,
+                initial_port,
+                commands,
+                reports,
+                args.steps,
+                args.fail_step,
+                args.fail_rank,
+            ),
+        )
+        for rank in (0, 1)
+    }
+    for worker in workers.values():
+        worker.start()
+    victim = workers[args.fail_rank]
+    survivor = workers[1 - args.fail_rank]
     victim.join(timeout=90)
     if victim.is_alive():
         victim.terminate()
@@ -348,12 +468,16 @@ def main(argv=None) -> int:
     plan = RecoveryPlan(
         protocol_version=1,
         recovery_epoch=1,
-        failed_ranks=(1,),
+        failed_ranks=(args.fail_rank,),
         resume_step=int(needed["resume_step"]),
         mode=RecoveryMode.PEER,
         topology_generation=1,
         group_manifest_hash=_topology_manifest(args.backend),
         state_sources=dict(needed["sources"]),
+        policy_evidence={
+            "source_rank": int(needed["source_rank"]),
+            "expected_state_digest": needed["expected_state_digest"],
+        },
     )
     assignment = RecoveryAssignment(
         plan=plan,
@@ -363,7 +487,7 @@ def main(argv=None) -> int:
     commands.put(assignment)
     replacement = context.Process(
         target=_replacement_worker,
-        args=(args.backend, assignment, reports, args.steps),
+        args=(args.backend, assignment, reports, args.steps, args.fail_rank),
     )
     replacement.start()
 
@@ -375,18 +499,34 @@ def main(argv=None) -> int:
             raise RuntimeError("recovered workers did not finish") from exc
         if report.get("type") == "done":
             completed[int(report["rank"])] = report
-    rank0.join(timeout=30)
+    survivor.join(timeout=30)
     replacement.join(timeout=30)
-    if rank0.exitcode != 0 or replacement.exitcode != 0:
+    if survivor.is_alive() or replacement.is_alive():
+        survivor.terminate()
+        replacement.terminate()
+        raise RuntimeError("recovered workers did not exit after reporting completion")
+    if survivor.exitcode != 0 or replacement.exitcode != 0:
         raise RuntimeError(
-            f"recovered process exit codes: rank0={rank0.exitcode}, rank1={replacement.exitcode}"
+            "recovered process exit codes: "
+            f"survivor={survivor.exitcode}, replacement={replacement.exitcode}"
         )
-    digests = {report["digest"] for report in completed.values()}
-    if len(digests) != 1:
-        raise RuntimeError(f"post-recovery parameter mismatch: {completed}")
+    if not all(report["recovered"] for report in completed.values()):
+        raise RuntimeError(f"a worker did not execute recovery: {completed}")
+    if not all(report["is_ddp"] for report in completed.values()):
+        raise RuntimeError(f"a worker did not install a rebuilt DDP wrapper: {completed}")
+    if not all(report["rebuild_count"] == 1 for report in completed.values()):
+        raise RuntimeError(f"unexpected DDP rebuild count: {completed}")
+    replacement_report = completed[args.fail_rank]
+    if not replacement_report.get("optimizer_was_empty"):
+        raise RuntimeError("replacement optimizer was not lazy/unmaterialized")
+    for field in ("model_digest", "optimizer_digest", "state_digest"):
+        digests = {report[field] for report in completed.values()}
+        if len(digests) != 1:
+            raise RuntimeError(f"post-recovery {field} mismatch: {completed}")
     print(
-        "PASS: logical rank 1 was replaced, peer state restored, and DDP continued; "
-        f"digest={next(iter(digests))[:16]}"
+        f"PASS: logical rank {args.fail_rank} was replaced, model/buffer/optimizer "
+        "state restored, and rebuilt DDP continued; "
+        f"digest={completed[0]['state_digest'][:16]}"
     )
     return 0
 

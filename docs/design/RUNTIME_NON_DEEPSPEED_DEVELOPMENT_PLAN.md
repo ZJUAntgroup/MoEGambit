@@ -390,8 +390,9 @@ examples/deepspeed/
 退出条件：在无 Megatron 环境完成至少一次真实 logical rank replacement。
 
 退出条件已由 `examples/generic_ddp/fault_replacement.py --backend gloo`
-满足：rank 1 fail-stop 后以相同 logical rank 重启，重建 c10d 与 DDP reducer，
-从 rank 0 恢复参数和 AdamW 状态，并在继续训练后通过跨 rank 参数摘要一致性检查。
+满足：logical rank 0 和 rank 1 分别 fail-stop 后均以相同 logical rank 重启，
+重建 c10d 与 DDP reducer，从 survivor 恢复参数、committed buffers、AdamW
+slots 和 param-group options，并在继续训练后通过完整训练状态摘要一致性检查。
 具体证据和能力边界见 `docs/development/PHASE_E_IMPLEMENTATION.md`。
 
 ### Phase F：发布工程和文档
@@ -450,9 +451,10 @@ examples/deepspeed/
 
 - 两进程 Gloo fail-stop/replacement；
 - DDP reducer 真正替换；
-- 参数和 AdamW state 完整恢复；
+- 参数、committed buffers、AdamW slots 和 param-group options 完整恢复；
 - 恢复后继续多个 step；
-- 所有 rank 最终参数摘要一致；
+- logical rank 0 与非 0 rank replacement 均验证；
+- 所有 rank 最终完整训练状态摘要一致；
 - NCCL 版本在目标 GPU 环境重复验证。
 
 ## 10. 支持等级
