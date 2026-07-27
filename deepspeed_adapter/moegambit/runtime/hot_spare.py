@@ -29,6 +29,79 @@ from moegambit.runtime.watcher_client import WatcherClient, WatcherEndpoint
 logger = logging.getLogger(__name__)
 
 
+def send_worker_event(kind: str, rank: int, **payload: Any) -> bool:
+    """Send a rank-scoped lifecycle event when hot-spare control is active."""
+    coordinator_host = os.environ.get(
+        "MOEGAMBIT_HOT_SPARE_COORDINATOR_ADDR"
+    )
+    coordinator_port = os.environ.get(
+        "MOEGAMBIT_HOT_SPARE_COORDINATOR_PORT"
+    )
+    run_id = os.environ.get("MOEGAMBIT_HOT_SPARE_RUN_ID")
+    if not coordinator_host or not coordinator_port or not run_id:
+        return False
+
+    local_world_size = int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
+    logical_node = rank // local_world_size
+    physical_node = int(
+        os.environ.get(
+            "MOEGAMBIT_PHYSICAL_NODE_RANK", str(logical_node)
+        )
+    )
+    recovery_epoch = int(
+        os.environ.get(
+            "MOEGAMBIT_RECOVERY_EPOCH",
+            os.environ.get("TORCHELASTIC_RESTART_COUNT", "0"),
+        )
+    )
+    response = WatcherClient(
+        WatcherEndpoint(
+            coordinator_host,
+            int(coordinator_port),
+            timeout=10.0,
+        )
+    ).request(
+        WireMessage(
+            kind,
+            {
+                "run_id": run_id,
+                "physical_node": physical_node,
+                "logical_node": logical_node,
+                "rank": rank,
+                "epoch": recovery_epoch,
+                **payload,
+            },
+        )
+    )
+    if response.kind == "error":
+        raise RuntimeError(
+            f"hot-spare coordinator rejected {kind}: "
+            f"{response.payload.get('error', 'unknown error')}"
+        )
+    if response.kind != "command":
+        raise RuntimeError(
+            f"unexpected hot-spare response {response.kind!r}"
+        )
+    return True
+
+
+def report_worker_phase(phase: str, rank: int) -> bool:
+    """Best-effort startup phase reporting from one rank per logical node."""
+    local_world_size = int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
+    if rank % local_world_size:
+        return False
+    try:
+        return send_worker_event("worker_phase", rank, phase=phase)
+    except (ConnectionError, OSError, RuntimeError, ValueError) as exc:
+        logger.warning(
+            "could not report worker phase=%s rank=%d: %s",
+            phase,
+            rank,
+            exc,
+        )
+        return False
+
+
 def _command_option(
     command: Sequence[str], option: str
 ) -> str | None:
@@ -163,6 +236,7 @@ class HotSpareCoordinator:
     abort_reason: str | None = None
     recovery_started_at: float | None = None
     ready_logical_nodes: set[int] = field(default_factory=set)
+    worker_phases: dict[int, str] = field(default_factory=dict)
     _lock: threading.RLock = field(
         default_factory=threading.RLock, init=False, repr=False
     )
@@ -232,6 +306,8 @@ class HotSpareCoordinator:
                 self._handle_runner_complete(physical_node, payload)
             elif message.kind == "worker_ready":
                 self._handle_worker_ready(physical_node, payload)
+            elif message.kind == "worker_phase":
+                self._handle_worker_phase(physical_node, payload)
             elif message.kind == "ack_complete":
                 self.completion_acks.add(physical_node)
             elif message.kind == "ack_abort":
@@ -390,6 +466,7 @@ class HotSpareCoordinator:
             )
             return
         self.ready_logical_nodes.add(logical_node)
+        self.worker_phases[logical_node] = "train_ready"
         logger.info(
             "TRAIN_READY physical_node=%d logical_node=%d (%d/%d)",
             physical_node,
@@ -411,6 +488,39 @@ class HotSpareCoordinator:
             if self.failure is not None:
                 self.failure["train_ready_seconds"] = elapsed
             self.recovery_started_at = None
+
+    def _handle_worker_phase(
+        self, physical_node: int, payload: Mapping[str, Any]
+    ) -> None:
+        if self._payload_epoch(payload) != self.epoch:
+            return
+        try:
+            logical_node = int(payload["logical_node"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if self.mapping.get(logical_node) != physical_node:
+            logger.error(
+                "rejecting worker phase with inconsistent topology: "
+                "physical_node=%d logical_node=%d expected_physical=%s "
+                "phase=%s",
+                physical_node,
+                logical_node,
+                self.mapping.get(logical_node),
+                payload.get("phase", "unknown"),
+            )
+            return
+        phase = str(payload.get("phase", "")).strip()
+        if not phase:
+            return
+        previous = self.worker_phases.get(logical_node)
+        self.worker_phases[logical_node] = phase
+        if phase != previous:
+            logger.info(
+                "WORKER_PHASE physical_node=%d logical_node=%d phase=%s",
+                physical_node,
+                logical_node,
+                phase,
+            )
 
     def _start_failover(
         self,
@@ -447,6 +557,7 @@ class HotSpareCoordinator:
         self.completed.clear()
         self.completion_acks.clear()
         self.ready_logical_nodes.clear()
+        self.worker_phases.clear()
         self.recovery_started_at = time.monotonic()
         self.failure = {
             "previous_epoch": previous_epoch,
@@ -481,7 +592,8 @@ class HotSpareCoordinator:
             self.abort_reason = (
                 f"recovery epoch {self.epoch} did not reach TRAIN_READY "
                 f"within {self.recovery_timeout:.1f}s; "
-                f"missing logical nodes={missing}"
+                f"missing logical nodes={missing}; "
+                f"last phases={dict(sorted(self.worker_phases.items()))}"
             )
             logger.error(self.abort_reason)
             return
@@ -574,6 +686,10 @@ class HotSpareCoordinator:
             "failure": self.failure,
             "abort_reason": self.abort_reason,
             "ready_logical_nodes": sorted(self.ready_logical_nodes),
+            "worker_phases": {
+                str(logical): phase
+                for logical, phase in sorted(self.worker_phases.items())
+            },
         }
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.state_path.with_suffix(
@@ -834,6 +950,39 @@ class AgentSupervisor:
                     )
                     return 0
                 elif action == "abort":
+                    logical_node = next(
+                        (
+                            logical
+                            for logical, physical in {
+                                int(key): int(value)
+                                for key, value in dict(
+                                    command.get("mapping", {})
+                                ).items()
+                            }.items()
+                            if physical == self.physical_node
+                        ),
+                        None,
+                    )
+                    if (
+                        self.process is not None
+                        and self.process.poll() is None
+                        and logical_node is not None
+                    ):
+                        diagnostic = collect_worker_failure_diagnostic(
+                            self.command,
+                            epoch=epoch,
+                            logical_node=logical_node,
+                            process_started_at=self.process_started_at,
+                        )
+                        if diagnostic:
+                            logger.error(
+                                "live worker diagnostic before abort "
+                                "physical_node=%d logical_node=%d epoch=%d:\n%s",
+                                self.physical_node,
+                                logical_node,
+                                epoch,
+                                diagnostic,
+                            )
                     self._stop_worker()
                     logger.error(
                         "hot-spare recovery aborted: %s",

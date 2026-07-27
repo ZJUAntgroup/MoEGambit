@@ -593,55 +593,9 @@ def maybe_log_memory(rank: int, label: str, enabled: bool) -> None:
 
 
 def notify_hot_spare(kind: str, rank: int, **payload) -> bool:
-    coordinator_host = os.environ.get(
-        "MOEGAMBIT_HOT_SPARE_COORDINATOR_ADDR"
-    )
-    coordinator_port = os.environ.get(
-        "MOEGAMBIT_HOT_SPARE_COORDINATOR_PORT"
-    )
-    run_id = os.environ.get("MOEGAMBIT_HOT_SPARE_RUN_ID")
-    if not coordinator_host or not coordinator_port or not run_id:
-        return False
+    from moegambit.runtime.hot_spare import send_worker_event
 
-    from moegambit.runtime.protocol import WireMessage
-    from moegambit.runtime.watcher_client import (
-        WatcherClient,
-        WatcherEndpoint,
-    )
-
-    local_world_size = int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
-    logical_node = rank // local_world_size
-    physical_node = int(
-        os.environ.get(
-            "MOEGAMBIT_PHYSICAL_NODE_RANK", str(logical_node)
-        )
-    )
-    recovery_epoch = int(
-        os.environ.get(
-            "MOEGAMBIT_RECOVERY_EPOCH",
-            os.environ.get("TORCHELASTIC_RESTART_COUNT", "0"),
-        )
-    )
-    WatcherClient(
-        WatcherEndpoint(
-            coordinator_host,
-            int(coordinator_port),
-            timeout=10.0,
-        )
-    ).request(
-        WireMessage(
-            kind,
-            {
-                "run_id": run_id,
-                "physical_node": physical_node,
-                "logical_node": logical_node,
-                "rank": rank,
-                "epoch": recovery_epoch,
-                **payload,
-            },
-        )
-    )
-    return True
+    return send_worker_event(kind, rank, **payload)
 
 
 def maybe_inject_fault(
@@ -719,6 +673,9 @@ def main() -> int:
     deepspeed.init_distributed(dist_backend="nccl")
     rank = torch_dist.get_rank()
     world_size = torch_dist.get_world_size()
+    from moegambit.runtime.hot_spare import report_worker_phase
+
+    report_worker_phase("distributed_ready", rank)
     if world_size % args.pipeline_parallel_size:
         raise ValueError(
             f"world_size={world_size} is not divisible by PP={args.pipeline_parallel_size}"
@@ -753,6 +710,7 @@ def main() -> int:
 
     original_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.bfloat16)
+    report_worker_phase("model_build_start", rank)
     log("MODEL_BUILD_START", rank=rank)
     try:
         if args.pipeline_parallel_size > 1:
@@ -766,8 +724,10 @@ def main() -> int:
     finally:
         torch.set_default_dtype(original_dtype)
     log("MODEL_BUILD_DONE", rank=rank)
+    report_worker_phase("model_build_done", rank)
     maybe_log_memory(rank, "model-built-before-autoep", args.log_memory)
 
+    report_worker_phase("engine_init_start", rank)
     log("DEEPSPEED_ENGINE_INIT_START", rank=rank)
     engine, _, _, _ = deepspeed.initialize(
         model=model,
@@ -775,6 +735,7 @@ def main() -> int:
         config=deepspeed_config(args, world_size, use_grouped_mm),
     )
     log("DEEPSPEED_ENGINE_INIT_DONE", rank=rank)
+    report_worker_phase("engine_init_done", rank)
     maybe_log_memory(rank, "engine-ready-after-autoep", args.log_memory)
 
     from deepspeed.module_inject.auto_ep_layer import AutoEPMoELayer

@@ -1,4 +1,5 @@
 import ast
+import json
 import os
 import socket
 import subprocess
@@ -277,6 +278,79 @@ def test_hot_spare_coordinator_replaces_failed_logical_node(tmp_path):
     assert request("poll", 2)["master_port"] == 24001
     assert request("poll", 1)["logical_node"] == 1
     assert (tmp_path / "state.json").is_file()
+
+
+def test_hot_spare_coordinator_tracks_recovery_worker_phases(tmp_path):
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="test-run",
+        training_nodes=2,
+        spare_physical_node=2,
+        base_master_port=24000,
+        recovery_timeout=0.01,
+        state_path=tmp_path / "state.json",
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "test-run",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        ).payload
+
+    request("register", 0, role="active", advertise_addr="10.0.0.1")
+    request("register", 1, role="active", advertise_addr="10.0.0.2")
+    request("register", 2, role="standby", advertise_addr="10.0.0.3")
+    request(
+        "worker_phase",
+        0,
+        epoch=0,
+        logical_node=0,
+        phase="engine_init_done",
+    )
+    assert coordinator.worker_phases == {0: "engine_init_done"}
+
+    request(
+        "rank_failure",
+        0,
+        epoch=0,
+        logical_node=0,
+        rank=1,
+    )
+    assert coordinator.worker_phases == {}
+    request(
+        "worker_phase",
+        2,
+        epoch=1,
+        logical_node=0,
+        phase="checkpoint_restore_start",
+    )
+    request(
+        "worker_phase",
+        1,
+        epoch=1,
+        logical_node=1,
+        phase="train_ready",
+    )
+    coordinator.recovery_started_at -= 1
+    aborted = request("heartbeat", 1, epoch=1)
+
+    assert aborted["action"] == "abort"
+    assert "checkpoint_restore_start" in aborted["reason"]
+    persisted = json.loads(
+        (tmp_path / "state.json").read_text(encoding="utf-8")
+    )
+    assert persisted["worker_phases"] == {
+        "0": "checkpoint_restore_start",
+        "1": "train_ready",
+    }
 
 
 def test_hot_spare_coordinator_fails_closed_without_second_spare():

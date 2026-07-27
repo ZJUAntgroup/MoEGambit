@@ -72,6 +72,8 @@ for pair in \
   "SPARE_NODE_RANK:${SPARE_NODE_RANK}" \
   "MASTER_PORT:${MASTER_PORT}" \
   "HOT_SPARE_PORT:${HOT_SPARE_PORT}" \
+  "HOT_SPARE_RECOVERY_TIMEOUT:${HOT_SPARE_RECOVERY_TIMEOUT}" \
+  "HOT_SPARE_STARTUP_TIMEOUT:${HOT_SPARE_STARTUP_TIMEOUT}" \
   "TRAIN_ITERS:${TRAIN_ITERS}" \
   "FAULT_INJECT_STEP:${FAULT_INJECT_STEP}" \
   "FAULT_INJECT_NODE:${FAULT_INJECT_NODE}" \
@@ -83,6 +85,13 @@ for pair in \
   "GRADIENT_ACCUMULATION_STEPS:${GRADIENT_ACCUMULATION_STEPS}"; do
   require_uint "${pair%%:*}" "${pair#*:}"
 done
+
+if (( HOT_SPARE_RECOVERY_TIMEOUT < HOT_SPARE_STARTUP_TIMEOUT )); then
+  echo "[deepspeed-real-launch] recovery timeout " \
+    "${HOT_SPARE_RECOVERY_TIMEOUT}s is shorter than cold-start timeout " \
+    "${HOT_SPARE_STARTUP_TIMEOUT}s; using ${HOT_SPARE_STARTUP_TIMEOUT}s"
+  HOT_SPARE_RECOVERY_TIMEOUT="${HOT_SPARE_STARTUP_TIMEOUT}"
+fi
 
 case "${TEST_MODE}" in
   hot_swap|zero2|combined|all) ;;
@@ -297,7 +306,8 @@ run_case() {
 
   echo "[deepspeed-real-launch] case=${case_name} node=${NODE_RANK} "\
 "PP=${pp_size} EP=${EP_SIZE} ZeRO=${zero_stage} hot_swap=${hot_swap} zero2=${zero2} "\
-"spare=${SPARE_NODE_RANK} coordinator=${HOT_SPARE_ADDR}:${coordinator_port}"
+"spare=${SPARE_NODE_RANK} coordinator=${HOT_SPARE_ADDR}:${coordinator_port} "\
+"recovery_timeout=${HOT_SPARE_RECOVERY_TIMEOUT}s"
   local launch_node_rank="${NODE_RANK}"
   local launch_master_addr="${MASTER_ADDR}"
   local launch_master_port="${case_port}"

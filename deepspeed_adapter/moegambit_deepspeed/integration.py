@@ -92,6 +92,7 @@ class DeepSpeedRecoveryRuntime:
             or self.settings.checkpoint_dir is None
         ):
             return
+        self._report_phase("checkpoint_restore_start")
         load_path, _ = self.engine.load_checkpoint(
             str(self.settings.checkpoint_dir)
         )
@@ -100,11 +101,18 @@ class DeepSpeedRecoveryRuntime:
                 "DeepSpeed elastic restart could not load a checkpoint from "
                 f"{self.settings.checkpoint_dir}"
             )
+        self._report_phase("checkpoint_restore_done")
         logger.warning(
             "MoEGambit restored DeepSpeed recovery epoch %d from %s",
             self.settings.recovery_epoch,
             load_path,
         )
+
+    def _report_phase(self, phase: str) -> None:
+        from moegambit.runtime.hot_spare import report_worker_phase
+
+        rank = int(getattr(self.engine, "global_rank", 0))
+        report_worker_phase(phase, rank)
 
     def _install_optimizer_step_hook(self) -> None:
         runtime = self
