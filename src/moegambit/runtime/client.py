@@ -1,0 +1,283 @@
+"""Versioned control client and watcher-backed recovery coordinator."""
+
+from __future__ import annotations
+
+import socket
+import threading
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Mapping, Optional
+
+from ..adapters.base import FrameworkAdapter, StateSources, StoreHandle
+from ..control.coordinator import (
+    RecoveryAssignment,
+    RecoveryCoordinator,
+    RecoveryRequest,
+)
+from ..control.protocol import Envelope, decode_message
+from ..errors import ContractViolation, RecoveryRejected, RecoveryTimeout
+from ..runtime.recovery_plan import RecoveryPlan
+
+__all__ = [
+    "ControlClientConfig",
+    "ControlClient",
+    "WatcherRecoveryCoordinator",
+    "build_recovery_request_payload",
+]
+
+
+@dataclass(frozen=True)
+class ControlClientConfig:
+    host: str
+    port: int
+    job_id: str
+    attempt_id: str
+    sender: Mapping[str, Any]
+    job_token: Optional[str] = None
+    connect_timeout_s: float = 10.0
+    request_timeout_s: float = 300.0
+    max_message_bytes: int = 1 << 20
+
+    def __post_init__(self) -> None:
+        if not self.host or not 0 < int(self.port) <= 65535:
+            raise ValueError("control endpoint must contain a host and valid port")
+        if not self.job_id or not self.attempt_id:
+            raise ValueError("control client job_id and attempt_id are required")
+        if self.connect_timeout_s <= 0 or self.request_timeout_s <= 0:
+            raise ValueError("control client timeouts must be positive")
+        if self.max_message_bytes <= 0:
+            raise ValueError("control max_message_bytes must be positive")
+
+
+class ControlClient:
+    def __init__(
+        self,
+        config: ControlClientConfig,
+        *,
+        socket_factory: Callable[..., socket.socket] = socket.create_connection,
+    ) -> None:
+        self.config = config
+        self._socket_factory = socket_factory
+        self._lock = threading.Lock()
+
+    def _encode(self, envelope: Envelope) -> bytes:
+        if self.config.job_token:
+            envelope.sign(self.config.job_token)
+        data = (envelope.to_json() + "\n").encode("utf-8")
+        if len(data) > self.config.max_message_bytes:
+            raise ValueError("control request exceeds max_message_bytes")
+        return data
+
+    def _read_line(self, sock: socket.socket) -> str:
+        buffer = bytearray()
+        while True:
+            chunk = sock.recv(min(65536, self.config.max_message_bytes + 1))
+            if not chunk:
+                raise ConnectionError("control server closed before responding")
+            buffer.extend(chunk)
+            if len(buffer) > self.config.max_message_bytes:
+                raise ValueError("control response exceeds max_message_bytes")
+            newline = buffer.find(b"\n")
+            if newline >= 0:
+                return bytes(buffer[:newline]).decode("utf-8")
+
+    def request(
+        self,
+        message_type: str,
+        payload: Mapping[str, Any],
+        *,
+        recovery_epoch: int,
+    ) -> Mapping[str, Any]:
+        request = Envelope.new(
+            message_type,
+            payload,
+            job_id=self.config.job_id,
+            attempt_id=self.config.attempt_id,
+            recovery_epoch=int(recovery_epoch),
+            sender=self.config.sender,
+        )
+        with self._lock:
+            sock = self._socket_factory(
+                (self.config.host, int(self.config.port)),
+                timeout=float(self.config.connect_timeout_s),
+            )
+            try:
+                sock.settimeout(float(self.config.request_timeout_s))
+                sock.sendall(self._encode(request))
+                raw = self._read_line(sock)
+            except socket.timeout as exc:
+                raise RecoveryTimeout(
+                    f"control request {message_type!r} timed out"
+                ) from exc
+            finally:
+                sock.close()
+        decoded, response = decode_message(raw)
+        if response is None:
+            raise ContractViolation("control server returned an unversioned response")
+        if self.config.job_token:
+            try:
+                response.verify(self.config.job_token)
+            except ValueError as exc:
+                raise ContractViolation(
+                    f"control response authentication failed: {exc}"
+                ) from exc
+        if response.job_id != request.job_id:
+            raise ContractViolation("control response job_id does not match request")
+        if response.attempt_id != request.attempt_id:
+            raise ContractViolation("control response attempt_id does not match request")
+        if response.recovery_epoch != request.recovery_epoch:
+            raise ContractViolation("control response epoch does not match request")
+        if decoded.get("request_id") != request.message_id:
+            raise ContractViolation(
+                "control response does not correlate to the current request"
+            )
+        if decoded.get("ok") is False:
+            raise RecoveryRejected(
+                f"{decoded.get('error_type', 'RecoveryRejected')}: "
+                f"{decoded.get('error', 'recovery rejected')}"
+            )
+        return decoded
+
+    def notify(
+        self,
+        message_type: str,
+        payload: Mapping[str, Any],
+        *,
+        recovery_epoch: int,
+    ) -> Mapping[str, Any]:
+        return self.request(
+            message_type,
+            payload,
+            recovery_epoch=recovery_epoch,
+        )
+
+
+def build_recovery_request_payload(
+    request: RecoveryRequest,
+    adapter: FrameworkAdapter,
+) -> Mapping[str, Any]:
+    classification = request.classification
+    topology = adapter.topology.inspect()
+    catalog = adapter.state.catalog()
+    state_catalog = []
+    for ref in sorted(catalog, key=lambda item: item.identity):
+        tensor = ref.tensor
+        state_catalog.append(
+            {
+                "identity": ref.identity,
+                "kind": ref.kind.value,
+                "placement": ref.placement.value,
+                "owner": int(ref.owner),
+                "version": {
+                    "committed_step": ref.version.committed_step,
+                    "optimizer_generation": ref.version.optimizer_generation,
+                    "recovery_epoch": ref.version.recovery_epoch,
+                },
+                "shape": (
+                    [int(size) for size in getattr(tensor, "shape", ())]
+                    if tensor is not None
+                    else []
+                ),
+                "dtype": (
+                    str(getattr(tensor, "dtype", ""))
+                    if tensor is not None
+                    else ""
+                ),
+                "tags": sorted(ref.tags),
+                "metadata": dict(ref.metadata),
+            }
+        )
+    return {
+        "at_step": request.at_step,
+        "recovery_epoch": request.recovery_epoch,
+        "topology_generation": request.topology_generation,
+        "group_manifest_hash": request.group_manifest_hash,
+        "classification": {
+            "recoverable": classification.recoverable,
+            "failure_class": classification.failure_class,
+            "failed_ranks": list(classification.failed_ranks),
+            "evidence": dict(classification.evidence),
+        },
+        "adapter": dict(adapter.describe()),
+        "capabilities": dict(adapter.capabilities.as_dict()),
+        "world_size": int(topology.world_size),
+        "rank": int(topology.rank),
+        "state_manifest": catalog.manifest_digest(),
+        "state_catalog": state_catalog,
+    }
+
+
+class WatcherRecoveryCoordinator(RecoveryCoordinator):
+    def __init__(self, client: ControlClient) -> None:
+        self.client = client
+
+    @staticmethod
+    def _assignment(response: Mapping[str, Any]) -> RecoveryAssignment:
+        raw_plan = response.get("plan")
+        raw_store = response.get("store")
+        if not isinstance(raw_plan, Mapping) or not isinstance(raw_store, Mapping):
+            raise ContractViolation("recovery response lacks plan or store")
+        plan = RecoveryPlan.from_dict(raw_plan)
+        store = StoreHandle(
+            host=str(raw_store["host"]),
+            port=int(raw_store["port"]),
+            prefix=str(raw_store.get("prefix", "moegambit")),
+            timeout_s=float(raw_store.get("timeout_s", 300.0)),
+        )
+        return RecoveryAssignment(
+            plan=plan,
+            store=store,
+            sources=StateSources(dict(plan.state_sources)),
+            plan_digest=str(response.get("plan_digest", "")),
+        )
+
+    def prepare(
+        self,
+        request: RecoveryRequest,
+        adapter: FrameworkAdapter,
+    ) -> RecoveryAssignment:
+        response = self.client.request(
+            "recovery_request",
+            build_recovery_request_payload(request, adapter),
+            recovery_epoch=request.recovery_epoch,
+        )
+        assignment = self._assignment(response)
+        if assignment.plan.recovery_epoch != request.recovery_epoch:
+            raise ContractViolation("watcher returned a plan for another epoch")
+        return assignment
+
+    def fetch_assignment(
+        self,
+        recovery_epoch: int,
+        *,
+        plan_digest: str = "",
+    ) -> RecoveryAssignment:
+        response = self.client.request(
+            "recovery_assignment",
+            {"plan_digest": plan_digest},
+            recovery_epoch=int(recovery_epoch),
+        )
+        assignment = self._assignment(response)
+        if assignment.plan.recovery_epoch != int(recovery_epoch):
+            raise ContractViolation("fetched assignment belongs to another epoch")
+        return assignment
+
+    def committed(self, assignment: RecoveryAssignment, step: int) -> None:
+        self.client.notify(
+            "recovery_committed",
+            {"plan_digest": assignment.plan_digest, "step": int(step)},
+            recovery_epoch=assignment.plan.recovery_epoch,
+        )
+
+    def failed(
+        self,
+        assignment: Optional[RecoveryAssignment],
+        exc: BaseException,
+    ) -> None:
+        epoch = 0 if assignment is None else assignment.plan.recovery_epoch
+        payload: Dict[str, Any] = {
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:1000],
+        }
+        if assignment is not None:
+            payload["plan_digest"] = assignment.plan_digest
+        self.client.notify("recovery_failed", payload, recovery_epoch=epoch)
