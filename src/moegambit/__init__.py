@@ -35,6 +35,7 @@ __all__ = [
     "PROTOCOL_VERSION",
     "PACKAGE_ROLE",
     "AdapterCapabilities",
+    "ControlStoreConfig",
     "RuntimeConfig",
     "MoEGambitError",
     "RecoveryRuntime",
@@ -51,6 +52,10 @@ def __getattr__(name: str) -> Any:
         from .config import RuntimeConfig
 
         return RuntimeConfig
+    if name == "ControlStoreConfig":
+        from .config import ControlStoreConfig
+
+        return ControlStoreConfig
     if name == "MoEGambitError":
         from .errors import MoEGambitError
 

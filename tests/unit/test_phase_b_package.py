@@ -94,6 +94,8 @@ def test_runtime_config_reads_new_names_and_control_identity():
             "MOEGAMBIT_REQUIRE_TOKEN": "1",
             "MOEGAMBIT_JOB_TOKEN": "secret",
             "MOEGAMBIT_OPTIMIZER_REPLICATION": "1",
+            "MOEGAMBIT_CONTROL_STORE_BACKEND": "sqlite",
+            "MOEGAMBIT_CONTROL_STORE_PATH": "/tmp/moegambit-test-control.db",
         }
     )
 
@@ -104,6 +106,8 @@ def test_runtime_config_reads_new_names_and_control_identity():
     assert str(config.watcher) == "10.1.2.3:24000"
     assert config.security.require_token
     assert config.optimizer_replication.enabled
+    assert config.control_store.backend == "sqlite"
+    assert config.control_store.path == "/tmp/moegambit-test-control.db"
     assert config.validate() == ()
 
 

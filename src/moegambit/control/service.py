@@ -7,6 +7,7 @@ import json
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+from urllib.parse import quote
 
 from ..capabilities import AdapterCapabilities
 from ..errors import ContractViolation, RecoveryRejected
@@ -56,6 +57,7 @@ def _stable_request_digest(payload: Mapping[str, Any]) -> str:
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
+            allow_nan=False,
         )
     except (TypeError, ValueError) as exc:
         raise RecoveryRejected(
@@ -95,6 +97,125 @@ class RecoveryCoordinatorService:
         self._latest_epochs: Dict[Tuple[str, str], int] = {}
         self._fallback_requests: Dict[Tuple[str, str], list] = {}
         self._lock = threading.RLock()
+
+    @staticmethod
+    def _scope_token(scope: Tuple[str, str]) -> str:
+        return f"{quote(scope[0], safe='')}/{quote(scope[1], safe='')}"
+
+    @classmethod
+    def _assignment_store_key(cls, key: Tuple[str, str, int]) -> str:
+        return f"assignment/{cls._scope_token(key[:2])}/{int(key[2])}"
+
+    @classmethod
+    def _latest_store_key(cls, scope: Tuple[str, str]) -> str:
+        return f"latest/{cls._scope_token(scope)}"
+
+    @classmethod
+    def _fallback_store_key(cls, scope: Tuple[str, str]) -> str:
+        return f"fallback/{cls._scope_token(scope)}"
+
+    @staticmethod
+    def _frozen_record(frozen: _FrozenAssignment) -> Mapping[str, Any]:
+        return {
+            "request_digest": str(frozen.request_digest),
+            "response": dict(frozen.response),
+            "committed_ranks": {
+                str(rank): int(step)
+                for rank, step in sorted(frozen.committed_ranks.items())
+            },
+            "failures": [dict(item) for item in frozen.failures],
+        }
+
+    @staticmethod
+    def _frozen_from_record(value: Any) -> _FrozenAssignment:
+        if not isinstance(value, Mapping):
+            raise ContractViolation("persisted recovery assignment is not an object")
+        response = value.get("response")
+        committed = value.get("committed_ranks", {})
+        failures = value.get("failures", [])
+        if not isinstance(response, Mapping):
+            raise ContractViolation("persisted recovery response is missing")
+        if not isinstance(committed, Mapping) or not isinstance(failures, list):
+            raise ContractViolation("persisted recovery assignment state is invalid")
+        if any(not isinstance(item, Mapping) for item in failures):
+            raise ContractViolation("persisted recovery failures are invalid")
+        request_digest = str(value.get("request_digest", ""))
+        if not request_digest:
+            raise ContractViolation("persisted recovery request digest is missing")
+        try:
+            committed_ranks = {
+                int(rank): int(step) for rank, step in committed.items()
+            }
+        except (TypeError, ValueError) as exc:
+            raise ContractViolation(
+                "persisted recovery commit state is invalid"
+            ) from exc
+        return _FrozenAssignment(
+            request_digest=request_digest,
+            response=dict(response),
+            committed_ranks=committed_ranks,
+            failures=[dict(item) for item in failures],
+        )
+
+    def _load_latest_epoch(self, scope: Tuple[str, str]) -> int:
+        raw = self.control_store.get(self._latest_store_key(scope))
+        persisted = 0
+        if raw is not None:
+            if not isinstance(raw, Mapping):
+                raise ContractViolation("persisted latest epoch is not an object")
+            try:
+                persisted = int(raw["epoch"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ContractViolation("persisted latest epoch is invalid") from exc
+        latest = max(self._latest_epochs.get(scope, 0), persisted)
+        self._latest_epochs[scope] = latest
+        return latest
+
+    def _load_frozen(
+        self, key: Tuple[str, str, int]
+    ) -> Optional[_FrozenAssignment]:
+        raw = self.control_store.get(self._assignment_store_key(key))
+        if raw is None:
+            return self._assignments.get(key)
+        frozen = self._frozen_from_record(raw)
+        self._assignments[key] = frozen
+        return frozen
+
+    def _persist_new_frozen(
+        self,
+        key: Tuple[str, str, int],
+        candidate: _FrozenAssignment,
+    ) -> _FrozenAssignment:
+        assignment_key = self._assignment_store_key(key)
+        epoch = int(key[2])
+        record = self._frozen_record(candidate)
+        if not self.control_store.put_if_epoch(assignment_key, record, epoch):
+            winner_raw = self.control_store.get(assignment_key)
+            if winner_raw is None:
+                raise ContractViolation("control store rejected the frozen epoch")
+            winner = self._frozen_from_record(winner_raw)
+            if winner.request_digest != candidate.request_digest:
+                raise ContractViolation(
+                    "ranks submitted different recovery facts for one epoch"
+                )
+            candidate = winner
+
+        latest_record = {
+            "epoch": epoch,
+            "plan_digest": str(candidate.response["plan_digest"]),
+        }
+        if not self.control_store.put_if_epoch(
+            self._latest_store_key(key[:2]), latest_record, epoch
+        ):
+            latest = self._load_latest_epoch(key[:2])
+            if latest > epoch:
+                raise ContractViolation(
+                    f"stale recovery epoch {epoch}; latest frozen epoch is {latest}"
+                )
+            raise ContractViolation("control store rejected latest epoch publication")
+        self._assignments[key] = candidate
+        self._latest_epochs[key[:2]] = epoch
+        return candidate
 
     @staticmethod
     def _scope(job_id: str, attempt_id: str) -> Tuple[str, str]:
@@ -292,7 +413,7 @@ class RecoveryCoordinatorService:
         )
 
     def _reject_stale(self, scope: Tuple[str, str], epoch: int) -> None:
-        latest = self._latest_epochs.get(scope, 0)
+        latest = self._load_latest_epoch(scope)
         if epoch < latest:
             raise ContractViolation(
                 f"stale recovery epoch {epoch}; latest frozen epoch is {latest}"
@@ -339,7 +460,7 @@ class RecoveryCoordinatorService:
 
         with self._lock:
             self._reject_stale(scope, epoch)
-            existing = self._assignments.get(key)
+            existing = self._load_frozen(key)
             if existing is not None:
                 if existing.request_digest != request_digest:
                     raise ContractViolation(
@@ -388,13 +509,10 @@ class RecoveryCoordinatorService:
                 "plan_digest": plan.digest(),
                 "store": store,
             }
-            self._assignments[key] = _FrozenAssignment(request_digest, response)
-            store_key = f"assignment/{scope[0]}/{scope[1]}"
-            if not self.control_store.put_if_epoch(store_key, response, epoch):
-                del self._assignments[key]
-                raise ContractViolation("control store rejected the frozen epoch")
-            self._latest_epochs[scope] = epoch
-            return dict(response)
+            frozen = self._persist_new_frozen(
+                key, _FrozenAssignment(request_digest, response)
+            )
+            return dict(frozen.response)
 
     def get_assignment(
         self,
@@ -407,7 +525,7 @@ class RecoveryCoordinatorService:
         key = self._key(job_id, attempt_id, recovery_epoch)
         with self._lock:
             self._reject_stale(key[:2], int(recovery_epoch))
-            frozen = self._assignments.get(key)
+            frozen = self._load_frozen(key)
             if frozen is None:
                 raise RecoveryRejected("recovery assignment is not frozen yet")
             expected = str(payload.get("plan_digest", ""))
@@ -429,29 +547,59 @@ class RecoveryCoordinatorService:
         key = self._key(job_id, attempt_id, recovery_epoch)
         with self._lock:
             self._reject_stale(key[:2], int(recovery_epoch))
-            frozen = self._assignments.get(key)
-            if frozen is None:
-                raise RecoveryRejected("commit references an unknown recovery epoch")
-            if payload.get("plan_digest") != frozen.response["plan_digest"]:
-                raise ContractViolation(
-                    "commit plan digest does not match frozen plan"
+            store_key = self._assignment_store_key(key)
+            for _attempt in range(16):
+                current_raw = self.control_store.get(store_key)
+                if current_raw is None:
+                    raise RecoveryRejected(
+                        "commit references an unknown recovery epoch"
+                    )
+                frozen = self._frozen_from_record(current_raw)
+                if payload.get("plan_digest") != frozen.response["plan_digest"]:
+                    raise ContractViolation(
+                        "commit plan digest does not match frozen plan"
+                    )
+                step = int(payload["step"])
+                plan_step = int(frozen.response["plan"]["resume_step"])
+                if step <= plan_step:
+                    raise ContractViolation(
+                        "commit must follow a complete post-recovery iteration"
+                    )
+                existing_steps = set(frozen.committed_ranks.values())
+                if existing_steps and step not in existing_steps:
+                    raise ContractViolation(
+                        "ranks committed different post-recovery steps"
+                    )
+                previous = frozen.committed_ranks.get(int(rank))
+                if previous is not None:
+                    if previous != step:
+                        raise ContractViolation(
+                            "rank changed its committed recovery step"
+                        )
+                    return {
+                        "ok": True,
+                        "committed_count": len(frozen.committed_ranks),
+                    }
+                committed_ranks = dict(frozen.committed_ranks)
+                committed_ranks[int(rank)] = step
+                updated = _FrozenAssignment(
+                    frozen.request_digest,
+                    frozen.response,
+                    committed_ranks,
+                    list(frozen.failures),
                 )
-            step = int(payload["step"])
-            plan_step = int(frozen.response["plan"]["resume_step"])
-            if step <= plan_step:
-                raise ContractViolation(
-                    "commit must follow a complete post-recovery iteration"
-                )
-            existing_steps = set(frozen.committed_ranks.values())
-            if existing_steps and step not in existing_steps:
-                raise ContractViolation(
-                    "ranks committed different post-recovery steps"
-                )
-            previous = frozen.committed_ranks.get(int(rank))
-            if previous is not None and previous != step:
-                raise ContractViolation("rank changed its committed recovery step")
-            frozen.committed_ranks[int(rank)] = step
-            return {"ok": True, "committed_count": len(frozen.committed_ranks)}
+                if self.control_store.compare_and_set(
+                    store_key,
+                    current_raw,
+                    self._frozen_record(updated),
+                    int(recovery_epoch),
+                ):
+                    self._assignments[key] = updated
+                    return {
+                        "ok": True,
+                        "committed_count": len(updated.committed_ranks),
+                    }
+            raise ContractViolation("concurrent recovery commits did not converge")
 
     def failed(
         self,
@@ -464,22 +612,41 @@ class RecoveryCoordinatorService:
     ) -> Mapping[str, Any]:
         key = self._key(job_id, attempt_id, recovery_epoch)
         with self._lock:
-            frozen = self._assignments.get(key)
-            if frozen is None:
-                raise RecoveryRejected("failure references an unknown recovery epoch")
-            supplied_digest = str(payload.get("plan_digest", ""))
-            if supplied_digest and supplied_digest != frozen.response["plan_digest"]:
-                raise ContractViolation(
-                    "failure plan digest does not match frozen plan"
+            store_key = self._assignment_store_key(key)
+            record = {
+                "rank": int(rank),
+                "error_type": str(payload.get("error_type", "unknown")),
+                "error": str(payload.get("error", ""))[:1000],
+            }
+            for _attempt in range(16):
+                current_raw = self.control_store.get(store_key)
+                if current_raw is None:
+                    raise RecoveryRejected(
+                        "failure references an unknown recovery epoch"
+                    )
+                frozen = self._frozen_from_record(current_raw)
+                supplied_digest = str(payload.get("plan_digest", ""))
+                if supplied_digest and supplied_digest != frozen.response["plan_digest"]:
+                    raise ContractViolation(
+                        "failure plan digest does not match frozen plan"
+                    )
+                if record in frozen.failures:
+                    return {"ok": True, "failure_count": len(frozen.failures)}
+                updated = _FrozenAssignment(
+                    frozen.request_digest,
+                    frozen.response,
+                    dict(frozen.committed_ranks),
+                    [*frozen.failures, record],
                 )
-            frozen.failures.append(
-                {
-                    "rank": int(rank),
-                    "error_type": str(payload.get("error_type", "unknown")),
-                    "error": str(payload.get("error", ""))[:1000],
-                }
-            )
-            return {"ok": True, "failure_count": len(frozen.failures)}
+                if self.control_store.compare_and_set(
+                    store_key,
+                    current_raw,
+                    self._frozen_record(updated),
+                    int(recovery_epoch),
+                ):
+                    self._assignments[key] = updated
+                    return {"ok": True, "failure_count": len(updated.failures)}
+            raise ContractViolation("concurrent recovery failures did not converge")
 
     def request_checkpoint_relaunch(
         self,
@@ -502,7 +669,35 @@ class RecoveryCoordinatorService:
         if not record["reason"]:
             raise RecoveryRejected("checkpoint relaunch reason is required")
         with self._lock:
-            self._fallback_requests.setdefault(scope, []).append(record)
+            store_key = self._fallback_store_key(scope)
+            for _attempt in range(16):
+                current = self.control_store.get(store_key)
+                if current is None:
+                    records = []
+                elif isinstance(current, list):
+                    records = [
+                        dict(item) for item in current if isinstance(item, Mapping)
+                    ]
+                else:
+                    raise ContractViolation(
+                        "persisted checkpoint relaunch requests are invalid"
+                    )
+                if record in records:
+                    break
+                updated = [*records, record]
+                if self.control_store.compare_and_set(
+                    store_key,
+                    current,
+                    updated,
+                    max(0, int(recovery_epoch)),
+                ):
+                    records = updated
+                    break
+            else:
+                raise ContractViolation(
+                    "concurrent checkpoint relaunch requests did not converge"
+                )
+            self._fallback_requests[scope] = records
         return {"ok": True, "action": "checkpoint_relaunch"}
 
     def heartbeat(
@@ -513,22 +708,34 @@ class RecoveryCoordinatorService:
     ) -> Mapping[str, Any]:
         scope = self._scope(job_id, attempt_id)
         with self._lock:
+            fallback = self.control_store.get(self._fallback_store_key(scope))
+            fallback_count = len(fallback) if isinstance(fallback, list) else 0
             return {
                 "ok": True,
-                "latest_recovery_epoch": self._latest_epochs.get(scope, 0),
-                "fallback_requests": len(self._fallback_requests.get(scope, ())),
+                "latest_recovery_epoch": self._load_latest_epoch(scope),
+                "fallback_requests": fallback_count,
             }
 
     def snapshot(self, job_id: str, attempt_id: str) -> Mapping[str, Any]:
         scope = self._scope(job_id, attempt_id)
         with self._lock:
+            latest = self._load_latest_epoch(scope)
+            if latest > 0:
+                self._load_frozen((scope[0], scope[1], latest))
             assignments = {
                 epoch: dict(frozen.response)
                 for (job, attempt, epoch), frozen in self._assignments.items()
                 if (job, attempt) == scope
             }
+            fallback = self.control_store.get(self._fallback_store_key(scope))
+            fallback_records = (
+                [dict(item) for item in fallback if isinstance(item, Mapping)]
+                if isinstance(fallback, list)
+                else []
+            )
+            self._fallback_requests[scope] = fallback_records
             return {
-                "latest_epoch": self._latest_epochs.get(scope, 0),
+                "latest_epoch": latest,
                 "assignments": assignments,
-                "fallback_requests": list(self._fallback_requests.get(scope, ())),
+                "fallback_requests": fallback_records,
             }

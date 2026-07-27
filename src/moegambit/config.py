@@ -20,6 +20,7 @@ __all__ = [
     "Endpoint",
     "FaultModel",
     "FallbackMode",
+    "ControlStoreConfig",
     "ReplicationConfig",
     "SecurityConfig",
     "RuntimeConfig",
@@ -78,6 +79,16 @@ class ReplicationConfig:
 
 
 @dataclass(frozen=True)
+class ControlStoreConfig:
+    """Persistent watcher state used to freeze recovery epochs."""
+
+    backend: str = "sqlite"
+    path: str = ".moegambit/control.db"
+    poll_interval_s: float = 0.05
+    busy_timeout_s: float = 5.0
+
+
+@dataclass(frozen=True)
 class SecurityConfig:
     """Design doc 11.3.  Defaults assume a trusted training network.
 
@@ -106,6 +117,7 @@ class RuntimeConfig:
     subgroup_timeout_s: float = 70.0
     fallback: str = FallbackMode.ABORT
     optimizer_replication: ReplicationConfig = field(default_factory=ReplicationConfig)
+    control_store: ControlStoreConfig = field(default_factory=ControlStoreConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
 
     # ---- construction -------------------------------------------------
@@ -196,6 +208,18 @@ class RuntimeConfig:
                 SecurityConfig.max_message_bytes,
             ),
         )
+        control_store = ControlStoreConfig(
+            backend=(lookup("CONTROL_STORE_BACKEND") or "sqlite").strip().lower(),
+            path=lookup("CONTROL_STORE_PATH") or ControlStoreConfig.path,
+            poll_interval_s=as_float(
+                lookup("CONTROL_STORE_POLL_SECONDS"),
+                ControlStoreConfig.poll_interval_s,
+            ),
+            busy_timeout_s=as_float(
+                lookup("CONTROL_STORE_BUSY_TIMEOUT_SECONDS"),
+                ControlStoreConfig.busy_timeout_s,
+            ),
+        )
         fallback = (
             FallbackMode.CHECKPOINT_RELAUNCH
             if as_bool(lookup("FALLBACK_RELAUNCH"), False)
@@ -220,6 +244,7 @@ class RuntimeConfig:
             subgroup_timeout_s=as_float(lookup("SUBGROUP_TIMEOUT"), 70.0),
             fallback=fallback,
             optimizer_replication=replication,
+            control_store=control_store,
             security=security,
         )
 
@@ -250,6 +275,16 @@ class RuntimeConfig:
             problems.append(
                 "bind_host must name an explicit interface, not a wildcard address"
             )
+        if self.control_store.backend not in ("sqlite", "memory"):
+            problems.append(
+                f"unknown control_store backend: {self.control_store.backend}"
+            )
+        if self.control_store.backend == "sqlite" and not self.control_store.path.strip():
+            problems.append("SQLite control_store requires a non-empty path")
+        if self.control_store.poll_interval_s <= 0:
+            problems.append("control_store poll_interval_s must be positive")
+        if self.control_store.busy_timeout_s <= 0:
+            problems.append("control_store busy_timeout_s must be positive")
         if self.fault_model.injection_enabled and self.fault_model.inject_node < 0:
             problems.append("fault injection enabled without a target node")
         if self.fallback not in (FallbackMode.CHECKPOINT_RELAUNCH, FallbackMode.ABORT):
