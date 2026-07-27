@@ -1,13 +1,13 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MoEGambit Iteration Invalidator.
+"""MOEGAMBIT-MoE Iteration Invalidator.
 
 When a hard failure is detected **inside** an ongoing forward/backward pass
 or optimizer step, the current iteration's intermediate state (gradients,
 activations, partially-updated parameters) is tainted and must not be
 committed.
 
-Lightweight flag-based mechanism:
+This module provides a lightweight flag-based mechanism that:
 
 1. Marks the current iteration as **invalid** (``invalidate()``).
 2. Blocks the optimizer from committing the update (``should_skip_optimizer_step()``).
@@ -183,7 +183,7 @@ class IterationInvalidator:
         )
 
         logger.warning(
-            "MoEGambit IterationInvalidator: step %d INVALIDATED "
+            "MOEGAMBIT-MoE IterationInvalidator: step %d INVALIDATED "
             "(failed_rank=%d, reason=%r)",
             effective_step, failed_rank, reason,
         )

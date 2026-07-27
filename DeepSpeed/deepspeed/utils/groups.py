@@ -357,6 +357,26 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
     global _EXPERT_PARALLEL_GROUP
     global _EXPERT_PARALLEL_GROUP_RANKS
 
+    if mpu is not None and hasattr(mpu, "_topo"):
+        pipeline_stage_ranks = [
+            sorted(mpu._topo.filter_match(pipe=stage))
+            for stage in range(mpu._topo.get_dim("pipe"))
+        ]
+    else:
+        pipeline_stage_ranks = [
+            list(range(start, start + pp_stride))
+            for start in range(0, world_size, pp_stride)
+        ]
+    if (
+        len(pipeline_stage_ranks) != pp_world_size
+        or any(len(ranks) != pp_stride for ranks in pipeline_stage_ranks)
+    ):
+        raise RuntimeError(
+            "invalid pipeline topology for expert group creation: "
+            f"pp_world_size={pp_world_size} pp_stride={pp_stride} "
+            f"stage_ranks={pipeline_stage_ranks}"
+        )
+
     # Legacy path: mp_size <= 1 (preserves exact original behavior)
     if effective_mp_size <= 1:
         ep_stride = pp_stride // expert_parallel_size_
@@ -364,12 +384,16 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
         # Build the expert data parallel groups.
         # Only create group if it does not already exist
         if group_name not in _EXPERT_DATA_PARALLEL_GROUP:
-            for pp_stage_start in range(0, world_size, pp_stride):
+            for stage_ranks in pipeline_stage_ranks:
                 for i in range(expert_parallel_size_):
                     if use_data_before_expert_parallel_:
-                        ranks = range(pp_stage_start + i * ep_stride, pp_stage_start + (i + 1) * ep_stride)
+                        ranks = stage_ranks[
+                            i * ep_stride:(i + 1) * ep_stride
+                        ]
                     else:
-                        ranks = range(pp_stage_start + i, pp_stage_start + pp_stride, expert_parallel_size_)
+                        ranks = stage_ranks[
+                            i:pp_stride:expert_parallel_size_
+                        ]
                     group = dist.new_group(ranks)
                     log_dist(
                         f'Creating expert data parallel process group named {group_name} with ranks: {list(ranks)}',
@@ -382,9 +406,9 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
         # Only create group if it does not already exist
         if group_name not in _EXPERT_PARALLEL_GROUP:
             if use_data_before_expert_parallel_:
-                for pp_stage_start in range(0, world_size, pp_stride):
+                for stage_ranks in pipeline_stage_ranks:
                     for i in range(ep_stride):
-                        ranks = range(pp_stage_start + i, pp_stage_start + pp_stride, ep_stride)
+                        ranks = stage_ranks[i:pp_stride:ep_stride]
                         group = dist.new_group(ranks)
                         log_dist(
                             f'creating expert parallel process group named {group_name} '
@@ -393,15 +417,20 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
                             _EXPERT_PARALLEL_GROUP[group_name] = group
                             _EXPERT_PARALLEL_GROUP_RANKS[group_name] = ranks
             else:
-                for i in range(world_size // expert_parallel_size_):
-                    ranks = range(i * expert_parallel_size_, (i + 1) * expert_parallel_size_)
-                    group = dist.new_group(ranks)
-                    log_dist(
-                        f'creating expert parallel process group named {group_name} '
-                        f'with ranks: {list(ranks)}', [0])
-                    if rank in ranks:
-                        _EXPERT_PARALLEL_GROUP[group_name] = group
-                        _EXPERT_PARALLEL_GROUP_RANKS[group_name] = ranks
+                for stage_ranks in pipeline_stage_ranks:
+                    for start in range(
+                        0, pp_stride, expert_parallel_size_
+                    ):
+                        ranks = stage_ranks[
+                            start:start + expert_parallel_size_
+                        ]
+                        group = dist.new_group(ranks)
+                        log_dist(
+                            f'creating expert parallel process group named {group_name} '
+                            f'with ranks: {list(ranks)}', [0])
+                        if rank in ranks:
+                            _EXPERT_PARALLEL_GROUP[group_name] = group
+                            _EXPERT_PARALLEL_GROUP_RANKS[group_name] = ranks
         return
 
     # New path: mp_size > 1
@@ -425,8 +454,7 @@ def _create_expert_and_data_parallel(expert_parallel_size_,
         from deepspeed.module_inject.auto_ep_folding import expected_folding_group_tables
         folding_tables = expected_folding_group_tables(folding_spec)
 
-    for pp_stage_start in range(0, world_size, pp_stride):
-        stage_ranks = list(range(pp_stage_start, pp_stage_start + pp_stride))
+    for stage_ranks in pipeline_stage_ranks:
         stage_rank_set = set(stage_ranks)
 
         if folding_tables is not None:

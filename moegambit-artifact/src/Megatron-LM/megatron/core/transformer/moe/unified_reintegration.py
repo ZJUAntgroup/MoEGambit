@@ -1,11 +1,12 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-# MoEGambit: Unified Reintegration — convergence point for restart & hybrid paths
+# MOEGAMBIT-MoE: Unified Reintegration — convergence point for restart & hybrid paths
 #
 # After Phase A (shared infrastructure repair) and Phase B (path-specific
 # parameter recovery), both the checkpoint-restart and hybrid-recovery paths
 # must execute the same post-recovery steps before entering Phase C (shared
-# post-repair).  A single ``PostRecoveryConvergence`` class encapsulates
-# those steps so that neither path needs to maintain its own copy of the logic.
+# post-repair).  This module provides a single ``PostRecoveryConvergence``
+# class that encapsulates those steps so that neither path needs to maintain
+# its own copy of the logic.
 #
 # Convergence steps (executed in order):
 #   1. Mark experts STALE_RUNNABLE (if not already done by the path)
@@ -174,7 +175,7 @@ class PostRecoveryConvergence:
         )
 
         logger.warning(
-            "[%s] MoEGambit unified convergence: starting post-recovery "
+            "[%s] MOEGAMBIT-MoE unified convergence: starting post-recovery "
             "sequence (path=%s, failed=%d, replacement=%d, "
             "experts=%d, step=%d)",
             _ts(), path.name, failed_rank, replacement_rank,
@@ -191,7 +192,7 @@ class PostRecoveryConvergence:
         )
         t_s1_elapsed = time.time() - t_s1
         logger.warning(
-            "[%s] MoEGambit unified convergence: ⏱️  [1/5] mark_stale_runnable "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [1/5] mark_stale_runnable "
             "done (marked=%d, time=%.3fs)",
             _ts(), result.experts_marked_stale, t_s1_elapsed,
         )
@@ -205,7 +206,7 @@ class PostRecoveryConvergence:
         result.consistency_verified = len(result.consistency_issues) == 0
         t_s2_elapsed = time.time() - t_s2
         logger.warning(
-            "[%s] MoEGambit unified convergence: ⏱️  [2/5] verify_consistency "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [2/5] verify_consistency "
             "done (consistent=%s, issues=%d, time=%.3fs)",
             _ts(), result.consistency_verified,
             len(result.consistency_issues), t_s2_elapsed,
@@ -224,7 +225,7 @@ class PostRecoveryConvergence:
             )
         t_s3_elapsed = time.time() - t_s3
         logger.warning(
-            "[%s] MoEGambit unified convergence: ⏱️  [3/5] preferential_routing "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [3/5] preferential_routing "
             "done (enabled=%s, activated=%d, time=%.3fs)",
             _ts(), _pref_enabled,
             result.preferential_routing_activated, t_s3_elapsed,
@@ -249,7 +250,7 @@ class PostRecoveryConvergence:
             )
         t_s4_elapsed = time.time() - t_s4
         logger.warning(
-            "[%s] MoEGambit unified convergence: ⏱️  [4/5] deferred_optimizer "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [4/5] deferred_optimizer "
             "done (submitted=%d, time=%.3fs)",
             _ts(), result.optimizer_loads_submitted, t_s4_elapsed,
         )
@@ -267,7 +268,7 @@ class PostRecoveryConvergence:
             )
         t_s5_elapsed = time.time() - t_s5
         logger.warning(
-            "[%s] MoEGambit unified convergence: ⏱️  [5/5] two_phase_recovery "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  [5/5] two_phase_recovery "
             "done (driven=%s, time=%.3fs)",
             _ts(), result.two_phase_driven, t_s5_elapsed,
         )
@@ -275,7 +276,7 @@ class PostRecoveryConvergence:
         result.elapsed_seconds = time.time() - t_start
 
         logger.warning(
-            "[%s] MoEGambit unified convergence: ⏱️  ✅ COMPLETED "
+            "[%s] MOEGAMBIT-MoE unified convergence: ⏱️  ✅ COMPLETED "
             "(path=%s, total=%.3fs, step=%d) "
             "| Breakdown: mark_stale=%.3fs, verify=%.3fs, pref_routing=%.3fs, "
             "deferred_opt=%.3fs, two_phase=%.3fs",
@@ -317,7 +318,7 @@ class PostRecoveryConvergence:
             return len(expert_ids)
         except Exception as e:
             msg = f"mark_stale_runnable failed: {e}"
-            logger.error("MoEGambit unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             result.errors.append(msg)
             return 0
 
@@ -341,14 +342,14 @@ class PostRecoveryConvergence:
                 issues = mgr.check_router_dispatcher_consistency()
                 if issues:
                     logger.warning(
-                        "MoEGambit unified convergence: consistency issues: %s",
+                        "MOEGAMBIT-MoE unified convergence: consistency issues: %s",
                         issues,
                     )
                 return issues if isinstance(issues, list) else []
             return []
         except Exception as e:
             msg = f"consistency verification failed: {e}"
-            logger.error("MoEGambit unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             # Non-fatal — don't add to result.errors
             return [msg]
 
@@ -387,7 +388,7 @@ class PostRecoveryConvergence:
             return count
         except Exception as e:
             msg = f"preferential routing activation failed: {e}"
-            logger.error("MoEGambit unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             result.errors.append(msg)
             return 0
 
@@ -417,7 +418,7 @@ class PostRecoveryConvergence:
             return 0
         except Exception as e:
             msg = f"optimizer load submission failed: {e}"
-            logger.error("MoEGambit unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             result.errors.append(msg)
             return 0
 
@@ -457,7 +458,7 @@ class PostRecoveryConvergence:
                 return True
         except Exception as e:
             msg = f"two-phase drive failed: {e}"
-            logger.error("MoEGambit unified convergence: %s", msg)
+            logger.error("MOEGAMBIT-MoE unified convergence: %s", msg)
             result.errors.append(msg)
             return False
 

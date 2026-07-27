@@ -391,8 +391,14 @@ def install_pipeline_router_hooks(model: nn.Module) -> int:
     return installed
 
 
-def build_pipeline_model(config, pipeline_parallel_size: int, checkpoint: bool):
+def build_pipeline_model(
+    config,
+    pipeline_parallel_size: int,
+    checkpoint: bool,
+    world_size: int | None = None,
+):
     from deepspeed.pipe import LayerSpec, PipelineModule
+    from deepspeed.runtime.pipe.topology import ProcessTopology
 
     decoder_type = qwen_decoder_pipe_type()
     layers = [LayerSpec(Qwen3MoeEmbeddingPipe, config)]
@@ -409,9 +415,22 @@ def build_pipeline_model(config, pipeline_parallel_size: int, checkpoint: bool):
     checkpoint_fn = partial(
         torch.utils.checkpoint.checkpoint, use_reentrant=False
     )
+    topology = None
+    if os.environ.get(
+        "MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE", "0"
+    ).strip().lower() in {"1", "true", "yes", "on"}:
+        if world_size is None or world_size % pipeline_parallel_size:
+            raise ValueError(
+                "hybrid restore requires a valid world_size divisible by PP"
+            )
+        topology = ProcessTopology(
+            axes=["data", "pipe"],
+            dims=[world_size // pipeline_parallel_size, pipeline_parallel_size],
+        )
     model = PipelineModule(
         layers=layers,
         num_stages=pipeline_parallel_size,
+        topology=topology,
         loss_fn=pipeline_loss,
         partition_method=f"type:{decoder_type.__name__}",
         activation_checkpoint_interval=1 if checkpoint else 0,
@@ -543,6 +562,9 @@ def deepspeed_config(
         zero_optimization["elastic_checkpoint"] = True
 
     return {
+        "log_level": os.environ.get(
+            "MOEGAMBIT_DEEPSPEED_LOG_LEVEL", "info"
+        ),
         "train_micro_batch_size_per_gpu": args.micro_batch_size,
         "gradient_accumulation_steps": args.gradient_accumulation_steps,
         "train_batch_size": train_batch_size,
@@ -639,6 +661,7 @@ def maybe_inject_fault(
             "rank_failure",
             rank,
             reason="injected_sigkill",
+            global_step=global_step,
         ):
             log(
                 "FAULT_REPORTED_TO_HOT_SPARE "
@@ -718,6 +741,7 @@ def main() -> int:
                 config,
                 args.pipeline_parallel_size,
                 bool(args.activation_checkpointing),
+                world_size,
             )
         else:
             model = build_full_model(config)
@@ -753,6 +777,7 @@ def main() -> int:
             f"AutoEP replaced {local_autoep_layers} local layers; "
             f"expected {expected_local_layers}"
         )
+    report_worker_phase("pipeline_validation_start", rank)
     if args.pipeline_parallel_size > 1:
         hooks = install_pipeline_router_hooks(engine.module)
         if hooks != expected_local_layers:
@@ -764,8 +789,11 @@ def main() -> int:
     else:
         data_parallel_rank = rank
         data_parallel_world_size = world_size
+    report_worker_phase("pipeline_validation_done", rank)
 
+    report_worker_phase("dataset_init_start", rank)
     source = MegatronMMapTokenSource(args.data_path, args.sequence_length)
+    report_worker_phase("dataset_init_done", rank)
     start_micro_batch = (
         int(engine.global_steps) * args.gradient_accumulation_steps
     )

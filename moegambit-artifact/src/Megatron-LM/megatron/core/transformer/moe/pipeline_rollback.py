@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Pipeline-Safe Rollback / Replay for MoEGambit (PP > 1).
+"""Pipeline-Safe Rollback / Replay for MOEGAMBIT-MoE (PP > 1).
 
 When a hard failure occurs during a pipeline-parallel training iteration,
 the in-flight micro-batches, activations, and gradients across all pipeline
@@ -229,7 +229,7 @@ class PipelineRollbackCoordinator:
             self._state = PipelineRollbackState.REPLAY_IN_PROGRESS
             self._total_replays += 1
             logger.info(
-                "MoEGambit pipeline: step %d — entering REPLAY_IN_PROGRESS "
+                "MOEGAMBIT-MoE pipeline: step %d — entering REPLAY_IN_PROGRESS "
                 "(pp_rank=%d)",
                 step, pp_rank,
             )
@@ -278,7 +278,7 @@ class PipelineRollbackCoordinator:
         self._state = PipelineRollbackState.FAILURE_DETECTED
 
         logger.warning(
-            "MoEGambit pipeline: FAILURE DETECTED at step %d — "
+            "MOEGAMBIT-MoE pipeline: FAILURE DETECTED at step %d — "
             "stage=%d, rank=%d, phase=%s, microbatches=%d/%d, "
             "nccl_healthy=%s, reason=%r",
             effective_step, failed_stage, failed_rank,
@@ -329,7 +329,7 @@ class PipelineRollbackCoordinator:
             result.error = (
                 f"Cannot initiate rollback in state {self._state.name}"
             )
-            logger.error("MoEGambit pipeline: %s", result.error)
+            logger.error("MOEGAMBIT-MoE pipeline: %s", result.error)
             return result
 
         self._state = PipelineRollbackState.ROLLBACK_IN_PROGRESS
@@ -340,7 +340,7 @@ class PipelineRollbackCoordinator:
                 result.stages_synchronized = sync_fn()
             except Exception as e:
                 logger.warning(
-                    "MoEGambit pipeline: stage sync failed (expected if "
+                    "MOEGAMBIT-MoE pipeline: stage sync failed (expected if "
                     "NCCL is dead): %s", e,
                 )
                 result.stages_synchronized = False
@@ -356,7 +356,7 @@ class PipelineRollbackCoordinator:
                 result.grad_buffers_cleared = True
             except Exception as e:
                 logger.warning(
-                    "MoEGambit pipeline: grad buffer clear failed: %s", e,
+                    "MOEGAMBIT-MoE pipeline: grad buffer clear failed: %s", e,
                 )
                 result.grad_buffers_cleared = False
         else:
@@ -382,7 +382,7 @@ class PipelineRollbackCoordinator:
                 self._on_rollback_fn(result)
             except Exception as e:
                 logger.error(
-                    "MoEGambit pipeline: on_rollback_fn failed: %s", e,
+                    "MOEGAMBIT-MoE pipeline: on_rollback_fn failed: %s", e,
                 )
 
         result.state = self._state
@@ -390,7 +390,7 @@ class PipelineRollbackCoordinator:
         result.elapsed_seconds = time.monotonic() - t0
 
         logger.warning(
-            "MoEGambit pipeline: rollback COMPLETE — step=%d, "
+            "MOEGAMBIT-MoE pipeline: rollback COMPLETE — step=%d, "
             "stages_synced=%s, grads_cleared=%s, nccl_ok=%s, "
             "elapsed=%.3fs",
             self._current_step,
@@ -419,7 +419,7 @@ class PipelineRollbackCoordinator:
             return True  # Already in replay
         else:
             logger.warning(
-                "MoEGambit pipeline: begin_replay called in state %s",
+                "MOEGAMBIT-MoE pipeline: begin_replay called in state %s",
                 self._state.name,
             )
             return False
@@ -435,14 +435,14 @@ class PipelineRollbackCoordinator:
             self._state = PipelineRollbackState.NORMAL
             self._current_failure = None
             logger.info(
-                "MoEGambit pipeline: replay SUCCEEDED at step %d",
+                "MOEGAMBIT-MoE pipeline: replay SUCCEEDED at step %d",
                 self._current_step,
             )
         else:
             # Failed replay — go back to awaiting
             self._state = PipelineRollbackState.AWAITING_REPLAY
             logger.warning(
-                "MoEGambit pipeline: replay FAILED at step %d — "
+                "MOEGAMBIT-MoE pipeline: replay FAILED at step %d — "
                 "awaiting next attempt",
                 self._current_step,
             )
@@ -452,7 +452,7 @@ class PipelineRollbackCoordinator:
                 self._on_replay_complete_fn(success)
             except Exception as e:
                 logger.error(
-                    "MoEGambit pipeline: on_replay_complete_fn failed: %s", e,
+                    "MOEGAMBIT-MoE pipeline: on_replay_complete_fn failed: %s", e,
                 )
 
     # -----------------------------------------------------------------

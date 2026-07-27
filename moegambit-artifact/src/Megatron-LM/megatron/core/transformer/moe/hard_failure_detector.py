@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MoEGambit Hard Failure Detector.
+"""MOEGAMBIT-MoE Hard Failure Detector.
 
 Detects rank-level hard failures — situations where a rank has exited,
 crashed, or can no longer participate in NCCL collectives.
@@ -218,7 +218,7 @@ class HardFailureDetector:
         self._detected[failed_rank] = record
 
         logger.warning(
-            "MoEGambit HardFailureDetector: rank %d HARD FAILED "
+            "MOEGAMBIT-MoE HardFailureDetector: rank %d HARD FAILED "
             "(source=%s, reason=%r, step=%d, mid_iteration=%s)",
             failed_rank, source.name, reason, step, mid_iteration,
         )

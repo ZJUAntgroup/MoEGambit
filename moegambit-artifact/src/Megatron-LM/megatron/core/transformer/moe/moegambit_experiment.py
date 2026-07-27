@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MoEGambit Experiment Orchestrator (Step 11).
+"""MOEGAMBIT-MoE Experiment Orchestrator (Step 11).
 
 Provides:
 1. **Structured fault injection** — programmatic injection of soft/hard
@@ -302,9 +302,9 @@ class PhaseTimer:
 # =====================================================================
 
 class ExperimentOrchestrator:
-    """Orchestrates MoEGambit experiment scenarios.
+    """Orchestrates MOEGAMBIT-MoE experiment scenarios.
 
-    The orchestrator drives the RecoveryController + MoEGambit modules
+    The orchestrator drives the RecoveryController + MOEGAMBIT-MoE modules
     through a complete fault→recovery cycle using injected callbacks.
 
     For unit testing, all actual distributed operations (broadcast,
@@ -451,7 +451,7 @@ class ExperimentOrchestrator:
         events = report.events
 
         logger.warning(
-            "[%s] MoEGambit EXPERIMENT: starting scenario=%s, plan=%s",
+            "[%s] MOEGAMBIT-MoE EXPERIMENT: starting scenario=%s, plan=%s",
             _ts(), scenario.value, json.dumps(plan.to_dict()),
         )
 
@@ -460,7 +460,7 @@ class ExperimentOrchestrator:
         except Exception as e:
             report.errors.append(f"experiment_exception: {e}")
             logger.error(
-                "[%s] MoEGambit EXPERIMENT: scenario=%s FAILED: %s",
+                "[%s] MOEGAMBIT-MoE EXPERIMENT: scenario=%s FAILED: %s",
                 _ts(), scenario.value, e,
             )
 
@@ -469,7 +469,7 @@ class ExperimentOrchestrator:
         report.success = len(report.errors) == 0
 
         logger.warning(
-            "[%s] MoEGambit EXPERIMENT: scenario=%s %s — "
+            "[%s] MOEGAMBIT-MoE EXPERIMENT: scenario=%s %s — "
             "elapsed=%.4fs, path=%s, errors=%d",
             _ts(), scenario.value,
             "PASSED" if report.success else "FAILED",
@@ -693,7 +693,7 @@ def run_all_experiments(
 # =====================================================================
 
 TROUBLESHOOTING_GUIDE = """
-MoEGambit Experiment Troubleshooting Guide
+MOEGAMBIT-MoE Experiment Troubleshooting Guide
 =========================================
 
 1. "safe-point repair did not execute"

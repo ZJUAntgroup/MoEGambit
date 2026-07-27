@@ -24,6 +24,7 @@ class DeepSpeedRuntimeSettings:
     restart_count: int
     recovery_epoch: int
     replica_timeout: float
+    hybrid_restore: bool = False
 
     @classmethod
     def from_env(cls) -> "DeepSpeedRuntimeSettings":
@@ -58,6 +59,9 @@ class DeepSpeedRuntimeSettings:
             ),
             replica_timeout=float(
                 os.environ.get("MOEGAMBIT_ZERO2_REPLICATION_TIMEOUT", "300")
+            ),
+            hybrid_restore=env_bool(
+                "MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE", False
             ),
         )
 
@@ -102,10 +106,37 @@ class DeepSpeedRecoveryRuntime:
                 f"{self.settings.checkpoint_dir}"
             )
         self._report_phase("checkpoint_restore_done")
+        if self.settings.hybrid_restore:
+            self._restore_non_expert_from_peer()
         logger.warning(
             "MoEGambit restored DeepSpeed recovery epoch %d from %s",
             self.settings.recovery_epoch,
             load_path,
+        )
+
+    def _restore_non_expert_from_peer(self) -> None:
+        from moegambit_deepspeed.hybrid_restore import (
+            restore_non_expert_model_from_peer,
+        )
+
+        failed_logical_node = int(
+            os.environ["MOEGAMBIT_RECOVERY_FAILED_LOGICAL_NODE"]
+        )
+        local_world_size = int(os.environ["LOCAL_WORLD_SIZE"])
+        expected_step = int(os.environ["MOEGAMBIT_RECOVERY_FAILURE_STEP"])
+        first_rank = failed_logical_node * local_world_size
+        replacement_ranks = range(
+            first_rank, first_rank + local_world_size
+        )
+        self._report_phase("non_expert_peer_restore_start")
+        summary = restore_non_expert_model_from_peer(
+            self.engine,
+            replacement_ranks=replacement_ranks,
+            expected_step=expected_step,
+        )
+        self._report_phase("non_expert_peer_restore_done")
+        logger.warning(
+            "MoEGambit single-stage hybrid restore complete: %s", summary
         )
 
     def _report_phase(self, phase: str) -> None:

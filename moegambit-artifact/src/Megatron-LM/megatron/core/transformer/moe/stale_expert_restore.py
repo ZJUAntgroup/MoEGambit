@@ -4,7 +4,8 @@
 
 After a replacement rank comes online and receives current dense parameters
 from a healthy DP peer (Step 9), the **expert parameters** still need to be
-restored.  Selective expert weight recovery from the most recent distributed checkpoint.
+restored.  This module handles selective expert weight recovery from the most
+recent distributed checkpoint.
 
 Recovery flow
 -------------
@@ -102,7 +103,7 @@ def _directory_layer_id_from_restore_entry(
 ) -> int:
     """Map a restore-plan layer id to ActiveExpertDirectory's 0-based id.
 
-    moegambit runtime restore plans use 1-based global MoE layer ids because the
+    MOEGAMBIT runtime restore plans use 1-based global MoE layer ids because the
     checkpoint loader maps them back to PP-local checkpoint keys.  Manifest
     plans may already be 0-based.  The active expert directory is built from
     ``range(num_layers)``, so its valid ids are 0..num_layers-1.
@@ -307,7 +308,7 @@ class OptimizerUpdateBarrier:
         if step >= 0:
             self._block_step = step
         logger.info(
-            "MoEGambit optimizer barrier: blocked %d params (total %d)",
+            "MOEGAMBIT-MoE optimizer barrier: blocked %d params (total %d)",
             len(param_names), len(self._blocked_params),
         )
 
@@ -353,7 +354,7 @@ class OptimizerUpdateBarrier:
             self._block_step = step
 
         logger.info(
-            "MoEGambit optimizer barrier: blocked %d expert params for "
+            "MOEGAMBIT-MoE optimizer barrier: blocked %d expert params for "
             "expert_ids=%s (total blocked=%d)",
             len(blocked), sorted(expert_ids), len(self._blocked_params),
         )
@@ -382,7 +383,7 @@ class OptimizerUpdateBarrier:
         if not self._blocked_expert_ids:
             self._blocked_params.clear()
         logger.info(
-            "MoEGambit optimizer barrier: unblocked expert_ids=%s "
+            "MOEGAMBIT-MoE optimizer barrier: unblocked expert_ids=%s "
             "(remaining blocked experts=%d, params=%d)",
             sorted(expert_ids), len(self._blocked_expert_ids),
             len(self._blocked_params),
@@ -483,7 +484,7 @@ def identify_experts_to_restore(
         plan.entries.append(restore_entry)
 
     logger.info(
-        "MoEGambit: identified %d experts to restore for failed_rank=%d "
+        "MOEGAMBIT-MoE: identified %d experts to restore for failed_rank=%d "
         "(replacement=%d, checkpoint_step=%d)",
         plan.num_experts, failed_rank, replacement_rank, manifest.step,
     )
@@ -605,7 +606,7 @@ def restore_expert_weights(
             result.num_state_transitions += len(expert_ids)
         except Exception as e:
             logger.warning(
-                "MoEGambit: health manager transition failed for layer %d, "
+                "MOEGAMBIT-MoE: health manager transition failed for layer %d, "
                 "experts %s: %s", layer_id, expert_ids, e,
             )
 
@@ -637,7 +638,7 @@ def restore_expert_weights(
                 result.num_directory_updates += 1
             except Exception as e:
                 logger.warning(
-                    "MoEGambit: directory update failed for expert "
+                    "MOEGAMBIT-MoE: directory update failed for expert "
                     "(restore_layer=%d, directory_layer=%d, id=%d): %s",
                     layer_id, directory_layer_id, expert_id, e,
                 )
@@ -658,7 +659,7 @@ def restore_expert_weights(
     result.elapsed_seconds = time.monotonic() - start_time
 
     logger.warning(
-        "MoEGambit stale expert restore: %s — restored %d/%d experts "
+        "MOEGAMBIT-MoE stale expert restore: %s — restored %d/%d experts "
         "(transitions=%d, directory=%d, barrier=%d, %.2fs)",
         "SUCCESS" if result.success else "PARTIAL",
         result.num_restored, result.num_restored + result.num_failed,
@@ -781,7 +782,7 @@ class StaleExpertRestoreCoordinator:
         with self._async_plan_lock:
             if plan_signature in self._async_plan_signatures:
                 logger.info(
-                    "MoEGambit stale expert restore: duplicate async restore "
+                    "MOEGAMBIT-MoE stale expert restore: duplicate async restore "
                     "plan ignored (failed_rank=%d, replacement=%d, step=%d)",
                     plan.failed_rank, plan.replacement_rank, step,
                 )
@@ -807,7 +808,7 @@ class StaleExpertRestoreCoordinator:
             request_ids.append(req_id)
 
         logger.info(
-            "MoEGambit stale expert restore: submitted %d async load requests "
+            "MOEGAMBIT-MoE stale expert restore: submitted %d async load requests "
             "for plan (failed_rank=%d, replacement=%d, step=%d)",
             len(request_ids), plan.failed_rank, plan.replacement_rank, step,
         )

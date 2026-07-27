@@ -1,12 +1,13 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MoEGambit Training Loop Integration.
+"""MOEGAMBIT-MoE Training Loop Integration.
 
-Glue code connecting all MoEGambit modules to Megatron's training loop.  It handles:
+This module provides the glue code that connects all MOEGAMBIT-MoE modules to
+Megatron's training loop.  It handles:
 
-1. **Initialization** — creates all MoEGambit singletons at training start.
+1. **Initialization** — creates all MOEGAMBIT-MoE singletons at training start.
 2. **Callback wiring** — registers RecoveryController callbacks that
-   delegate to the real MoEGambit module singletons.
+   delegate to the real MOEGAMBIT-MoE module singletons.
 3. **Training hooks** — ``moegambit_before_iteration()`` and ``moegambit_after_iteration()``
    are called from the training loop.
 4. **Scheduled fault injection** — when ``--moe-moegambit-fault-injection`` is
@@ -143,7 +144,7 @@ def _build_global_ep_groups(args: Any, world_size: int, local_ep_group_ranks: Li
         ).get_ranks('ep')
     except Exception as exc:
         logger.warning(
-            "MoEGambit: failed to reconstruct global EP groups (%s); "
+            "MOEGAMBIT-MoE: failed to reconstruct global EP groups (%s); "
             "falling back to local EP group ranks=%s",
             exc, local_ep_group_ranks,
         )
@@ -235,7 +236,7 @@ def _maybe_clear_failed_rank_tensors(cfg: Dict[str, Any], failed_rank: int, step
         optimizer_ref = cfg.get('optimizer_ref')
         if model_ref is None:
             logger.warning(
-                "MoEGambit fault injection: zero-memory requested for rank %d "
+                "MOEGAMBIT-MoE fault injection: zero-memory requested for rank %d "
                 "but model_ref is None (step=%d)",
                 failed_rank, step,
             )
@@ -253,14 +254,14 @@ def _maybe_clear_failed_rank_tensors(cfg: Dict[str, Any], failed_rank: int, step
             stats["opt_states_invalidated"] += chunk_stats.get("opt_states_invalidated", 0)
 
         logger.warning(
-            "[%s] MoEGambit fault injection: cleared failed rank tensors "
+            "[%s] MOEGAMBIT-MoE fault injection: cleared failed rank tensors "
             "(rank=%d, mode=%s, params=%d, opt_states=%d, step=%d)",
             _ts(), failed_rank, fill_mode,
             stats["params_invalidated"], stats["opt_states_invalidated"], step,
         )
     except Exception as exc:
         logger.error(
-            "MoEGambit fault injection: failed to clear tensors on rank %d: %s",
+            "MOEGAMBIT-MoE fault injection: failed to clear tensors on rank %d: %s",
             failed_rank, exc,
         )
 
@@ -347,7 +348,7 @@ def _infer_local_moe_layer_ids(model: Any, num_layers: int) -> List[int]:
     if layers_per_stage is None:
         if num_layers % pp_size != 0:
             logger.warning(
-                "MoEGambit: cannot infer PP-local layer range "
+                "MOEGAMBIT-MoE: cannot infer PP-local layer range "
                 "(num_layers=%d, pp_size=%d); falling back to all layers",
                 num_layers, pp_size,
             )
@@ -415,7 +416,7 @@ def _is_distributed_optimizer(optimizer) -> bool:
     return False
 
 
-# Module-level flag: has moegambit been initialized?
+# Module-level flag: has MOEGAMBIT been initialized?
 _MOEGAMBIT_INITIALIZED = False
 
 # Cached references
@@ -437,7 +438,7 @@ _RECOVERY_STREAM: Optional[torch.cuda.Stream] = None
 # =====================================================================
 
 def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_scheduler=None) -> bool:
-    """Initialize MoEGambit if enabled in args.
+    """Initialize MOEGAMBIT-MoE if enabled in args.
 
     Should be called once after model construction and distributed init.
 
@@ -451,7 +452,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             scheduler state restoration.
 
     Returns:
-        True if MoEGambit was initialized, False otherwise.
+        True if MOEGAMBIT-MoE was initialized, False otherwise.
     """
     global _MOEGAMBIT_INITIALIZED, _RECOVERY_CONTROLLER, _FAULT_INJECTOR_CONFIG
     global _HARD_FAILURE_DETECTOR, _ITERATION_INVALIDATOR, _ROLLBACK_REPLAY_MANAGER
@@ -466,9 +467,9 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
 
     rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
 
-    logger.warning("[%s] MoEGambit: initializing on rank %d ...", _ts(), rank)
+    logger.warning("[%s] MOEGAMBIT-MoE: initializing on rank %d ...", _ts(), rank)
 
-    # ---- 1. Import all MoEGambit modules ----
+    # ---- 1. Import all MOEGAMBIT-MoE modules ----
     from megatron.core.transformer.moe import expert_directory
     from megatron.core.transformer.moe import replacement_registry
     from megatron.core.transformer.moe import group_rebuild
@@ -497,7 +498,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
     global_ep_groups = _build_global_ep_groups(args, world_size, ep_group_ranks)
 
     logger.warning(
-        "MoEGambit: num_experts=%d, num_layers=%d, ep_size=%d, "
+        "MOEGAMBIT-MoE: num_experts=%d, num_layers=%d, ep_size=%d, "
         "ep_group_ranks=%s, dp_group_ranks=%s, global_ep_groups=%d",
         num_experts, num_layers, ep_size, ep_group_ranks, dp_group_ranks,
         len(global_ep_groups),
@@ -514,7 +515,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             ep_group_ranks=ep_group_ranks,
         )
         expert_directory.set_active_expert_directory(directory)
-        logger.warning("MoEGambit: expert directory initialized")
+        logger.warning("MOEGAMBIT-MoE: expert directory initialized")
 
     # Replacement registry
     if getattr(args, 'moe_moegambit_replacement_protocol', False):
@@ -533,7 +534,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             ep_size=ep_size,
             ep_group_ranks=ep_group_ranks,
         )
-        logger.warning("MoEGambit: dispatch topology manager initialized")
+        logger.warning("MOEGAMBIT-MoE: dispatch topology manager initialized")
 
     # Reintegration barrier
     if getattr(args, 'moe_moegambit_reintegration_barrier', False):
@@ -557,13 +558,14 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
         defer_opt = getattr(args, 'moe_moegambit_defer_optimizer_load', True)
         tp_mod.get_two_phase_recovery_coordinator(defer_optimizer=defer_opt)
         logger.warning(
-            "MoEGambit: two-phase recovery coordinator initialized "
+            "MOEGAMBIT-MoE: two-phase recovery coordinator initialized "
             "(defer_optimizer=%s)", defer_opt,
         )
 
     # ---- 4. Initialize RecoveryController and wire callbacks ----
     if getattr(args, 'moe_moegambit_recovery_controller', False):
         ctrl = rc_mod.get_recovery_controller()
+        ctrl.set_num_experts(num_experts)
         _wire_recovery_callbacks(
             ctrl,
             num_layers=num_layers,
@@ -576,13 +578,13 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             opt_param_scheduler=opt_param_scheduler,
         )
         _RECOVERY_CONTROLLER = ctrl
-        logger.warning("MoEGambit: recovery controller initialized and callbacks wired")
+        logger.warning("MOEGAMBIT-MoE: recovery controller initialized and callbacks wired")
 
         # Wire reintegration barrier to recovery controller
         if getattr(args, 'moe_moegambit_reintegration_barrier', False):
             barrier = reintegration_barrier.get_reintegration_barrier()
             ctrl._reintegration_barrier = barrier
-            logger.warning("MoEGambit: reintegration barrier wired to recovery controller")
+            logger.warning("MOEGAMBIT-MoE: reintegration barrier wired to recovery controller")
 
         # Wire gap-aware recovery policy to recovery controller
         if getattr(args, 'moe_moegambit_gap_aware_recovery', False):
@@ -593,16 +595,19 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
 
             # Build RankExposureGuardedConfig if needed
             rank_exposure_config = None
-            if policy_type in ('rank_exposure_guarded', 'rank_exposure_guarded_hybrid'):
+            if policy_type in (
+                'rank_exposure_guarded',
+                'rank_exposure_guarded_hybrid',
+                'expert_staleness_guarded',
+            ):
                 rank_exposure_config = garp_mod.RankExposureGuardedConfig(
-                    delta_time_min_gap=getattr(args, 'moe_moegambit_delta_time_min_gap', 1),
-                    max_single_gap=getattr(args, 'moe_moegambit_max_single_gap', 200),
-                    exposure_window_steps=getattr(args, 'moe_moegambit_exposure_window_steps', 2000),
-                    num_experts=int(getattr(args, 'num_experts', 128) or 128),
+                    delta_time_min_gap=getattr(args, 'moe_moegambit_delta_time_min_gap', 32),
+                    max_single_gap=getattr(args, 'moe_moegambit_max_single_gap', 192),
+                    exposure_window_steps=getattr(args, 'moe_moegambit_exposure_window_steps', 20000),
                     max_rank_stale_exposure=getattr(args, 'moe_moegambit_max_rank_stale_exposure', 0.1),
                 )
                 logger.warning(
-                    "MoEGambit: rank-exposure-guarded policy config: %s",
+                    "MOEGAMBIT-MoE: rank-exposure-guarded policy config: %s",
                     rank_exposure_config.to_dict(),
                 )
 
@@ -620,7 +625,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             # _wire_recovery_callbacks (closure over model/ep_group_ranks).
             # No separate register_callbacks call needed here.
             logger.warning(
-                "MoEGambit: gap-aware recovery policy wired to recovery controller "
+                "MOEGAMBIT-MoE: gap-aware recovery policy wired to recovery controller "
                 "(type=%s, threshold=%d)", policy_type, gap_threshold,
             )
 
@@ -645,14 +650,14 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
 
     _HARD_FAILURE_DETECTOR = detector
     _ITERATION_INVALIDATOR = invalidator
-    logger.warning("MoEGambit: hard failure detector and iteration invalidator initialized")
+    logger.warning("MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized")
 
     # ---- 4c. Initialize RollbackReplayManager ----
     from megatron.core.transformer.moe import iteration_rollback as rb_mod
 
     rollback_mgr = rb_mod.get_rollback_replay_manager()
     _ROLLBACK_REPLAY_MANAGER = rollback_mgr
-    logger.warning("MoEGambit: rollback/replay manager initialized")
+    logger.warning("MOEGAMBIT-MoE: rollback/replay manager initialized")
 
     # ---- 4d. Initialize OptimizerCommitGuard ----
     from megatron.core.transformer.moe import optimizer_commit_guard as ocg_mod
@@ -664,14 +669,14 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             is_iteration_invalid_fn=_ITERATION_INVALIDATOR.is_current_iteration_invalid,
         )
     _OPTIMIZER_COMMIT_GUARD = commit_guard
-    logger.warning("MoEGambit: optimizer commit guard initialized")
+    logger.warning("MOEGAMBIT-MoE: optimizer commit guard initialized")
 
     # ---- 4e. Initialize PipelineRollbackCoordinator ----
     from megatron.core.transformer.moe import pipeline_rollback as pr_mod
 
     pp_coord = pr_mod.get_pipeline_rollback_coordinator()
     _PIPELINE_ROLLBACK_COORDINATOR = pp_coord
-    logger.warning("MoEGambit: pipeline rollback coordinator initialized")
+    logger.warning("MOEGAMBIT-MoE: pipeline rollback coordinator initialized")
 
     # ---- 4f. Initialize async recovery worker and CUDA stream (Phase 15) ----
     global _ASYNC_RECOVERY_WORKER, _RECOVERY_STREAM
@@ -689,12 +694,12 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
         if torch.cuda.is_available():
             _RECOVERY_STREAM = torch.cuda.Stream()
             logger.warning(
-                "MoEGambit: async recovery worker initialized "
+                "MOEGAMBIT-MoE: async recovery worker initialized "
                 "(workers=%d, CUDA stream created)", max_workers,
             )
         else:
             logger.warning(
-                "MoEGambit: async recovery worker initialized "
+                "MOEGAMBIT-MoE: async recovery worker initialized "
                 "(workers=%d, no CUDA — CPU mode)", max_workers,
             )
 
@@ -758,7 +763,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             'inject_count': 0,
         }
         logger.warning(
-            "MoEGambit: fault injection configured — type=%s, rank=%s, step=%d, "
+            "MOEGAMBIT-MoE: fault injection configured — type=%s, rank=%s, step=%d, "
             "interval=%d, random_rank=%s, seed=%d, zero_memory=%s, memory_fill=%s",
             _FAULT_INJECTOR_CONFIG['inject_type'],
             'random' if _FAULT_INJECTOR_CONFIG['random_rank'] else str(_FAULT_INJECTOR_CONFIG['inject_rank']),
@@ -771,7 +776,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
         )
         if _fault_inject_plan:
             logger.warning(
-                "MoEGambit: fault injection plan configured — %d rank events "
+                "MOEGAMBIT-MoE: fault injection plan configured — %d rank events "
                 "(mode=%s): %s",
                 len(_fault_inject_plan),
                 _FAULT_INJECTOR_CONFIG['inject_plan_mode'],
@@ -816,7 +821,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
                 invalidate_tensor_fn=_invalidate_tensor_callback,
             )
             logger.warning(
-                "MoEGambit: restart-in-place invalidate_tensor_fn wired "
+                "MOEGAMBIT-MoE: restart-in-place invalidate_tensor_fn wired "
                 "(target rank only)"
             )
 
@@ -841,7 +846,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             )
 
             logger.warning(
-                "MoEGambit: hot-spare pool initialized (daemon mode) — %d spares "
+                "MOEGAMBIT-MoE: hot-spare pool initialized (daemon mode) — %d spares "
                 "(logical ranks %s), training_world=%d",
                 num_hot_spares, spare_ranks, world_size,
             )
@@ -865,7 +870,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
                         if allocated is not None:
                             kwargs['replacement_rank'] = allocated
                             logger.warning(
-                                "MoEGambit: hot-spare auto-allocated rank %d "
+                                "MOEGAMBIT-MoE: hot-spare auto-allocated rank %d "
                                 "for failed_rank=%d (step=%d, remaining=%d)",
                                 allocated, failed_rank_id, step_val,
                                 spare_pool.num_available,
@@ -879,16 +884,16 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
                     _hot_spare_replacement_announce_fn
                 )
                 logger.warning(
-                    "MoEGambit: hot-spare auto-allocation wired to recovery controller"
+                    "MOEGAMBIT-MoE: hot-spare auto-allocation wired to recovery controller"
                 )
 
     _MOEGAMBIT_INITIALIZED = True
-    logger.warning("[%s] MoEGambit: initialization complete on rank %d", _ts(), rank)
+    logger.warning("[%s] MOEGAMBIT-MoE: initialization complete on rank %d", _ts(), rank)
     return True
 
 
 def moegambit_before_iteration(step: int) -> bool:
-    """MoEGambit safe-point hook — call at the start of each training iteration.
+    """MOEGAMBIT-MoE safe-point hook — call at the start of each training iteration.
 
     Returns True if a repair was executed at this safe point.
     """
@@ -927,7 +932,7 @@ def moegambit_before_iteration(step: int) -> bool:
 
 
 def moegambit_after_iteration(step: int) -> bool:
-    """MoEGambit post-step hook — call after each training iteration.
+    """MOEGAMBIT-MoE post-step hook — call after each training iteration.
 
     Returns True if any action was taken.
     """
@@ -973,7 +978,7 @@ def moegambit_after_iteration(step: int) -> bool:
 
 
 def moegambit_is_initialized() -> bool:
-    """Check if MoEGambit has been initialized."""
+    """Check if MOEGAMBIT-MoE has been initialized."""
     return _MOEGAMBIT_INITIALIZED
 
 
@@ -1031,7 +1036,7 @@ def _update_soft_fault_directory(expert_ids: List[int], state: str, step: int) -
         directory.bulk_update_recovery_state(expert_ids, state)
     except Exception as exc:
         logger.warning(
-            "[%s] MoEGambit soft fault: failed to mark experts %s as %s "
+            "[%s] MOEGAMBIT-MoE soft fault: failed to mark experts %s as %s "
             "in active directory at step %d: %s",
             _ts(), expert_ids, state, step, exc,
         )
@@ -1043,7 +1048,7 @@ def _mark_soft_fault_injected(ctrl: Any, expert_ids: List[int], step: int) -> No
             ctrl.expert_tracker.mark_recovering(expert_ids, step=step)
         except Exception as exc:
             logger.warning(
-                "[%s] MoEGambit soft fault: failed to mark experts recovering "
+                "[%s] MOEGAMBIT-MoE soft fault: failed to mark experts recovering "
                 "at step %d: %s",
                 _ts(), step, exc,
             )
@@ -1057,7 +1062,7 @@ def _mark_soft_fault_recovered(ctrl: Any, expert_ids: List[int], step: int) -> N
             ctrl.expert_tracker.mark_healthy(expert_ids, step=step)
         except Exception as exc:
             logger.warning(
-                "[%s] MoEGambit soft fault: failed to mark experts healthy "
+                "[%s] MOEGAMBIT-MoE soft fault: failed to mark experts healthy "
                 "at step %d: %s",
                 _ts(), step, exc,
             )
@@ -1070,7 +1075,7 @@ def moegambit_is_current_iteration_invalid() -> bool:
     catching an exception from train_step()) to decide whether to skip the
     optimizer commit and iteration increment.
 
-    Returns False if moegambit is not initialized or no invalidation occurred.
+    Returns False if MOEGAMBIT is not initialized or no invalidation occurred.
     """
     if not _MOEGAMBIT_INITIALIZED:
         return False
@@ -1110,7 +1115,7 @@ def moegambit_report_hard_failure(
     """
     if not _MOEGAMBIT_INITIALIZED or _HARD_FAILURE_DETECTOR is None:
         logger.warning(
-            "MoEGambit: moegambit_report_hard_failure called but moegambit not initialized "
+            "MOEGAMBIT-MoE: moegambit_report_hard_failure called but MOEGAMBIT not initialized "
             "(rank=%d, reason=%s)", failed_rank, reason,
         )
         return False
@@ -1278,14 +1283,14 @@ def moegambit_announce_replacement_ready(
             step=step,
         )
         logger.warning(
-            "MoEGambit: replacement announced and ready — "
+            "MOEGAMBIT-MoE: replacement announced and ready — "
             "failed_rank=%d, replacement_rank=%d, step=%d",
             failed_rank, replacement_rank, step,
         )
         return True
     except Exception as e:
         logger.error(
-            "MoEGambit: moegambit_announce_replacement_ready failed: %s", e,
+            "MOEGAMBIT-MoE: moegambit_announce_replacement_ready failed: %s", e,
         )
         return False
 
@@ -1581,7 +1586,7 @@ def moegambit_refresh_directory_from_placement(new_ep_group_ranks: List[int]) ->
         directory.refresh_from_placement(new_ep_group_ranks)
         return True
     except Exception as e:
-        logger.error("MoEGambit: directory refresh failed: %s", e)
+        logger.error("MOEGAMBIT-MoE: directory refresh failed: %s", e)
         return False
 
 
@@ -1596,7 +1601,7 @@ def moegambit_sync_directory_from_health_managers() -> int:
     try:
         return directory.sync_states_from_health_managers()
     except Exception as e:
-        logger.error("MoEGambit: directory sync failed: %s", e)
+        logger.error("MOEGAMBIT-MoE: directory sync failed: %s", e)
         return 0
 
 
@@ -1640,7 +1645,7 @@ def moegambit_refresh_dispatch_topology(
             **kwargs,
         )
     except Exception as e:
-        logger.error("MoEGambit: dispatch topology refresh failed: %s", e)
+        logger.error("MOEGAMBIT-MoE: dispatch topology refresh failed: %s", e)
         return None
 
 
@@ -1918,7 +1923,7 @@ def moegambit_repair_pipeline_stage(
             create_group_fn=create_group_fn,
         )
     except Exception as e:
-        logger.error("MoEGambit: pipeline stage repair failed: %s", e)
+        logger.error("MOEGAMBIT-MoE: pipeline stage repair failed: %s", e)
         return None
 
 
@@ -1955,7 +1960,7 @@ def moegambit_on_pipeline_stage_failure(
     """
     if not _MOEGAMBIT_INITIALIZED or _RECOVERY_CONTROLLER is None:
         logger.warning(
-            "MoEGambit: moegambit_on_pipeline_stage_failure called but moegambit not "
+            "MOEGAMBIT-MoE: moegambit_on_pipeline_stage_failure called but MOEGAMBIT not "
             "initialized (stage=%d, rank=%d)", failed_stage, failed_rank,
         )
         return False
@@ -1975,7 +1980,7 @@ def moegambit_on_pipeline_stage_failure(
         return True
     except Exception as e:
         logger.error(
-            "MoEGambit: moegambit_on_pipeline_stage_failure failed: %s", e,
+            "MOEGAMBIT-MoE: moegambit_on_pipeline_stage_failure failed: %s", e,
         )
         return False
 
@@ -2013,15 +2018,15 @@ def moegambit_execute_stage_safe_recovery(
         detect → invalidate → rollback → wait-for-replacement →
         safe-point repair → P2P rebind → resume training
 
-    It delegates each step to the existing MoEGambit callbacks already
+    It delegates each step to the existing MOEGAMBIT-MoE callbacks already
     registered with the RecoveryController.
 
-    Returns the StageRecoveryResult.to_dict(), or None if moegambit is not
+    Returns the StageRecoveryResult.to_dict(), or None if MOEGAMBIT is not
     initialized.
     """
     if not _MOEGAMBIT_INITIALIZED or _RECOVERY_CONTROLLER is None:
         logger.warning(
-            "MoEGambit: moegambit_execute_stage_safe_recovery called but moegambit "
+            "MOEGAMBIT-MoE: moegambit_execute_stage_safe_recovery called but MOEGAMBIT "
             "not initialized"
         )
         return None
@@ -2148,7 +2153,7 @@ def moegambit_execute_stage_safe_recovery(
     )
 
     logger.warning(
-        "[%s] MoEGambit stage-safe recovery: %s "
+        "[%s] MOEGAMBIT-MoE stage-safe recovery: %s "
         "(phase=%s, path=%s, errors=%d, elapsed=%.3fs)",
         _ts(),
         "SUCCEEDED" if result.success else "FAILED",
@@ -2220,7 +2225,7 @@ def _wire_recovery_callbacks(
     optimizer=None,
     opt_param_scheduler=None,
 ) -> None:
-    """Wire RecoveryController callbacks to real MoEGambit module singletons."""
+    """Wire RecoveryController callbacks to real MOEGAMBIT-MoE module singletons."""
 
     from megatron.core.transformer.moe import replacement_registry as rep_mod
     from megatron.core.transformer.moe import group_rebuild as gb_mod
@@ -2236,7 +2241,7 @@ def _wire_recovery_callbacks(
                 step=step,
             )
         except Exception as e:
-            logger.error("MoEGambit replacement_announce_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE replacement_announce_fn failed: %s", e)
 
     def replacement_integrate_fn(*, failed_rank, replacement_rank, step=-1):
         """Mark replacement as integrated.
@@ -2263,7 +2268,7 @@ def _wire_recovery_callbacks(
                 rep_mod.announce_replacement_ready(failed_rank, step=step)
             rep_mod.mark_integrated(failed_rank, step=step)
         except Exception as e:
-            logger.error("MoEGambit replacement_integrate_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE replacement_integrate_fn failed: %s", e)
 
     def group_rebuild_request_fn(
         *, failed_rank, replacement_rank, step=-1,
@@ -2284,7 +2289,7 @@ def _wire_recovery_callbacks(
                 new_ep_group_ranks=new_ep,
             )
         except Exception as e:
-            logger.error("MoEGambit group_rebuild_request_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE group_rebuild_request_fn failed: %s", e)
 
     def group_rebuild_execute_fn(*, failed_rank, replacement_rank, step=-1):
         """Execute group rebuild at safe point via SafePointGroupRepairer.
@@ -2312,7 +2317,7 @@ def _wire_recovery_callbacks(
             # group invalidation + rebuild + rebind + verify sequence.
             def _rebuild_fn(plan):
                 logger.warning(
-                    "MoEGambit: executing safe-point group repair — "
+                    "MOEGAMBIT-MoE: executing safe-point group repair — "
                     "failed=%d, replacement=%d, groups=%s",
                     plan.failed_rank, plan.replacement_rank,
                     plan.affected_groups,
@@ -2335,7 +2340,7 @@ def _wire_recovery_callbacks(
 
                 if result.success:
                     logger.warning(
-                        "[%s] MoEGambit: safe-point group repair SUCCEEDED — "
+                        "[%s] MOEGAMBIT-MoE: safe-point group repair SUCCEEDED — "
                         "invalidated=%d, rebuilt=%d, rebound=%d, "
                         "verified=%s, elapsed=%.2fs",
                         _ts(),
@@ -2345,7 +2350,7 @@ def _wire_recovery_callbacks(
                     )
                 else:
                     logger.error(
-                        "[%s] MoEGambit: safe-point group repair FAILED at "
+                        "[%s] MOEGAMBIT-MoE: safe-point group repair FAILED at "
                         "phase %s: %s",
                         _ts(),
                         result.phase_reached.name, result.error,
@@ -2356,7 +2361,7 @@ def _wire_recovery_callbacks(
                 # (phase 4), so this is a no-op.  The coordinator still
                 # needs a rebind_fn to transition its state machine.
                 logger.debug(
-                    "MoEGambit: rebind phase (handled by repairer) — "
+                    "MOEGAMBIT-MoE: rebind phase (handled by repairer) — "
                     "failed=%d, replacement=%d",
                     plan.failed_rank, plan.replacement_rank,
                 )
@@ -2372,14 +2377,14 @@ def _wire_recovery_callbacks(
             result = _repair_result[0]
             if result is not None and not result.success:
                 raise RuntimeError(
-                    f"MoEGambit safe-point group repair FAILED: "
+                    f"MOEGAMBIT-MoE safe-point group repair FAILED: "
                     f"phase={result.phase_reached.name}, "
                     f"error={result.error}, "
                     f"invalidated={result.groups_invalidated}, "
                     f"rebuilt={result.groups_rebuilt}"
                 )
         except Exception as e:
-            logger.error("MoEGambit group_rebuild_execute_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE group_rebuild_execute_fn failed: %s", e)
             raise
 
     def group_rebuild_finish_fn(*, failed_rank, replacement_rank, step=-1):
@@ -2388,7 +2393,7 @@ def _wire_recovery_callbacks(
             coord = gb_mod.get_group_rebuild_coordinator()
             coord.finish_group_repair(step=step)
         except Exception as e:
-            logger.error("MoEGambit group_rebuild_finish_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE group_rebuild_finish_fn failed: %s", e)
 
     def topology_refresh_fn(
         *, failed_rank, replacement_rank, step=-1, expert_ids=None,
@@ -2424,19 +2429,19 @@ def _wire_recovery_callbacks(
             issues = mgr.check_router_dispatcher_consistency()
             if issues:
                 logger.warning(
-                    "MoEGambit topology_refresh_fn: consistency issues "
+                    "MOEGAMBIT-MoE topology_refresh_fn: consistency issues "
                     "after refresh: %s", issues,
                 )
             else:
                 logger.info(
-                    "MoEGambit topology_refresh_fn: consistency check passed "
+                    "MOEGAMBIT-MoE topology_refresh_fn: consistency check passed "
                     "(step=%d, dispatchable=%d/%d)",
                     step,
                     len(mgr.get_dispatchable_experts()),
                     snapshot.num_experts,
                 )
         except Exception as e:
-            logger.error("MoEGambit topology_refresh_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE topology_refresh_fn failed: %s", e)
 
     def health_mark_healthy_fn(*, expert_ids, step=-1):
         """Promote recovered experts back to HEALTHY in tracker + directory."""
@@ -2446,7 +2451,7 @@ def _wire_recovery_callbacks(
             ctrl.expert_tracker.mark_healthy(list(expert_ids), step=step)
         except Exception as e:
             logger.error(
-                "MoEGambit health_mark_healthy_fn tracker update failed: %s", e,
+                "MOEGAMBIT-MoE health_mark_healthy_fn tracker update failed: %s", e,
             )
 
         try:
@@ -2457,7 +2462,7 @@ def _wire_recovery_callbacks(
                 )
         except Exception as e:
             logger.error(
-                "MoEGambit health_mark_healthy_fn directory update failed: %s", e,
+                "MOEGAMBIT-MoE health_mark_healthy_fn directory update failed: %s", e,
             )
 
     def dense_sync_fn(*, failed_rank, replacement_rank, step=-1):
@@ -2487,7 +2492,7 @@ def _wire_recovery_callbacks(
                 if _cfg is not None and hasattr(_cfg, 'moe_moegambit_hybrid_dense_sync'):
                     if not _cfg.moe_moegambit_hybrid_dense_sync:
                         logger.warning(
-                            "[%s] MoEGambit dense_sync_fn: dense param sync "
+                            "[%s] MOEGAMBIT-MoE dense_sync_fn: dense param sync "
                             "disabled by config (moe_moegambit_hybrid_dense_sync=False, "
                             "step=%d). All parameters will be recovered from "
                             "checkpoint.",
@@ -2514,7 +2519,7 @@ def _wire_recovery_callbacks(
                 if _cfg is not None and hasattr(_cfg, 'moe_moegambit_dense_opt_state_sync'):
                     if not _cfg.moe_moegambit_dense_opt_state_sync:
                         logger.warning(
-                            "[%s] MoEGambit dense_sync_fn: optimizer state sync "
+                            "[%s] MOEGAMBIT-MoE dense_sync_fn: optimizer state sync "
                             "disabled by config (moe_moegambit_dense_opt_state_sync=False, "
                             "step=%d)",
                             _ts(), step,
@@ -2528,7 +2533,7 @@ def _wire_recovery_callbacks(
                 is_distributed_opt = _is_distributed_optimizer(optimizer)
                 if is_distributed_opt:
                     logger.warning(
-                        "[%s] MoEGambit dense_sync_fn: DistributedOptimizer "
+                        "[%s] MOEGAMBIT-MoE dense_sync_fn: DistributedOptimizer "
                         "detected — skipping optimizer state broadcast "
                         "(ZeRO-1 sharded state cannot be broadcast). "
                         "Optimizer state will be recovered from checkpoint "
@@ -2545,7 +2550,7 @@ def _wire_recovery_callbacks(
             if (replacement_rank >= 0 and dp_group_ranks
                     and replacement_rank not in dp_group_ranks):
                 logger.debug(
-                    "MoEGambit dense_sync_fn: rank %d skipping dense sync for "
+                    "MOEGAMBIT-MoE dense_sync_fn: rank %d skipping dense sync for "
                     "replacement rank %d outside local DP group %s "
                     "(failed=%d, step=%d)",
                     local_rank, replacement_rank, dp_group_ranks,
@@ -2575,7 +2580,7 @@ def _wire_recovery_callbacks(
 
             if plan.source_rank < 0:
                 logger.error(
-                    "MoEGambit dense_sync_fn: no healthy DP peer available "
+                    "MOEGAMBIT-MoE dense_sync_fn: no healthy DP peer available "
                     "for replacement_rank=%d (failed_rank=%d). "
                     "Dense params will need checkpoint recovery.",
                     replacement_rank, failed_rank,
@@ -2583,7 +2588,7 @@ def _wire_recovery_callbacks(
                 return
             if plan.source_rank not in dp_group_ranks:
                 logger.error(
-                    "MoEGambit dense_sync_fn: selected source rank %d is not "
+                    "MOEGAMBIT-MoE dense_sync_fn: selected source rank %d is not "
                     "in local DP group %s for replacement_rank=%d "
                     "(failed_rank=%d, step=%d)",
                     plan.source_rank, dp_group_ranks, replacement_rank,
@@ -2622,7 +2627,7 @@ def _wire_recovery_callbacks(
                 )
                 log_fn = logger.warning if summary_rank else logger.debug
                 log_fn(
-                    "[%s] MoEGambit dense param sync: SUCCESS — synced %d params "
+                    "[%s] MOEGAMBIT-MoE dense param sync: SUCCESS — synced %d params "
                     "(%d scalars) from single source rank %d "
                     "(attempt 1, %.2fs, skipped %d expert params, "
                     "replacement_rank=%d, participants=%s)",
@@ -2635,12 +2640,12 @@ def _wire_recovery_callbacks(
             else:
                 elapsed = time.time() - t_start
                 logger.error(
-                    "[%s] MoEGambit dense param sync: FAILED — %s (%.2fs)",
+                    "[%s] MOEGAMBIT-MoE dense param sync: FAILED — %s (%.2fs)",
                     _ts(), result.error, elapsed,
                 )
         except Exception as e:
             elapsed = time.time() - t_start
-            logger.error("[%s] MoEGambit dense_sync_fn failed: %s (%.2fs)", _ts(), e, elapsed)
+            logger.error("[%s] MOEGAMBIT-MoE dense_sync_fn failed: %s (%.2fs)", _ts(), e, elapsed)
 
     def expert_restore_fn(
         *, failed_rank, replacement_rank, step=-1, expert_ids=None,
@@ -2648,7 +2653,7 @@ def _wire_recovery_callbacks(
         """Restore expert weights from checkpoint via StaleExpertRestoreCoordinator.
 
         This is the real implementation that:
-        1. Locates the most recent checkpoint with a moegambit recovery manifest.
+        1. Locates the most recent checkpoint with a MOEGAMBIT recovery manifest.
         2. Builds a restore plan for the affected experts.
         3. Loads expert weights from checkpoint (via load_fn callback).
         4. Transitions health state: UNAVAILABLE → STALE_RUNNABLE.
@@ -2672,7 +2677,7 @@ def _wire_recovery_callbacks(
                         f"were provided for failed_rank={failed_rank}"
                     )
                 logger.warning(
-                    "MoEGambit expert_restore_fn: no expert_ids provided, "
+                    "MOEGAMBIT-MoE expert_restore_fn: no expert_ids provided, "
                     "skipping restore (step=%d)", step,
                 )
                 return
@@ -2680,7 +2685,7 @@ def _wire_recovery_callbacks(
             local_rank = _local_distributed_rank()
             if replacement_rank >= 0 and local_rank != replacement_rank:
                 logger.debug(
-                    "MoEGambit expert_restore_fn: rank %d skipping expert "
+                    "MOEGAMBIT-MoE expert_restore_fn: rank %d skipping expert "
                     "restore for replacement rank %d (failed=%d, step=%d)",
                     local_rank, replacement_rank, failed_rank, step,
                 )
@@ -2723,7 +2728,7 @@ def _wire_recovery_callbacks(
                     )
                 except Exception as tp_e:
                     logger.debug(
-                        "MoEGambit expert_restore_fn: two-phase begin failed: %s",
+                        "MOEGAMBIT-MoE expert_restore_fn: two-phase begin failed: %s",
                         tp_e,
                     )
                     _two_phase_coord = None
@@ -2739,19 +2744,19 @@ def _wire_recovery_callbacks(
                 try:
                     manifest = ed_mod.RecoveryManifest.load(checkpoint_dir)
                     logger.warning(
-                        "MoEGambit expert_restore_fn: loaded manifest from %s "
+                        "MOEGAMBIT-MoE expert_restore_fn: loaded manifest from %s "
                         "(step=%d, entries=%d)",
                         checkpoint_dir, manifest.step, len(manifest.entries),
                     )
                 except FileNotFoundError:
                     logger.warning(
-                        "MoEGambit expert_restore_fn: no manifest in %s, "
+                        "MOEGAMBIT-MoE expert_restore_fn: no manifest in %s, "
                         "will use synthetic plan",
                         checkpoint_dir,
                     )
                 except Exception as e:
                     logger.error(
-                        "MoEGambit expert_restore_fn: failed to load manifest "
+                        "MOEGAMBIT-MoE expert_restore_fn: failed to load manifest "
                         "from %s: %s", checkpoint_dir, e,
                     )
 
@@ -2770,7 +2775,7 @@ def _wire_recovery_callbacks(
             moe_layer_ids = _infer_local_moe_layer_ids(model, num_layers)
             pp_rank, pp_size = _get_pp_rank_size()
             logger.info(
-                "MoEGambit expert_restore_fn: inferred MoE layers for PP "
+                "MOEGAMBIT-MoE expert_restore_fn: inferred MoE layers for PP "
                 "stage %d/%d: %s",
                 pp_rank, pp_size, moe_layer_ids,
             )
@@ -2785,7 +2790,7 @@ def _wire_recovery_callbacks(
                         host_rank=replacement_rank,
                     ))
             logger.warning(
-                "MoEGambit expert_restore_fn: planned %d expert-layer restores "
+                "MOEGAMBIT-MoE expert_restore_fn: planned %d expert-layer restores "
                 "from affected expert ids (experts=%s, pp_layers=%s, "
                 "checkpoint=%s, manifest_entries=%d)",
                 len(plan.entries), list(expert_ids), moe_layer_ids,
@@ -2801,7 +2806,7 @@ def _wire_recovery_callbacks(
                 ]
                 if len(plan.entries) != original_entries:
                     logger.info(
-                        "MoEGambit expert_restore_fn: filtered restore plan to "
+                        "MOEGAMBIT-MoE expert_restore_fn: filtered restore plan to "
                         "current PP stage layers %s (%d/%d entries)",
                         sorted(local_moe_layer_ids),
                         len(plan.entries), original_entries,
@@ -2855,7 +2860,7 @@ def _wire_recovery_callbacks(
                             f"{checkpoint_dir}"
                         )
                     logger.warning(
-                        "[%s] MoEGambit expert_restore_fn: load_fn is None "
+                        "[%s] MOEGAMBIT-MoE expert_restore_fn: load_fn is None "
                         "despite checkpoint_dir=%s existing. Expert weights "
                         "will NOT be loaded (dry-run mode). If this is a "
                         "torch_dist checkpoint, the CHECKPOINT_RESTART path "
@@ -2870,7 +2875,7 @@ def _wire_recovery_callbacks(
                     )
                 load_fn = None
                 logger.info(
-                    "MoEGambit expert_restore_fn: moe_moegambit_hybrid_expert_restore=False, "
+                    "MOEGAMBIT-MoE expert_restore_fn: moe_moegambit_hybrid_expert_restore=False, "
                     "skipping weight loading (dry-run mode)",
                 )
 
@@ -2913,7 +2918,7 @@ def _wire_recovery_callbacks(
                         f"errors={result.errors}, checkpoint={checkpoint_dir})"
                     )
                 logger.warning(
-                    "[%s] MoEGambit expert_restore_fn: old parameter restore "
+                    "[%s] MOEGAMBIT-MoE expert_restore_fn: old parameter restore "
                     "verified — loaded %d/%d expert-layer entries from %s",
                     _ts(), result.num_restored, expected_restores,
                     checkpoint_dir,
@@ -2921,7 +2926,7 @@ def _wire_recovery_callbacks(
 
             if result.success:
                 logger.warning(
-                    "[%s] MoEGambit expert_restore_fn: SUCCESS — restored %d experts "
+                    "[%s] MOEGAMBIT-MoE expert_restore_fn: SUCCESS — restored %d experts "
                     "(%d state transitions, %d directory updates, "
                     "%d barrier params, %.2fs)",
                     _ts(),
@@ -2941,11 +2946,11 @@ def _wire_recovery_callbacks(
                         )
                     except Exception as tp_e:
                         logger.debug(
-                            "MoEGambit: two-phase on_weights_restored failed: %s",
+                            "MOEGAMBIT-MoE: two-phase on_weights_restored failed: %s",
                             tp_e,
                         )
 
-                # --- MoEGambit: activate preferential routing bias ---
+                # --- MOEGAMBIT-MoE: activate preferential routing bias ---
                 _pref_routing = False
                 try:
                     from megatron.training.global_vars import get_args as _get_args_pr
@@ -2987,14 +2992,14 @@ def _wire_recovery_callbacks(
                             pr_mgr.activate(eid, step=step)
                             _activated_count += 1
                         logger.warning(
-                            "[%s] MoEGambit expert_restore_fn: activated "
+                            "[%s] MOEGAMBIT-MoE expert_restore_fn: activated "
                             "preferential routing for %d expert(s) "
                             "(bias=%.4f, window=%d steps)",
                             _ts(), _activated_count, _pr_bias, _pr_window,
                         )
                     except Exception as pr_e:
                         logger.error(
-                            "MoEGambit expert_restore_fn: failed to activate "
+                            "MOEGAMBIT-MoE expert_restore_fn: failed to activate "
                             "preferential routing: %s", pr_e,
                         )
 
@@ -3035,7 +3040,7 @@ def _wire_recovery_callbacks(
                         opt_loader._pending_load_fn = opt_load_fn
                         result.optimizer_load_submitted = len(opt_requests)
                         logger.warning(
-                            "[%s] MoEGambit expert_restore_fn: submitted %d "
+                            "[%s] MOEGAMBIT-MoE expert_restore_fn: submitted %d "
                             "optimizer state load requests",
                             _ts(), len(opt_requests),
                         )
@@ -3052,17 +3057,17 @@ def _wire_recovery_callbacks(
                                 )
                             except Exception as tp_e:
                                 logger.debug(
-                                    "MoEGambit: two-phase on_optimizer_submitted "
+                                    "MOEGAMBIT-MoE: two-phase on_optimizer_submitted "
                                     "failed: %s", tp_e,
                                 )
                     except Exception as opt_e:
                         logger.error(
-                            "MoEGambit expert_restore_fn: failed to submit "
+                            "MOEGAMBIT-MoE expert_restore_fn: failed to submit "
                             "optimizer state loads: %s", opt_e,
                         )
                 elif not _expert_opt_restore:
                     logger.info(
-                        "MoEGambit expert_restore_fn: moe_moegambit_expert_opt_restore=False, "
+                        "MOEGAMBIT-MoE expert_restore_fn: moe_moegambit_expert_opt_restore=False, "
                         "skipping optimizer state loading",
                     )
                     # Two-phase: skip optimizer → FULLY_RECOVERED directly
@@ -3107,7 +3112,7 @@ def _wire_recovery_callbacks(
                                 )
                             except Exception as tp_e:
                                 logger.debug(
-                                    "MoEGambit: two-phase sync optimizer submit "
+                                    "MOEGAMBIT-MoE: two-phase sync optimizer submit "
                                     "failed: %s", tp_e,
                                 )
 
@@ -3125,12 +3130,12 @@ def _wire_recovery_callbacks(
                                 )
                             except Exception as tp_e:
                                 logger.debug(
-                                    "MoEGambit: two-phase sync optimizer loaded "
+                                    "MOEGAMBIT-MoE: two-phase sync optimizer loaded "
                                     "failed: %s", tp_e,
                                 )
 
                         logger.warning(
-                            "[%s] MoEGambit expert_restore_fn: synchronous "
+                            "[%s] MOEGAMBIT-MoE expert_restore_fn: synchronous "
                             "optimizer state load completed "
                             "(submitted=%d, executed=%d, finalized=%d, "
                             "elapsed=%.3fs, step=%d)",
@@ -3139,7 +3144,7 @@ def _wire_recovery_callbacks(
                         )
                     except Exception as opt_e:
                         logger.error(
-                            "MoEGambit expert_restore_fn: synchronous optimizer "
+                            "MOEGAMBIT-MoE expert_restore_fn: synchronous optimizer "
                             "state load failed: %s", opt_e,
                         )
 
@@ -3164,7 +3169,7 @@ def _wire_recovery_callbacks(
                         config=_config,
                     )
                     logger.info(
-                        "[%s] MoEGambit expert_restore_fn: unified convergence "
+                        "[%s] MOEGAMBIT-MoE expert_restore_fn: unified convergence "
                         "completed (consistent=%s, elapsed=%.3fs)",
                         _ts(),
                         conv_result.consistency_verified,
@@ -3172,19 +3177,19 @@ def _wire_recovery_callbacks(
                     )
                 except Exception as conv_e:
                     logger.error(
-                        "MoEGambit expert_restore_fn: unified convergence "
+                        "MOEGAMBIT-MoE expert_restore_fn: unified convergence "
                         "failed (non-fatal): %s", conv_e,
                     )
 
             else:
                 logger.error(
-                    "[%s] MoEGambit expert_restore_fn: PARTIAL — restored %d, "
+                    "[%s] MOEGAMBIT-MoE expert_restore_fn: PARTIAL — restored %d, "
                     "failed %d. Errors: %s",
                     _ts(), result.num_restored, result.num_failed, result.errors,
                 )
 
         except Exception as e:
-            logger.error("[%s] MoEGambit expert_restore_fn failed: %s", _ts(), e)
+            logger.error("[%s] MOEGAMBIT-MoE expert_restore_fn failed: %s", _ts(), e)
             # Fallback: at minimum mark experts as STALE_RUNNABLE
             try:
                 if expert_ids:
@@ -3192,13 +3197,13 @@ def _wire_recovery_callbacks(
                     _ctrl = get_recovery_controller()
                     _ctrl._expert_tracker.mark_stale_runnable(expert_ids, step=step)
                     logger.warning(
-                        "MoEGambit expert_restore_fn: fallback — experts %s "
+                        "MOEGAMBIT-MoE expert_restore_fn: fallback — experts %s "
                         "marked STALE_RUNNABLE at step %d",
                         expert_ids, step,
                     )
             except Exception as e2:
                 logger.error(
-                    "MoEGambit expert_restore_fn: fallback also failed: %s", e2,
+                    "MOEGAMBIT-MoE expert_restore_fn: fallback also failed: %s", e2,
                 )
 
     def pipeline_stage_repair_fn(
@@ -3231,7 +3236,7 @@ def _wire_recovery_callbacks(
 
             if result.success:
                 logger.warning(
-                    "[%s] MoEGambit pipeline_stage_repair_fn: SUCCESS — "
+                    "[%s] MOEGAMBIT-MoE pipeline_stage_repair_fn: SUCCESS — "
                     "pp_rebuilt=%s, prev_next=%s, p2p_rebound=%s, "
                     "elapsed=%.2fs",
                     _ts(),
@@ -3240,11 +3245,11 @@ def _wire_recovery_callbacks(
                 )
             else:
                 logger.error(
-                    "[%s] MoEGambit pipeline_stage_repair_fn: FAILED — %s",
+                    "[%s] MOEGAMBIT-MoE pipeline_stage_repair_fn: FAILED — %s",
                     _ts(), result.error,
                 )
         except Exception as e:
-            logger.error("MoEGambit pipeline_stage_repair_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE pipeline_stage_repair_fn failed: %s", e)
 
     def pipeline_rollback_fn(
         *, failed_rank, failed_stage=-1, step=-1, pp_group_ranks=None,
@@ -3264,22 +3269,22 @@ def _wire_recovery_callbacks(
                 result = _PIPELINE_ROLLBACK_COORDINATOR.initiate_rollback()
                 if result is not None:
                     logger.warning(
-                        "MoEGambit pipeline_rollback_fn: rollback initiated — "
+                        "MOEGAMBIT-MoE pipeline_rollback_fn: rollback initiated — "
                         "step=%d, failed_stage=%d",
                         step, failed_stage,
                     )
                 else:
                     logger.warning(
-                        "MoEGambit pipeline_rollback_fn: rollback returned None "
+                        "MOEGAMBIT-MoE pipeline_rollback_fn: rollback returned None "
                         "(step=%d)", step,
                     )
             else:
                 logger.warning(
-                    "MoEGambit pipeline_rollback_fn: no coordinator available "
+                    "MOEGAMBIT-MoE pipeline_rollback_fn: no coordinator available "
                     "(step=%d)", step,
                 )
         except Exception as e:
-            logger.error("MoEGambit pipeline_rollback_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE pipeline_rollback_fn failed: %s", e)
 
     def microbatch_invalidation_fn(*, step=-1, pp_size=1):
         """Mark all in-flight microbatches as invalid.
@@ -3294,11 +3299,11 @@ def _wire_recovery_callbacks(
                     reason=f"pipeline_microbatch_invalidation_pp{pp_size}",
                 )
             logger.warning(
-                "MoEGambit microbatch_invalidation_fn: invalidated "
+                "MOEGAMBIT-MoE microbatch_invalidation_fn: invalidated "
                 "(step=%d, pp_size=%d)", step, pp_size,
             )
         except Exception as e:
-            logger.error("MoEGambit microbatch_invalidation_fn failed: %s", e)
+            logger.error("MOEGAMBIT-MoE microbatch_invalidation_fn failed: %s", e)
 
     def checkpoint_restart_fn(
         *, failed_rank, replacement_rank, step, decision,
@@ -3338,12 +3343,12 @@ def _wire_recovery_callbacks(
 
         if checkpoint_dir is None:
             raise RuntimeError(
-                "MoEGambit checkpoint_restart_fn: no checkpoint directory "
+                "MOEGAMBIT-MoE checkpoint_restart_fn: no checkpoint directory "
                 "found — cannot execute checkpoint restart path"
             )
 
         logger.warning(
-            "[%s] MoEGambit checkpoint_restart_fn: ⏱️  START loading checkpoint from %s "
+            "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  START loading checkpoint from %s "
             "(step=%d, failed_rank=%d, replacement_rank=%d, gap=%d, ckpt_iter=%d)",
             _ts(), checkpoint_dir, step, failed_rank, replacement_rank,
             decision.gap if decision else -1,
@@ -3359,7 +3364,7 @@ def _wire_recovery_callbacks(
             # any optimizer warmup penalty.
             t_step1_start = time.time()
             logger.warning(
-                "[%s] MoEGambit checkpoint_restart_fn: ⏱️  [Step 1/4] Preparing to load checkpoint...",
+                "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  [Step 1/4] Preparing to load checkpoint...",
                 _ts(),
             )
             
@@ -3370,7 +3375,7 @@ def _wire_recovery_callbacks(
 
             # ---- Save training-loop state that load_checkpoint will overwrite ----
             # load_checkpoint() restores consumed_train_samples and lr scheduler
-            # state from the checkpoint.  But in MoEGambit recovery, we do NOT
+            # state from the checkpoint.  But in MOEGAMBIT-MoE recovery, we do NOT
             # want to roll back these values — only the failed rank's model
             # weights need to be restored.  The training loop continues from
             # the current iteration, not the checkpoint iteration.
@@ -3401,7 +3406,7 @@ def _wire_recovery_callbacks(
                 )
                 t_load_elapsed = time.time() - t_step1_start
                 logger.warning(
-                    "[%s] MoEGambit checkpoint_restart_fn: ⏱️  [Step 1/4] CHECKPOINT LOADED "
+                    "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  [Step 1/4] CHECKPOINT LOADED "
                     "from iter %s (load_time=%.3fs, total_elapsed=%.3fs)",
                     _ts(), _ckpt_iter, t_load_elapsed, time.time() - t_start,
                 )
@@ -3414,7 +3419,7 @@ def _wire_recovery_callbacks(
             # must reflect the CURRENT training position, not the checkpoint.
             t_step2_start = time.time()
             logger.warning(
-                "[%s] MoEGambit checkpoint_restart_fn: ⏱️  [Step 2/4] Restoring training-loop state...",
+                "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  [Step 2/4] Restoring training-loop state...",
                 _ts(),
             )
             
@@ -3427,7 +3432,7 @@ def _wire_recovery_callbacks(
 
             t_step2_elapsed = time.time() - t_step2_start
             logger.warning(
-                "[%s] MoEGambit checkpoint_restart_fn: ⏱️  [Step 2/4] Training-loop state restored "
+                "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  [Step 2/4] Training-loop state restored "
                 "(consumed_train_samples=%d, scheduler_num_steps=%s, restore_time=%.3fs, total_elapsed=%.3fs)",
                 _ts(), args.consumed_train_samples,
                 _saved_scheduler_num_steps, t_step2_elapsed, time.time() - t_start,
@@ -3439,7 +3444,7 @@ def _wire_recovery_callbacks(
             # on this rank as STALE_RUNNABLE via ExpertRecoveryTracker.
             t_step3_start = time.time()
             logger.warning(
-                "[%s] MoEGambit checkpoint_restart_fn: ⏱️  [Step 3/4] Marking experts as STALE_RUNNABLE...",
+                "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  [Step 3/4] Marking experts as STALE_RUNNABLE...",
                 _ts(),
             )
             
@@ -3464,13 +3469,13 @@ def _wire_recovery_callbacks(
                         )
                     t_step3_elapsed = time.time() - t_step3_start
                     logger.warning(
-                        "[%s] MoEGambit checkpoint_restart_fn: ⏱️  [Step 3/4] Marked %d experts as STALE_RUNNABLE "
+                        "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  [Step 3/4] Marked %d experts as STALE_RUNNABLE "
                         "(experts=%s, mark_time=%.3fs, total_elapsed=%.3fs)",
                         _ts(), len(expert_ids), expert_ids, t_step3_elapsed, time.time() - t_start,
                     )
                 except Exception as e:
                     logger.error(
-                        "MoEGambit checkpoint_restart_fn: failed to mark "
+                        "MOEGAMBIT-MoE checkpoint_restart_fn: failed to mark "
                         "experts stale_runnable: %s", e,
                     )
 
@@ -3480,7 +3485,7 @@ def _wire_recovery_callbacks(
             # routing / two-phase state machine are all consistent.
             t_step4_start = time.time()
             logger.warning(
-                "[%s] MoEGambit checkpoint_restart_fn: ⏱️  [Step 4/4] Running unified convergence...",
+                "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  [Step 4/4] Running unified convergence...",
                 _ts(),
             )
             
@@ -3511,7 +3516,7 @@ def _wire_recovery_callbacks(
                 )
                 t_step4_elapsed = time.time() - t_step4_start
                 logger.warning(
-                    "[%s] MoEGambit checkpoint_restart_fn: ⏱️  [Step 4/4] CONVERGENCE COMPLETED "
+                    "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  [Step 4/4] CONVERGENCE COMPLETED "
                     "(consistent=%s, pref_routing=%d, two_phase=%s, convergence_time=%.3fs, total_elapsed=%.3fs)",
                     _ts(),
                     conv_result.consistency_verified,
@@ -3522,7 +3527,7 @@ def _wire_recovery_callbacks(
                 )
             except Exception as conv_e:
                 logger.error(
-                    "MoEGambit checkpoint_restart_fn: unified convergence "
+                    "MOEGAMBIT-MoE checkpoint_restart_fn: unified convergence "
                     "failed (non-fatal): %s", conv_e,
                 )
 
@@ -3534,7 +3539,7 @@ def _wire_recovery_callbacks(
 
             elapsed = time.time() - t_start
             logger.warning(
-                "[%s] MoEGambit checkpoint_restart_fn: ⏱️  ✅ TOTAL RECOVERY TIME: %.3fs "
+                "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: ⏱️  ✅ TOTAL RECOVERY TIME: %.3fs "
                 "(step=%d, ckpt_iter=%d, failed_rank=%d, replacement_rank=%d) "
                 "| Breakdown: load=%.3fs, restore_state=%.3fs, mark_experts=%.3fs, convergence=%.3fs",
                 _ts(), elapsed, step,
@@ -3549,7 +3554,7 @@ def _wire_recovery_callbacks(
         except Exception as e:
             elapsed = time.time() - t_start
             logger.error(
-                "[%s] MoEGambit checkpoint_restart_fn: FAILED after %.3fs — %s",
+                "[%s] MOEGAMBIT-MoE checkpoint_restart_fn: FAILED after %.3fs — %s",
                 _ts(), elapsed, e,
             )
             raise  # Let the controller fall back to hybrid recovery
@@ -3571,7 +3576,7 @@ def _wire_recovery_callbacks(
                 step=step,
             )
         logger.warning(
-            "MoEGambit: optimizer commit blocked for step %d "
+            "MOEGAMBIT-MoE: optimizer commit blocked for step %d "
             "(hard failure of rank %d)", step, failed_rank,
         )
 
@@ -3584,7 +3589,7 @@ def _wire_recovery_callbacks(
         and extension hook.
         """
         logger.warning(
-            "MoEGambit: entering waiting-for-replacement state "
+            "MOEGAMBIT-MoE: entering waiting-for-replacement state "
             "(failed_rank=%d, step=%d, experts=%s)",
             failed_rank, step, expert_ids,
         )
@@ -3622,17 +3627,17 @@ def _wire_recovery_callbacks(
 
             if issues:
                 logger.warning(
-                    "MoEGambit post-recovery convergence: consistency issues "
+                    "MOEGAMBIT-MoE post-recovery convergence: consistency issues "
                     "detected after %s path: %s", path, issues,
                 )
             else:
                 logger.info(
-                    "MoEGambit post-recovery convergence: views consistent "
+                    "MOEGAMBIT-MoE post-recovery convergence: views consistent "
                     "after %s path (step=%d)", path, step,
                 )
         except Exception as e:
             logger.error(
-                "MoEGambit post-recovery convergence callback failed: %s", e,
+                "MOEGAMBIT-MoE post-recovery convergence callback failed: %s", e,
             )
 
     def force_checkpoint_restart_fn(*, step=-1):
@@ -3690,7 +3695,7 @@ def _wire_recovery_callbacks(
             local_rank = _local_distributed_rank()
             if replacement_rank >= 0 and local_rank != replacement_rank:
                 logger.debug(
-                    "MoEGambit expert_peer_sync_fn: rank %d skipping expert "
+                    "MOEGAMBIT-MoE expert_peer_sync_fn: rank %d skipping expert "
                     "peer sync for replacement rank %d (failed=%d, step=%d)",
                     local_rank, replacement_rank, failed_rank, step,
                 )
@@ -3702,7 +3707,7 @@ def _wire_recovery_callbacks(
                 expt_dp_group = mpu.get_expert_data_parallel_group()
             except Exception as e:
                 logger.warning(
-                    "[%s] MoEGambit expert_peer_sync_fn: cannot get "
+                    "[%s] MOEGAMBIT-MoE expert_peer_sync_fn: cannot get "
                     "expert_data_parallel_group: %s — skipping",
                     _ts(), e,
                 )
@@ -3713,7 +3718,7 @@ def _wire_recovery_callbacks(
 
             if edp_size <= 1:
                 logger.warning(
-                    "[%s] MoEGambit expert_peer_sync_fn: EDP=%d (no expert "
+                    "[%s] MOEGAMBIT-MoE expert_peer_sync_fn: EDP=%d (no expert "
                     "replicas), cannot perform expert peer sync (step=%d)",
                     _ts(), edp_size, step,
                 )
@@ -3731,7 +3736,7 @@ def _wire_recovery_callbacks(
 
             if source_rank is None:
                 logger.error(
-                    "[%s] MoEGambit expert_peer_sync_fn: no healthy Expert-DP "
+                    "[%s] MOEGAMBIT-MoE expert_peer_sync_fn: no healthy Expert-DP "
                     "peer found — cannot perform expert peer sync (step=%d, "
                     "expt_dp_group=%s)",
                     _ts(), step, expt_dp_group_ranks,
@@ -3755,7 +3760,7 @@ def _wire_recovery_callbacks(
                 is_distributed_opt = _is_distributed_optimizer(optimizer)
                 if is_distributed_opt:
                     logger.warning(
-                        "[%s] MoEGambit expert_peer_sync_fn: DistributedOptimizer "
+                        "[%s] MOEGAMBIT-MoE expert_peer_sync_fn: DistributedOptimizer "
                         "detected — skipping expert optimizer state broadcast "
                         "(step=%d)",
                         _ts(), step,
@@ -3775,7 +3780,7 @@ def _wire_recovery_callbacks(
             elapsed = time.time() - t_start
             if result.success:
                 logger.warning(
-                    "[%s] MoEGambit expert peer sync: SUCCESS — synced %d "
+                    "[%s] MOEGAMBIT-MoE expert peer sync: SUCCESS — synced %d "
                     "expert params (%d scalars) from Expert-DP peer rank %d "
                     "(EDP=%d, %.2fs, step=%d)",
                     _ts(), result.num_params_synced, result.num_scalars_synced,
@@ -3783,14 +3788,14 @@ def _wire_recovery_callbacks(
                 )
             else:
                 logger.error(
-                    "[%s] MoEGambit expert peer sync: FAILED — %s (%.2fs, "
+                    "[%s] MOEGAMBIT-MoE expert peer sync: FAILED — %s (%.2fs, "
                     "step=%d)",
                     _ts(), result.error, elapsed, step,
                 )
         except Exception as e:
             elapsed = time.time() - t_start
             logger.error(
-                "[%s] MoEGambit expert_peer_sync_fn failed: %s (%.2fs)",
+                "[%s] MOEGAMBIT-MoE expert_peer_sync_fn failed: %s (%.2fs)",
                 _ts(), e, elapsed,
             )
 
@@ -3831,14 +3836,14 @@ def _log_fault_injection(
 ) -> None:
     if scheduled_step is None or scheduled_step == visible_step:
         logger.warning(
-            "[%s] MoEGambit FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
+            "[%s] MOEGAMBIT-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
             "experts=%s, ep_group=%s",
             _ts(), cfg['inject_count'], inject_type, inject_rank, visible_step,
             expert_ids, ep_group_ranks,
         )
     else:
         logger.warning(
-            "[%s] MoEGambit FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
+            "[%s] MOEGAMBIT-MoE FAULT INJECTION #%d: type=%s, rank=%d, step=%d, "
             "scheduled_step=%d, experts=%s, ep_group=%s",
             _ts(), cfg['inject_count'], inject_type, inject_rank, visible_step,
             scheduled_step, expert_ids, ep_group_ranks,
@@ -3854,7 +3859,7 @@ def _recover_soft_fault_batch(
 ) -> None:
     unique_experts = sorted(set(expert_ids))
     logger.warning(
-        "[%s] MoEGambit soft fault batch: injected ranks=%s at step=%d "
+        "[%s] MOEGAMBIT-MoE soft fault batch: injected ranks=%s at step=%d "
         "(scheduled_step=%s, experts=%s); recovering before training resumes",
         _ts(), ranks, visible_step,
         scheduled_step if scheduled_step is not None else visible_step,
@@ -3863,7 +3868,7 @@ def _recover_soft_fault_batch(
     _mark_soft_fault_injected(ctrl, unique_experts, visible_step)
     _mark_soft_fault_recovered(ctrl, unique_experts, visible_step)
     logger.warning(
-        "[%s] MoEGambit soft fault batch: recovered ranks=%s at step=%d "
+        "[%s] MOEGAMBIT-MoE soft fault batch: recovered ranks=%s at step=%d "
         "(experts=%s); normal training may continue",
         _ts(), ranks, visible_step, unique_experts,
     )
@@ -3972,7 +3977,7 @@ def _inject_fault_for_rank(
         if not cfg.get('inject_plan'):
             _schedule_next_injection(cfg, visible_step)
     else:
-        logger.error("MoEGambit: unknown fault injection type: %s", inject_type)
+        logger.error("MOEGAMBIT-MoE: unknown fault injection type: %s", inject_type)
 
 
 # Track which elastic fault epochs we've already processed
@@ -4032,7 +4037,7 @@ def _maybe_handle_elastic_fault(step: int) -> None:
 
         visible_step = step + 1
         logger.warning(
-            "[%s] MoEGambit: ELASTIC FAULT DETECTED — failed_rank=%d, "
+            "[%s] MOEGAMBIT-MoE: ELASTIC FAULT DETECTED — failed_rank=%d, "
             "spare_rank=%d, epoch=%d, step=%d",
             _ts(), failed_rank, spare_rank, epoch, visible_step,
         )
@@ -4104,7 +4109,7 @@ def _maybe_inject_fault(step: int) -> None:
             ]
             if _is_soft_fault_type(str(cfg['inject_type'])):
                 logger.warning(
-                    "[%s] MoEGambit soft fault burst: injecting %d ranks "
+                    "[%s] MOEGAMBIT-MoE soft fault burst: injecting %d ranks "
                     "together for scheduled_step=%d at step=%d",
                     _ts(), len(burst_events), burst_step, visible_step,
                 )
@@ -4118,7 +4123,7 @@ def _maybe_inject_fault(step: int) -> None:
                 return
             if _is_restart_in_place_fault_type(str(cfg['inject_type'])):
                 logger.warning(
-                    "[%s] MoEGambit restart-in-place fault burst: injecting "
+                    "[%s] MOEGAMBIT-MoE restart-in-place fault burst: injecting "
                     "%d ranks together for scheduled_step=%d at step=%d",
                     _ts(), len(burst_events), burst_step, visible_step,
                 )
@@ -4134,7 +4139,7 @@ def _maybe_inject_fault(step: int) -> None:
                     )
                 return
             logger.warning(
-                "[%s] MoEGambit: burst_all is only used for soft/quarantine "
+                "[%s] MOEGAMBIT-MoE: burst_all is only used for soft/quarantine "
                 "or restart_in_place "
                 "faults; type=%s will keep queue semantics",
                 _ts(), cfg['inject_type'],
@@ -4180,13 +4185,13 @@ def _maybe_inject_fault(step: int) -> None:
             # (e.g., via torchrun elastic or a custom launcher).
             replacement_rank = inject_rank
             logger.info(
-                "MoEGambit FAULT INJECTION: using identity inheritance — "
+                "MOEGAMBIT-MoE FAULT INJECTION: using identity inheritance — "
                 "replacement_rank=%d (same as failed_rank)",
                 replacement_rank,
             )
 
         logger.warning(
-            "[%s] MoEGambit FAULT INJECTION: replacement ready — "
+            "[%s] MOEGAMBIT-MoE FAULT INJECTION: replacement ready — "
             "failed_rank=%d, replacement_rank=%d, step=%d",
             _ts(), inject_rank, replacement_rank, visible_step,
         )
@@ -4220,7 +4225,7 @@ def _schedule_next_injection(cfg: dict, current_step: int) -> None:
     cfg['injected'] = False
     cfg['replacement_injected'] = False
     logger.warning(
-        "[%s] MoEGambit FAULT INJECTION: next periodic fault scheduled at step %d "
+        "[%s] MOEGAMBIT-MoE FAULT INJECTION: next periodic fault scheduled at step %d "
         "(interval=%d, total_injections=%d)",
         _ts(), cfg['next_inject_step'], interval, cfg['inject_count'],
     )
@@ -4266,7 +4271,7 @@ def _maybe_poll_deferred_optimizer(step: int) -> None:
             )
             if num_executed > 0 or num_finalized > 0:
                 logger.info(
-                    "MoEGambit: deferred optimizer poll — executed=%d, "
+                    "MOEGAMBIT-MoE: deferred optimizer poll — executed=%d, "
                     "finalized=%d at step %d (async)",
                     num_executed, num_finalized, step,
                 )
@@ -4281,7 +4286,7 @@ def _maybe_poll_deferred_optimizer(step: int) -> None:
             )
             if num_executed > 0 or num_finalized > 0:
                 logger.info(
-                    "MoEGambit: deferred optimizer poll — executed=%d, "
+                    "MOEGAMBIT-MoE: deferred optimizer poll — executed=%d, "
                     "finalized=%d at step %d (sync)",
                     num_executed, num_finalized, step,
                 )
@@ -4315,11 +4320,11 @@ def _maybe_poll_deferred_optimizer(step: int) -> None:
                         )
             except Exception as tp_e:
                 logger.debug(
-                    "MoEGambit: two-phase optimizer finalize failed: %s", tp_e,
+                    "MOEGAMBIT-MoE: two-phase optimizer finalize failed: %s", tp_e,
                 )
 
     except Exception as e:
-        logger.debug("MoEGambit: _maybe_poll_deferred_optimizer: %s", e)
+        logger.debug("MOEGAMBIT-MoE: _maybe_poll_deferred_optimizer: %s", e)
 
 
 def _poll_async_recovery(step: int) -> None:
@@ -4374,7 +4379,7 @@ def _poll_async_recovery(step: int) -> None:
 
     if finalized > 0:
         logger.warning(
-            "[%s] MoEGambit: async expert recovery — %d experts finalized "
+            "[%s] MOEGAMBIT-MoE: async expert recovery — %d experts finalized "
             "at step %d (%d tensors copied to GPU)",
             _ts(), finalized, step, copied,
         )
@@ -4410,7 +4415,7 @@ def _wire_async_recovery_callbacks(
         local_rank = _local_distributed_rank()
         if replacement_rank >= 0 and local_rank != replacement_rank:
             logger.debug(
-                "MoEGambit async expert restore: rank %d skipping restore "
+                "MOEGAMBIT-MoE async expert restore: rank %d skipping restore "
                 "for replacement rank %d (failed=%d, step=%d)",
                 local_rank, replacement_rank, failed_rank, step,
             )
@@ -4498,7 +4503,7 @@ def _wire_async_recovery_callbacks(
             ctrl._expert_tracker.mark_stale_runnable(expert_ids, step=step)
         except Exception as e:
             logger.warning(
-                "MoEGambit async_expert_restore_fn: failed to mark "
+                "MOEGAMBIT-MoE async_expert_restore_fn: failed to mark "
                 "STALE_RUNNABLE: %s", e,
             )
 
@@ -4529,7 +4534,7 @@ def _find_latest_checkpoint_dir() -> Optional[str]:
     Searches the Megatron checkpoint save directory for the latest
     iteration directory.  Prefers directories containing a
     ``moegambit_manifest.json`` file, but falls back to any ``iter_XXXXXXX``
-    directory if no moegambit manifest is present (so that standard Megatron
+    directory if no MOEGAMBIT manifest is present (so that standard Megatron
     distributed checkpoints can also be used for the checkpoint-restart
     path).
 
@@ -4581,14 +4586,14 @@ def _find_latest_checkpoint_dir() -> Optional[str]:
 
         if best_dir is not None:
             logger.info(
-                "MoEGambit: found latest checkpoint with moegambit manifest at %s "
+                "MOEGAMBIT-MoE: found latest checkpoint with MOEGAMBIT manifest at %s "
                 "(step=%d)", best_dir, best_step,
             )
             return best_dir
 
         if fallback_dir is not None:
             logger.warning(
-                "MoEGambit: no moegambit manifest found, falling back to standard "
+                "MOEGAMBIT-MoE: no MOEGAMBIT manifest found, falling back to standard "
                 "Megatron checkpoint at %s (step=%d)",
                 fallback_dir, fallback_step,
             )
@@ -4597,7 +4602,7 @@ def _find_latest_checkpoint_dir() -> Optional[str]:
         return None
 
     except Exception as e:
-        logger.warning("MoEGambit: _find_latest_checkpoint_dir failed: %s", e)
+        logger.warning("MOEGAMBIT-MoE: _find_latest_checkpoint_dir failed: %s", e)
         return None
 
 
@@ -4606,7 +4611,7 @@ def _get_latest_checkpoint_iteration() -> int:
 
     This is the ``get_checkpoint_iteration_fn`` callback used by the
     gap-aware recovery policy.  It searches for the most recent
-    checkpoint directory with a moegambit manifest and returns its iteration.
+    checkpoint directory with a MOEGAMBIT manifest and returns its iteration.
 
     Returns:
         The checkpoint iteration, or -1 if no checkpoint is found.
@@ -4636,7 +4641,7 @@ def _get_latest_checkpoint_iteration() -> int:
 
     except Exception as e:
         logger.warning(
-            "MoEGambit: _get_latest_checkpoint_iteration failed: %s", e,
+            "MOEGAMBIT-MoE: _get_latest_checkpoint_iteration failed: %s", e,
         )
         return -1
 
@@ -4690,7 +4695,7 @@ def _checkpoint_restart_fn(
     _CHECKPOINT_RESTART_DECISION = decision
 
     logger.warning(
-        "MoEGambit: _checkpoint_restart_fn (legacy stub) called. "
+        "MOEGAMBIT-MoE: _checkpoint_restart_fn (legacy stub) called. "
         "Setting global flag only — no checkpoint loading. "
         "(step=%d, failed_rank=%d, replacement_rank=%d)",
         step, failed_rank, replacement_rank,
@@ -4748,7 +4753,7 @@ def _build_expert_load_fn(
     # --ckpt-format torch instead of the default torch_dist.
     if _is_torch_dist_checkpoint(checkpoint_dir):
         logger.warning(
-            "MoEGambit: _build_expert_load_fn: torch_dist checkpoint "
+            "MOEGAMBIT-MoE: _build_expert_load_fn: torch_dist checkpoint "
             "detected at %s — returning None (dry-run mode). "
             "Expert weights cannot be selectively loaded from distributed "
             "checkpoints without collective communication. "
@@ -4799,7 +4804,7 @@ def _build_expert_load_fn(
             # the recovery path can fall back instead of silently reintegrating
             # an expert without weights.
             logger.warning(
-                "MoEGambit: torch_dist checkpoint detected at %s. "
+                "MOEGAMBIT-MoE: torch_dist checkpoint detected at %s. "
                 "Selective expert loading is not supported for distributed "
                 "checkpoints (would require collective communication). "
                 "Expert weights will NOT be loaded in this async callback. "
@@ -4885,7 +4890,7 @@ def _build_expert_load_fn(
                 return _cached_state_dicts[ckpt_path]
 
             logger.info(
-                "MoEGambit: loading checkpoint state dict from %s "
+                "MOEGAMBIT-MoE: loading checkpoint state dict from %s "
                 "(source_ep_rank=%d)",
                 ckpt_path, source_ep_rank,
             )
@@ -4908,7 +4913,7 @@ def _build_expert_load_fn(
                 if 'local_experts' in k
             ][:5]
             logger.info(
-                "MoEGambit: checkpoint state dict cached (%d keys). "
+                "MOEGAMBIT-MoE: checkpoint state dict cached (%d keys). "
                 "Sample keys: %s. Expert keys: %s",
                 len(_cached_state_dicts[ckpt_path]),
                 _sample_keys, _expert_keys,
@@ -5006,7 +5011,7 @@ def _build_expert_load_fn(
             )
             if layer_idx_in_sd is None:
                 logger.debug(
-                    "MoEGambit: skipping expert (layer=%d, id=%d) — belongs "
+                    "MOEGAMBIT-MoE: skipping expert (layer=%d, id=%d) — belongs "
                     "to a different PP stage",
                     entry.layer_id, entry.expert_id,
                 )
@@ -5073,7 +5078,7 @@ def _build_expert_load_fn(
 
                 if ckpt_tensor is None:
                     logger.debug(
-                        "MoEGambit: checkpoint key not found for %s "
+                        "MOEGAMBIT-MoE: checkpoint key not found for %s "
                         "(normalized=%s)",
                         name, normalized_name,
                     )
@@ -5084,7 +5089,7 @@ def _build_expert_load_fn(
                     params_loaded += 1
                 else:
                     logger.warning(
-                        "MoEGambit: shape mismatch for %s (normalized=%s): "
+                        "MOEGAMBIT-MoE: shape mismatch for %s (normalized=%s): "
                         "model=%s, checkpoint=%s — skipping",
                         name, normalized_name,
                         param.data.shape, ckpt_tensor.shape,
@@ -5092,7 +5097,7 @@ def _build_expert_load_fn(
 
             if params_loaded > 0:
                 logger.info(
-                    "MoEGambit: loaded %d params for expert "
+                    "MOEGAMBIT-MoE: loaded %d params for expert "
                     "(layer=%d, global_id=%d, local_idx=%d) from %s",
                     params_loaded, entry.layer_id, entry.expert_id,
                     local_expert_idx, ckpt_dir,
@@ -5100,7 +5105,7 @@ def _build_expert_load_fn(
                 return True
             else:
                 logger.warning(
-                    "MoEGambit: no matching params found for expert "
+                    "MOEGAMBIT-MoE: no matching params found for expert "
                     "(layer=%d, global_id=%d, source_ep=%d, local_idx=%d, "
                     "prefix=%s) in checkpoint %s (%d keys). "
                     "model_prefix_matches=%d, checkpoint_prefix_matches=%d, "
@@ -5116,7 +5121,7 @@ def _build_expert_load_fn(
 
         except Exception as e:
             logger.error(
-                "MoEGambit: failed to load expert (layer=%d, id=%d): %s",
+                "MOEGAMBIT-MoE: failed to load expert (layer=%d, id=%d): %s",
                 entry.layer_id, entry.expert_id, e,
             )
             return False
@@ -5219,7 +5224,7 @@ def _build_expert_optimizer_load_fn(
             )
 
         logger.info(
-            "MoEGambit: loading optimizer state dict from %s", ckpt_path,
+            "MOEGAMBIT-MoE: loading optimizer state dict from %s", ckpt_path,
         )
         sd = torch.load(ckpt_path, map_location='cpu')
 
@@ -5232,7 +5237,7 @@ def _build_expert_optimizer_load_fn(
         _cached_opt_sd.update(opt_sd)
         _opt_cache_loaded[0] = True
         logger.info(
-            "MoEGambit: optimizer state dict cached (%d keys)",
+            "MOEGAMBIT-MoE: optimizer state dict cached (%d keys)",
             len(_cached_opt_sd),
         )
         return _cached_opt_sd
@@ -5271,7 +5276,7 @@ def _build_expert_optimizer_load_fn(
             # checkpoint restart is needed (handled by gap-aware policy).
 
             logger.info(
-                "MoEGambit: optimizer state available for expert "
+                "MOEGAMBIT-MoE: optimizer state available for expert "
                 "(layer=%d, id=%d) from checkpoint step %d",
                 request.layer_id, request.expert_id,
                 request.checkpoint_step,
@@ -5310,7 +5315,7 @@ def _build_expert_optimizer_load_fn(
 
                 if matched > 0:
                     logger.info(
-                        "MoEGambit: found %d optimizer state entries for "
+                        "MOEGAMBIT-MoE: found %d optimizer state entries for "
                         "expert (layer=%d, id=%d, prefix=%s)",
                         matched, request.layer_id, request.expert_id,
                         expert_prefix,
@@ -5320,7 +5325,7 @@ def _build_expert_optimizer_load_fn(
 
         except Exception as e:
             logger.error(
-                "MoEGambit: failed to load optimizer state for expert "
+                "MOEGAMBIT-MoE: failed to load optimizer state for expert "
                 "(layer=%d, id=%d): %s",
                 request.layer_id, request.expert_id, e,
             )
@@ -5358,7 +5363,7 @@ def moegambit_should_save_checkpoint(iteration: int) -> bool:
 
 
 def moegambit_pre_save_checkpoint(iteration: int, state_dict: dict) -> dict:
-    """Inject MoEGambit metadata into the checkpoint state_dict.
+    """Inject MOEGAMBIT-MoE metadata into the checkpoint state_dict.
 
     Called just before the state_dict is written to disk. Adds a
     'moegambit_moe_state' key containing:
@@ -5386,23 +5391,23 @@ def moegambit_pre_save_checkpoint(iteration: int, state_dict: dict) -> dict:
         state_dict['moegambit_moe_state'] = moegambit_state
 
         logger.info(
-            "MoEGambit: checkpoint metadata injected (iteration=%d, phase=%s)",
+            "MOEGAMBIT-MoE: checkpoint metadata injected (iteration=%d, phase=%s)",
             iteration,
             moegambit_state['recovery_phase'],
         )
 
     except Exception as e:
-        logger.error("MoEGambit: failed to inject checkpoint metadata: %s", e)
+        logger.error("MOEGAMBIT-MoE: failed to inject checkpoint metadata: %s", e)
 
     return state_dict
 
 
 
 def moegambit_save_manifest(save_dir: str, iteration: int) -> None:
-    """Save a moegambit manifest sidecar file alongside the checkpoint.
+    """Save a MOEGAMBIT manifest sidecar file alongside the checkpoint.
 
     The manifest is a JSON file (moegambit_manifest.json) that records the
-    MoEGambit system state at checkpoint time. This is separate from the
+    MOEGAMBIT-MoE system state at checkpoint time. This is separate from the
     checkpoint state_dict so it can be read without loading the full
     checkpoint.
 
@@ -5442,7 +5447,7 @@ def moegambit_save_manifest(save_dir: str, iteration: int) -> None:
         directory = ed_mod.get_active_expert_directory()
         if directory is None:
             logger.warning(
-                "MoEGambit: active expert directory unavailable; "
+                "MOEGAMBIT-MoE: active expert directory unavailable; "
                 "writing metadata-only recovery manifest for iteration %d",
                 iteration,
             )
@@ -5462,7 +5467,7 @@ def moegambit_save_manifest(save_dir: str, iteration: int) -> None:
 
         manifest_path = manifest.save(iter_dir)
         logger.info(
-            "MoEGambit: manifest saved to %s (%d entries)",
+            "MOEGAMBIT-MoE: manifest saved to %s (%d entries)",
             manifest_path, len(manifest.entries),
         )
 
@@ -5476,11 +5481,11 @@ def moegambit_save_manifest(save_dir: str, iteration: int) -> None:
             logger.warning("MoC-PEC emulation: write_pec_metadata skipped: %s", _moc_exc)
 
     except Exception as e:
-        logger.error("MoEGambit: failed to save manifest: %s", e)
+        logger.error("MOEGAMBIT-MoE: failed to save manifest: %s", e)
 
 
 def moegambit_post_load_checkpoint(state_dict: dict) -> None:
-    """Process MoEGambit metadata after loading a checkpoint.
+    """Process MOEGAMBIT-MoE metadata after loading a checkpoint.
 
     If the loaded checkpoint was saved during recovery, log warnings.
     """
@@ -5489,7 +5494,7 @@ def moegambit_post_load_checkpoint(state_dict: dict) -> None:
 
     moegambit_state = state_dict.get('moegambit_moe_state')
     if moegambit_state is None:
-        logger.info("MoEGambit: no moegambit metadata in checkpoint (clean checkpoint)")
+        logger.info("MOEGAMBIT-MoE: no MOEGAMBIT metadata in checkpoint (clean checkpoint)")
         return
 
     phase = moegambit_state.get('recovery_phase', 'UNKNOWN')
@@ -5497,17 +5502,17 @@ def moegambit_post_load_checkpoint(state_dict: dict) -> None:
 
     if phase != 'HEALTHY_TRAINING' and phase != 'UNKNOWN':
         logger.warning(
-            "MoEGambit: loaded checkpoint was saved during recovery! "
+            "MOEGAMBIT-MoE: loaded checkpoint was saved during recovery! "
             "phase=%s",
             phase,
         )
         if expert_recovery:
             logger.warning(
-                "MoEGambit: expert recovery state at checkpoint time: %s",
+                "MOEGAMBIT-MoE: expert recovery state at checkpoint time: %s",
                 expert_recovery,
             )
     else:
         logger.info(
-            "MoEGambit: loaded checkpoint was saved in HEALTHY mode (phase=%s)",
+            "MOEGAMBIT-MoE: loaded checkpoint was saved in HEALTHY mode (phase=%s)",
             phase,
         )

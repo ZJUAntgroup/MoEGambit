@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Safe-point Group Rebuild Protocol for MoEGambit.
+"""Safe-point Group Rebuild Protocol for MOEGAMBIT-MoE.
 
 This module implements a minimal, safe-point-gated protocol for rebuilding
 NCCL process groups after a hard rank failure and replacement.  The protocol
@@ -74,7 +74,7 @@ Scope (v1)
 * ❌ Hot-swap communicator at arbitrary time (not supported)
 * ❌ ZeRO-2 (not considered in v1)
 
-Integration with MoEGambit stack
+Integration with MOEGAMBIT-MoE stack
 ------------------------------
 * ``RankQuarantineRegistry`` (Step 4) — quarantines the failed rank.
 * ``ReplacementRegistry`` (Step 6) — manages replacement lifecycle.
@@ -394,7 +394,7 @@ class GroupRebuildCoordinator:
             self._transition_to(GroupRebuildState.PENDING_REPAIR)
 
         logger.warning(
-            "MoEGambit group rebuild: requested — failed_rank=%d → replacement_rank=%d "
+            "MOEGAMBIT-MoE group rebuild: requested — failed_rank=%d → replacement_rank=%d "
             "(step=%d, groups=%s)",
             failed_rank, replacement_rank, step, affected_groups,
         )
@@ -447,7 +447,7 @@ class GroupRebuildCoordinator:
         # Phase 1: REBUILDING — invalidate old handles, create new ones
         self._transition_to(GroupRebuildState.REBUILDING)
         logger.warning(
-            "MoEGambit group rebuild: REBUILDING — failed_rank=%d → replacement_rank=%d "
+            "MOEGAMBIT-MoE group rebuild: REBUILDING — failed_rank=%d → replacement_rank=%d "
             "(step=%d)",
             plan.failed_rank, plan.replacement_rank, step,
         )
@@ -458,7 +458,7 @@ class GroupRebuildCoordinator:
         # Phase 2: REBINDING — update module references
         self._transition_to(GroupRebuildState.REBINDING)
         logger.warning(
-            "MoEGambit group rebuild: REBINDING — updating module references (step=%d)",
+            "MOEGAMBIT-MoE group rebuild: REBINDING — updating module references (step=%d)",
             step,
         )
 
@@ -504,7 +504,7 @@ class GroupRebuildCoordinator:
             self._transition_to(GroupRebuildState.IDLE)
 
         logger.warning(
-            "MoEGambit group rebuild: FINISHED — returning to %s (step=%d, "
+            "MOEGAMBIT-MoE group rebuild: FINISHED — returning to %s (step=%d, "
             "history_len=%d)",
             self._state.name, step, len(self._history),
         )

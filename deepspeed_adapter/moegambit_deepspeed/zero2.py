@@ -278,6 +278,7 @@ class DeepSpeedZero2Replica:
                 snapshot,
                 self._tensor_refs(indices),
                 self._scalar_refs(indices),
+                restore_expert=True,
             )
             restored.append(namespace)
         if not restored:

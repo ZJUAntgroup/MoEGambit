@@ -1,6 +1,6 @@
-# MoEGambit: Bounded Staleness Recovery for Mixture-of-Experts
+# MOEGAMBIT-MoE: Bounded Staleness Recovery for Mixture-of-Experts
 
-MoEGambit 是嵌入 Megatron-LM 训练循环的在线故障恢复系统。当 MoE 训练中某个 rank 发生故障时，系统无需停机重启，在降级模式下继续训练，同时异步完成故障 rank 的替换与专家参数恢复，最终在安全点（迭代边界）执行进程组修复和重集成。
+MOEGAMBIT-MoE 是嵌入 Megatron-LM 训练循环的在线故障恢复系统。当 MoE 训练中某个 rank 发生故障时，系统无需停机重启，在降级模式下继续训练，同时异步完成故障 rank 的替换与专家参数恢复，最终在安全点（迭代边界）执行进程组修复和重集成。
 
 ## 目录
 
@@ -68,7 +68,7 @@ MoEGambit 是嵌入 Megatron-LM 训练循环的在线故障恢复系统。当 Mo
 | 模块 | 文件 | 说明 |
 |------|------|------|
 | RecoveryController | `recovery_controller.py` | 核心状态机，协调整个恢复生命周期 |
-| moegambit 集成层 | `moegambit_integration.py` | 连接所有模块到 Megatron 训练循环 |
+| MOEGAMBIT 集成层 | `moegambit_integration.py` | 连接所有模块到 Megatron 训练循环 |
 
 ### 故障检测与隔离
 
@@ -322,7 +322,7 @@ PP > 1 时，多个 stage 同时执行不同 microbatch。若某个 stage 故障
 
 | 参数 | 说明 |
 |------|------|
-| `--moe-moegambit-enable` | 启用 MoEGambit |
+| `--moe-moegambit-enable` | 启用 MOEGAMBIT-MoE |
 | `--moe-moegambit-health-mask` | 启用专家健康掩码 |
 | `--moe-moegambit-rank-quarantine` | 启用 rank 隔离 |
 | `--moe-moegambit-expert-directory` | 启用专家目录 |
@@ -397,10 +397,10 @@ for step in range(num_steps):
 ### Checkpoint 集成
 
 ```python
-# 保存前注入 moegambit 元数据
+# 保存前注入 MOEGAMBIT 元数据
 moegambit_pre_save_checkpoint(checkpoint_dir, step)
 
-# 加载后恢复 moegambit 状态
+# 加载后恢复 MOEGAMBIT 状态
 moegambit_post_load_checkpoint(checkpoint_dir, step)
 
 # 保存 manifest 侧车文件（moegambit_manifest.json）
@@ -429,7 +429,7 @@ export MOEGAMBIT_FAULT_REPLACEMENT_STEP=60
 
 ```bash
 cd Megatron-LM
-# 运行所有 MoEGambit 单元测试
+# 运行所有 MOEGAMBIT-MoE 单元测试
 python -m pytest tests/unit_tests/transformer/moe/test_safe_point_repair.py -v
 python -m pytest tests/unit_tests/transformer/moe/test_pp_e2e_recovery.py -v
 python -m pytest tests/unit_tests/transformer/moe/test_e2e_fault_injection.py -v

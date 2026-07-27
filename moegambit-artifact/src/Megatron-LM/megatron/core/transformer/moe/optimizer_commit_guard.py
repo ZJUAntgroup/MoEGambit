@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MoEGambit Optimizer Commit Guard.
+"""MOEGAMBIT-MoE Optimizer Commit Guard.
 
 Ensures that ``optimizer.step()`` is not executed when the current
 iteration has been invalidated by a hard failure, preventing partial
@@ -285,7 +285,7 @@ class OptimizerCommitGuard:
                 self._current_record.blocked = True
             log_step = self._block_step if self._block_step >= 0 else self._current_step
             logger.warning(
-                "MoEGambit OptimizerCommitGuard: BLOCKING optimizer.step() "
+                "MOEGAMBIT-MoE OptimizerCommitGuard: BLOCKING optimizer.step() "
                 "at step %d — explicitly blocked (reason=%s)",
                 log_step, self._block_reason,
             )
@@ -299,7 +299,7 @@ class OptimizerCommitGuard:
                 if self._current_record is not None:
                     self._current_record.blocked = True
                 logger.warning(
-                    "MoEGambit OptimizerCommitGuard: BLOCKING optimizer.step() "
+                    "MOEGAMBIT-MoE OptimizerCommitGuard: BLOCKING optimizer.step() "
                     "at step %d — iteration is invalid",
                     self._current_step,
                 )
@@ -345,7 +345,7 @@ class OptimizerCommitGuard:
 
         log_step = self._block_step if self._block_step >= 0 else self._current_step
         logger.info(
-            "MoEGambit OptimizerCommitGuard: optimizer.step() SKIPPED "
+            "MOEGAMBIT-MoE OptimizerCommitGuard: optimizer.step() SKIPPED "
             "at step %d (reason: %s)",
             log_step, reason or "iteration_invalid",
         )
@@ -374,7 +374,7 @@ class OptimizerCommitGuard:
         if self._phase.value < CommitPhase.MAIN_PARAMS_UPDATED.value:
             # Failure before optimizer.step() — no recovery needed
             logger.debug(
-                "MoEGambit OptimizerCommitGuard: no recovery needed at "
+                "MOEGAMBIT-MoE OptimizerCommitGuard: no recovery needed at "
                 "step %d (phase=%s, before MAIN_PARAMS_UPDATED)",
                 self._current_step, self._phase.name,
             )
@@ -385,7 +385,7 @@ class OptimizerCommitGuard:
             return False
 
         logger.warning(
-            "MoEGambit OptimizerCommitGuard: PARTIAL COMMIT detected at "
+            "MOEGAMBIT-MoE OptimizerCommitGuard: PARTIAL COMMIT detected at "
             "step %d (phase=%s). Attempting recovery.",
             self._current_step, self._phase.name,
         )
@@ -399,12 +399,12 @@ class OptimizerCommitGuard:
                 self._recover_fn(step=step or self._current_step,
                                  phase=self._phase)
                 logger.warning(
-                    "MoEGambit OptimizerCommitGuard: recovery completed "
+                    "MOEGAMBIT-MoE OptimizerCommitGuard: recovery completed "
                     "at step %d", self._current_step,
                 )
             except Exception as e:
                 logger.error(
-                    "MoEGambit OptimizerCommitGuard: recovery FAILED "
+                    "MOEGAMBIT-MoE OptimizerCommitGuard: recovery FAILED "
                     "at step %d: %s", self._current_step, e,
                 )
                 return False
@@ -441,7 +441,7 @@ class OptimizerCommitGuard:
             True if compensation was performed (always False in v1).
         """
         logger.warning(
-            "MoEGambit OptimizerCommitGuard: inverse compensation "
+            "MOEGAMBIT-MoE OptimizerCommitGuard: inverse compensation "
             "requested for step %d but NOT IMPLEMENTED in v1. "
             "(rollback_optimizer_state=%s, rollback_main_params=%s)",
             step, rollback_optimizer_state, rollback_main_params,

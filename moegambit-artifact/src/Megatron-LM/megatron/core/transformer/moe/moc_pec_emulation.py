@@ -1,22 +1,22 @@
 """MoC-System (PEC) emulation — non-invasive accuracy-equivalent overlay.
 
 This module implements a *single-flag* emulation of MoC-System's Partial
-Experts Checkpointing (PEC) on top of MoEGambit. It is enabled by the
-environment variable ``MOEGAMBIT_MOC_PEC_EMULATE=1`` (no MoEGambit code path
+Experts Checkpointing (PEC) on top of MoEGuard. It is enabled by the
+environment variable ``MOEGAMBIT_MOC_PEC_EMULATE=1`` (no MoEGuard code path
 changes guarded behind anything else). When disabled, this module is
 inert — both ``write_pec_metadata`` and ``apply_pec_to_plan`` short-circuit
-to no-ops, so MoEGambit's runtime semantics are untouched.
+to no-ops, so MoEGuard's runtime semantics are untouched.
 
 Design (byte-identical accuracy emulation, no save-path mutation):
 
-  1. Save side. MoEGambit already writes the full N-expert checkpoint at
+  1. Save side. MoEGuard already writes the full N-expert checkpoint at
      every save-interval. We do NOT change that. Instead, we record a
      side-car JSON ``moc_pec_metadata.json`` in each ``iter_XXXXXXX/``
      directory that declares which K_pec experts are *fresh* for this
      PEC round and, for every other expert, which earlier ``iter_***``
      directory contains its last-fresh version.
 
-  2. Load side. At recovery time, MoEGambit calls
+  2. Load side. At recovery time, MoEGuard calls
      ``identify_experts_to_restore()`` followed by
      ``restore_expert_weights(model, plan, load_fn=..., ...)``. We
      mutate each ``ExpertRestoreEntry.checkpoint_dir`` in ``plan`` to
@@ -270,7 +270,7 @@ def apply_pec_to_plan(plan, latest_ckpt_dir: str) -> int:
         try:
             entry.checkpoint_dir = new_dir
             # Also record the historical iteration so downstream stats are
-            # correct (e.g. Phi'(t) accounting in MoEGambit sees the right gap).
+            # correct (e.g. Φ'(t) accounting in MoEGuard sees the right gap).
             if hasattr(entry, "checkpoint_step"):
                 entry.checkpoint_step = int(info.get("last_fresh_iteration", -1))
             n_redirected += 1

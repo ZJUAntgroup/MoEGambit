@@ -1,8 +1,8 @@
-# MoEGambit Restart-in-Place Recovery
+# MOEGAMBIT-MoE Restart-in-Place Recovery
 
 ## 概述
 
-Restart-in-Place（原地重启）是 MoEGambit 容错恢复栈的扩展模块，用于模拟 GPU 进程原地重启后的状态恢复。核心思路：**不替换物理节点，而是在同一 rank 上用 NaN 哨兵值填充所有张量来模拟内存丢失，然后走完整的恢复流程验证系统能否正确恢复**。
+Restart-in-Place（原地重启）是 MOEGAMBIT-MoE 容错恢复栈的扩展模块，用于模拟 GPU 进程原地重启后的状态恢复。核心思路：**不替换物理节点，而是在同一 rank 上用 NaN 哨兵值填充所有张量来模拟内存丢失，然后走完整的恢复流程验证系统能否正确恢复**。
 
 ### 与传统 hard_failure 模式的区别
 

@@ -175,7 +175,7 @@ class AsyncRecoveryWorker:
             self._workers.append(t)
 
         logger.info(
-            "MoEGambit AsyncRecoveryWorker: started %d worker threads",
+            "MOEGAMBIT-MoE AsyncRecoveryWorker: started %d worker threads",
             max_workers,
         )
 
@@ -218,7 +218,7 @@ class AsyncRecoveryWorker:
             self._inflight[request.request_id] = request
         self._new_work_event.set()
         logger.debug(
-            "MoEGambit async worker: submitted %s request %s "
+            "MOEGAMBIT-MoE async worker: submitted %s request %s "
             "(layer=%d, expert=%d)",
             request.request_type, request.request_id,
             request.layer_id, request.expert_id,
@@ -375,7 +375,7 @@ class AsyncRecoveryWorker:
                         mgr.mark_fully_recovered(expert_ids, step=step)
                     except Exception as e:
                         logger.warning(
-                            "MoEGambit async worker: health manager transition "
+                            "MOEGAMBIT-MoE async worker: health manager transition "
                             "failed for layer %d, experts %s: %s",
                             layer_id, expert_ids, e,
                         )
@@ -386,7 +386,7 @@ class AsyncRecoveryWorker:
                 barrier.unblock_expert_params(expert_ids_to_unblock)
             except Exception as e:
                 logger.warning(
-                    "MoEGambit async worker: barrier unblock failed: %s", e,
+                    "MOEGAMBIT-MoE async worker: barrier unblock failed: %s", e,
                 )
 
         # Update health masks
@@ -400,12 +400,12 @@ class AsyncRecoveryWorker:
                     mask.mark_healthy(expert_indices)
             except Exception as e:
                 logger.warning(
-                    "MoEGambit async worker: health mask update failed: %s", e,
+                    "MOEGAMBIT-MoE async worker: health mask update failed: %s", e,
                 )
 
         if finalized > 0:
             logger.info(
-                "MoEGambit async worker: finalized %d results at step %d "
+                "MOEGAMBIT-MoE async worker: finalized %d results at step %d "
                 "(unblocked experts: %s)",
                 finalized, step, sorted(set(expert_ids_to_unblock)),
             )
@@ -429,7 +429,7 @@ class AsyncRecoveryWorker:
             t.join(timeout=timeout)
             if t.is_alive():
                 logger.warning(
-                    "MoEGambit async worker: thread %s did not shut down "
+                    "MOEGAMBIT-MoE async worker: thread %s did not shut down "
                     "within %.1fs", t.name, timeout,
                 )
 
@@ -437,14 +437,14 @@ class AsyncRecoveryWorker:
             remaining = len(self._pending_queue) + len(self._inflight)
             if remaining > 0:
                 logger.warning(
-                    "MoEGambit async worker: shutdown with %d pending/inflight "
+                    "MOEGAMBIT-MoE async worker: shutdown with %d pending/inflight "
                     "requests", remaining,
                 )
             self._pending_queue.clear()
             self._inflight.clear()
 
         self._workers.clear()
-        logger.info("MoEGambit AsyncRecoveryWorker: shutdown complete")
+        logger.info("MOEGAMBIT-MoE AsyncRecoveryWorker: shutdown complete")
 
     @property
     def is_shutdown(self) -> bool:
@@ -458,7 +458,7 @@ class AsyncRecoveryWorker:
     def _worker_loop(self) -> None:
         """Background worker loop: pick requests from pending queue and execute."""
         thread_name = threading.current_thread().name
-        logger.debug("MoEGambit async worker: %s started", thread_name)
+        logger.debug("MOEGAMBIT-MoE async worker: %s started", thread_name)
 
         while not self._shutdown_event.is_set():
             # Wait for work or shutdown
@@ -484,7 +484,7 @@ class AsyncRecoveryWorker:
                 with self._lock:
                     self._completed_queue.append(result)
 
-        logger.debug("MoEGambit async worker: %s exiting", thread_name)
+        logger.debug("MOEGAMBIT-MoE async worker: %s exiting", thread_name)
 
     def _execute_load(self, request: AsyncLoadRequest) -> AsyncLoadResult:
         """Execute a single load request (runs in background thread).
@@ -535,7 +535,7 @@ class AsyncRecoveryWorker:
             result.error = f"Exception in load_fn: {e}"
             result.success = False
             logger.warning(
-                "MoEGambit async worker: load failed for %s "
+                "MOEGAMBIT-MoE async worker: load failed for %s "
                 "(layer=%d, expert=%d): %s",
                 request.request_id, request.layer_id,
                 request.expert_id, e,
@@ -543,7 +543,7 @@ class AsyncRecoveryWorker:
 
         result.elapsed_seconds = time.monotonic() - start_time
         logger.debug(
-            "MoEGambit async worker: completed %s %s "
+            "MOEGAMBIT-MoE async worker: completed %s %s "
             "(layer=%d, expert=%d, success=%s, %.3fs)",
             request.request_type, request.request_id,
             request.layer_id, request.expert_id,

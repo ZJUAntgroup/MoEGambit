@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Token Dispatch Topology Refresh for MoEGambit (Step 8).
+"""Token Dispatch Topology Refresh for MOEGAMBIT-MoE (Step 8).
 
 After a safe-point group rebuild (Step 7), the MoE router, token dispatcher,
 and expert host mapping must be refreshed so that:
@@ -37,7 +37,7 @@ Design principles
 * **Testable without distributed init** — all operations are on pure-Python
   / CPU-tensor data structures.
 
-Integration with MoEGambit stack
+Integration with MOEGAMBIT-MoE stack
 ------------------------------
 * ``ActiveExpertDirectory`` (Step 5) — live expert↔rank mapping.
 * ``ReplacementRegistry`` (Step 6) — replacement lifecycle.
@@ -253,7 +253,7 @@ class DispatchTopologyManager:
     1. Maintains the current topology snapshot.
     2. Provides query APIs for expert host and rank activity.
     3. Orchestrates the refresh flow after a group rebuild.
-    4. Integrates with all lower MoEGambit layers.
+    4. Integrates with all lower MOEGAMBIT-MoE layers.
 
     The manager does NOT directly modify router or dispatcher internals.
     It updates the shared data structures (directory, health mask, placement)
@@ -418,7 +418,7 @@ class DispatchTopologyManager:
         self._refresh_count += 1
 
         logger.warning(
-            "MoEGambit dispatch topology: REFRESHED (step=%d, "
+            "MOEGAMBIT-MoE dispatch topology: REFRESHED (step=%d, "
             "failed_rank=%d → replacement_rank=%d, "
             "active_ranks=%s, refresh_count=%d)",
             step, failed_rank, replacement_rank,
@@ -637,7 +637,7 @@ class DispatchTopologyManager:
         self._refresh_count = 0
 
     # ------------------------------------------------------------------
-    # Internal helpers — MoEGambit layer integration
+    # Internal helpers — MOEGAMBIT-MoE layer integration
     # ------------------------------------------------------------------
 
     def _get_directory(self) -> Optional[Any]:

@@ -6,10 +6,70 @@ MoEGambit is a recovery-side framework for sparse Mixture-of-Experts (MoE) train
 
 The artifact contains:
 
+- An engine-neutral Python runtime with independently switchable hot replacement
+  and ZeRO-2 optimizer-state replication.
+- Entry-point-discovered Megatron-LM and DeepSpeed engine adapters.
 - Megatron-LM patches for safe-point repair, hybrid restore, the R2 staleness-density policy, two-phase optimizer recovery, and reintegration.
 - Fault-injection and recovery scripts used for the paper experiments.
 - Selected anonymized evaluation logs, analysis scripts, and plotting scripts for inspecting the paper results.
 - Pre-generated PDF figures used by the paper.
+
+## Install and Launch
+
+Install the runtime and its command-line entry points:
+
+```bash
+python -m pip install -e .
+moegambit-adapters
+```
+
+The two runtime features are orthogonal and default to off.  Put the training
+command after `--`:
+
+```bash
+# Plain training: recovery code cannot enter the hot-swap state machine.
+moegambit-launch --adapter megatron --no-hot-swap --no-zero2 -- \
+  python src/Megatron-LM/pretrain_gpt.py [Megatron arguments...]
+
+# Hot replacement, optimizer restored by the Megatron recovery path.
+moegambit-launch --adapter megatron --hot-swap --no-zero2 -- \
+  python src/Megatron-LM/pretrain_gpt.py [Megatron arguments...]
+
+# ZeRO-2 host replication without hot replacement.
+moegambit-launch --adapter megatron --no-hot-swap --zero2 -- \
+  python src/Megatron-LM/pretrain_gpt.py [Megatron arguments...]
+
+# Hot replacement with PHOENIX-style ZeRO-2 host replication.
+moegambit-launch --adapter megatron --hot-swap --zero2 -- \
+  python src/Megatron-LM/pretrain_gpt.py [Megatron arguments...]
+```
+
+`--zero2` adds Megatron's `--use-distributed-optimizer` and enables optimizer
+snapshots in host memory.  `--no-hot-swap` removes one-shot recovery state,
+does not start the elastic client, and rejects accidental rebuild entry.
+
+Run the Megatron watcher on the spare node with the same feature selection:
+
+```bash
+export MEGATRON_ROOT=/path/to/Megatron-LM
+export CKPT_DIR=/path/to/checkpoints
+export DATA_PATH=/path/to/dataset_prefix
+
+moegambit-watch --adapter megatron --hot-swap --zero2 --port 20200 -- \
+  --training-nnodes 8 \
+  --nproc-per-node 8 \
+  --master-addr "${MASTER_ADDR}" \
+  --master-port "${MASTER_PORT}"
+```
+
+The existing `scripts/test_hotspare_replace.sh` remains available for cluster
+experiments.  It accepts `MOEGAMBIT_HOT_SWAP=0|1` and
+`MOEGAMBIT_ZERO2=0|1`.
+
+The DeepSpeed adapter currently provides the plugin boundary, feature
+projection, and generic watcher protocol.  It does not yet patch DeepSpeed
+internals for in-place rank replacement; production hot replacement remains
+implemented by the bundled Megatron adapter.
 
 ## Paper Alignment
 
@@ -28,11 +88,22 @@ The paper reports raw recovery latency reductions of **20.6%--55.0%** and a **36
 ## Directory Structure
 
 ```text
-moegambit-artifact/
+Moegambit/
+├── pyproject.toml
+├── docs/
+│   └── architecture.md
 ├── src/
+│   ├── moegambit/
+│   │   ├── core/          # no Torch, Megatron, or DeepSpeed dependency
+│   │   ├── runtime/       # watcher, launcher, wire and distributed protocols
+│   │   ├── interfaces/    # EngineAdapter protocol
+│   │   └── cli/           # moegambit-launch/watch/adapters
+│   ├── moegambit_megatron/
+│   ├── moegambit_deepspeed/
 │   ├── elastic/
 │   │   ├── elastic_watcher.py
-│   │   └── elastic_launcher.py
+│   │   ├── elastic_launcher.py
+│   │   └── run_spare_single_rank.sh
 │   └── Megatron-LM/
 │       ├── megatron/training/
 │       │   ├── arguments.py
@@ -93,9 +164,13 @@ moegambit-artifact/
     └── parallelism_sensitivity.pdf
 ```
 
+## Architecture Guide
+
+See [`docs/architecture.md`](docs/architecture.md) for the engine-neutral runtime and adapter design. For a deeper code-guided explanation of the project structure, hot replacement workflow, hybrid state recovery, and ZeRO-2/distributed optimizer behavior, see [`docs/PROJECT_ARCHITECTURE_HOT_REPLACEMENT_ZERO2.md`](docs/PROJECT_ARCHITECTURE_HOT_REPLACEMENT_ZERO2.md).
+
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - PyTorch with CUDA support
 - NCCL distributed backend
 - Megatron-LM dependencies

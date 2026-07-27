@@ -390,6 +390,7 @@ class HotSpareCoordinator:
             str(payload.get("reason", "rank_failure")),
             reporting_physical_node=reporting_physical_node,
             failed_rank=payload.get("rank"),
+            global_step=payload.get("global_step"),
         )
 
     def _handle_runner_failure(
@@ -467,6 +468,17 @@ class HotSpareCoordinator:
             return
         self.ready_logical_nodes.add(logical_node)
         self.worker_phases[logical_node] = "train_ready"
+        ready_elapsed: float | None = None
+        if self.recovery_started_at is not None:
+            ready_elapsed = time.monotonic() - self.recovery_started_at
+            if self.failure is not None:
+                phase_seconds = self.failure.setdefault(
+                    "phase_seconds", {}
+                )
+                logical_phases = phase_seconds.setdefault(
+                    str(logical_node), {}
+                )
+                logical_phases["train_ready"] = ready_elapsed
         logger.info(
             "TRAIN_READY physical_node=%d logical_node=%d (%d/%d)",
             physical_node,
@@ -478,7 +490,8 @@ class HotSpareCoordinator:
             self.recovery_started_at is not None
             and len(self.ready_logical_nodes) == self.training_nodes
         ):
-            elapsed = time.monotonic() - self.recovery_started_at
+            elapsed = ready_elapsed
+            assert elapsed is not None
             logger.warning(
                 "recovery epoch %d reached TRAIN_READY on all logical "
                 "nodes in %.2fs",
@@ -514,12 +527,28 @@ class HotSpareCoordinator:
             return
         previous = self.worker_phases.get(logical_node)
         self.worker_phases[logical_node] = phase
+        elapsed: float | None = None
+        if self.recovery_started_at is not None:
+            elapsed = time.monotonic() - self.recovery_started_at
+            if self.failure is not None:
+                phase_seconds = self.failure.setdefault(
+                    "phase_seconds", {}
+                )
+                logical_phases = phase_seconds.setdefault(
+                    str(logical_node), {}
+                )
+                logical_phases[phase] = elapsed
         if phase != previous:
             logger.info(
-                "WORKER_PHASE physical_node=%d logical_node=%d phase=%s",
+                "WORKER_PHASE physical_node=%d logical_node=%d phase=%s%s",
                 physical_node,
                 logical_node,
                 phase,
+                (
+                    f" recovery_elapsed_s={elapsed:.2f}"
+                    if elapsed is not None
+                    else ""
+                ),
             )
 
     def _start_failover(
@@ -639,6 +668,16 @@ class HotSpareCoordinator:
                 str(logical): physical
                 for logical, physical in sorted(self.mapping.items())
             },
+            "failed_logical_node": (
+                self.failure.get("logical_node")
+                if self.failure is not None
+                else None
+            ),
+            "failure_step": (
+                self.failure.get("global_step")
+                if self.failure is not None
+                else None
+            ),
         }
         if self.status == "forming":
             return {**common, "action": "wait"}
@@ -729,6 +768,13 @@ class AgentSupervisor:
         self.completed_epoch: int | None = None
         self.retired_logged = False
         self.process_started_at: float | None = None
+        self.process_logical_node: int | None = None
+        self._relay_log_path: Path | None = None
+        self._relay_log_offset = 0
+        self._relay_log_buffer = ""
+        self._prefetch_stop = threading.Event()
+        self._prefetch_thread: threading.Thread | None = None
+        self._prefetched_checkpoint_tag: str | None = None
 
     def _request(
         self, kind: str, **payload: Any
@@ -786,7 +832,10 @@ class AgentSupervisor:
         epoch: int,
         master_addr: str,
         master_port: int,
+        failed_logical_node: int | None = None,
+        failure_step: int | None = None,
     ) -> None:
+        self._stop_standby_prefetch()
         self._stop_worker()
         command = self._formatted_command(
             logical_node, epoch, master_addr, master_port
@@ -806,6 +855,20 @@ class AgentSupervisor:
                 "MOEGAMBIT_HOT_SPARE_RUN_ID": self.run_id,
             }
         )
+        if failed_logical_node is not None:
+            environment[
+                "MOEGAMBIT_RECOVERY_FAILED_LOGICAL_NODE"
+            ] = str(failed_logical_node)
+        else:
+            environment.pop(
+                "MOEGAMBIT_RECOVERY_FAILED_LOGICAL_NODE", None
+            )
+        if failure_step is not None:
+            environment[
+                "MOEGAMBIT_RECOVERY_FAILURE_STEP"
+            ] = str(failure_step)
+        else:
+            environment.pop("MOEGAMBIT_RECOVERY_FAILURE_STEP", None)
         if local_world_size is not None:
             environment["LOCAL_WORLD_SIZE"] = local_world_size
         logger.warning(
@@ -825,11 +888,224 @@ class AgentSupervisor:
             start_new_session=True,
         )
         self.process_started_at = time.time()
+        self.process_logical_node = logical_node
         self.process_epoch = epoch
         self.completed_epoch = None
+        self._relay_log_path = None
+        self._relay_log_offset = 0
+        self._relay_log_buffer = ""
+
+    def _rank_log_path(self) -> Path | None:
+        if self.process_logical_node is None:
+            return None
+        log_dir_text = _command_option(
+            self.command, "--enable_each_rank_log"
+        )
+        if not log_dir_text:
+            return None
+        local_world_size_text = _command_option(
+            self.command, "--num_gpus"
+        )
+        try:
+            local_world_size = int(local_world_size_text or "1")
+        except ValueError:
+            local_world_size = 1
+        rank = self.process_logical_node * local_world_size
+        candidates = list(Path(log_dir_text).glob(f"*_rank{rank}.log"))
+        candidates = [
+            path
+            for path in candidates
+            if self.process_started_at is None
+            or path.stat().st_mtime >= self.process_started_at - 5.0
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime)
+
+    def _relay_worker_log(self) -> None:
+        if os.environ.get(
+            "MOEGAMBIT_RELAY_RANK_LOG", "1"
+        ).strip().lower() not in {"1", "true", "yes", "on"}:
+            return
+        path = self._rank_log_path()
+        if path is None:
+            return
+        if path != self._relay_log_path:
+            self._relay_log_path = path
+            self._relay_log_offset = 0
+            self._relay_log_buffer = ""
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as stream:
+                stream.seek(self._relay_log_offset)
+                content = stream.read()
+                self._relay_log_offset = stream.tell()
+        except OSError:
+            return
+        if not content:
+            return
+        rank_text = path.stem.rsplit("_rank", 1)[-1]
+        lines = (self._relay_log_buffer + content).splitlines(keepends=True)
+        self._relay_log_buffer = ""
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            self._relay_log_buffer = lines.pop()
+        for line in lines:
+            print(
+                f"[worker-rank{rank_text}] {line}",
+                end="",
+                flush=True,
+            )
+
+    def _prefetch_file(self, path: Path, budget: int) -> int:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return 0
+        if size > budget:
+            return 0
+        read_bytes = 0
+        try:
+            with path.open("rb", buffering=0) as stream:
+                while not self._prefetch_stop.is_set():
+                    chunk = stream.read(min(16 * 1024 * 1024, budget))
+                    if not chunk:
+                        break
+                    read_bytes += len(chunk)
+                    budget -= len(chunk)
+                    if budget <= 0:
+                        break
+        except OSError as exc:
+            logger.warning(
+                "standby prefetch could not read %s: %s", path, exc
+            )
+        return read_bytes
+
+    def _checkpoint_prefetch_files(
+        self, checkpoint_dir: Path, logical_node: int
+    ) -> tuple[str | None, list[Path]]:
+        latest = checkpoint_dir / "latest"
+        try:
+            tag = latest.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None, []
+        if not tag:
+            return None, []
+        tag_dir = checkpoint_dir / tag
+        try:
+            candidates = [
+                path for path in tag_dir.iterdir() if path.is_file()
+            ]
+        except OSError:
+            return tag, []
+
+        zero_prefixes = (
+            f"zero_pp_rank_{logical_node}_",
+            f"bf16_zero_pp_rank_{logical_node}_",
+        )
+        selected = [
+            path
+            for path in candidates
+            if path.name.endswith("_model_states.pt")
+            or (
+                path.name.endswith("_optim_states.pt")
+                and path.name.startswith(zero_prefixes)
+            )
+        ]
+        selected.sort(
+            key=lambda path: (
+                not path.name.endswith("_model_states.pt"),
+                path.name,
+            )
+        )
+        return tag, selected
+
+    def _standby_prefetch_loop(self) -> None:
+        max_gib = float(
+            os.environ.get("MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB", "128")
+        )
+        max_bytes = max(0, int(max_gib * 1024**3))
+        data_path = _command_option(self.command, "--data-path")
+        checkpoint_text = _command_option(
+            self.command, "--checkpoint-dir"
+        )
+        logical_node = int(
+            os.environ.get(
+                "MOEGAMBIT_STANDBY_PREFETCH_LOGICAL_NODE", "0"
+            )
+        )
+        if data_path and max_bytes:
+            index_path = Path(data_path + ".idx")
+            started = time.monotonic()
+            warmed = self._prefetch_file(index_path, max_bytes)
+            if warmed:
+                logger.info(
+                    "standby prefetched dataset index path=%s bytes=%d "
+                    "seconds=%.2f",
+                    index_path,
+                    warmed,
+                    time.monotonic() - started,
+                )
+
+        while not self._prefetch_stop.wait(2.0):
+            if not checkpoint_text or not max_bytes:
+                continue
+            tag, paths = self._checkpoint_prefetch_files(
+                Path(checkpoint_text), logical_node
+            )
+            if not tag or tag == self._prefetched_checkpoint_tag or not paths:
+                continue
+            started = time.monotonic()
+            remaining = max_bytes
+            warmed = 0
+            for path in paths:
+                if self._prefetch_stop.is_set() or remaining <= 0:
+                    break
+                amount = self._prefetch_file(path, remaining)
+                warmed += amount
+                remaining -= amount
+            if not self._prefetch_stop.is_set():
+                self._prefetched_checkpoint_tag = tag
+                logger.info(
+                    "standby prefetched checkpoint tag=%s logical_node=%d "
+                    "files=%d bytes=%d seconds=%.2f",
+                    tag,
+                    logical_node,
+                    len(paths),
+                    warmed,
+                    time.monotonic() - started,
+                )
+
+    def _ensure_standby_prefetch(self) -> None:
+        enabled = os.environ.get(
+            "MOEGAMBIT_STANDBY_PREFETCH", "0"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if (
+            self.role != "standby"
+            or not enabled
+            or (
+                self._prefetch_thread is not None
+                and self._prefetch_thread.is_alive()
+            )
+        ):
+            return
+        self._prefetch_stop.clear()
+        self._prefetch_thread = threading.Thread(
+            target=self._standby_prefetch_loop,
+            name="moegambit-standby-prefetch",
+            daemon=True,
+        )
+        self._prefetch_thread.start()
+
+    def _stop_standby_prefetch(self) -> None:
+        thread = self._prefetch_thread
+        if thread is None:
+            return
+        self._prefetch_stop.set()
+        thread.join(timeout=5.0)
+        self._prefetch_thread = None
 
     def _stop_worker(self) -> None:
         process = self.process
+        self._relay_worker_log()
         self.process = None
         if process is None or process.poll() is not None:
             return
@@ -845,6 +1121,7 @@ class AgentSupervisor:
             except ProcessLookupError:
                 pass
             process.wait(timeout=10)
+        self._relay_worker_log()
 
     def run(self) -> int:
         command = self._register()
@@ -857,20 +1134,45 @@ class AgentSupervisor:
                     logical_node = int(command["logical_node"])
                     master_addr = str(command["master_addr"])
                     master_port = int(command["master_port"])
+                    failed_logical_node = command.get(
+                        "failed_logical_node"
+                    )
+                    failure_step = command.get("failure_step")
+                    failed_logical_node = (
+                        int(failed_logical_node)
+                        if failed_logical_node is not None
+                        else None
+                    )
+                    failure_step = (
+                        int(failure_step)
+                        if failure_step is not None
+                        else None
+                    )
                     if self.process_epoch != epoch:
                         self._start_worker(
-                            logical_node, epoch, master_addr, master_port
+                            logical_node,
+                            epoch,
+                            master_addr,
+                            master_port,
+                            failed_logical_node,
+                            failure_step,
                         )
                     elif (
                         self.process is None
                         and self.completed_epoch != epoch
                     ):
                         self._start_worker(
-                            logical_node, epoch, master_addr, master_port
+                            logical_node,
+                            epoch,
+                            master_addr,
+                            master_port,
+                            failed_logical_node,
+                            failure_step,
                         )
 
                     if self.process is not None:
                         return_code = self.process.poll()
+                        self._relay_worker_log()
                         if return_code is not None:
                             diagnostic = ""
                             if return_code != 0:
@@ -934,6 +1236,7 @@ class AgentSupervisor:
 
                 elif action in {"wait", "standby"}:
                     self._stop_worker()
+                    self._ensure_standby_prefetch()
                 elif action == "retire":
                     self._stop_worker()
                     if not self.retired_logged:
@@ -1012,6 +1315,7 @@ class AgentSupervisor:
                     ),
                 )
         finally:
+            self._stop_standby_prefetch()
             self._stop_worker()
 
 

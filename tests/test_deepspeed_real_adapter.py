@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "deepspeed_adapter"))
@@ -26,6 +28,9 @@ def test_real_workload_contains_both_supported_topologies():
     assert "AutoEPMoELayer" in source
     assert "DeepSpeed PipelineModule is incompatible with ZeRO stage 2" in source
     assert "MOEGAMBIT_AUTOEP_GROUPED_MM" in source
+    assert 'MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE="${hot_swap}"' in (
+        ROOT / "test_deepspeed_hotspare_replace.sh"
+    ).read_text(encoding="utf-8")
     assert 'callable(getattr(torch, "_grouped_mm", None))' in source
 
 
@@ -60,6 +65,29 @@ def test_runtime_hooks_common_optimizer_boundary():
     assert "engine._take_model_step" in source
     assert "engine.step = wrapped_step" not in source
     assert "runtime._maybe_checkpoint(after)" in source
+
+
+def test_hybrid_restore_runs_after_checkpoint_and_has_no_later_phase():
+    integration = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit_deepspeed"
+        / "integration.py"
+    ).read_text(encoding="utf-8")
+    hybrid = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit_deepspeed"
+        / "hybrid_restore.py"
+    ).read_text(encoding="utf-8")
+
+    assert integration.index("self.engine.load_checkpoint(") < (
+        integration.index("self._restore_non_expert_from_peer()")
+    )
+    assert '"expert_source": "checkpoint"' in hybrid
+    assert '"non_expert_source": "live_dp_peer"' in hybrid
+    assert '"optimizer_source": "checkpoint"' in hybrid
+    assert '"two_phase": False' in hybrid
 
 
 def test_runtime_checkpoint_hook_runs_for_common_model_step(tmp_path):
@@ -109,6 +137,147 @@ def test_runtime_checkpoint_hook_runs_for_common_model_step(tmp_path):
         )
     ]
     runtime.close()
+
+
+def test_hybrid_restore_classifies_autoep_experts_without_name_heuristics():
+    from moegambit_deepspeed.hybrid_restore import (
+        is_expert_parameter,
+        non_expert_model_tensors,
+    )
+
+    class Tensor:
+        def __init__(self):
+            self.data = self
+
+    class Model:
+        def __init__(self):
+            self.dense = Tensor()
+            self.unusually_named = Tensor()
+            self.unusually_named.ds_zero_placement_family = "autoep_expert"
+            self.running_value = Tensor()
+            self.temporary = Tensor()
+
+        def named_parameters(self):
+            return [
+                ("dense", self.dense),
+                ("unusually_named", self.unusually_named),
+            ]
+
+        def named_buffers(self):
+            return [
+                ("running_value", self.running_value),
+                ("temporary", self.temporary),
+            ]
+
+        def state_dict(self):
+            return {
+                "dense": self.dense,
+                "unusually_named": self.unusually_named,
+                "running_value": self.running_value,
+            }
+
+    model = Model()
+    tensors = dict(non_expert_model_tensors(model))
+
+    assert not is_expert_parameter(model.dense)
+    assert is_expert_parameter(model.unusually_named)
+    assert set(tensors) == {"dense", "running_value"}
+
+
+class _FakeTopology:
+    axes = ("pipe", "data")
+
+    def __init__(self, mapping):
+        self.mapping = mapping
+
+    def get_coord(self, rank):
+        pipe, data = self.mapping[rank]
+        return type("Coord", (), {"pipe": pipe, "data": data})()
+
+    def get_axis_names(self):
+        return self.axes
+
+    def filter_match(self, **filters):
+        return [
+            rank
+            for rank, (pipe, data) in self.mapping.items()
+            if all(
+                {"pipe": pipe, "data": data}[axis] == value
+                for axis, value in filters.items()
+            )
+        ]
+
+
+def test_hybrid_restore_requires_a_live_dp_peer_outside_replacement_node():
+    from moegambit_deepspeed.hybrid_restore import (
+        DeepSpeedHybridRestoreError,
+        build_peer_restore_plans,
+    )
+
+    # Default DeepSpeed PP-major layout puts every DP copy of stage 0 on
+    # ranks 0..3. Replacing that physical node leaves no live stage-0 donor.
+    pp_major = _FakeTopology(
+        {
+            rank: (rank // 4, rank % 4)
+            for rank in range(8)
+        }
+    )
+    with pytest.raises(DeepSpeedHybridRestoreError, match="no live DP peer"):
+        build_peer_restore_plans(pp_major, range(4))
+
+
+def test_hybrid_restore_data_major_layout_selects_same_stage_donor():
+    from moegambit_deepspeed.hybrid_restore import (
+        build_peer_restore_plans,
+    )
+
+    # Data-major layout gives each two-GPU physical node a complete pipeline.
+    data_major = _FakeTopology(
+        {
+            rank: (rank % 2, rank // 2)
+            for rank in range(8)
+        }
+    )
+    plans = build_peer_restore_plans(data_major, range(2))
+
+    assert [
+        (plan.replacement_rank, plan.source_rank)
+        for plan in plans
+    ] == [(0, 2), (1, 3)]
+
+
+def test_hybrid_restore_rejects_a_stale_peer_version():
+    from moegambit_deepspeed.hybrid_restore import (
+        DeepSpeedHybridRestoreError,
+        PeerRestorePlan,
+        _validate_peer_header,
+    )
+
+    plan = PeerRestorePlan(0, 2, (0, 2, 4, 6))
+    manifest = [
+        {
+            "name": "dense",
+            "shape": [2],
+            "dtype": "torch.bfloat16",
+            "numel": 2,
+        }
+    ]
+    with pytest.raises(
+        DeepSpeedHybridRestoreError, match="incompatible"
+    ):
+        _validate_peer_header(
+            {
+                "source_rank": 2,
+                "replacement_rank": 0,
+                "step": 10,
+                "manifest_hash": "hash",
+                "manifest": manifest,
+            },
+            plan=plan,
+            expected_step=17,
+            manifest=manifest,
+            manifest_hash="hash",
+        )
 
 
 def test_local_adapter_discovers_bsr_vendored_deepspeed():
@@ -217,6 +386,7 @@ def test_multinode_script_dry_run_builds_real_commands(tmp_path):
     assert "--node_rank \\{logical_node\\}" in result.stdout
     assert "--elastic_training" not in result.stdout
     assert "dry run complete" in result.stdout
+    assert "hybrid_restore=1" in result.stdout
     assert "LOCAL_WORLD_SIZE" in (
         ROOT / "test_deepspeed_hotspare_replace.sh"
     ).read_text(encoding="utf-8")
@@ -269,13 +439,17 @@ def test_hot_spare_coordinator_replaces_failed_logical_node(tmp_path):
         logical_node=0,
         rank=1,
         reason="injected_sigkill",
+        global_step=17,
     )
     assert replacement["action"] == "retire"
     assert coordinator.epoch == 1
     assert coordinator.mapping == {0: 2, 1: 1}
-    assert request("poll", 2)["logical_node"] == 0
-    assert request("poll", 2)["master_addr"] == "10.0.0.3"
-    assert request("poll", 2)["master_port"] == 24001
+    replacement_command = request("poll", 2)
+    assert replacement_command["logical_node"] == 0
+    assert replacement_command["master_addr"] == "10.0.0.3"
+    assert replacement_command["master_port"] == 24001
+    assert replacement_command["failed_logical_node"] == 0
+    assert replacement_command["failure_step"] == 17
     assert request("poll", 1)["logical_node"] == 1
     assert (tmp_path / "state.json").is_file()
 
@@ -471,6 +645,88 @@ def test_hot_spare_surfaces_rank_failure_artifact(tmp_path):
 
     assert "epoch_0_rank_17.json" in diagnostic
     assert "RuntimeError: test failure" in diagnostic
+
+
+def test_hot_spare_prefetch_selects_replacement_checkpoint_shards(tmp_path):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    checkpoint_dir = tmp_path / "checkpoint"
+    tag_dir = checkpoint_dir / "global_step10"
+    tag_dir.mkdir(parents=True)
+    (checkpoint_dir / "latest").write_text(
+        "global_step10\n", encoding="utf-8"
+    )
+    names = (
+        "mp_rank_00_model_states.pt",
+        "layer_0_expert_0_mp_rank_00_model_states.pt",
+        "bf16_zero_pp_rank_0_mp_rank_00_optim_states.pt",
+        "bf16_zero_pp_rank_1_mp_rank_00_optim_states.pt",
+        "other.txt",
+    )
+    for name in names:
+        (tag_dir / name).write_bytes(b"x")
+
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=2,
+        role="standby",
+        advertise_addr="127.0.0.1",
+        command=("train.py",),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    tag, selected = supervisor._checkpoint_prefetch_files(
+        checkpoint_dir, logical_node=0
+    )
+
+    assert tag == "global_step10"
+    assert {path.name for path in selected} == {
+        "mp_rank_00_model_states.pt",
+        "layer_0_expert_0_mp_rank_00_model_states.pt",
+        "bf16_zero_pp_rank_0_mp_rank_00_optim_states.pt",
+    }
+
+
+def test_hot_spare_relays_local_rank_zero_log_incrementally(
+    tmp_path, capsys, monkeypatch
+):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    monkeypatch.setenv("MOEGAMBIT_RELAY_RANK_LOG", "1")
+    log_dir = tmp_path / "rank_logs"
+    log_dir.mkdir()
+    rank_log = log_dir / "20260727120000_rank16.log"
+    rank_log.write_text("first\n", encoding="utf-8")
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=2,
+        role="active",
+        advertise_addr="127.0.0.1",
+        command=(
+            "runner",
+            "--num_gpus",
+            "8",
+            "--enable_each_rank_log",
+            str(log_dir),
+        ),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    supervisor.process_logical_node = 2
+
+    supervisor._relay_worker_log()
+    with rank_log.open("a", encoding="utf-8") as stream:
+        stream.write("second\n")
+    supervisor._relay_worker_log()
+
+    assert capsys.readouterr().out.splitlines() == [
+        "[worker-rank16] first",
+        "[worker-rank16] second",
+    ]
 
 
 def test_hot_spare_coordinator_aborts_stalled_recovery():

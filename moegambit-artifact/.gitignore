@@ -9,6 +9,9 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+build/
+dist/
+*.egg-info/
 
 .venv/
 venv/
@@ -31,7 +34,7 @@ slurm-*.out
 !data/logs/evaluation/*.log
 
 # Large datasets and model/checkpoint artifacts should be distributed out of band.
-datasets/
+/datasets/
 data/raw/
 data/cache/
 evaldata/

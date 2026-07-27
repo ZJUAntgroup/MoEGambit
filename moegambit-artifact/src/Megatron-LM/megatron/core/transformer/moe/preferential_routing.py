@@ -1,5 +1,5 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
-# MoEGambit: Preferential Routing for Recovered Experts
+# MOEGAMBIT-MoE: Preferential Routing for Recovered Experts
 #
 # After an expert is restored from checkpoint and transitions to
 # STALE_RUNNABLE / FULLY_RECOVERED, it has been absent from training for
@@ -130,7 +130,7 @@ class PreferentialRoutingManager:
         )
         self._cache_dirty = True
         logger.info(
-            "MoEGambit layer %d: preferential routing activated for expert %d "
+            "MOEGAMBIT-MoE layer %d: preferential routing activated for expert %d "
             "(bias=%.4f, window=%d steps, step=%d)",
             self.layer_number, expert_id, self.initial_bias, self.window_steps, step,
         )
@@ -141,7 +141,7 @@ class PreferentialRoutingManager:
         if session is not None:
             self._cache_dirty = True
             logger.info(
-                "MoEGambit layer %d: preferential routing deactivated for expert %d",
+                "MOEGAMBIT-MoE layer %d: preferential routing deactivated for expert %d",
                 self.layer_number, expert_id,
             )
 

@@ -1,11 +1,12 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Minimal Fault-Injection & End-to-End Test Framework for MoEGambit (Step 15).
+"""Minimal Fault-Injection & End-to-End Test Framework for MOEGAMBIT-MoE (Step 15).
 
-**Self-contained, deterministic fault-injection framework** that exercises the full MoEGambit recovery stack without
+This module provides a **self-contained, deterministic fault-injection
+framework** that exercises the full MOEGAMBIT-MoE recovery stack without
 requiring distributed init, GPUs, or real NCCL collectives.
 
-It wires together MoEGambit modules through their public singleton APIs
+It wires together MOEGAMBIT-MoE modules through their public singleton APIs
 and callback interfaces, simulating the training loop and fault events
 in a single process.
 
@@ -43,12 +44,12 @@ The ``RecoveryMetrics`` dataclass tracks timing and count metrics:
 
 Design principles
 -----------------
-* **Self-contained** — all MoEGambit modules are imported via
+* **Self-contained** — all MOEGAMBIT-MoE modules are imported via
   ``_import_from_file`` (no package-level imports needed).
 * **Deterministic** — no randomness, no real collectives.
 * **Single-process** — everything runs in one Python process.
 * **Callback-driven** — the ``RecoveryController`` is wired with
-  callbacks that delegate to the real MoEGambit module singletons.
+  callbacks that delegate to the real MOEGAMBIT-MoE module singletons.
 """
 
 from __future__ import annotations
@@ -230,15 +231,15 @@ class SimulatedEnvironment:
 # =====================================================================
 
 class FaultInjector:
-    """Controllable fault-injection engine for MoEGambit testing.
+    """Controllable fault-injection engine for MOEGAMBIT-MoE testing.
 
-    Wires together MoEGambit module singletons through the
+    Wires together MOEGAMBIT-MoE module singletons through the
     ``RecoveryController`` callback interface.  Provides fault
     primitives and tracks recovery metrics.
 
     Args:
         env: Simulated training environment description.
-        modules: Dict of MoEGambit module references (from _import_from_file).
+        modules: Dict of MOEGAMBIT-MoE module references (from _import_from_file).
             Expected keys: 'directory', 'replacement', 'group_rebuild',
             'topology', 'dense_sync', 'stale_restore', 'deferred_opt',
             'recovery_controller', 'reintegration_barrier'.
@@ -272,7 +273,7 @@ class FaultInjector:
     # -----------------------------------------------------------------
 
     def initialize(self) -> None:
-        """Initialize all MoEGambit module singletons and wire callbacks.
+        """Initialize all MOEGAMBIT-MoE module singletons and wire callbacks.
 
         Must be called before any fault injection.
         """
@@ -319,7 +320,7 @@ class FaultInjector:
         self._initialized = True
 
     def _wire_callbacks(self, ctrl) -> None:
-        """Wire RecoveryController callbacks to MoEGambit module singletons."""
+        """Wire RecoveryController callbacks to MOEGAMBIT-MoE module singletons."""
         env = self._env
         m = self._modules
 
@@ -421,7 +422,7 @@ class FaultInjector:
         )
 
     def _clear_all_singletons(self) -> None:
-        """Clear all MoEGambit module singletons."""
+        """Clear all MOEGAMBIT-MoE module singletons."""
         m = self._modules
         m['directory'].clear_active_expert_directory()
         m['replacement'].clear_replacement_registry()

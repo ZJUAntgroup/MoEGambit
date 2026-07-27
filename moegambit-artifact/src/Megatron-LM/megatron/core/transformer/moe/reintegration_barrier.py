@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Safe Reintegration Barrier for MoEGambit (Step 14).
+"""Safe Reintegration Barrier for MOEGAMBIT-MoE (Step 14).
 
 This module implements a **controlled reintegration barrier** that ensures a
 recovered node only re-joins training when ALL preconditions are satisfied
@@ -37,7 +37,7 @@ Design principles
 -----------------
 * **Gate-based** -- each precondition is independently markable and
   queryable.  The barrier never assumes ordering among preconditions.
-* **Self-contained** -- no imports from other MoEGambit modules.  All
+* **Self-contained** -- no imports from other MOEGAMBIT-MoE modules.  All
   state is fed in via explicit API calls.
 * **Deterministic** -- given the same inputs, the barrier always
   produces the same decisions.
@@ -271,7 +271,7 @@ class ReintegrationBarrier:
         )
 
         logger.info(
-            "MoEGambit barrier: begin reintegration for rank %d -> %d "
+            "MOEGAMBIT-MoE barrier: begin reintegration for rank %d -> %d "
             "(experts=%s, step=%d)",
             failed_rank, replacement_rank, expert_ids, step,
         )
@@ -351,7 +351,7 @@ class ReintegrationBarrier:
                 details={"from": ReintegrationPhase.ISOLATED_READY.name},
             )
             logger.info(
-                "MoEGambit barrier: rank %d -> REPAIRED_NOT_ROUTED "
+                "MOEGAMBIT-MoE barrier: rank %d -> REPAIRED_NOT_ROUTED "
                 "(all preconditions met, step=%d)",
                 failed_rank, step,
             )
@@ -532,7 +532,7 @@ class ReintegrationBarrier:
         )
 
         logger.warning(
-            "MoEGambit barrier: rank %d reintegrated at step %d "
+            "MOEGAMBIT-MoE barrier: rank %d reintegrated at step %d "
             "(replacement=%d, experts=%s)",
             failed_rank, step, record.replacement_rank, record.expert_ids,
         )
@@ -589,7 +589,7 @@ class ReintegrationBarrier:
                     integrated.append(failed_rank)
             except RuntimeError as e:
                 logger.error(
-                    "MoEGambit barrier: reintegration failed for rank %d "
+                    "MOEGAMBIT-MoE barrier: reintegration failed for rank %d "
                     "at step %d: %s",
                     failed_rank, step, e,
                 )

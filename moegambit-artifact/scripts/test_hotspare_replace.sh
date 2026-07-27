@@ -32,6 +32,8 @@ set -uo pipefail
 set -x
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export MEGATRON_ROOT="${MEGATRON_ROOT:-${REPOSITORY_ROOT}/src/Megatron-LM}"
 
 # =============================================================================
 # Configuration
@@ -51,6 +53,11 @@ export MASTER_PORT="${MASTER_PORT:-20117}"
 
 # Watcher coordination port
 export ELASTIC_WATCHER_PORT="${ELASTIC_WATCHER_PORT:-20200}"
+export MOEGAMBIT_HOT_SWAP="${MOEGAMBIT_HOT_SWAP:-1}"
+export MOEGAMBIT_ZERO2="${MOEGAMBIT_ZERO2:-0}"
+export ELASTIC_HOT_SWAP_ENABLED="${MOEGAMBIT_HOT_SWAP}"
+export ELASTIC_ZERO2_MEMORY_REPLICATION="${MOEGAMBIT_ZERO2}"
+export ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER="${MOEGAMBIT_ZERO2}"
 
 # Determine role
 TRAINING_NNODES=8
@@ -97,8 +104,8 @@ unset MOEGAMBIT_FAULT_INJECT_STEP 2>/dev/null || true
 
 # Checkpoint: 每 10 步保存一次（确保故障时有近期 checkpoint）
 export SAVE_INTERVAL=10
-export CKPT_DIR="${CKPT_DIR:-${ARTIFACT_RUN_ROOT:-./runs}/hotspare_test/ckpt}"
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-${ARTIFACT_RUN_ROOT:-./runs}/hotspare_test/log}"
+export CKPT_DIR="${CKPT_DIR:-${ARTIFACT_RUN_ROOT:-${REPOSITORY_ROOT}/runs}/hotspare_test/ckpt}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-${ARTIFACT_RUN_ROOT:-${REPOSITORY_ROOT}/runs}/hotspare_test/log}"
 
 # ============================================================================
 # NCCL configuration: short timeout for fast failure detection
@@ -117,7 +124,7 @@ export TORCH_NCCL_ENABLE_MONITORING=0
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=600
 
 # Other environment
-export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
+export PYTHONPATH="${PYTHONPATH:-}:${MEGATRON_ROOT}"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -146,6 +153,8 @@ echo "[test-replace] Training nodes:  ${TRAINING_NNODES} (${TRAINING_WORLD_SIZE}
 echo "[test-replace] Fault inject:    kill node ${FAULT_INJECT_NODE} local_rank ${FAULT_INJECT_LOCAL_RANK} at step ${FAULT_INJECT_STEP}"
 echo "[test-replace] Save interval:   ${SAVE_INTERVAL}"
 echo "[test-replace] Train iters:     ${TRAIN_ITERS}"
+echo "[test-replace] Hot swap:       ${MOEGAMBIT_HOT_SWAP}"
+echo "[test-replace] ZeRO-2 backup:  ${MOEGAMBIT_ZERO2}"
 echo "[test-replace] NCCL timeout:    60s (dynamic, after init)"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
@@ -155,6 +164,10 @@ echo "[test-replace] =============================================="
 # =============================================================================
 
 if [ "${IS_SPARE}" = "1" ]; then
+  if [ "${MOEGAMBIT_HOT_SWAP}" != "1" ]; then
+    echo "[test-replace] Hot swap is disabled; no watcher is required."
+    exit 0
+  fi
   echo "[test-replace] Starting elastic watcher on spare node..."
   echo "[test-replace] Fault injection: kill node ${FAULT_INJECT_NODE} local_rank ${FAULT_INJECT_LOCAL_RANK} at step ${FAULT_INJECT_STEP}"
   python3 "${SCRIPT_DIR}/elastic_watcher.py" \
@@ -179,32 +192,35 @@ if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ] || ls "${CKPT_DIR}"/it
   LOAD_ARGS=(--load "${CKPT_DIR}")
 fi
 
-MOEGAMBIT_ARGS=(
-  --moe-moegambit-enable
-  --moe-moegambit-health-mask
-  --moe-moegambit-rank-quarantine
-  --moe-moegambit-dispatch-quarantine-assert
-  --moe-moegambit-dispatch-sanitize
-  --moe-moegambit-expert-directory
-  --moe-moegambit-replacement-protocol
-  --moe-moegambit-group-rebuild
-  --moe-moegambit-dispatch-topology-refresh
-  --moe-moegambit-dense-param-sync
-  --moe-moegambit-stale-expert-restore
-  --moe-moegambit-recovery-controller
-  --moe-moegambit-deferred-optimizer-load
-  --no-moe-moegambit-weights-first-recovery
-  --moe-moegambit-degraded-mode-policy
-  --moe-moegambit-reintegration-barrier
-  # NOTE: no --moe-moegambit-fault-injection — we do real kills via watcher
-  --moe-moegambit-hot-spare-pool
-  --moe-moegambit-num-hot-spares "${NPROC_PER_NODE}"
-  --moe-moegambit-degraded-tau-c 0.5
-  --moe-moegambit-degraded-t-max 1000
-  --moe-moegambit-degraded-s-max 500
-)
+MOEGAMBIT_ARGS=()
+if [ "${MOEGAMBIT_HOT_SWAP}" = "1" ]; then
+  MOEGAMBIT_ARGS=(
+    --moe-moegambit-enable
+    --moe-moegambit-health-mask
+    --moe-moegambit-rank-quarantine
+    --moe-moegambit-dispatch-quarantine-assert
+    --moe-moegambit-dispatch-sanitize
+    --moe-moegambit-expert-directory
+    --moe-moegambit-replacement-protocol
+    --moe-moegambit-group-rebuild
+    --moe-moegambit-dispatch-topology-refresh
+    --moe-moegambit-dense-param-sync
+    --moe-moegambit-stale-expert-restore
+    --moe-moegambit-recovery-controller
+    --moe-moegambit-deferred-optimizer-load
+    --no-moe-moegambit-weights-first-recovery
+    --moe-moegambit-degraded-mode-policy
+    --moe-moegambit-reintegration-barrier
+    --moe-moegambit-hot-spare-pool
+    --moe-moegambit-num-hot-spares "${NPROC_PER_NODE}"
+    --moe-moegambit-degraded-tau-c 0.5
+    --moe-moegambit-degraded-t-max 1000
+    --moe-moegambit-degraded-s-max 500
+  )
+fi
 
-if [ "${MOEGAMBIT_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
+if [ "${MOEGAMBIT_HOT_SWAP}" = "1" ] && \
+   [ "${MOEGAMBIT_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
   MOEGAMBIT_ARGS+=(
     --moe-moegambit-gap-aware-recovery
     --moe-moegambit-recovery-policy-type "${MOEGAMBIT_RECOVERY_POLICY_TYPE}"
@@ -216,6 +232,11 @@ if [ "${MOEGAMBIT_GAP_AWARE_RECOVERY:-0}" = "1" ]; then
   )
 fi
 
+ZERO2_ARGS=()
+if [ "${MOEGAMBIT_ZERO2}" = "1" ]; then
+  ZERO2_ARGS+=(--use-distributed-optimizer)
+fi
+
 python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --nproc-per-node "${NPROC_PER_NODE}" \
   --nnodes "${NNODES}" \
@@ -223,7 +244,7 @@ python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --master-addr "${MASTER_ADDR}" \
   --master-port "${MASTER_PORT}" \
   -- \
-  python3 ./Megatron-LM/pretrain_gpt.py \
+  python3 "${MEGATRON_ROOT}/pretrain_gpt.py" \
   --use-mcore-models \
   --transformer-impl transformer_engine \
   --tensor-model-parallel-size "${TP_SIZE}" \
@@ -276,6 +297,7 @@ python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --moe-token-dispatcher-type alltoall \
   --distributed-timeout-minutes 10 \
   --distributed-timeout-seconds-after-init 60 \
+  "${ZERO2_ARGS[@]}" \
   "${MOEGAMBIT_ARGS[@]}" \
   --data-path "${DATA_PATH:-./sample_data_text_document}" \
   --split 100,0,0 \

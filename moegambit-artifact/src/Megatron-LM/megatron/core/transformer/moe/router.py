@@ -488,7 +488,7 @@ class TopKRouter(Router):
         if self.routing_type == "sinkhorn":
             probs, routing_map = self.sinkhorn_load_balancing(logits)
         else:
-            # MoEGambit: obtain recovery_bias for preferential routing
+            # MOEGAMBIT-MoE: obtain recovery_bias for preferential routing
             recovery_bias = None
             if (
                 self.config.moe_moegambit_preferential_routing

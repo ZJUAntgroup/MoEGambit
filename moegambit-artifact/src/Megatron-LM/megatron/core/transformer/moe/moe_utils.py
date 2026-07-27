@@ -542,7 +542,7 @@ def topk_routing_with_score_function(
         score_function (str): The score function to use. Can be either "softmax" or "sigmoid".
         expert_bias (torch.Tensor): The bias added to logits for expert routing.
         recovery_bias (torch.Tensor, optional): Additive bias of shape ``[num_experts]``
-            for recovered experts (MoEGambit preferential routing).  When provided,
+            for recovered experts (MOEGAMBIT-MoE preferential routing).  When provided,
             it is added on top of ``expert_bias`` (if any) in the sigmoid branch
             before top-k selection.  The bias is typically small and time-decayed.
             Defaults to None (no recovery preference).
@@ -597,7 +597,7 @@ def topk_routing_with_score_function(
         scores = torch.sigmoid(logits.float()).type_as(logits)
         if expert_bias is not None or recovery_bias is not None:
             # Combine expert_bias (DeepSeek-V3 load-balance) and recovery_bias
-            # (MoEGambit preferential routing) into a single additive offset.
+            # (MOEGAMBIT-MoE preferential routing) into a single additive offset.
             effective_bias = torch.zeros_like(scores[0])  # [num_experts]
             if expert_bias is not None:
                 effective_bias = effective_bias + expert_bias
@@ -772,22 +772,26 @@ def reduce_aux_losses_tracker_across_ranks(track_names: Optional[List[str]] = No
         values = tracker[name]["values"]
         # TODO(Hepteract): delete the usage of the global parallel_state.
         # Collect aux losses across PP.
-        torch.distributed.all_reduce(
-            values, group=parallel_state.get_pipeline_model_parallel_group()
-        )
+        pp_group = parallel_state.get_pipeline_model_parallel_group()
+        if pp_group.size() > 1:
+            torch.distributed.all_reduce(values, group=pp_group)
         # Reduce aux losses across ranks.
-        if tracker[name].get('reduce_group') is not None:
-            torch.distributed.all_reduce(values, group=tracker[name].get('reduce_group'))
-        if tracker[name].get('avg_group') is not None:
+        reduce_group = tracker[name].get('reduce_group')
+        if reduce_group is not None and reduce_group.size() > 1:
+            torch.distributed.all_reduce(values, group=reduce_group)
+        avg_group = tracker[name].get('avg_group')
+        if avg_group is not None and avg_group.size() > 1:
             torch.distributed.all_reduce(
-                values, group=tracker[name]['avg_group'], op=torch.distributed.ReduceOp.AVG
+                values, group=avg_group, op=torch.distributed.ReduceOp.AVG
             )
         # This ensures proper loss averaging across all ranks including CP ranks
-        torch.distributed.all_reduce(
-            values,
-            group=parallel_state.get_data_parallel_group(with_context_parallel=True),
-            op=torch.distributed.ReduceOp.AVG,
-        )
+        dp_cp_group = parallel_state.get_data_parallel_group(with_context_parallel=True)
+        if dp_cp_group.size() > 1:
+            torch.distributed.all_reduce(
+                values,
+                group=dp_cp_group,
+                op=torch.distributed.ReduceOp.AVG,
+            )
 
 
 def track_moe_metrics(

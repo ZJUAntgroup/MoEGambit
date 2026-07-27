@@ -1,16 +1,17 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MoEGambit End-to-End Fault Injection & Test Framework (Phase 14).
+"""MOEGAMBIT-MoE End-to-End Fault Injection & Test Framework (Phase 14).
 
-**Minimal, deterministic** fault injection framework for validating the entire MoEGambit recovery pipeline in unit tests.  It
-orchestrates all MoEGambit subsystems (RecoveryController, IterationInvalidator,
+This module provides a **minimal, deterministic** fault injection framework
+for validating the entire MOEGAMBIT-MoE recovery pipeline in unit tests.  It
+orchestrates all MOEGAMBIT-MoE subsystems (RecoveryController, IterationInvalidator,
 RollbackReplayManager, OptimizerCommitGuard, HardFailureDetector,
 PipelineRollbackCoordinator) through a simulated training loop.
 
 Design goals
 ------------
 * **No torch / no distributed** — runs in the same stub environment as
-  other MoEGambit unit tests.
+  other MOEGAMBIT-MoE unit tests.
 * **Deterministic** — fault timing is step-based, not wall-clock-based.
 * **Observable** — every recovery phase transition is recorded with
   timestamps so that latency metrics can be computed.
@@ -539,7 +540,7 @@ def run_simulated_training_loop(
 ) -> TrainingLoopResult:
     """Run a simulated training loop with fault injection.
 
-    This function orchestrates all MoEGambit subsystems through a
+    This function orchestrates all MOEGAMBIT-MoE subsystems through a
     deterministic training loop.  It does NOT perform any real
     computation — it only drives the state machines.
 
@@ -815,19 +816,19 @@ def build_pp_gt1_pipeline_failure_scenario(
 # =====================================================================
 
 LOG_FORMAT_SPEC = """
-MoEGambit Recovery Log Format
+MOEGAMBIT-MoE Recovery Log Format
 ============================
 
-All MoEGambit log messages use the ``MoEGambit`` prefix for easy grep.
+All MOEGAMBIT-MoE log messages use the ``MOEGAMBIT-MoE`` prefix for easy grep.
 
 Phase transitions:
-    MoEGambit controller: {OLD_PHASE} → {NEW_PHASE} (event={EVENT}, step={STEP})
+    MOEGAMBIT-MoE controller: {OLD_PHASE} → {NEW_PHASE} (event={EVENT}, step={STEP})
 
 Fault injection:
     FaultInjector: injecting {FAULT_TYPE} at step {STEP} (rank={RANK})
 
 Callback invocations:
-    MoEGambit {callback_name}: {SUCCESS|FAILED} — {details}
+    MOEGAMBIT-MoE {callback_name}: {SUCCESS|FAILED} — {details}
 
 Metrics report:
     === Recovery Metrics Report ===
@@ -841,7 +842,7 @@ Metrics report:
       ...
 
 Grep patterns:
-    grep "MoEGambit controller:" log.txt     # Phase transitions
+    grep "MOEGAMBIT-MoE controller:" log.txt     # Phase transitions
     grep "FaultInjector:" log.txt           # Fault injections
     grep "Recovery Metrics" log.txt         # Metrics reports
     grep "FAILED" log.txt                   # Failures
@@ -853,7 +854,7 @@ Grep patterns:
 # =====================================================================
 
 TROUBLESHOOTING_GUIDE = """
-MoEGambit Recovery Troubleshooting Guide
+MOEGAMBIT-MoE Recovery Troubleshooting Guide
 ========================================
 
 1. Controller stuck in PENDING_GROUP_REPAIR

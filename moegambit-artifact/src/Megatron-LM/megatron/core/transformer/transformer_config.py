@@ -588,10 +588,10 @@ class TransformerConfig(ModelParallelConfig):
     moe_apply_probs_on_input: bool = False
     """Apply probs on input of experts instead of applying after activation and glu."""
 
-    # --- MoEGambit (Bypass-Stale-Reintegrate) ---
+    # --- MOEGAMBIT-MoE (Bypass-Stale-Reintegrate) ---
     moe_moegambit_enable: bool = False
-    """Master switch for MoEGambit fault-recovery features.  When ``False`` all
-    MoEGambit code paths are completely disabled and behaviour is identical to
+    """Master switch for MOEGAMBIT-MoE fault-recovery features.  When ``False`` all
+    MOEGAMBIT-MoE code paths are completely disabled and behaviour is identical to
     upstream Megatron."""
 
     moe_moegambit_health_mask: bool = False
@@ -666,7 +666,7 @@ class TransformerConfig(ModelParallelConfig):
 
     moe_moegambit_recovery_controller: bool = False
     """When ``True`` (and ``moe_moegambit_enable`` is also ``True``), enables the
-    end-to-end recovery controller that orchestrates the full MoEGambit fault
+    end-to-end recovery controller that orchestrates the full MOEGAMBIT-MoE fault
     recovery pipeline.  The controller coordinates degraded-mode entry/exit,
     replacement rank registration, safe-point group rebuild, dispatch topology
     refresh, dense parameter sync, and expert weight restore through a single
@@ -739,7 +739,7 @@ class TransformerConfig(ModelParallelConfig):
     ``"threshold"``: alias for ``fixed_gap_threshold`` (backward compatible).
     ``"two_threshold"``: gap lower bound + upper bound
         (``moe_moegambit_delta_time_min_gap``, ``moe_moegambit_max_single_gap``).
-    ``"rank_exposure_guarded"``: gap bounds + per-rank stale exposure tracking
+    ``"rank_exposure_guarded"``: gap bounds + expert-weighted staleness tracking
         (uses ``moe_moegambit_delta_time_min_gap``, ``moe_moegambit_max_single_gap``,
         ``moe_moegambit_exposure_window_steps``, ``moe_moegambit_max_rank_stale_exposure``).
     ``"rank_exposure_guarded_hybrid"``: alias for ``rank_exposure_guarded``
@@ -764,9 +764,9 @@ class TransformerConfig(ModelParallelConfig):
     tracking rank stale exposure.  Default 20000.
     Effective when ``moe_moegambit_recovery_policy_type`` is ``rank_exposure_guarded``."""
 
-    moe_moegambit_max_rank_stale_exposure: float = 0.02
-    """[rank_exposure_guarded] Maximum stale exposure ratio per rank within
-    the window (e.g. 0.02 = 2%).  Default 0.02.
+    moe_moegambit_max_rank_stale_exposure: float = 0.1
+    """[rank_exposure_guarded] Maximum expert staleness density Phi within
+    the window. The field name is retained for compatibility. Default 0.1.
     Effective when ``moe_moegambit_recovery_policy_type`` is ``rank_exposure_guarded``."""
 
     moe_moegambit_policy_margin: float = 0.10
@@ -835,7 +835,7 @@ class TransformerConfig(ModelParallelConfig):
     Requires ``moe_moegambit_weights_first_recovery = True``."""
 
     moe_moegambit_force_checkpoint_restart: bool = False
-    """When ``True``, force MoEGambit recovery to take the full
+    """When ``True``, force MOEGAMBIT-MoE recovery to take the full
     CHECKPOINT_RESTART path even when selective hybrid recovery is possible.
     This is intended for ablation studies that compare full checkpoint load
     against selective stale-expert restore under the same fault-injection

@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Replacement Rank Registration Protocol for MoEGambit.
+"""Replacement Rank Registration Protocol for MOEGAMBIT-MoE.
 
 This module implements a minimal protocol for registering spare / replacement
 ranks that will take over the logical role of a failed rank.  The protocol
@@ -43,7 +43,7 @@ Design principles
 * **Role inheritance** — the replacement rank inherits the failed rank's
   logical role: its parallel-dimension coordinates (TP/DP/PP/EP ranks),
   its expert host mapping, and its recovery manifest / directory entry.
-* **Integration with existing MoEGambit stack**:
+* **Integration with existing MOEGAMBIT-MoE stack**:
   - ``RankQuarantineRegistry`` (Step 4) quarantines the failed rank.
   - ``ActiveExpertDirectory`` (Step 5) tracks expert ↔ rank mapping.
   - ``RecoveryManifest`` (Step 5) provides checkpoint recovery info.
@@ -290,7 +290,7 @@ class ReplacementSlot:
             self.integrated_time = now
 
         logger.info(
-            "MoEGambit replacement: failed_rank=%d, replacement_rank=%d, "
+            "MOEGAMBIT-MoE replacement: failed_rank=%d, replacement_rank=%d, "
             "%s → %s (step=%d)",
             self.failed_rank, self.replacement_rank, old.name, new_state.name, step,
         )
@@ -406,7 +406,7 @@ class ReplacementRegistry:
         self._slots[failed_rank] = slot
 
         logger.warning(
-            "MoEGambit: replacement announced — failed_rank=%d → replacement_rank=%d "
+            "MOEGAMBIT-MoE: replacement announced — failed_rank=%d → replacement_rank=%d "
             "(step=%d, reason=%r)",
             failed_rank, replacement_rank, step, reason,
         )
@@ -466,7 +466,7 @@ class ReplacementRegistry:
         slot.transition_to(ReplacementState.INTEGRATED, step)
 
         logger.warning(
-            "MoEGambit: replacement INTEGRATED — failed_rank=%d, "
+            "MOEGAMBIT-MoE: replacement INTEGRATED — failed_rank=%d, "
             "replacement_rank=%d (step=%d)",
             failed_rank, slot.replacement_rank, step,
         )
@@ -497,7 +497,7 @@ class ReplacementRegistry:
         old_state = slot.state
         slot.transition_to(ReplacementState.NOT_PRESENT, step)
         logger.warning(
-            "MoEGambit: replacement ABORTED — failed_rank=%d, "
+            "MOEGAMBIT-MoE: replacement ABORTED — failed_rank=%d, "
             "replacement_rank=%d, was %s (step=%d, reason=%r)",
             failed_rank, slot.replacement_rank, old_state.name, step, reason,
         )
@@ -632,7 +632,7 @@ class ReplacementRegistry:
         slot = self._get_slot_or_raise(failed_rank)
         slot.inherited_role = role
         logger.info(
-            "MoEGambit: inherited role set for failed_rank=%d → %s",
+            "MOEGAMBIT-MoE: inherited role set for failed_rank=%d → %s",
             failed_rank, role.role_key(),
         )
 
@@ -744,7 +744,7 @@ class ReplacementRegistry:
         for slot in ready:
             slot.transition_to(ReplacementState.INTEGRATED, step)
             logger.warning(
-                "MoEGambit: replacement INTEGRATED (batch) — failed_rank=%d, "
+                "MOEGAMBIT-MoE: replacement INTEGRATED (batch) — failed_rank=%d, "
                 "replacement_rank=%d (step=%d)",
                 slot.failed_rank, slot.replacement_rank, step,
             )
@@ -771,7 +771,7 @@ class ReplacementRegistry:
             del self._slots[fr]
         if to_remove:
             logger.info(
-                "MoEGambit: cleaned up %d integrated replacement slots: %s",
+                "MOEGAMBIT-MoE: cleaned up %d integrated replacement slots: %s",
                 len(to_remove), to_remove,
             )
         return len(to_remove)

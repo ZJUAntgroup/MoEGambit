@@ -3160,9 +3160,9 @@ def _add_moe_args(parser):
                        help="some MoE routers have a D2H sync that will break cuda graphs.  If this flag is set the router will switch" \
                        " to dropping and padding during decode time which does not have a D2H sync. The capacity factor is set to the" \
                        " max that an expert could see during inference so no tokens are actually dropped.")
-    # MoEGambit contract-based hybrid recovery arguments.
+    # MOEGAMBIT-MoE (Bypass-Stale-Reintegrate) fault-tolerance arguments
     group.add_argument('--moe-moegambit-enable', action='store_true',
-                       help='Master switch for MoEGambit fault-recovery features.')
+                       help='Master switch for MOEGAMBIT-MoE fault-recovery features.')
     group.add_argument('--moe-moegambit-health-mask', action='store_true',
                        help='Enable per-layer expert health mask injected into the router.')
     group.add_argument('--moe-moegambit-rank-quarantine', action='store_true',
@@ -3247,28 +3247,30 @@ def _add_moe_args(parser):
                        'Also used as fixed_gap_threshold when '
                        '--moe-moegambit-recovery-policy-type=rank_exposure_guarded_hybrid.')
     group.add_argument('--moe-moegambit-recovery-policy-type', type=str, default='threshold',
-                       choices=['threshold', 'rank_exposure_guarded_hybrid'],
+                       choices=['threshold', 'rank_exposure_guarded_hybrid',
+                                'expert_staleness_guarded'],
                        help='Recovery policy type. "threshold" uses a single gap '
                        'threshold (default, backward compatible). '
-                       '"rank_exposure_guarded_hybrid" uses the paper R2 '
-                       'guard: gap bounds plus expert-weighted Phi prime. '
-                       'Default: threshold.')
-    group.add_argument('--moe-moegambit-delta-time-min-gap', type=int, default=1,
+                       '"rank_exposure_guarded_hybrid" uses multi-boundary gaps '
+                       'and rank stale exposure tracking. Default: threshold.')
+    group.add_argument('--moe-moegambit-delta-time-min-gap', type=int, default=32,
                        help='[rank_exposure_guarded_hybrid] Gap below this value '
                        'triggers checkpoint restart (hybrid not cost-effective). '
-                       'Default 1 (paper Delta_min).')
-    group.add_argument('--moe-moegambit-max-single-gap', type=int, default=200,
+                       'Default 32.')
+    group.add_argument('--moe-moegambit-max-single-gap', type=int, default=192,
                        help='[rank_exposure_guarded_hybrid] Single hybrid recovery '
                        'max allowed gap. Gap above this triggers checkpoint restart. '
-                       'Default 200 (paper Delta_max).')
-    group.add_argument('--moe-moegambit-exposure-window-steps', type=int, default=2000,
+                       'Default 192.')
+    group.add_argument('--moe-moegambit-exposure-window-steps', type=int, default=20000,
                        help='[rank_exposure_guarded_hybrid] Sliding window (in '
-                       'training steps) for expert-weighted stale debt S(t). '
-                       'Default 2000 (paper W_exp).')
-    group.add_argument('--moe-moegambit-max-rank-stale-exposure', type=float, default=0.1,
-                       help='[rank_exposure_guarded_hybrid] Backward-compatible '
-                       'name for paper Phi_max. Hybrid is admitted only when '
-                       "Phi'(t) <= this value. Default 0.1.")
+                       'training steps) for tracking rank stale exposure. Default 20000.')
+    group.add_argument('--moe-moegambit-max-expert-staleness-density',
+                       '--moe-moegambit-max-rank-stale-exposure',
+                       dest='moe_moegambit_max_rank_stale_exposure',
+                       type=float, default=0.1,
+                       help='Maximum projected expert staleness density Phi within '
+                       'the exposure window. The old rank-exposure option name is '
+                       'accepted as an alias. Default 0.1.')
     group.add_argument('--moe-moegambit-policy-margin', type=float, default=0.10,
                        help='[rank_exposure_guarded_hybrid] Hybrid must be at '
                        'least this fraction faster than restart to be selected. '

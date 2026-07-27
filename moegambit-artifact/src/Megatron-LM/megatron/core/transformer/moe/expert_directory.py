@@ -1,8 +1,8 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Expert Directory & Recovery Manifest for MoEGambit.
+"""Expert Directory & Recovery Manifest for MOEGAMBIT-MoE.
 
-Two complementary data structures for MoE fault recovery:
+This module provides two complementary data structures for MoE fault recovery:
 
 1. **ActiveExpertDirectory** — a live, in-memory mapping from
    ``(layer_id, expert_id)`` to the global rank that currently hosts it,
@@ -23,7 +23,7 @@ Design principles
   directory (e.g. ``iter_0001000/moegambit_manifest.json``).
 * **Minimal coupling** — the directory is a pure-Python / torch-CPU data
   structure that can be tested without distributed init.
-* **Integration with existing MoEGambit stack**:
+* **Integration with existing MOEGAMBIT-MoE stack**:
   - ``ExpertHealthManager`` (Step 2) owns per-expert lifecycle states.
   - ``RankQuarantineRegistry`` (Step 4) owns rank-level quarantine.
   - ``ActiveExpertDirectory`` (this module) owns the rank ↔ expert mapping
@@ -161,7 +161,7 @@ class ActiveExpertDirectory:
     * A safe barrier promotes experts back to HEALTHY.
 
     The directory does NOT own the ``ExpertHealthMask`` or the
-    ``ExpertHealthManager`` — those are separate layers in the MoEGambit
+    ``ExpertHealthManager`` — those are separate layers in the MOEGAMBIT-MoE
     stack.  The directory is a *passive data store* that other components
     query.
     """

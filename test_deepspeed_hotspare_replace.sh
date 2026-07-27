@@ -50,7 +50,7 @@ DRY_RUN="${DRY_RUN:-0}"
 
 MODEL_CONFIG="${MODEL_CONFIG:-${SCRIPT_DIR}/tokenizer}"
 DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
-RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/729hotspare/deepspeed_real}"
+RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/730hotspare/deepspeed_real}"
 RUN_ROOT="${RUN_ROOT_BASE%/}/${RUN_ID}"
 HOSTFILE="${DEEPSPEED_HOSTFILE:-/tmp/moegambit-deepspeed-hosts-${MASTER_PORT}}"
 
@@ -149,6 +149,11 @@ export MOEGAMBIT_ZERO2_REPLICATION_TIMEOUT="${MOEGAMBIT_ZERO2_REPLICATION_TIMEOU
 # optimizer shards of host memory per rank for this 30B-class model.
 export MOEGAMBIT_ZERO2_BUFFER_SLOTS="${MOEGAMBIT_ZERO2_BUFFER_SLOTS:-1}"
 export MOEGAMBIT_DEEPSPEED_APPLICATION_CHECKPOINT=0
+export MOEGAMBIT_RELAY_RANK_LOG="${MOEGAMBIT_RELAY_RANK_LOG:-1}"
+export MOEGAMBIT_DEEPSPEED_LOG_LEVEL="${MOEGAMBIT_DEEPSPEED_LOG_LEVEL:-info}"
+export MOEGAMBIT_STANDBY_PREFETCH="${MOEGAMBIT_STANDBY_PREFETCH:-1}"
+export MOEGAMBIT_STANDBY_PREFETCH_LOGICAL_NODE="$FAULT_INJECT_NODE"
+export MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB="${MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB:-128}"
 export MOEGAMBIT_HOT_SPARE_COORDINATOR_ADDR="${HOT_SPARE_ADDR}"
 export MOEGAMBIT_HOT_SPARE_COORDINATOR_PORT="${HOT_SPARE_PORT}"
 
@@ -284,6 +289,7 @@ run_case() {
   export ELASTIC_RUN_ID="${recovery_run_id}"
   export MOEGAMBIT_HOT_SWAP="${hot_swap}"
   export MOEGAMBIT_ZERO2="${zero2}"
+  export MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE="${hot_swap}"
   export DEEPSPEED_MOEGAMBIT_HOT_SWAP="${hot_swap}"
   export DEEPSPEED_MOEGAMBIT_ZERO2="${zero2}"
   export MOEGAMBIT_HOT_SPARE_COORDINATOR_PORT="${coordinator_port}"
@@ -306,6 +312,7 @@ run_case() {
 
   echo "[deepspeed-real-launch] case=${case_name} node=${NODE_RANK} "\
 "PP=${pp_size} EP=${EP_SIZE} ZeRO=${zero_stage} hot_swap=${hot_swap} zero2=${zero2} "\
+"hybrid_restore=${MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE} "\
 "spare=${SPARE_NODE_RANK} coordinator=${HOT_SPARE_ADDR}:${coordinator_port} "\
 "recovery_timeout=${HOT_SPARE_RECOVERY_TIMEOUT}s"
   local launch_node_rank="${NODE_RANK}"

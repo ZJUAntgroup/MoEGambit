@@ -1,8 +1,9 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Hot-Spare Node Pool for MoEGambit.
+"""Hot-Spare Node Pool for MOEGAMBIT-MoE.
 
-A pool of hot-spare GPU ranks standing by as independent daemon processes, completely outside the training torchrun world.
+This module manages a pool of hot-spare GPU ranks that stand by as
+independent daemon processes, completely outside the training torchrun world.
 When a training rank fails, the pool allocates a spare to replace it.
 
 Architecture (Daemon Mode)
@@ -20,7 +21,7 @@ spare nodes, managed by ``hot_spare_daemon.py``.  On fault:
 This design avoids all NCCL collective issues — spare ranks never participate
 in any ``new_group()`` call until they are explicitly activated.
 
-Integration with MoEGambit Stack
+Integration with MOEGAMBIT-MoE Stack
 ------------------------------
 * ``RecoveryController`` (Step 11) calls ``allocate_spare()`` on fault.
 * ``ReplacementRegistry`` (Step 6) registers the allocated spare.
@@ -205,7 +206,7 @@ class HotSparePool:
         self._query_spare_ready_fn: Optional[Callable] = None
 
         logger.info(
-            "MoEGambit HotSparePool initialized: %d spares, "
+            "MOEGAMBIT-MoE HotSparePool initialized: %d spares, "
             "training_world=%d, total_world=%d, spare_ranks=%s",
             len(spare_ranks), training_world_size, world_size, spare_ranks,
         )
@@ -289,7 +290,7 @@ class HotSparePool:
         available = self.available_spare_ranks
         if not available:
             logger.warning(
-                "MoEGambit HotSparePool: no spares available for "
+                "MOEGAMBIT-MoE HotSparePool: no spares available for "
                 "failed_rank=%d (step=%d). Pool exhausted (%d/%d used).",
                 failed_rank, step,
                 self.num_total - self.num_available, self.num_total,
@@ -319,7 +320,7 @@ class HotSparePool:
         self._allocation_history.append(record)
 
         logger.warning(
-            "MoEGambit HotSparePool: allocated spare_rank=%d for "
+            "MOEGAMBIT-MoE HotSparePool: allocated spare_rank=%d for "
             "failed_rank=%d (step=%d, reason=%r, remaining=%d/%d)",
             spare_rank, failed_rank, step, reason,
             self.num_available, self.num_total,
@@ -335,7 +336,7 @@ class HotSparePool:
                 )
             except Exception as exc:
                 logger.error(
-                    "MoEGambit HotSparePool: failed to notify spare_rank=%d: %s",
+                    "MOEGAMBIT-MoE HotSparePool: failed to notify spare_rank=%d: %s",
                     spare_rank, exc,
                 )
 
@@ -347,7 +348,7 @@ class HotSparePool:
                 self._control_store.set(key, value)
             except Exception as exc:
                 logger.warning(
-                    "MoEGambit HotSparePool: TCPStore set failed for "
+                    "MOEGAMBIT-MoE HotSparePool: TCPStore set failed for "
                     "spare_rank=%d: %s", spare_rank, exc,
                 )
 
@@ -369,14 +370,14 @@ class HotSparePool:
         slot = self._slots.get(spare_rank)
         if slot is None:
             logger.error(
-                "MoEGambit HotSparePool: mark_activating called for "
+                "MOEGAMBIT-MoE HotSparePool: mark_activating called for "
                 "unknown spare_rank=%d", spare_rank,
             )
             return False
 
         if slot.state != SpareState.ALLOCATED:
             logger.error(
-                "MoEGambit HotSparePool: mark_activating called for "
+                "MOEGAMBIT-MoE HotSparePool: mark_activating called for "
                 "spare_rank=%d in state %s (expected ALLOCATED)",
                 spare_rank, slot.state.name,
             )
@@ -384,7 +385,7 @@ class HotSparePool:
 
         slot.state = SpareState.ACTIVATING
         logger.info(
-            "MoEGambit HotSparePool: spare_rank=%d → ACTIVATING (step=%d)",
+            "MOEGAMBIT-MoE HotSparePool: spare_rank=%d → ACTIVATING (step=%d)",
             spare_rank, step,
         )
         return True
@@ -408,7 +409,7 @@ class HotSparePool:
 
         if slot.state not in (SpareState.ALLOCATED, SpareState.ACTIVATING):
             logger.error(
-                "MoEGambit HotSparePool: mark_active called for "
+                "MOEGAMBIT-MoE HotSparePool: mark_active called for "
                 "spare_rank=%d in state %s", spare_rank, slot.state.name,
             )
             return False
@@ -419,7 +420,7 @@ class HotSparePool:
 
         latency = slot.activated_time - slot.allocated_time
         logger.warning(
-            "MoEGambit HotSparePool: spare_rank=%d → ACTIVE "
+            "MOEGAMBIT-MoE HotSparePool: spare_rank=%d → ACTIVE "
             "(step=%d, allocation_to_active=%.2fs, remaining=%d/%d)",
             spare_rank, step, latency,
             self.num_available, self.num_total,
@@ -447,7 +448,7 @@ class HotSparePool:
         old_state = slot.state
         slot.state = SpareState.FAILED
         logger.warning(
-            "MoEGambit HotSparePool: spare_rank=%d FAILED (was %s, reason=%r)",
+            "MOEGAMBIT-MoE HotSparePool: spare_rank=%d FAILED (was %s, reason=%r)",
             spare_rank, old_state.name, reason,
         )
         return True

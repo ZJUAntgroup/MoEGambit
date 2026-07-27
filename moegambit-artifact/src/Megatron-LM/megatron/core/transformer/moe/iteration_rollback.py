@@ -1,6 +1,6 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MoEGambit Iteration Rollback & Replay Manager.
+"""MOEGAMBIT-MoE Iteration Rollback & Replay Manager.
 
 When a hard failure is detected mid-iteration (inside forward/backward/
 optimizer), the current iteration's intermediate state is tainted.  This
@@ -161,7 +161,7 @@ class IterationSnapshot:
 # =====================================================================
 
 class RollbackReplayManager:
-    """Manages iteration rollback and replay for MoEGambit hard failure recovery.
+    """Manages iteration rollback and replay for MOEGAMBIT-MoE hard failure recovery.
 
     Lifecycle per iteration::
 
@@ -257,7 +257,7 @@ class RollbackReplayManager:
         )
 
         logger.debug(
-            "MoEGambit RollbackReplayManager: snapshot taken at iteration %d "
+            "MOEGAMBIT-MoE RollbackReplayManager: snapshot taken at iteration %d "
             "(consumed_train_samples=%d)",
             iteration, consumed_train_samples,
         )
@@ -295,7 +295,7 @@ class RollbackReplayManager:
         """
         if not self._snapshot.valid:
             logger.error(
-                "MoEGambit RollbackReplayManager: rollback requested but "
+                "MOEGAMBIT-MoE RollbackReplayManager: rollback requested but "
                 "no valid snapshot exists!"
             )
             return False
@@ -306,14 +306,14 @@ class RollbackReplayManager:
         self._replay_count += 1
         if self._replay_count > self._max_replay_attempts:
             logger.error(
-                "MoEGambit RollbackReplayManager: max replay attempts (%d) "
+                "MOEGAMBIT-MoE RollbackReplayManager: max replay attempts (%d) "
                 "exceeded for iteration %d. Giving up.",
                 self._max_replay_attempts, snap.iteration,
             )
             return False
 
         logger.warning(
-            "MoEGambit RollbackReplayManager: ROLLBACK to iteration %d "
+            "MOEGAMBIT-MoE RollbackReplayManager: ROLLBACK to iteration %d "
             "(consumed_train_samples: %d → %d, attempt %d/%d)",
             snap.iteration,
             getattr(args, 'consumed_train_samples', -1),
@@ -347,7 +347,7 @@ class RollbackReplayManager:
                 self._cleanup_fn(snap)
             except Exception as e:
                 logger.error(
-                    "MoEGambit RollbackReplayManager: cleanup_fn failed: %s", e
+                    "MOEGAMBIT-MoE RollbackReplayManager: cleanup_fn failed: %s", e
                 )
 
         # 5. PP > 1 placeholder
@@ -356,7 +356,7 @@ class RollbackReplayManager:
                 self._pipeline_rollback_fn(snap)
             except Exception as e:
                 logger.error(
-                    "MoEGambit RollbackReplayManager: pipeline_rollback_fn "
+                    "MOEGAMBIT-MoE RollbackReplayManager: pipeline_rollback_fn "
                     "failed: %s", e
                 )
 
@@ -397,13 +397,13 @@ class RollbackReplayManager:
         """
         if not self._replay_pending:
             logger.debug(
-                "MoEGambit RollbackReplayManager: complete_replay called "
+                "MOEGAMBIT-MoE RollbackReplayManager: complete_replay called "
                 "but no replay was pending"
             )
             return
 
         logger.warning(
-            "MoEGambit RollbackReplayManager: replay COMPLETED for "
+            "MOEGAMBIT-MoE RollbackReplayManager: replay COMPLETED for "
             "iteration %d (attempt %d)",
             self._snapshot.iteration, self._replay_count,
         )
@@ -432,7 +432,7 @@ class RollbackReplayManager:
         if self._replay_pending:
             # This shouldn't happen — advance is for normal path only
             logger.warning(
-                "MoEGambit RollbackReplayManager: advance() called while "
+                "MOEGAMBIT-MoE RollbackReplayManager: advance() called while "
                 "replay is pending — treating as complete_replay()"
             )
             self.complete_replay(data_iterators)

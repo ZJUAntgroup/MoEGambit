@@ -516,7 +516,7 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
 
         state_dict['num_floating_point_operations_so_far'] = num_floating_point_operations_so_far
 
-        # MoEGambit: inject recovery metadata into checkpoint state_dict
+        # MOEGAMBIT-MoE: inject recovery metadata into checkpoint state_dict
         try:
             from megatron.core.transformer.moe.moegambit_integration import (
                 moegambit_is_initialized, moegambit_pre_save_checkpoint,
@@ -714,7 +714,7 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
 
-    # MoEGambit: save manifest sidecar file (rank 0 only)
+    # MOEGAMBIT-MoE: save manifest sidecar file (rank 0 only)
     try:
         from megatron.core.transformer.moe.moegambit_integration import (
             moegambit_is_initialized, moegambit_save_manifest,
@@ -1764,7 +1764,7 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
         is_local_chkpt = (ckpt_type == CheckpointType.LOCAL)
         ft_integration.on_checkpoint_loaded(is_local_chkpt=is_local_chkpt)
 
-    # MoEGambit: process recovery metadata from loaded checkpoint
+    # MOEGAMBIT-MoE: process recovery metadata from loaded checkpoint
     try:
         from megatron.core.transformer.moe.moegambit_integration import (
             moegambit_is_initialized, moegambit_post_load_checkpoint,

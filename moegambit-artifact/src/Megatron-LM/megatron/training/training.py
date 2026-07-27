@@ -98,6 +98,14 @@ from megatron.training.elastic_client import (
     elastic_on_nccl_error,
     elastic_replacement_sync_params,
     elastic_report_recovery_phase,
+    elastic_post_rebuild_iteration_barrier,
+    elastic_trace_post_rebuild_phase,
+    elastic_clear_post_rebuild_trace,
+    elastic_commit_post_rebuild_iteration,
+    elastic_sanitize_recovery_env_for_startup,
+    elastic_zero2_initialize,
+    elastic_zero2_wait_before_optimizer_step,
+    elastic_zero2_schedule_after_optimizer_step,
     is_rebuild_mode,
 )
 from megatron.core.full_cuda_graph import FullCudaGraphWrapper
@@ -156,13 +164,13 @@ _CRASH_RNG = _crash_random.Random(_CRASH_INJECT_SEED)
 def _maybe_crash_inject(step: int) -> None:
     """Crash the process at the configured step for checkpoint-restart baseline.
 
-    This provides a simple, moegambit-independent fault injection mechanism.
+    This provides a simple, MOEGAMBIT-independent fault injection mechanism.
     When triggered, the process exits with code 1, causing the outer
     retry loop to restart training from the latest checkpoint.
 
     When CRASH_RANK=-1, a random rank is selected for each crash using
     a seeded RNG (CRASH_SEED), so the fault sequence is reproducible
-    across runs and matches the moegambit script's fault pattern.
+    across runs and matches the MOEGAMBIT script's fault pattern.
     """
     global _CRASH_INJECT_NEXT_STEP, _CRASH_INJECT_COUNT
 
@@ -178,7 +186,7 @@ def _maybe_crash_inject(step: int) -> None:
     # Determine which rank should crash this time
     if _CRASH_INJECT_RANK < 0:
         # Random rank mode: pick from [0, world_size) using seeded RNG.
-        # Uses choice() (not randint) to match moegambit's fault_rng.choice(ep_group_ranks)
+        # Uses choice() (not randint) to match MOEGAMBIT's fault_rng.choice(ep_group_ranks)
         # — both produce identical sequences when the candidate list is [0..N-1].
         target_rank = _CRASH_RNG.choice(range(world_size))
     else:
@@ -730,6 +738,7 @@ def pretrain(
     args = get_args()
     timers = get_timers()
     _elastic_rebuild = is_rebuild_mode()
+    elastic_sanitize_recovery_env_for_startup()
 
     if args.log_progress:
         append_to_progress_log("Starting job")
@@ -774,10 +783,12 @@ def pretrain(
         args.enable_gloo_process_groups = False
         args.moe_moegambit_weights_first_recovery = False
         args.moe_moegambit_async_recovery = False
-        logger.warning("[elastic] REBUILD MODE: loading checkpoint model "
-                       "weights and optimizer metadata only; expert optimizer "
-                       "tensors will be restored locally and dense/non-expert "
-                       "state will be refreshed from DP peer")
+        logger.warning(
+            "[elastic] REBUILD MODE: loading checkpoint model weights; the "
+            "ordinary optimizer loads its complete local checkpoint shard, "
+            "while distributed optimizer expert tensors use the local-only "
+            "loader; dense/non-expert state is then overwritten from a DP peer"
+        )
 
     app_metrics = {}
     app_metrics['app_start_time'] = round(_TRAIN_START_TIME * 1000.0)
@@ -831,6 +842,12 @@ def pretrain(
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type, checkpointing_context=checkpointing_context
     )
+    elastic_zero2_initialize(
+        model,
+        optimizer,
+        initial_step=int(args.iteration),
+        start_transport=not _elastic_rebuild,
+    )
     if _elastic_rebuild:
         elastic_report_recovery_phase("model_optimizer_ready")
 
@@ -843,9 +860,7 @@ def pretrain(
         args.load = _elastic_saved_load  # Restore for future checkpoint saves
         args.no_load_optim = _elastic_saved_no_load_optim
         args.no_load_rng = _elastic_saved_no_load_rng
-        elastic_replacement_sync_params(model, optimizer)
-        _elastic_apply_resume_state(args, opt_param_scheduler)
-        elastic_report_recovery_phase("resume_state_applied")
+        elastic_replacement_sync_params(model, optimizer, opt_param_scheduler)
         logger.warning("[elastic] REBUILD MODE: param sync complete, joining training loop")
 
     # Data stuff.
@@ -990,9 +1005,17 @@ def pretrain(
     if wandb_writer:
         wandb_writer.finish()
 
+    elastic_client_update_step(iteration, phase="async_checkpoint_finalize", step_tag=iteration)
     ft_integration.on_checkpointing_start()
-    maybe_finalize_async_save(blocking=True, terminate=True)
-    ft_integration.on_checkpointing_end(is_async_finalization=True)
+    try:
+        maybe_finalize_async_save(blocking=True, terminate=True)
+    finally:
+        ft_integration.on_checkpointing_end(is_async_finalization=True)
+        elastic_client_update_step(
+            iteration,
+            phase="async_checkpoint_finalize_done",
+            step_tag=iteration,
+        )
 
     one_logger and one_logger.log_metrics(
         {'app_finish_time': one_logger_utils.get_timestamp_in_ms()}
@@ -1436,6 +1459,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             phase="forward_backward",
             step_tag=args.curr_iteration,
         )
+        elastic_trace_post_rebuild_phase("forward_backward_start", args.curr_iteration)
         # Set grad to zero.
         for model_chunk in model:
             model_chunk.zero_grad_buffer()
@@ -1469,8 +1493,10 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             forward_only=False,
             adjust_tensor_shapes_fn=adjust_tensor_shapes_fn,
         )
+        elastic_trace_post_rebuild_phase("forward_backward_done", args.curr_iteration)
     should_checkpoint, should_exit, exit_code = rerun_state_machine.should_checkpoint_and_exit()
     if should_exit:
+        elastic_clear_post_rebuild_trace()
         return {}, True, should_checkpoint, should_exit, exit_code, None, None
 
     # Empty unused memory.
@@ -1483,18 +1509,27 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
         unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
 
     # Update parameters.
-    # MoEGambit: check commit guard before optimizer.step().
+    # MOEGAMBIT-MoE: check commit guard before optimizer.step().
     # If the iteration was invalidated (e.g. by a hard failure detected
     # during forward/backward), skip the optimizer step entirely to
     # prevent partial parameter updates.
     if not moegambit_should_commit_optimizer():
         moegambit_mark_optimizer_skipped(reason="iteration_invalidated")
+        elastic_trace_post_rebuild_phase("optimizer_skipped", args.curr_iteration)
+        elastic_clear_post_rebuild_trace()
         return {}, 1, should_checkpoint, should_exit, exit_code, None, None
 
     elastic_client_update_step(args.curr_iteration, phase="optimizer_step", step_tag=-1)
+    elastic_trace_post_rebuild_phase(
+        "optimizer_step_start", args.curr_iteration, optimizer=optimizer
+    )
+    # PHOENIX invariant I3: the pre-update optimizer state must be committed
+    # on its DP-ring neighbor before optimizer.step() mutates that state.
+    elastic_zero2_wait_before_optimizer_step(args.curr_iteration)
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()
+    elastic_trace_post_rebuild_phase("optimizer_step_done", args.curr_iteration)
     if update_successful:
         elastic_client_update_step(
             args.curr_iteration,
@@ -1508,7 +1543,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             step_tag=args.curr_iteration,
         )
 
-    # MoEGambit: mark optimizer as committed after successful step.
+    # MOEGAMBIT-MoE: mark optimizer as committed after successful step.
     moegambit_mark_optimizer_committed()
 
     # when freezing sub-models we may have a mixture of successful and unsucessful ranks,
@@ -1529,6 +1564,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
     if update_successful:
         increment = get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
         opt_param_scheduler.step(increment=increment)
+        elastic_zero2_schedule_after_optimizer_step(args.curr_iteration + 1)
         skipped_iter = 0
         elastic_client_update_step(
             args.curr_iteration,
@@ -1536,12 +1572,18 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             step_tag=args.curr_iteration + 1,
         )
     else:
+        # Loss-scale skips still advance the outer training iteration.  The
+        # optimizer bytes are unchanged, but the recoverable version tag must
+        # advance with the safe-point iteration.
+        elastic_zero2_schedule_after_optimizer_step(args.curr_iteration + 1)
         skipped_iter = 1
         elastic_client_update_step(
             args.curr_iteration,
             phase="optimizer_skipped",
             step_tag=args.curr_iteration,
         )
+        elastic_trace_post_rebuild_phase("optimizer_skipped", args.curr_iteration)
+        elastic_clear_post_rebuild_trace()
 
     # Empty unused memory.
     if args.empty_unused_memory_level >= 2:
@@ -1559,22 +1601,18 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
                     val = torch.vstack(val)
                     val = val[:, 0] / val[:, 1]
                     val = val.mean()
-                    torch.distributed.all_reduce(
-                        val,
-                        group=mpu.get_data_parallel_group(with_context_parallel=True)
-                    )
-                    val /= torch.distributed.get_world_size(
-                        group=mpu.get_data_parallel_group(with_context_parallel=True)
-                    )
+                    loss_group = mpu.get_data_parallel_group(with_context_parallel=True)
+                    if loss_group.size() > 1:
+                        torch.distributed.all_reduce(val, group=loss_group)
+                        val /= loss_group.size()
                     loss_reduced[key] = val
                 else:
                     # there is one dict per microbatch. in new reporting, we average
                     # over the total number of tokens across the global batch.
                     val = torch.vstack(val).sum(dim=0)
-                    torch.distributed.all_reduce(
-                        val,
-                        group=mpu.get_data_parallel_group(with_context_parallel=True)
-                    )
+                    loss_group = mpu.get_data_parallel_group(with_context_parallel=True)
+                    if loss_group.size() > 1:
+                        torch.distributed.all_reduce(val, group=loss_group)
                     loss_reduced[key] = val[0] / val[1]
             elif val[0].numel() == 1:
                 # legacy behavior, we average over the number of microbatches
@@ -1582,6 +1620,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
                 loss_reduced[key] = val
             else:
                 raise ValueError(f"Invalid value shape: {val[0].shape} for key {key}")
+        elastic_trace_post_rebuild_phase("train_step_finalize_done", args.curr_iteration)
         return (
             loss_reduced,
             skipped_iter,
@@ -1591,6 +1630,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             grad_norm,
             num_zeros_in_grad,
         )
+    elastic_trace_post_rebuild_phase("train_step_finalize_done", args.curr_iteration)
     return {}, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad
 
 
@@ -1964,24 +2004,28 @@ def save_checkpoint_and_time(
     one_logger_utils.track_e2e_metrics()
     if should_disable_forward_pre_hook(args):
         disable_forward_pre_hook(model)
-    save_checkpoint(
-        iteration,
-        model,
-        optimizer,
-        opt_param_scheduler,
-        num_floating_point_operations_so_far,
-        checkpointing_context,
-        non_persistent_ckpt=non_persistent_ckpt,
-        train_data_iterator=train_data_iterator,
-        preprocess_common_state_dict_fn=preprocess_common_state_dict,
-    )
+    elastic_client_update_step(iteration, phase="checkpoint", step_tag=iteration)
+    try:
+        save_checkpoint(
+            iteration,
+            model,
+            optimizer,
+            opt_param_scheduler,
+            num_floating_point_operations_so_far,
+            checkpointing_context,
+            non_persistent_ckpt=non_persistent_ckpt,
+            train_data_iterator=train_data_iterator,
+            preprocess_common_state_dict_fn=preprocess_common_state_dict,
+        )
+    finally:
+        elastic_client_update_step(iteration, phase="checkpoint_done", step_tag=iteration)
+        if should_disable_forward_pre_hook(args):
+            enable_forward_pre_hook(model)
     if args.fp8:
         # Run garbage collection after checkpoint saving to free memory from
         # dequantized bf16 tensors that were temporarily created during fp8
         # model checkpoint saving.
         gc.collect()
-    if should_disable_forward_pre_hook(args):
-        enable_forward_pre_hook(model)
     timers(timer_key).stop(barrier=True)
     timers.log([timer_key])
 
@@ -2394,7 +2438,12 @@ def train(
         )
         prof.start()
 
-    start_iteration = iteration
+    # A replacement loads the checkpoint iteration and is then advanced to the
+    # recovery safe point. Preserve the checkpoint-era training start so that
+    # one-time branches (notably update_pg_timeout's world barrier) stay aligned
+    # with survivors instead of firing only on the replacement.
+    start_iteration = int(getattr(args, "elastic_train_start_iteration", iteration))
+    args.elastic_train_start_iteration = start_iteration
     # Disable forward pre-hook to start training to ensure that errors in checkpoint loading
     # or random initialization don't propagate to all ranks in first all-gather (which is a
     # no-op if things work correctly).
@@ -2424,11 +2473,16 @@ def train(
         )
 
     # Run training iterations till done.
-    # MoEGambit: initialize fault-tolerant MoE system if enabled.
+    # MOEGAMBIT-MoE: initialize fault-tolerant MoE system if enabled.
     maybe_initialize_moegambit_moe(model, args, optimizer=optimizer, opt_param_scheduler=opt_param_scheduler)
 
     buffered_rollouts = None
     while iteration < args.train_iters:
+        # A recovery epoch is certified only after a second, consecutive train
+        # step. This call is a no-op during normal training and on the first
+        # recovered step, whose pending state is created later by rebuild.
+        elastic_post_rebuild_iteration_barrier(iteration)
+        elastic_trace_post_rebuild_phase("iteration_prologue_start", iteration)
         if args.profile and torch.distributed.get_rank() in args.profile_ranks:
             if args.use_pytorch_profiler:
                 prof.step()
@@ -2436,9 +2490,21 @@ def train(
                 torch.cuda.cudart().cudaProfilerStart()
                 torch.autograd.profiler.emit_nvtx(record_shapes=True).__enter__()
 
+        elastic_client_update_step(
+            iteration,
+            phase="async_checkpoint_finalize",
+            step_tag=iteration,
+        )
         ft_integration.on_checkpointing_start()
-        maybe_finalize_async_save(blocking=False)
-        ft_integration.on_checkpointing_end(is_async_finalization=True)
+        try:
+            maybe_finalize_async_save(blocking=False)
+        finally:
+            ft_integration.on_checkpointing_end(is_async_finalization=True)
+            elastic_client_update_step(
+                iteration,
+                phase="async_checkpoint_finalize_done",
+                step_tag=iteration,
+            )
         # Update the timeout for all process groups after initialization
         # We update the timeout after the first successful iteration,
         # which takes longer than others usually
@@ -2480,6 +2546,7 @@ def train(
                     )
         num_microbatches = get_num_microbatches()
         update_num_microbatches(args.consumed_train_samples, consistency_check=True, verbose=True)
+        elastic_trace_post_rebuild_phase("iteration_prologue_done", iteration)
 
         # Capture CUDA Graphs.
         if (
@@ -2518,12 +2585,17 @@ def train(
                 )
                 buffered_rollouts = train_data_iterator
 
-        # Crash injection for checkpoint-restart baseline (moegambit-independent).
+        # Crash injection for checkpoint-restart baseline (MOEGAMBIT-independent).
         _maybe_crash_inject(iteration)
 
         # Elastic hot-spare: check if watcher requested a pause for group rebuild.
         # This is the safe point — all ranks are synchronized here.
-        elastic_client_update_step(iteration)
+        elastic_client_update_step(
+            iteration,
+            phase="iteration_safe_point",
+            step_tag=iteration,
+        )
+        elastic_trace_post_rebuild_phase("iteration_safe_point_start", iteration)
         if elastic_check_pause():
             logger.warning(
                 "[elastic] Iteration %d: pause requested, entering rebuild...",
@@ -2534,11 +2606,15 @@ def train(
                 iteration = elastic_resume_iteration
                 args.curr_iteration = iteration
             logger.warning("[elastic] Rebuild complete, resuming at iteration %d", iteration)
+        elastic_trace_post_rebuild_phase("iteration_safe_point_done", iteration)
 
-        # MoEGambit: safe-point hook (before forward pass).
+        # MOEGAMBIT-MoE: safe-point hook (before forward pass).
+        elastic_trace_post_rebuild_phase("moegambit_before_iteration_start", iteration)
         moegambit_before_iteration(iteration)
+        elastic_trace_post_rebuild_phase("moegambit_before_iteration_done", iteration)
+        elastic_post_rebuild_iteration_barrier(iteration)
 
-        # MoEGambit: if a checkpoint restart was executed during safe-point
+        # MOEGAMBIT-MoE: if a checkpoint restart was executed during safe-point
         # repair, the failed rank's weights have been restored from the
         # latest checkpoint.  The iteration counter is NOT rolled back —
         # only the failed rank (minority) lost progress; the majority of
@@ -2557,7 +2633,7 @@ def train(
                 else -1
             )
             logger.warning(
-                "MoEGambit: checkpoint restart completed at iteration %d "
+                "MOEGAMBIT-MoE: checkpoint restart completed at iteration %d "
                 "(ckpt_iter=%d, gap=%d). Experts restored with stale "
                 "weights — training continues from current iteration.",
                 iteration, _moegambit_ckpt_iter,
@@ -2565,7 +2641,7 @@ def train(
             )
             moegambit_clear_checkpoint_restart()
 
-        # MoEGambit: snapshot iteration boundary state for rollback/replay.
+        # MOEGAMBIT-MoE: snapshot iteration boundary state for rollback/replay.
         # This captures consumed_train_samples, iteration, and FP ops
         # BEFORE train_step, so we can restore them if the iteration fails.
         moegambit_snapshot_iteration(
@@ -2575,7 +2651,7 @@ def train(
             num_floating_point_operations_so_far=num_floating_point_operations_so_far,
         )
 
-        # MoEGambit: begin pipeline iteration tracking for PP>1.
+        # MOEGAMBIT-MoE: begin pipeline iteration tracking for PP>1.
         _moegambit_pp_size = mpu.get_pipeline_model_parallel_world_size()
         if _moegambit_pp_size > 1:
             moegambit_pipeline_begin_iteration(
@@ -2587,7 +2663,7 @@ def train(
 
         ft_integration.on_training_step_start()
 
-        # MoEGambit: wrap train_step to catch hard failures (NCCL errors, etc.)
+        # MOEGAMBIT-MoE: wrap train_step to catch hard failures (NCCL errors, etc.)
         _moegambit_hard_failure_caught = False
         try:
             (
@@ -2602,7 +2678,7 @@ def train(
                 forward_step_func, train_data_iterator, model, optimizer, opt_param_scheduler, config, forward_backward_func
             )
         except RuntimeError as _moegambit_exc:
-            # Check if this is a communication failure that moegambit can handle.
+            # Check if this is a communication failure that MOEGAMBIT can handle.
             # NCCL errors typically manifest as RuntimeError with specific messages.
             _moegambit_exc_msg = str(_moegambit_exc).lower()
             _moegambit_is_comm_error = any(kw in _moegambit_exc_msg for kw in (
@@ -2614,7 +2690,7 @@ def train(
             if _moegambit_is_comm_error and getattr(args, 'moe_moegambit_enable', False):
                 import traceback
                 logger.error(
-                    "MoEGambit: caught communication error in train_step at "
+                    "MOEGAMBIT-MoE: caught communication error in train_step at "
                     "iteration %d: %s\n%s",
                     iteration, _moegambit_exc, traceback.format_exc(),
                 )
@@ -2624,12 +2700,12 @@ def train(
                 elastic_on_nccl_error(_moegambit_exc)
 
                 # If elastic recovery is active (pause signal already received),
-                # skip moegambit logic and go directly to rebuild.  The process group
-                # is corrupted — any further NCCL calls (even in moegambit) would hang.
+                # skip MOEGAMBIT logic and go directly to rebuild.  The process group
+                # is corrupted — any further NCCL calls (even in MOEGAMBIT) would hang.
                 if elastic_check_pause():
                     logger.warning(
                         "[elastic] NCCL error caught + pause signal present. "
-                        "Skipping moegambit logic, entering rebuild immediately."
+                        "Skipping MOEGAMBIT logic, entering rebuild immediately."
                     )
                     elastic_resume_iteration = elastic_do_rebuild(
                         model, optimizer, opt_param_scheduler
@@ -2684,11 +2760,11 @@ def train(
 
         ft_integration.on_training_step_end()
 
-        # MoEGambit: check if the current iteration was invalidated by a
+        # MOEGAMBIT-MoE: check if the current iteration was invalidated by a
         # hard failure (either caught above or reported by another path).
         if moegambit_is_current_iteration_invalid():
             logger.warning(
-                "MoEGambit: iteration %d INVALIDATED — rolling back and "
+                "MOEGAMBIT-MoE: iteration %d INVALIDATED — rolling back and "
                 "preparing for replay.",
                 iteration,
             )
@@ -2714,7 +2790,7 @@ def train(
                 )
                 if _pp_rollback_result is not None:
                     logger.warning(
-                        "MoEGambit: PP>1 pipeline rollback at iteration %d — "
+                        "MOEGAMBIT-MoE: PP>1 pipeline rollback at iteration %d — "
                         "sync=%s, grad_cleared=%s, nccl_reset=%s",
                         iteration,
                         _pp_rollback_result.all_stages_synced,
@@ -2725,7 +2801,7 @@ def train(
             # Check if we've exceeded max replay attempts
             if moegambit_exceeded_max_replays():
                 logger.error(
-                    "MoEGambit: iteration %d exceeded max replay attempts. "
+                    "MOEGAMBIT-MoE: iteration %d exceeded max replay attempts. "
                     "Falling back to waiting for replacement at next safe point.",
                     iteration,
                 )
@@ -2737,13 +2813,13 @@ def train(
             # normal training collectives until then.
             if moegambit_is_waiting_for_replacement():
                 logger.warning(
-                    "MoEGambit: iteration %d — system is waiting for "
+                    "MOEGAMBIT-MoE: iteration %d — system is waiting for "
                     "replacement rank integration at next safe point.",
                     iteration,
                 )
             elif moegambit_has_pending_replacements():
                 logger.warning(
-                    "MoEGambit: iteration %d — pending replacement(s) exist "
+                    "MOEGAMBIT-MoE: iteration %d — pending replacement(s) exist "
                     "but recovery controller has not yet reached "
                     "SAFE_POINT_REPAIR phase.",
                     iteration,
@@ -2753,7 +2829,7 @@ def train(
             if moegambit_is_reintegration_pending():
                 _reint_summary = moegambit_get_reintegration_summary()
                 logger.warning(
-                    "MoEGambit: iteration %d — reintegration pending: %s",
+                    "MOEGAMBIT-MoE: iteration %d — reintegration pending: %s",
                     iteration,
                     _reint_summary,
                 )
@@ -2765,10 +2841,10 @@ def train(
             # clears the invalidation flag and may execute safe-point repair.
             continue
 
-        # MoEGambit: if this was a successful replay, complete it.
+        # MOEGAMBIT-MoE: if this was a successful replay, complete it.
         if moegambit_is_replay_pending():
             logger.warning(
-                "MoEGambit: iteration %d replay SUCCEEDED.",
+                "MOEGAMBIT-MoE: iteration %d replay SUCCEEDED.",
                 iteration,
             )
             moegambit_complete_replay(train_data_iterator)
@@ -2776,7 +2852,7 @@ def train(
             if _moegambit_pp_size > 1:
                 moegambit_pipeline_complete_replay(success=True)
 
-        # MoEGambit: post-step hook (after optimizer.step()).
+        # MOEGAMBIT-MoE: post-step hook (after optimizer.step()).
         moegambit_after_iteration(iteration)
         if should_checkpoint:
             save_checkpoint_and_time(
@@ -2863,6 +2939,7 @@ def train(
                 decoupled_learning_rate = param_group['lr']
             else:
                 learning_rate = param_group['lr']
+        elastic_trace_post_rebuild_phase("training_log_start", args.curr_iteration)
         report_memory_flag = training_log(
             loss_dict,
             total_loss_dict,
@@ -2876,6 +2953,7 @@ def train(
             params_norm,
             num_zeros_in_grad,
         )
+        elastic_trace_post_rebuild_phase("training_log_done", args.curr_iteration)
 
         # Evaluation.
         if args.eval_interval and iteration % args.eval_interval == 0 and args.do_valid:
@@ -2917,6 +2995,7 @@ def train(
 
         # Miscellaneous post-training-step functions (e.g., FT heartbeats, GC).
         # Some of these only happen at specific iterations.
+        elastic_trace_post_rebuild_phase("post_step_callbacks_start", args.curr_iteration)
         post_training_step_callbacks(
             model,
             optimizer,
@@ -2925,8 +3004,10 @@ def train(
             prof,
             num_floating_point_operations_since_last_log_event,
         )
+        elastic_trace_post_rebuild_phase("post_step_callbacks_done", args.curr_iteration)
 
         # Checkpoint and decide whether to exit.
+        elastic_trace_post_rebuild_phase("checkpoint_exit_start", args.curr_iteration)
         should_exit = checkpoint_and_decide_exit(
             model,
             optimizer,
@@ -2936,6 +3017,8 @@ def train(
             checkpointing_context,
             train_data_iterator,
         )
+        elastic_trace_post_rebuild_phase("checkpoint_exit_done", args.curr_iteration)
+        elastic_commit_post_rebuild_iteration(args.curr_iteration)
         if should_exit:
             break
 
@@ -2950,11 +3033,19 @@ def train(
     if pre_hook_enabled:
         disable_forward_pre_hook(model)
 
+    elastic_client_update_step(iteration, phase="async_checkpoint_finalize", step_tag=iteration)
     ft_integration.on_checkpointing_start()
-    # This will finalize all unfinalized async request and terminate
-    # a persistent async worker if persistent ckpt worker is enabled
-    maybe_finalize_async_save(blocking=True, terminate=True)
-    ft_integration.on_checkpointing_end(is_async_finalization=True)
+    try:
+        # This will finalize all unfinalized async request and terminate
+        # a persistent async worker if persistent ckpt worker is enabled
+        maybe_finalize_async_save(blocking=True, terminate=True)
+    finally:
+        ft_integration.on_checkpointing_end(is_async_finalization=True)
+        elastic_client_update_step(
+            iteration,
+            phase="async_checkpoint_finalize_done",
+            step_tag=iteration,
+        )
     if args.enable_ft_package and ft_integration.get_rank_monitor_client() is not None:
         ft_integration.get_rank_monitor_client().shutdown_workload_monitoring()
 

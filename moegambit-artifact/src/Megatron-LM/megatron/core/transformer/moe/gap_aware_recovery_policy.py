@@ -1,9 +1,9 @@
 # Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""MoEGambit recovery policy framework.
+"""MOEGAMBIT-MoE Recovery Policy Framework.
 
 This module implements a **recovery path selector** that chooses between
-checkpoint restart, hybrid recovery, and full-peer recovery.
+checkpoint restart and hybrid recovery based on policy-specific criteria.
 
 Supported policies
 ------------------
@@ -11,8 +11,7 @@ Supported policies
 2. ``AlwaysHybridPolicy``     — always HYBRID_RECOVERY (baseline).
 3. ``FixedGapThresholdPolicy`` — single gap threshold (baseline).
 4. ``TwoThresholdPolicy``     — gap lower bound + upper bound (baseline).
-5. ``RankExposureGuardedPolicy`` — paper R2 contract: gap bounds plus
-   expert-weighted staleness density ``Phi'(t)``.
+5. ``RankExposureGuardedPolicy`` — gap bounds + rank stale exposure (main).
 
 Decision input
 --------------
@@ -21,19 +20,20 @@ Decision input
     gap = current_step - latest_checkpoint_step
     rank = failed_logical_rank
 
-Decision logic (RankExposureGuardedPolicy / paper R2)
------------------------------------------------------
+Decision logic (RankExposureGuardedPolicy)
+------------------------------------------
 ::
 
-    S_before = tracker.get_stale_expert_debt(current_step, window_steps)
-    projected_debt = S_before + num_affected_experts * gap
-    phi_prime_after = projected_debt / (num_experts * window_steps)
+    rank_stale_iters_before =
+        tracker.get_rank_stale_iters(rank, current_step, window_steps)
+    rank_stale_iters_after = rank_stale_iters_before + gap
+    rank_exposure_after = rank_stale_iters_after / window_steps
 
     if gap < delta_time_min_gap:
         path = checkpoint_restart
     elif gap > max_single_gap:
         path = checkpoint_restart
-    elif phi_prime_after > phi_max:
+    elif rank_exposure_after > max_rank_stale_exposure:
         path = checkpoint_restart
     else:
         path = hybrid_recovery
@@ -66,14 +66,7 @@ _DECISION_REASON_ALIASES = {
     "checkpoint_restart_forced": "forced_restart",
     "no_checkpoint_available": "forced_hybrid",
     "gap_aware_disabled": "forced_hybrid",
-    "no_dense_peer_available": "NoPeer",
-    "gap_below_time_threshold": "SmallGap",
-    "gap_above_single_gap_threshold": "LargeGap",
-    "phi_prime_exceeded": "HighDebt",
-    "within_phi_prime_safe_region": "Admit",
-    "within_two_threshold_safe_region": "within_phi_prime_safe_region",
-    "rank_stale_exposure_exceeded": "HighDebt",
-    "within_rank_exposure_safe_region": "Admit",
+    "within_two_threshold_safe_region": "within_rank_exposure_safe_region",
 }
 
 _OPTIONAL_COST_FIELDS = (
@@ -110,6 +103,11 @@ def _policy_type_from_policy(policy: Any) -> str:
 def normalize_decision_reason(decision: "RecoveryDecision") -> str:
     """Normalize internal policy reasons to the experiment log enum."""
     reason = getattr(decision, "reason", "")
+    if (
+        reason == "no_checkpoint_available"
+        and decision.path == RecoveryPath.CHECKPOINT_RESTART
+    ):
+        return "no_checkpoint"
     return _DECISION_REASON_ALIASES.get(reason, reason)
 
 
@@ -135,17 +133,21 @@ def build_recovery_path_chosen_log(
         "max_single_gap": decision.max_single_gap,
         "exposure_window_steps": decision.exposure_window_steps,
         "max_rank_stale_exposure": decision.max_rank_stale_exposure,
-        "num_experts": decision.num_experts,
-        "num_affected_experts": decision.num_affected_experts,
-        "stale_expert_debt_before": decision.stale_expert_debt_before,
-        "stale_expert_debt_after": decision.stale_expert_debt_after,
-        "phi_prime_before": decision.phi_prime_before,
-        "phi_prime_after": decision.phi_prime_after,
-        "phi_max": decision.phi_max,
         "rank_stale_iters_before": decision.rank_stale_iters_before,
         "rank_stale_iters_after": decision.rank_stale_iters_after,
         "rank_stale_exposure_before": decision.rank_stale_exposure_before,
         "rank_stale_exposure_after": decision.rank_stale_exposure_after,
+        "num_affected_experts": decision.num_affected_experts,
+        "num_experts": decision.num_experts,
+        "window_expert_iteration_debt_before": (
+            decision.window_expert_iteration_debt_before
+        ),
+        "window_expert_iteration_debt_after": (
+            decision.window_expert_iteration_debt_after
+        ),
+        "expert_staleness_density_before": decision.expert_staleness_density_before,
+        "expert_staleness_density_after": decision.expert_staleness_density_after,
+        "max_expert_staleness_density": decision.max_expert_staleness_density,
     }
 
     for field_name in _OPTIONAL_COST_FIELDS:
@@ -228,18 +230,11 @@ class RecoveryDecision:
         delta_time_min_gap: Gap lower bound (TwoThreshold / RankExposureGuarded).
         max_single_gap: Gap upper bound (TwoThreshold / RankExposureGuarded).
         exposure_window_steps: Window size for exposure tracking.
-        num_experts: Routed-expert count in the exposure domain.
-        num_affected_experts: Experts restored by the candidate event.
-        stale_expert_debt_before: Window debt S(t) before the candidate event.
-        stale_expert_debt_after: Projected debt after adding the candidate.
-        phi_prime_before: Expert-weighted staleness density before the event.
-        phi_prime_after: Projected expert-weighted staleness density.
-        phi_max: Maximum allowed Phi'(t).
         rank_stale_iters_before: Stale iters for this rank *before* this recovery.
         rank_stale_iters_after: Stale iters for this rank *after* this recovery.
         rank_stale_exposure_before: Exposure ratio before.
         rank_stale_exposure_after: Exposure ratio after.
-        max_rank_stale_exposure: Backward-compatible alias for ``phi_max``.
+        max_rank_stale_exposure: Maximum allowed exposure ratio.
 
         metadata: Arbitrary extra info (for cost-model extensions).
     """
@@ -258,18 +253,20 @@ class RecoveryDecision:
     delta_time_min_gap: int = -1
     max_single_gap: int = -1
     exposure_window_steps: int = -1
-    num_experts: int = -1
-    num_affected_experts: int = 0
-    stale_expert_debt_before: int = 0
-    stale_expert_debt_after: int = 0
-    phi_prime_before: float = 0.0
-    phi_prime_after: float = 0.0
-    phi_max: float = -1.0
     rank_stale_iters_before: int = 0
     rank_stale_iters_after: int = 0
     rank_stale_exposure_before: float = 0.0
     rank_stale_exposure_after: float = 0.0
     max_rank_stale_exposure: float = -1.0
+
+    # --- Paper contract R2: Phi'(t) = (S(t) + |E_new| * Delta) / (N * W) ---
+    num_affected_experts: int = 0
+    num_experts: int = 0
+    window_expert_iteration_debt_before: int = 0
+    window_expert_iteration_debt_after: int = 0
+    expert_staleness_density_before: float = 0.0
+    expert_staleness_density_after: float = 0.0
+    max_expert_staleness_density: float = -1.0
 
     # --- Arbitrary metadata ---
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -288,18 +285,22 @@ class RecoveryDecision:
             "delta_time_min_gap": self.delta_time_min_gap,
             "max_single_gap": self.max_single_gap,
             "exposure_window_steps": self.exposure_window_steps,
-            "num_experts": self.num_experts,
-            "num_affected_experts": self.num_affected_experts,
-            "stale_expert_debt_before": self.stale_expert_debt_before,
-            "stale_expert_debt_after": self.stale_expert_debt_after,
-            "phi_prime_before": self.phi_prime_before,
-            "phi_prime_after": self.phi_prime_after,
-            "phi_max": self.phi_max,
             "rank_stale_iters_before": self.rank_stale_iters_before,
             "rank_stale_iters_after": self.rank_stale_iters_after,
             "rank_stale_exposure_before": self.rank_stale_exposure_before,
             "rank_stale_exposure_after": self.rank_stale_exposure_after,
             "max_rank_stale_exposure": self.max_rank_stale_exposure,
+            "num_affected_experts": self.num_affected_experts,
+            "num_experts": self.num_experts,
+            "window_expert_iteration_debt_before": (
+                self.window_expert_iteration_debt_before
+            ),
+            "window_expert_iteration_debt_after": (
+                self.window_expert_iteration_debt_after
+            ),
+            "expert_staleness_density_before": self.expert_staleness_density_before,
+            "expert_staleness_density_after": self.expert_staleness_density_after,
+            "max_expert_staleness_density": self.max_expert_staleness_density,
             "metadata": self.metadata,
         }
 
@@ -454,8 +455,7 @@ class FixedGapThresholdPolicy(RecoveryPolicyBase):
         else:                          hybrid_recovery
 
     Args:
-        fixed_gap_threshold: The gap threshold.  Default 100 for the
-            backward-compatible baseline policy.
+        fixed_gap_threshold: The gap threshold.  Default 32.
     """
 
     def __init__(self, fixed_gap_threshold: int = 32) -> None:
@@ -635,26 +635,27 @@ class TwoThresholdPolicy(RecoveryPolicyBase):
 
 @dataclass
 class RankExposureGuardedConfig:
-    """Configuration for the paper R2 staleness-density recovery policy.
+    """Configuration for the rank-exposure guarded recovery policy.
 
     Attributes:
         delta_time_min_gap: Gap below this → checkpoint restart.
         max_single_gap: Gap above this → checkpoint restart.
-        exposure_window_steps: ``W_exp`` sliding window for expert debt.
-        num_experts: ``N_expert`` routed experts in the exposure domain.
-        max_rank_stale_exposure: Backward-compatible field name for
-            ``Phi_max``. The policy compares ``Phi'(t)`` against this value.
+        exposure_window_steps: Sliding window for tracking rank stale
+            exposure.
+        max_rank_stale_exposure: Maximum stale exposure ratio per rank
+            within the window (e.g. 0.02 = 2%).
     """
 
-    delta_time_min_gap: int = 1
-    max_single_gap: int = 200
-    exposure_window_steps: int = 2000
-    num_experts: int = 128
+    delta_time_min_gap: int = 32
+    max_single_gap: int = 192
+    exposure_window_steps: int = 20000
+    # Kept under the old field name for CLI/checkpoint compatibility.  It now
+    # bounds the paper's global expert staleness density Phi, not one rank's
+    # unweighted stale-iteration ratio.
     max_rank_stale_exposure: float = 0.1
 
     @property
-    def phi_max(self) -> float:
-        """Paper name for ``max_rank_stale_exposure``."""
+    def max_expert_staleness_density(self) -> float:
         return self.max_rank_stale_exposure
 
     def validate(self) -> None:
@@ -674,13 +675,9 @@ class RankExposureGuardedConfig:
                 f"exposure_window_steps must be > 0, "
                 f"got {self.exposure_window_steps}"
             )
-        if self.num_experts <= 0:
-            raise ValueError(
-                f"num_experts must be > 0, got {self.num_experts}"
-            )
         if not (0 < self.max_rank_stale_exposure <= 1):
             raise ValueError(
-                f"phi_max/max_rank_stale_exposure must be in (0, 1], "
+                f"max_rank_stale_exposure must be in (0, 1], "
                 f"got {self.max_rank_stale_exposure}"
             )
 
@@ -689,44 +686,43 @@ class RankExposureGuardedConfig:
             "delta_time_min_gap": self.delta_time_min_gap,
             "max_single_gap": self.max_single_gap,
             "exposure_window_steps": self.exposure_window_steps,
-            "num_experts": self.num_experts,
-            "phi_max": self.phi_max,
             "max_rank_stale_exposure": self.max_rank_stale_exposure,
+            "max_expert_staleness_density": self.max_expert_staleness_density,
         }
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "RankExposureGuardedConfig":
-        d = dict(d)
-        if "phi_max" in d and "max_rank_stale_exposure" not in d:
-            d["max_rank_stale_exposure"] = d["phi_max"]
         known_keys = {f.name for f in cls.__dataclass_fields__.values()}
         return cls(**{k: v for k, v in d.items() if k in known_keys})
 
 
 class RankExposureGuardedPolicy(RecoveryPolicyBase):
-    """Expert-weighted staleness-density guarded recovery policy.
+    """Rank-exposure guarded recovery policy.
 
     Decision logic::
 
-        S_before = tracker.get_stale_expert_debt(current_step, window_steps)
-        S_after = S_before + num_affected_experts * gap
-        Phi_prime_after = S_after / (num_experts * window_steps)
+        rank_stale_iters_before =
+            tracker.get_rank_stale_iters(rank, current_step, window_steps)
+        rank_stale_iters_after = rank_stale_iters_before + gap
+        rank_exposure_after = rank_stale_iters_after / window_steps
 
         if gap < delta_time_min_gap:
             path = checkpoint_restart   (reason: gap_below_time_threshold)
         elif gap > max_single_gap:
             path = checkpoint_restart   (reason: gap_above_single_gap_threshold)
-        elif Phi_prime_after > phi_max:
-            path = checkpoint_restart   (reason: phi_prime_exceeded)
+        elif rank_exposure_after > max_rank_stale_exposure:
+            path = checkpoint_restart   (reason: rank_stale_exposure_exceeded)
         else:
-            path = hybrid_recovery      (reason: within_phi_prime_safe_region)
+            path = hybrid_recovery      (reason: within_rank_exposure_safe_region)
 
-    **Important**: The exposure check uses the projected debt *after*
-    adding the current candidate event.  This matches the paper's R2 guard:
-    ``Phi'(t) = (S(t) + |E_new| * Delta) / (N_expert * W_exp)``.
+    **Important**: The exposure check uses ``rank_stale_iters_after``
+    (i.e. *including* the current gap), not ``rank_stale_iters_before``.
+    This ensures the policy accounts for the stale iterations the current
+    hybrid recovery would introduce.
 
     Only hybrid recovery events are recorded in the tracker; checkpoint
-    restarts reload all ranks uniformly, so they add no stale-expert debt.
+    restarts reload all ranks uniformly, so no rank is relatively
+    "stale".
 
     Args:
         config: A ``RankExposureGuardedConfig`` with all parameters.
@@ -759,12 +755,12 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
                 import rank_exposure_tracker as _ret
                 self._tracker = _ret.RankExposureTracker()
                 logger.info(
-                    "MoEGambit RankExposureGuardedPolicy: created standalone "
+                    "MOEGAMBIT-MoE RankExposureGuardedPolicy: created standalone "
                     "RankExposureTracker (global singleton not available)"
                 )
 
         logger.warning(
-            "MoEGambit RankExposureGuardedPolicy initialized: %s",
+            "MOEGAMBIT-MoE RankExposureGuardedPolicy initialized: %s",
             self._config.to_dict(),
         )
 
@@ -814,39 +810,45 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
         """
         cfg = self._config
         gap = current_step - latest_checkpoint_step
+        affected_experts = max(1, int(num_affected_experts or 1))
+        num_experts = max(
+            affected_experts,
+            int(kwargs.get("num_total_experts", 0) or 0),
+            1,
+        )
+        debt_before = self._tracker.get_window_expert_iteration_debt(
+            current_step=current_step,
+            window_steps=cfg.exposure_window_steps,
+        )
+        current_debt = (
+            affected_experts * max(0, gap)
+            if latest_checkpoint_step >= 0
+            else 0
+        )
+        debt_after = debt_before + current_debt
+        denominator = num_experts * cfg.exposure_window_steps
+        density_before = debt_before / denominator if denominator > 0 else 0.0
+        density_after = debt_after / denominator if denominator > 0 else 0.0
 
-        affected_experts = max(1, int(num_affected_experts or 0))
-        num_experts = max(1, int(kwargs.get("num_experts", cfg.num_experts) or cfg.num_experts))
-
-        # Paper R2 fields for non-exposure decisions.
-        stale_expert_debt_before = 0
-        stale_expert_debt_after = 0
-        phi_prime_before = 0.0
-        phi_prime_after = 0.0
-
-        # Legacy per-rank fields are retained for older analysis scripts.
-        stale_iters_before = 0
-        stale_iters_after = 0
-        exposure_before = 0.0
-        exposure_after = 0.0
+        # Preserve the old fields as aliases so existing telemetry consumers
+        # continue to work while the decision uses the paper's expert-weighted
+        # global debt.
+        stale_iters_before = debt_before
+        stale_iters_after = debt_after
+        exposure_before = density_before
+        exposure_after = density_after
 
         # --- Full-peer fast path (EDP > 1) ---
         expert_dp_peer_available = kwargs.get("expert_dp_peer_available", False)
+        dense_peer_available = kwargs.get("dense_peer_available", True)
         edp = kwargs.get("expert_data_parallel_size", 1)
-        dense_dp_peer_available = kwargs.get(
-            "dense_dp_peer_available",
-            kwargs.get("peer_available", True),
-        )
 
-        if not dense_dp_peer_available:
-            path = RecoveryPath.CHECKPOINT_RESTART
-            reason = "no_dense_peer_available"
-            reason_detail = (
-                f"no healthy dense-DP peer available for rank {failed_rank}, "
-                "checkpoint restart"
-            )
-
-        elif expert_dp_peer_available:
+        if expert_dp_peer_available:
+            current_debt = 0
+            debt_after = debt_before
+            density_after = density_before
+            stale_iters_after = debt_after
+            exposure_after = density_after
             path = RecoveryPath.FULL_PEER_RECOVERY
             reason = "full_peer_edp_available"
             reason_detail = (
@@ -855,14 +857,22 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
                 f"(zero staleness, Phi'(t) contribution = 0)"
             )
 
-        # --- Standard decision logic ---
+        # --- MoEGambit R2 admission contract ---
+        elif not dense_peer_available:
+            path = RecoveryPath.CHECKPOINT_RESTART
+            reason = "dense_peer_unavailable"
+            reason_detail = (
+                "no current-step dense/non-expert peer is available; "
+                "the intentional mixed-version state cannot be constructed"
+            )
+
         elif latest_checkpoint_step < 0:
-            # No checkpoint available
-            path = RecoveryPath.HYBRID_RECOVERY
+            path = RecoveryPath.CHECKPOINT_RESTART
             reason = "no_checkpoint_available"
             reason_detail = (
                 f"no checkpoint available (latest_checkpoint_step="
-                f"{latest_checkpoint_step}), forced hybrid recovery"
+                f"{latest_checkpoint_step}); expert weights and optimizer "
+                "cannot satisfy the state-source contract"
             )
 
         elif gap < cfg.delta_time_min_gap:
@@ -884,58 +894,24 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
             )
 
         else:
-            # Gap is in [delta_time_min_gap, max_single_gap]
-            # Check paper R2 expert-weighted exposure (using AFTER value).
-            stale_expert_debt_before = self._tracker.get_stale_expert_debt(
-                current_step=current_step,
-                window_steps=cfg.exposure_window_steps,
-            )
-            stale_expert_debt_after = (
-                stale_expert_debt_before + affected_experts * gap
-            )
-            denominator = num_experts * cfg.exposure_window_steps
-            phi_prime_before = (
-                stale_expert_debt_before / denominator
-                if denominator > 0 else 0.0
-            )
-            phi_prime_after = (
-                stale_expert_debt_after / denominator
-                if denominator > 0 else 0.0
-            )
-
-            # Legacy per-rank view for backward-compatible logs only.
-            stale_iters_before = self._tracker.get_rank_stale_iters(
-                rank=failed_rank,
-                current_step=current_step,
-                window_steps=cfg.exposure_window_steps,
-            )
-            stale_iters_after = stale_iters_before + gap
-            exposure_before = (
-                stale_iters_before / cfg.exposure_window_steps
-                if cfg.exposure_window_steps > 0 else 0.0
-            )
-            exposure_after = (
-                stale_iters_after / cfg.exposure_window_steps
-                if cfg.exposure_window_steps > 0 else 0.0
-            )
-
-            if phi_prime_after > cfg.phi_max:
+            if density_after > cfg.max_expert_staleness_density:
                 path = RecoveryPath.CHECKPOINT_RESTART
-                reason = "phi_prime_exceeded"
+                reason = "rank_stale_exposure_exceeded"
                 reason_detail = (
                     f"gap={gap} in [{cfg.delta_time_min_gap}, "
-                    f"{cfg.max_single_gap}], but Phi'(t)="
-                    f"{phi_prime_after:.6f} > Phi_max={cfg.phi_max}, "
-                    f"checkpoint restart (stale expert debt too high)"
+                    f"{cfg.max_single_gap}], but Phi'(t)={density_after:.6f} "
+                    f"> Phi_max={cfg.max_expert_staleness_density:.6f}; "
+                    f"S(t)={debt_before}, |E_new|={affected_experts}, "
+                    f"N_expert={num_experts}, W_exp={cfg.exposure_window_steps}"
                 )
             else:
                 path = RecoveryPath.HYBRID_RECOVERY
-                reason = "within_phi_prime_safe_region"
+                reason = "within_rank_exposure_safe_region"
                 reason_detail = (
                     f"gap={gap} in [{cfg.delta_time_min_gap}, "
-                    f"{cfg.max_single_gap}], Phi'(t)="
-                    f"{phi_prime_after:.6f} <= Phi_max={cfg.phi_max}, "
-                    f"hybrid recovery admitted by R2"
+                    f"{cfg.max_single_gap}], Phi'(t)={density_after:.6f} "
+                    f"<= Phi_max={cfg.max_expert_staleness_density:.6f}; "
+                    "intentional mixed-version recovery admitted"
                 )
 
         # NOTE: Recording of hybrid recovery events is deferred to the
@@ -955,51 +931,50 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
             delta_time_min_gap=cfg.delta_time_min_gap,
             max_single_gap=cfg.max_single_gap,
             exposure_window_steps=cfg.exposure_window_steps,
-            num_experts=num_experts,
-            num_affected_experts=affected_experts,
-            stale_expert_debt_before=stale_expert_debt_before,
-            stale_expert_debt_after=stale_expert_debt_after,
-            phi_prime_before=phi_prime_before,
-            phi_prime_after=phi_prime_after,
-            phi_max=cfg.phi_max,
             rank_stale_iters_before=stale_iters_before,
             rank_stale_iters_after=stale_iters_after,
             rank_stale_exposure_before=exposure_before,
             rank_stale_exposure_after=exposure_after,
-            max_rank_stale_exposure=cfg.phi_max,
+            max_rank_stale_exposure=cfg.max_rank_stale_exposure,
+            num_affected_experts=affected_experts,
+            num_experts=num_experts,
+            window_expert_iteration_debt_before=debt_before,
+            window_expert_iteration_debt_after=debt_after,
+            expert_staleness_density_before=density_before,
+            expert_staleness_density_after=density_after,
+            max_expert_staleness_density=cfg.max_expert_staleness_density,
             metadata={
                 "policy": "rank_exposure_guarded",
+                "contract": "moegambit_r2_expert_staleness_density",
+                "contract_reason": (
+                    "admit" if path == RecoveryPath.HYBRID_RECOVERY else reason
+                ),
                 "replacement_rank": replacement_rank,
                 "num_affected_experts": affected_experts,
                 "num_experts": num_experts,
-                "stale_expert_debt_before": stale_expert_debt_before,
-                "stale_expert_debt_after": stale_expert_debt_after,
-                "phi_prime_before": phi_prime_before,
-                "phi_prime_after": phi_prime_after,
-                "phi_max": cfg.phi_max,
                 "policy_config": cfg.to_dict(),
             },
         )
 
         # Structured decision log
         logger.warning(
-            "MoEGambit recovery decision: "
+            "MOEGAMBIT-MoE recovery decision: "
             "path=%s | step=%d | ckpt_step=%d | gap=%d | "
             "delta_time_min_gap=%d | max_single_gap=%d | "
-            "affected_experts=%d | stale_expert_debt_before=%d | "
-            "stale_expert_debt_after=%d | phi_prime_after=%.6f | "
-            "phi_max=%.4f | reason=%s | failed_rank=%d",
+            "debt_before=%d | debt_after=%d | phi_after=%.6f | "
+            "phi_max=%.4f | affected_experts=%d/%d | reason=%s | failed_rank=%d",
             decision.path.value,
             decision.current_step,
             decision.latest_checkpoint_step,
             decision.gap,
             cfg.delta_time_min_gap,
             cfg.max_single_gap,
+            stale_iters_before,
+            stale_iters_after,
+            exposure_after,
+            cfg.max_rank_stale_exposure,
             affected_experts,
-            stale_expert_debt_before,
-            stale_expert_debt_after,
-            phi_prime_after,
-            cfg.phi_max,
+            num_experts,
             decision.reason,
             failed_rank,
         )
@@ -1104,7 +1079,7 @@ class GapAwareRecoveryPolicyManager:
             return self._get_checkpoint_iteration_fn()
         except Exception as e:
             logger.warning(
-                "MoEGambit gap-aware: get_checkpoint_iteration_fn failed: %s", e,
+                "MOEGAMBIT-MoE gap-aware: get_checkpoint_iteration_fn failed: %s", e,
             )
             return -1
 
@@ -1123,12 +1098,12 @@ class GapAwareRecoveryPolicyManager:
           1. ``MOEGAMBIT_FORCE_CHECKPOINT_RESTART=1`` env var (highest priority):
              force every event to ``CHECKPOINT_RESTART``. Used by the
              MoC-System emulation script to faithfully reproduce MoC-System's
-             full-ckpt-reload recovery semantics regardless of which moegambit
+             full-ckpt-reload recovery semantics regardless of which MOEGAMBIT
              switches happen to be on in the argv. The PEC byte-overlay
              still rewrites which expert shard gets loaded; the path itself
              is forced to restart.
           2. If gap-aware recovery is disabled, return ``HYBRID_RECOVERY``
-             (legacy default; matches MoEGambit runs that disable the policy
+             (legacy default; matches MoEGuard runs that disable the policy
              but want the fast path).
           3. Otherwise consult the configured policy.
         """
@@ -1229,10 +1204,13 @@ _POLICY_REGISTRY: Dict[str, Callable[..., RecoveryPolicyBase]] = {
         fixed_gap_threshold=kw.get("gap_threshold", 32),
     ),
     "two_threshold": lambda **kw: TwoThresholdPolicy(
-        delta_time_min_gap=kw.get("delta_time_min_gap", 1),
-        max_single_gap=kw.get("max_single_gap", 200),
+        delta_time_min_gap=kw.get("delta_time_min_gap", 32),
+        max_single_gap=kw.get("max_single_gap", 192),
     ),
     "rank_exposure_guarded": lambda **kw: RankExposureGuardedPolicy(
+        config=kw.get("rank_exposure_config"),
+    ),
+    "expert_staleness_guarded": lambda **kw: RankExposureGuardedPolicy(
         config=kw.get("rank_exposure_config"),
     ),
     # Backward-compatible aliases
@@ -1296,38 +1274,42 @@ def initialize_gap_aware_recovery_policy(
         return _POLICY_MANAGER
 
     # Build RankExposureGuardedConfig if needed
-    if policy_type in ("rank_exposure_guarded", "rank_exposure_guarded_hybrid"):
+    if policy_type in (
+        "rank_exposure_guarded",
+        "rank_exposure_guarded_hybrid",
+        "expert_staleness_guarded",
+    ):
         cfg = rank_exposure_config
         if cfg is None:
             cfg = RankExposureGuardedConfig(
                 delta_time_min_gap=(
                     delta_time_min_gap
-                    if delta_time_min_gap is not None else 1
+                    if delta_time_min_gap is not None else 32
                 ),
                 max_single_gap=(
                     max_single_gap
-                    if max_single_gap is not None else 200
+                    if max_single_gap is not None else 192
                 ),
             )
         cfg.validate()
         policy = RankExposureGuardedPolicy(config=cfg)
         logger.warning(
-            "MoEGambit gap-aware recovery policy: "
+            "MOEGAMBIT-MoE gap-aware recovery policy: "
             "using RankExposureGuardedPolicy "
             "(delta_time_min_gap=%d, max_single_gap=%d, "
-            "exposure_window_steps=%d, num_experts=%d, phi_max=%.4f)",
+            "exposure_window_steps=%d, max_rank_stale_exposure=%.4f)",
             cfg.delta_time_min_gap, cfg.max_single_gap,
-            cfg.exposure_window_steps, cfg.num_experts, cfg.phi_max,
+            cfg.exposure_window_steps, cfg.max_rank_stale_exposure,
         )
     elif policy_type == "two_threshold":
-        dt = delta_time_min_gap if delta_time_min_gap is not None else 1
-        msg = max_single_gap if max_single_gap is not None else 200
+        dt = delta_time_min_gap if delta_time_min_gap is not None else 32
+        msg = max_single_gap if max_single_gap is not None else 192
         policy = TwoThresholdPolicy(
             delta_time_min_gap=dt,
             max_single_gap=msg,
         )
         logger.warning(
-            "MoEGambit gap-aware recovery policy: "
+            "MOEGAMBIT-MoE gap-aware recovery policy: "
             "using TwoThresholdPolicy "
             "(delta_time_min_gap=%d, max_single_gap=%d)",
             dt, msg,
@@ -1337,7 +1319,7 @@ def initialize_gap_aware_recovery_policy(
         factory = _POLICY_REGISTRY.get(policy_type, _POLICY_REGISTRY["threshold"])
         policy = factory(gap_threshold=gap_threshold)
         logger.warning(
-            "MoEGambit gap-aware recovery policy: "
+            "MOEGAMBIT-MoE gap-aware recovery policy: "
             "using %s (gap_threshold=%d)",
             type(policy).__name__, gap_threshold,
         )
@@ -1350,7 +1332,7 @@ def initialize_gap_aware_recovery_policy(
     )
     _POLICY_MANAGER.enabled = enabled
     logger.warning(
-        "MoEGambit gap-aware recovery policy initialized: "
+        "MOEGAMBIT-MoE gap-aware recovery policy initialized: "
         "enabled=%s, policy=%s",
         enabled, type(_POLICY_MANAGER.policy).__name__,
     )

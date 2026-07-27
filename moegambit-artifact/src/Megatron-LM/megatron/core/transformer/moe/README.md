@@ -484,13 +484,13 @@ Docker Image:
 
 ---
 
-# MoEGambit v2: Fault-Tolerant MoE Training
+# MOEGAMBIT-MoE v2: Fault-Tolerant MoE Training
 
-MoEGambit is a contract-based hybrid recovery extension for Megatron Core MoE. When a rank fails during training, MoEGambit repairs dense replicated state from healthy peers, restores rank-local expert state from checkpoint when required, and reintegrates the replacement rank once the optimizer barrier is satisfied.
+MOEGAMBIT-MoE (Bypass-Stale-Reintegrate) is a fault-tolerance extension for Megatron Core MoE. When a rank fails during training, MOEGAMBIT-MoE keeps training going by **bypassing** the affected experts, **restoring** them with possibly stale weights, and **reintegrating** them once optimizer state is fully recovered — all without restarting the job or losing the remaining healthy ranks.
 
 ## How It Works (User Perspective)
 
-When a fault occurs, MoEGambit executes the following sequence automatically:
+When a fault occurs, MOEGAMBIT-MoE executes the following sequence automatically:
 
 ```
 Normal Training
@@ -527,12 +527,12 @@ Normal Training
 
 - **Megatron-LM** with Megatron Core MoE support
 - **Non-ZeRO-2 mode**: All DP ranks must hold identical dense parameters (standard Megatron `DistributedDataParallel`). ZeRO-2 / `DistributedOptimizer` for dense params is **not supported** in v2.
-- **External fault detection**: MoEGambit does not detect faults itself. Your cluster manager or training harness must call the MoEGambit API when a rank failure is detected.
-- **External replacement spawning**: MoEGambit does not spawn replacement processes. Your infrastructure must launch a replacement rank and notify MoEGambit.
+- **External fault detection**: MOEGAMBIT-MoE does not detect faults itself. Your cluster manager or training harness must call the MOEGAMBIT-MoE API when a rank failure is detected.
+- **External replacement spawning**: MOEGAMBIT-MoE does not spawn replacement processes. Your infrastructure must launch a replacement rank and notify MOEGAMBIT-MoE.
 
 ## Quick Start
 
-### 1. Enable MoEGambit
+### 1. Enable MOEGAMBIT-MoE
 
 Add the master switch to your `TransformerConfig`:
 
@@ -541,7 +541,7 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 
 config = TransformerConfig(
     # ... your existing config ...
-    moe_moegambit_enable=True,  # Master switch — enables all MoEGambit sub-modules
+    moe_moegambit_enable=True,  # Master switch — enables all MOEGAMBIT-MoE sub-modules
 )
 ```
 
@@ -591,7 +591,7 @@ All configuration fields are in `TransformerConfig`. The master switch `moe_moeg
 
 | Config Field | Type | Default | Description |
 |---|---|---|---|
-| `moe_moegambit_enable` | `bool` | `False` | **Master switch**. Must be `True` to activate any MoEGambit functionality. |
+| `moe_moegambit_enable` | `bool` | `False` | **Master switch**. Must be `True` to activate any MOEGAMBIT-MoE functionality. |
 | `moe_moegambit_health_mask` | `bool` | `True` | Per-layer expert health mask injected into the router. |
 | `moe_moegambit_rank_quarantine` | `bool` | `True` | Rank-level quarantine registry. |
 | `moe_moegambit_expert_directory` | `bool` | `True` | Active expert directory and recovery manifest. |
@@ -623,7 +623,7 @@ All configuration fields are in `TransformerConfig`. The master switch `moe_moeg
 
 ## Module Overview
 
-MoEGambit v2 adds 14 new modules. All are in `megatron/core/transformer/moe/`:
+MOEGAMBIT-MoE v2 adds 14 new modules. All are in `megatron/core/transformer/moe/`:
 
 | Module | Responsibility |
 |---|---|
@@ -680,7 +680,7 @@ The `RecoveryController` progresses through 6 phases per fault:
 
 ## Checkpoint Integration
 
-MoEGambit does **not** modify the Megatron checkpoint format. Instead, it saves a sidecar file `moegambit_manifest.json` alongside each checkpoint, containing:
+MOEGAMBIT-MoE does **not** modify the Megatron checkpoint format. Instead, it saves a sidecar file `moegambit_manifest.json` alongside each checkpoint, containing:
 
 - Expert-to-rank placement mapping
 - Per-expert recovery state
@@ -722,10 +722,10 @@ print(f"Allowed: {decision.allowed}, Reason: {decision.reason}")
 
 ## Running Tests
 
-All MoEGambit tests are single-process CPU tests that do not require distributed initialization:
+All MOEGAMBIT-MoE tests are single-process CPU tests that do not require distributed initialization:
 
 ```bash
-# Run all MoEGambit verification tests
+# Run all MOEGAMBIT-MoE verification tests
 python -m pytest tests/unit_tests/transformer/moe/verify_*.py -v
 
 # Run a specific test
@@ -740,24 +740,24 @@ There are 14 test files covering each module independently, plus end-to-end faul
 |---|---|
 | **No ZeRO-2 support** | Dense parameters must be fully replicated across DP ranks. `DistributedOptimizer` for dense params is not supported. |
 | **Single fault at a time** | v2 handles one rank failure per recovery cycle. Concurrent faults require sequential processing. |
-| **External fault detection** | MoEGambit does not monitor rank health. Your infrastructure must detect failures and call the API. |
-| **External replacement spawning** | MoEGambit does not launch new processes. Your cluster manager must provide replacement ranks. |
+| **External fault detection** | MOEGAMBIT-MoE does not monitor rank health. Your infrastructure must detect failures and call the API. |
+| **External replacement spawning** | MOEGAMBIT-MoE does not launch new processes. Your cluster manager must provide replacement ranks. |
 | **Fixed world size** | The replacement rank must take the exact slot (same global rank) of the failed rank. |
 | **Safe-point only repair** | All repair operations happen at iteration boundaries. Mid-iteration faults are deferred. |
 
 ## FAQ
 
-**Q: Does MoEGambit affect training accuracy?**
+**Q: Does MOEGAMBIT-MoE affect training accuracy?**
 A: During the stale-runnable phase, restored experts have weights from a previous checkpoint. The optimizer updates for these experts are blocked until the full optimizer state is loaded. The impact depends on how stale the checkpoint is (controlled by `moe_moegambit_degraded_s_max`).
 
 **Q: What happens if too many experts fail?**
 A: The `DegradedModePolicy` monitors the healthy expert capacity ratio. If it drops below `moe_moegambit_degraded_tau_c` (default 0.5), training is paused until recovery completes.
 
-**Q: Can I use MoEGambit with pipeline parallelism?**
-A: Yes. MoEGambit is orthogonal to PP. The group rebuild only affects EP, ETP, Expert-DP, and DP groups.
+**Q: Can I use MOEGAMBIT-MoE with pipeline parallelism?**
+A: Yes. MOEGAMBIT-MoE is orthogonal to PP. The group rebuild only affects EP, ETP, Expert-DP, and DP groups.
 
 **Q: Do I need to modify my model code?**
-A: No. MoEGambit hooks into the existing MoE router and dispatcher via `TransformerConfig` flags. The health mask is automatically injected into the routing function.
+A: No. MOEGAMBIT-MoE hooks into the existing MoE router and dispatcher via `TransformerConfig` flags. The health mask is automatically injected into the routing function.
 
-**Q: How do I disable MoEGambit after enabling it?**
+**Q: How do I disable MOEGAMBIT-MoE after enabling it?**
 A: Set `moe_moegambit_enable=False`. All sub-modules will be deactivated. No residual state is left in the model.
