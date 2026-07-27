@@ -145,8 +145,8 @@ def test_framework_adapter_composes_protocols_without_inheritance():
     assert isinstance(adapter.state, StateAdapter)
 
 
-def test_registry_starts_without_unimplemented_builtin_adapters():
-    assert available_adapters() == ()
+def test_registry_lists_only_implemented_builtin_adapters():
+    assert available_adapters() == ("generic_ddp", "megatron")
 
 
 def test_process_local_adapter_registration_and_build():
@@ -181,7 +181,7 @@ def test_adapter_discovery_imports_no_optional_frameworks():
 import sys
 import moegambit.adapters
 from moegambit.adapters import available_adapters
-assert available_adapters() == ()
+assert available_adapters() == ('generic_ddp', 'megatron')
 forbidden = ('torch', 'megatron', 'deepspeed')
 assert not any(
     name == prefix or name.startswith(prefix + '.')

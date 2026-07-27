@@ -1,12 +1,12 @@
 """Lazy discovery and construction of framework adapters.
 
-Phase B provides the registry contract but intentionally registers no built-in
-framework: Megatron and Generic DDP land in later phases, while DeepSpeed is
-outside this branch's current scope.
+Built-in adapters are represented by import strings and loaded only when they
+are selected. Discovery therefore remains usable without torch or Megatron.
 """
 
 from __future__ import annotations
 
+import importlib
 from importlib import metadata
 from typing import Any, Callable, Dict, Iterable, Tuple
 
@@ -15,6 +15,10 @@ from ..errors import AdapterUnsupportedError
 __all__ = ["register_adapter", "available_adapters", "get_adapter"]
 
 _ENTRY_POINT_GROUP = "moegambit.frameworks"
+_BUILTINS = {
+    "generic_ddp": "moegambit.adapters.generic_ddp:GenericDDPPlugin",
+    "megatron": "moegambit.adapters.megatron:MegatronAdapterPlugin",
+}
 _REGISTERED: Dict[str, Callable[..., Any]] = {}
 
 
@@ -57,9 +61,18 @@ def _entry_points_named(name: str) -> Iterable[Any]:
 
 
 def available_adapters() -> Tuple[str, ...]:
-    names = set(_REGISTERED)
+    names = set(_BUILTINS)
+    names.update(_REGISTERED)
     names.update(item.name for item in _entry_points())
     return tuple(sorted(names))
+
+
+def _load_target(target: str) -> Any:
+    module_name, separator, attribute_name = target.partition(":")
+    if not separator or not module_name or not attribute_name:
+        raise AdapterUnsupportedError(f"invalid built-in adapter target: {target!r}")
+    module = importlib.import_module(module_name)
+    return getattr(module, attribute_name)
 
 
 def _build(factory: Any, kwargs: Dict[str, Any]) -> Any:
@@ -77,6 +90,8 @@ def get_adapter(name: str, **kwargs: Any) -> Any:
     validated = _validate_name(name)
     if validated in _REGISTERED:
         factory = _REGISTERED[validated]
+    elif validated in _BUILTINS:
+        factory = _load_target(_BUILTINS[validated])
     else:
         matches = tuple(_entry_points_named(validated))
         if not matches:
