@@ -59,6 +59,32 @@ fail() {
   exit 64
 }
 
+acquire_launcher_lock() {
+  local lock_root="${MOEGAMBIT_RUN_LOCK_DIR:-/tmp}"
+  local lock_token
+  lock_token="$(
+    printf '%s' "${RUN_ID}-${TEST_MODE}-${MASTER_PORT}-node${NODE_RANK}" \
+      | tr -c '[:alnum:]_.-' '_'
+  )"
+  LAUNCHER_LOCK_PATH="${lock_root%/}/moegambit-${lock_token}.lock"
+  mkdir -p "${lock_root}"
+
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>>"${LAUNCHER_LOCK_PATH}"
+    if ! flock -n 9; then
+      fail "another launcher already owns ${LAUNCHER_LOCK_PATH}; do not start the same RUN_ID twice"
+    fi
+    printf 'pid=%s started=%s\n' "$$" "$(date -Is)" >&9
+    return
+  fi
+
+  LAUNCHER_LOCK_PATH="${LAUNCHER_LOCK_PATH}.d"
+  if ! mkdir "${LAUNCHER_LOCK_PATH}" 2>/dev/null; then
+    fail "another launcher already owns ${LAUNCHER_LOCK_PATH}; remove a stale lock only after confirming no run is active"
+  fi
+  trap 'rm -rf "${LAUNCHER_LOCK_PATH}"' EXIT
+}
+
 require_uint() {
   local name="$1"
   local value="$2"
@@ -280,7 +306,13 @@ run_case() {
     return 0
   fi
 
-  if (( NODE_RANK == 0 )) && [[ "${RESET_RUN}" == "1" ]]; then
+  local reset_owner=0
+  if [[ "${hot_swap}" == "1" ]]; then
+    # The spare owns the coordinator, so it must finish cleanup before it
+    # starts accepting active-node registrations.
+    reset_owner="${SPARE_NODE_RANK}"
+  fi
+  if (( NODE_RANK == reset_owner )) && [[ "${RESET_RUN}" == "1" ]]; then
     rm -rf "${case_root}"
   fi
   mkdir -p "${checkpoint_dir}" "${state_dir}"
@@ -404,6 +436,7 @@ run_case() {
   validate_case "${case_name}" "${hot_swap}" "${zero2}"
 }
 
+acquire_launcher_lock
 generate_hostfile
 if [[ "${DRY_RUN}" != "1" ]]; then
   preflight

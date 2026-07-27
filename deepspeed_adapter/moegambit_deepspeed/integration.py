@@ -96,9 +96,30 @@ class DeepSpeedRecoveryRuntime:
             or self.settings.checkpoint_dir is None
         ):
             return
+        from moegambit_deepspeed.checkpoint_commit import (
+            resolve_committed_checkpoint,
+        )
+        import torch.distributed as dist
+
+        selection: list[tuple[str | None, str | None]] = [(None, None)]
+        if dist.get_rank() == 0:
+            try:
+                selection[0] = (
+                    resolve_committed_checkpoint(self.settings.checkpoint_dir),
+                    None,
+                )
+            except Exception as exc:
+                selection[0] = (None, f"{type(exc).__name__}: {exc}")
+        dist.broadcast_object_list(selection, src=0)
+        tag, error = selection[0]
+        if error is not None or tag is None:
+            raise RuntimeError(
+                f"DeepSpeed recovery checkpoint selection failed: {error}"
+            )
         self._report_phase("checkpoint_restore_start")
         load_path, _ = self.engine.load_checkpoint(
-            str(self.settings.checkpoint_dir)
+            str(self.settings.checkpoint_dir),
+            tag=tag,
         )
         if load_path is None:
             raise RuntimeError(
@@ -203,13 +224,24 @@ class DeepSpeedRecoveryRuntime:
             return
         self._checkpoint_in_progress = True
         try:
+            tag = f"global_step{step}"
             self.engine.save_checkpoint(
                 str(self.settings.checkpoint_dir),
-                tag=f"global_step{step}",
+                tag=tag,
                 client_state={
                     "moegambit_checkpoint_step": step,
                     "moegambit_recovery_epoch": self.settings.recovery_epoch,
                 },
+                save_latest=False,
+            )
+            from moegambit_deepspeed.checkpoint_commit import (
+                publish_checkpoint,
+            )
+
+            publish_checkpoint(
+                self.engine,
+                self.settings.checkpoint_dir,
+                tag,
             )
         finally:
             self._checkpoint_in_progress = False

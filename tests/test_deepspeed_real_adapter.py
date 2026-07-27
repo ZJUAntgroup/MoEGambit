@@ -136,10 +136,20 @@ def test_hybrid_restore_runs_after_checkpoint_and_has_no_later_phase():
     assert '"two_phase": False' in hybrid
 
 
-def test_runtime_checkpoint_hook_runs_for_common_model_step(tmp_path):
+def test_runtime_checkpoint_hook_runs_for_common_model_step(
+    tmp_path, monkeypatch
+):
+    from moegambit_deepspeed import checkpoint_commit
     from moegambit_deepspeed.integration import (
         DeepSpeedRecoveryRuntime,
         DeepSpeedRuntimeSettings,
+    )
+
+    published = []
+    monkeypatch.setattr(
+        checkpoint_commit,
+        "publish_checkpoint",
+        lambda engine, path, tag: published.append((engine, path, tag)),
     )
 
     class FakeEngine:
@@ -151,8 +161,10 @@ def test_runtime_checkpoint_hook_runs_for_common_model_step(tmp_path):
             self.global_steps += 1
             return self.global_steps
 
-        def save_checkpoint(self, path, tag, client_state):
-            self.saved.append((path, tag, client_state))
+        def save_checkpoint(
+            self, path, tag, client_state, save_latest=True
+        ):
+            self.saved.append((path, tag, client_state, save_latest))
 
     engine = FakeEngine()
     settings = DeepSpeedRuntimeSettings(
@@ -180,9 +192,71 @@ def test_runtime_checkpoint_hook_runs_for_common_model_step(tmp_path):
                 "moegambit_checkpoint_step": 2,
                 "moegambit_recovery_epoch": 0,
             },
+            False,
         )
     ]
+    assert published == [(engine, tmp_path, "global_step2")]
     runtime.close()
+
+
+def test_checkpoint_manifest_requires_every_dense_pipeline_shard(tmp_path):
+    from moegambit_deepspeed.checkpoint_commit import (
+        build_checkpoint_manifest,
+    )
+
+    class FakeEngine:
+        mp_world_size = 8
+        dp_world_size = 8
+
+        @staticmethod
+        def zero_optimization_partition_weights():
+            return False
+
+    tag = "global_step10"
+    tag_dir = tmp_path / tag
+    tag_dir.mkdir()
+    for rank in range(4):
+        (tag_dir / f"mp_rank_{rank:02d}_model_states.pt").write_bytes(
+            b"checkpoint"
+        )
+
+    with pytest.raises(RuntimeError, match="dense_shards=4/8"):
+        build_checkpoint_manifest(FakeEngine(), tmp_path, tag)
+
+
+def test_checkpoint_selection_falls_back_to_previous_complete_tag(tmp_path):
+    from moegambit_deepspeed.checkpoint_commit import (
+        MANIFEST_NAME,
+        build_checkpoint_manifest,
+        resolve_committed_checkpoint,
+    )
+
+    class FakeEngine:
+        mp_world_size = 2
+        dp_world_size = 1
+
+        @staticmethod
+        def zero_optimization_partition_weights():
+            return False
+
+    engine = FakeEngine()
+    for step in (10, 20):
+        tag = f"global_step{step}"
+        tag_dir = tmp_path / tag
+        tag_dir.mkdir()
+        for rank in range(2):
+            (tag_dir / f"mp_rank_{rank:02d}_model_states.pt").write_bytes(
+                f"{step}-{rank}".encode()
+            )
+        manifest = build_checkpoint_manifest(engine, tmp_path, tag)
+        (tag_dir / MANIFEST_NAME).write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+    (tmp_path / "latest").write_text("global_step20\n", encoding="utf-8")
+    (tmp_path / "global_step20" / "mp_rank_01_model_states.pt").unlink()
+
+    assert resolve_committed_checkpoint(tmp_path) == "global_step10"
 
 
 def test_hybrid_restore_classifies_autoep_experts_without_name_heuristics():
@@ -474,6 +548,48 @@ def test_multinode_script_dry_run_builds_real_commands(tmp_path):
     assert "LOCAL_WORLD_SIZE" in (
         ROOT / "test_deepspeed_hotspare_replace.sh"
     ).read_text(encoding="utf-8")
+
+
+def test_duplicate_spare_launcher_cannot_delete_active_case(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_flock = bin_dir / "flock"
+    fake_flock.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    fake_flock.chmod(0o755)
+
+    run_root = tmp_path / "run"
+    case_root = run_root / "duplicate-run" / "hot_swap_pp8_ep8"
+    case_root.mkdir(parents=True)
+    sentinel = case_root / "active-checkpoint"
+    sentinel.write_text("keep", encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{bin_dir}:{env['PATH']}",
+            "DRY_RUN": "1",
+            "TEST_MODE": "hot_swap",
+            "NODE_RANK": "8",
+            "MASTER_ADDR": "10.0.0.1",
+            "MASTER_PORT": "23992",
+            "MOEGAMBIT_HOT_SPARE_COORDINATOR_ADDR": "10.0.0.9",
+            "RUN_ID": "duplicate-run",
+            "RUN_ROOT": str(run_root),
+            "RESET_RUN": "1",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "test_deepspeed_hotspare_replace.sh")],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 64
+    assert "another launcher already owns" in result.stderr
+    assert sentinel.read_text(encoding="utf-8") == "keep"
 
 
 def test_hot_spare_coordinator_replaces_failed_logical_node(tmp_path):
