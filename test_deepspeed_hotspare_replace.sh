@@ -50,7 +50,7 @@ DRY_RUN="${DRY_RUN:-0}"
 
 MODEL_CONFIG="${MODEL_CONFIG:-${SCRIPT_DIR}/tokenizer}"
 DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
-RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/731hotspare/deepspeed_real}"
+RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/81hotspare/deepspeed_real}"
 RUN_ROOT="${RUN_ROOT_BASE%/}/${RUN_ID}"
 HOSTFILE="${DEEPSPEED_HOSTFILE:-/tmp/moegambit-deepspeed-hosts-${MASTER_PORT}}"
 
@@ -178,6 +178,9 @@ export MOEGAMBIT_DEEPSPEED_APPLICATION_CHECKPOINT=0
 export MOEGAMBIT_RELAY_RANK_LOG="${MOEGAMBIT_RELAY_RANK_LOG:-key}"
 export MOEGAMBIT_DEEPSPEED_LOG_LEVEL="${MOEGAMBIT_DEEPSPEED_LOG_LEVEL:-info}"
 export MOEGAMBIT_LAUNCHER_LOG_LEVEL="${MOEGAMBIT_LAUNCHER_LOG_LEVEL:-warning}"
+export MOEGAMBIT_STANDBY_RESIDENT="${MOEGAMBIT_STANDBY_RESIDENT:-1}"
+export MOEGAMBIT_STANDBY_READY_TIMEOUT="${MOEGAMBIT_STANDBY_READY_TIMEOUT:-10}"
+export MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD="${MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD:-1}"
 export MOEGAMBIT_STANDBY_PREFETCH="${MOEGAMBIT_STANDBY_PREFETCH:-1}"
 export MOEGAMBIT_STANDBY_PREFETCH_LOGICAL_NODE="$FAULT_INJECT_NODE"
 export MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB="${MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB:-128}"
@@ -346,6 +349,8 @@ run_case() {
   echo "[deepspeed-real-launch] case=${case_name} node=${NODE_RANK} "\
 "PP=${pp_size} EP=${EP_SIZE} ZeRO=${zero_stage} hot_swap=${hot_swap} zero2=${zero2} "\
 "hybrid_restore=${MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE} "\
+"resident_standby=${MOEGAMBIT_STANDBY_RESIDENT} "\
+"recovery_gpu_build=${MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD} "\
 "spare=${SPARE_NODE_RANK} coordinator=${HOT_SPARE_ADDR}:${coordinator_port} "\
 "recovery_timeout=${HOT_SPARE_RECOVERY_TIMEOUT}s"
   local launch_node_rank="${NODE_RANK}"

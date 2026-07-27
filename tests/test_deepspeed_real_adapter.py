@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,29 @@ def test_real_workload_contains_both_supported_topologies():
     assert 'callable(getattr(torch, "_grouped_mm", None))' in source
     assert "exit_code = main()" in source
     assert "raise SystemExit(main())" not in source
+
+
+def test_resident_and_gpu_build_optimizations_are_recovery_scoped():
+    workload = (
+        ROOT / "deepspeed_qwen3_moe_pretrain.py"
+    ).read_text(encoding="utf-8")
+    launcher = (
+        ROOT / "test_deepspeed_hotspare_replace.sh"
+    ).read_text(encoding="utf-8")
+    hot_spare = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit"
+        / "runtime"
+        / "hot_spare.py"
+    ).read_text(encoding="utf-8")
+
+    assert "recovery_epoch > 0" in workload
+    assert "MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD" in workload
+    assert "MOEGAMBIT_STANDBY_RESIDENT" in launcher
+    assert "MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD" in launcher
+    assert 'self.role == "standby"' in hot_spare
+    assert "standby_cache_for(args)" in workload
 
 
 def test_pipeline_backward_has_single_hook_owned_lifecycle():
@@ -949,6 +973,279 @@ def test_hot_spare_prefetch_rewarms_dataset_index(tmp_path, monkeypatch):
     supervisor._prefetch_stop.clear()
 
     assert supervisor._prefetch_dataset_index("recovery") == len(b"index")
+
+
+def test_hot_spare_extracts_resident_deepspeed_workload(tmp_path):
+    from moegambit.runtime.hot_spare import (
+        _deepspeed_python_workload,
+    )
+
+    workload = tmp_path / "train.py"
+    workload.write_text("", encoding="utf-8")
+    extracted = _deepspeed_python_workload(
+        (
+            sys.executable,
+            "-u",
+            "-m",
+            "deepspeed.launcher.runner",
+            "--no_ssh",
+            "--num_nodes",
+            "8",
+            "--num_gpus",
+            "8",
+            str(workload),
+            "--state-dir",
+            "/tmp/state",
+        )
+    )
+
+    assert extracted == (
+        workload,
+        ("--state-dir", "/tmp/state"),
+    )
+
+
+def test_hot_spare_activates_only_fully_ready_resident_pool(
+    tmp_path, monkeypatch
+):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    class RunningProcess:
+        pid = 12345
+
+        @staticmethod
+        def poll():
+            return None
+
+    monkeypatch.setenv("MOEGAMBIT_STANDBY_RESIDENT", "1")
+    control_dir = tmp_path / "control"
+    control_dir.mkdir()
+    session = "session-one"
+    for local_rank in range(2):
+        (control_dir / f"ready_{session}_{local_rank}.json").write_text(
+            json.dumps(
+                {
+                    "session_id": session,
+                    "local_rank": local_rank,
+                    "allocated_gib": 8.5,
+                }
+            ),
+            encoding="utf-8",
+        )
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=2,
+        role="standby",
+        advertise_addr="127.0.0.1",
+        command=(
+            "runner",
+            "--num_gpus",
+            "2",
+            "--enable_each_rank_log",
+            str(tmp_path / "rank-logs"),
+        ),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    process = RunningProcess()
+    supervisor._resident_process = process
+    supervisor._resident_control_dir = control_dir
+    supervisor._resident_session_id = session
+    supervisor._resident_num_workers = 2
+
+    activated = supervisor._activate_resident_standby(
+        command=supervisor.command,
+        environment={"MASTER_ADDR": "10.0.0.1", "MASTER_PORT": "25001"},
+        logical_node=0,
+        epoch=1,
+    )
+
+    assert activated is True
+    assert supervisor.process is process
+    assert supervisor._resident_process is None
+    activation = json.loads(
+        (control_dir / f"activate_{session}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert activation["logical_node"] == 0
+    assert activation["epoch"] == 1
+    assert activation["environment"]["MASTER_ADDR"] == "10.0.0.1"
+
+
+def test_resident_standby_workers_activate_without_process_replacement(
+    tmp_path,
+):
+    fake_modules = tmp_path / "fake-modules"
+    fake_modules.mkdir()
+    (fake_modules / "torch.py").write_text(
+        """
+class _Cuda:
+    @staticmethod
+    def set_device(_rank):
+        pass
+
+    @staticmethod
+    def synchronize(_rank):
+        pass
+
+    @staticmethod
+    def memory_allocated(_rank):
+        return 1024**3
+
+    @staticmethod
+    def memory_reserved(_rank):
+        return 2 * 1024**3
+
+
+cuda = _Cuda()
+
+
+def empty(*_args, **_kwargs):
+    return object()
+""".lstrip(),
+        encoding="utf-8",
+    )
+    workload = tmp_path / "workload.py"
+    workload.write_text(
+        """
+import json
+import os
+from pathlib import Path
+
+
+def prepare_standby(argv, **context):
+    return {
+        "model_ready": True,
+        "argv_count": len(argv),
+        "prepared_local_rank": context["local_rank"],
+    }
+
+
+def main(_argv):
+    output = Path(os.environ["OUTPUT_DIR"])
+    output.mkdir(parents=True, exist_ok=True)
+    rank = int(os.environ["RANK"])
+    (output / f"rank_{rank}.json").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "rank": rank,
+                "local_rank": int(os.environ["LOCAL_RANK"]),
+                "world_size": int(os.environ["WORLD_SIZE"]),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return 0
+""".lstrip(),
+        encoding="utf-8",
+    )
+    control = tmp_path / "control"
+    logs = tmp_path / "standby-logs"
+    rank_logs = tmp_path / "rank-logs"
+    output = tmp_path / "output"
+    session = "resident-test"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [
+            str(fake_modules),
+            str(ROOT / "deepspeed_adapter"),
+            environment.get("PYTHONPATH", ""),
+        ]
+    )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-u",
+            "-m",
+            "moegambit.runtime.standby",
+            "--mode",
+            "launcher",
+            "--control-dir",
+            str(control),
+            "--session-id",
+            session,
+            "--num-workers",
+            "2",
+            "--expected-logical-node",
+            "1",
+            "--world-size",
+            "4",
+            "--training-script",
+            str(workload),
+            "--log-dir",
+            str(logs),
+            "--",
+            "--example",
+            "value",
+        ],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if all(
+                (
+                    control / f"ready_{session}_{local_rank}.json"
+                ).is_file()
+                for local_rank in range(2)
+            ):
+                break
+            assert process.poll() is None
+            time.sleep(0.05)
+        else:
+            pytest.fail("resident workers did not become ready")
+
+        (control / f"activate_{session}.json").write_text(
+            json.dumps(
+                {
+                    "session_id": session,
+                    "logical_node": 1,
+                    "epoch": 1,
+                    "rank_log_dir": str(rank_logs),
+                    "environment": {
+                        "MASTER_ADDR": "127.0.0.1",
+                        "MASTER_PORT": "25001",
+                        "MOEGAMBIT_RECOVERY_EPOCH": "1",
+                        "OUTPUT_DIR": str(output),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        stdout, stderr = process.communicate(timeout=10)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+
+    assert process.returncode == 0, (stdout, stderr)
+    states = [
+        json.loads(
+            (output / f"rank_{rank}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for rank in (2, 3)
+    ]
+    assert [state["local_rank"] for state in states] == [0, 1]
+    assert {state["world_size"] for state in states} == {4}
+    ready_pids = {
+        json.loads(
+            (
+                control
+                / f"ready_{session}_{local_rank}.json"
+            ).read_text(encoding="utf-8")
+        )["pid"]
+        for local_rank in range(2)
+    }
+    assert {state["pid"] for state in states} == ready_pids
 
 
 def test_hot_spare_relays_local_rank_zero_log_incrementally(

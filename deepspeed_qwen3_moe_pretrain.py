@@ -17,9 +17,10 @@ import socket
 import sys
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator, Sequence
 
 import numpy as np
 import torch
@@ -30,9 +31,10 @@ from torch import nn
 
 
 _POSITION_CACHE: dict[tuple, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+_STANDBY_CACHE: dict[str, Any] | None = None
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_rank", "--local-rank", type=int, default=-1)
     parser.add_argument("--case-name", default="deepspeed-real")
@@ -56,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--router-aux-loss-coeff", type=float, default=1.0e-3)
     parser.add_argument("--activation-checkpointing", type=int, choices=(0, 1), default=1)
     parser.add_argument("--log-memory", action=argparse.BooleanOptionalAction, default=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.pipeline_parallel_size > 1 and args.zero_stage >= 2:
         parser.error("DeepSpeed PipelineModule is incompatible with ZeRO stage 2")
@@ -75,6 +77,17 @@ def parse_args() -> argparse.Namespace:
             "--min-learning-rate must be between zero and --learning-rate"
         )
     return args
+
+
+def validate_input_paths(args: argparse.Namespace) -> None:
+    model_config_path = Path(args.model_config)
+    data_prefix = Path(args.data_path)
+    if not model_config_path.exists():
+        raise FileNotFoundError(model_config_path)
+    if not Path(str(data_prefix) + ".idx").exists():
+        raise FileNotFoundError(str(data_prefix) + ".idx")
+    if not Path(str(data_prefix) + ".bin").exists():
+        raise FileNotFoundError(str(data_prefix) + ".bin")
 
 
 def log(message: str, *, rank: int | None = None) -> None:
@@ -391,27 +404,80 @@ def install_pipeline_router_hooks(model: nn.Module) -> int:
     return installed
 
 
+def pipeline_layer_descriptors(config, decoder_type):
+    descriptors = [(Qwen3MoeEmbeddingPipe, (config,))]
+    descriptors.extend(
+        (decoder_type, (config, layer_idx))
+        for layer_idx in range(config.num_hidden_layers)
+    )
+    descriptors.extend(
+        [
+            (Qwen3MoeFinalNormPipe, (config,)),
+            (Qwen3MoeLMHeadPipe, (config,)),
+        ]
+    )
+    return descriptors
+
+
+def pipeline_partition_bounds(
+    config, pipeline_parallel_size: int
+) -> list[int]:
+    from deepspeed.runtime.utils import partition_balanced
+
+    weights = (
+        [0]
+        + [1] * int(config.num_hidden_layers)
+        + [0, 0]
+    )
+    return partition_balanced(weights, pipeline_parallel_size)
+
+
+def build_local_pipeline_layers(
+    config,
+    pipeline_parallel_size: int,
+    stage_id: int,
+    device: str,
+    seed: int,
+    decoder_type=None,
+) -> tuple[dict[int, nn.Module], type]:
+    from deepspeed.runtime.utils import set_random_seed
+
+    decoder_type = decoder_type or qwen_decoder_pipe_type()
+    descriptors = pipeline_layer_descriptors(config, decoder_type)
+    parts = pipeline_partition_bounds(config, pipeline_parallel_size)
+    layers: dict[int, nn.Module] = {}
+    with torch.device(device):
+        for layer_index in range(
+            parts[stage_id], parts[stage_id + 1]
+        ):
+            set_random_seed(seed + layer_index)
+            module_type, module_args = descriptors[layer_index]
+            layers[layer_index] = module_type(*module_args)
+    return layers, decoder_type
+
+
 def build_pipeline_model(
     config,
     pipeline_parallel_size: int,
     checkpoint: bool,
     world_size: int | None = None,
+    prebuilt_layers: dict[int, nn.Module] | None = None,
+    decoder_type=None,
 ):
     from deepspeed.pipe import LayerSpec, PipelineModule
     from deepspeed.runtime.pipe.topology import ProcessTopology
 
-    decoder_type = qwen_decoder_pipe_type()
-    layers = [LayerSpec(Qwen3MoeEmbeddingPipe, config)]
-    layers.extend(
-        LayerSpec(decoder_type, config, layer_idx)
-        for layer_idx in range(config.num_hidden_layers)
-    )
-    layers.extend(
-        [
-            LayerSpec(Qwen3MoeFinalNormPipe, config),
-            LayerSpec(Qwen3MoeLMHeadPipe, config),
-        ]
-    )
+    decoder_type = decoder_type or qwen_decoder_pipe_type()
+    descriptors = pipeline_layer_descriptors(config, decoder_type)
+    prebuilt_layers = prebuilt_layers or {}
+    layers = [
+        (
+            prebuilt_layers[index]
+            if index in prebuilt_layers
+            else LayerSpec(module_type, *module_args)
+        )
+        for index, (module_type, module_args) in enumerate(descriptors)
+    ]
     checkpoint_fn = partial(
         torch.utils.checkpoint.checkpoint, use_reentrant=False
     )
@@ -476,6 +542,128 @@ class MegatronMMapTokenSource:
         input_ids = torch.from_numpy(joined[:-1].copy()).long()
         labels = torch.from_numpy(joined[1:].copy()).long()
         return input_ids, labels
+
+
+def _standby_signature(
+    args: argparse.Namespace, local_rank: int
+) -> tuple[Any, ...]:
+    return (
+        str(Path(args.model_config).resolve()),
+        str(Path(args.data_path).resolve()),
+        int(args.sequence_length),
+        int(args.pipeline_parallel_size),
+        int(args.expert_parallel_size),
+        int(local_rank),
+    )
+
+
+def prepare_standby(
+    argv: Sequence[str],
+    *,
+    local_rank: int,
+    logical_node: int,
+    world_size: int,
+) -> dict[str, Any]:
+    """Build this local rank's reusable model stage and dataset mmap."""
+    global _STANDBY_CACHE
+
+    args = parse_args(argv)
+    args.local_rank = int(local_rank)
+    validate_input_paths(args)
+    if world_size % args.pipeline_parallel_size:
+        raise ValueError(
+            f"world_size={world_size} is not divisible by "
+            f"PP={args.pipeline_parallel_size}"
+        )
+    if (
+        world_size // args.pipeline_parallel_size
+    ) % args.expert_parallel_size:
+        raise ValueError(
+            "EP must divide world_size / PP during standby preparation"
+        )
+
+    import deepspeed  # noqa: F401
+
+    torch.cuda.set_device(local_rank)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    config = load_qwen_config(args.model_config, args.sequence_length)
+    config._moegambit_router_aux_loss_coeff = args.router_aux_loss_coeff
+    use_grouped_mm = resolve_grouped_mm()
+    signature = _standby_signature(args, local_rank)
+
+    source_pool = ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix=f"standby-dataset-{local_rank}",
+    )
+    source_future = source_pool.submit(
+        MegatronMMapTokenSource,
+        args.data_path,
+        args.sequence_length,
+    )
+    model: nn.Module | None = None
+    prebuilt_layers: dict[int, nn.Module] = {}
+    decoder_type = None
+    stage_id = (
+        logical_node
+        * int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
+        + local_rank
+    ) % args.pipeline_parallel_size
+    original_dtype = torch.get_default_dtype()
+    torch.set_default_dtype(torch.bfloat16)
+    try:
+        if args.pipeline_parallel_size > 1:
+            prebuilt_layers, decoder_type = (
+                build_local_pipeline_layers(
+                    config,
+                    args.pipeline_parallel_size,
+                    stage_id,
+                    f"cuda:{local_rank}",
+                    args.seed,
+                )
+            )
+        else:
+            with torch.device(f"cuda:{local_rank}"):
+                model = build_full_model(config)
+        source = source_future.result()
+    finally:
+        torch.set_default_dtype(original_dtype)
+        source_pool.shutdown(wait=True)
+    # Touch one sample so both mmap files and their first data pages are valid.
+    source.sample(0)
+    torch.cuda.synchronize(local_rank)
+    _STANDBY_CACHE = {
+        "signature": signature,
+        "config": config,
+        "use_grouped_mm": use_grouped_mm,
+        "model": model,
+        "pipeline_layers": prebuilt_layers,
+        "decoder_type": decoder_type,
+        "source": source,
+    }
+    return {
+        "dataset_ready": True,
+        "model_ready": True,
+        "pipeline_stage": stage_id,
+        "prebuilt_layers": (
+            len(prebuilt_layers)
+            if args.pipeline_parallel_size > 1
+            else int(config.num_hidden_layers) + 3
+        ),
+    }
+
+
+def standby_cache_for(
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    cache = _STANDBY_CACHE
+    if cache is None:
+        return None
+    if cache.get("signature") != _standby_signature(
+        args, args.local_rank
+    ):
+        return None
+    return cache
 
 
 class DeterministicBatchIterator(Iterator):
@@ -676,19 +864,11 @@ def maybe_inject_fault(
     os.kill(os.getpid(), signal.SIGKILL)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     if args.local_rank < 0:
         args.local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-
-    model_config_path = Path(args.model_config)
-    data_prefix = Path(args.data_path)
-    if not model_config_path.exists():
-        raise FileNotFoundError(model_config_path)
-    if not Path(str(data_prefix) + ".idx").exists():
-        raise FileNotFoundError(str(data_prefix) + ".idx")
-    if not Path(str(data_prefix) + ".bin").exists():
-        raise FileNotFoundError(str(data_prefix) + ".bin")
+    validate_input_paths(args)
 
     import deepspeed
 
@@ -715,9 +895,36 @@ def main() -> int:
     # each local stage.
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
-    config = load_qwen_config(args.model_config, args.sequence_length)
-    config._moegambit_router_aux_loss_coeff = args.router_aux_loss_coeff
-    use_grouped_mm = resolve_grouped_mm()
+    standby_cache = standby_cache_for(args)
+    recovery_epoch = int(
+        os.environ.get(
+            "MOEGAMBIT_RECOVERY_EPOCH",
+            os.environ.get("TORCHELASTIC_RESTART_COUNT", "0"),
+        )
+    )
+    recovery_gpu_build = (
+        recovery_epoch > 0
+        and os.environ.get(
+            "MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD", "1"
+        ).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    if standby_cache is not None:
+        config = standby_cache["config"]
+        use_grouped_mm = bool(standby_cache["use_grouped_mm"])
+        log(
+            "STANDBY_CACHE_HIT model=1 dataset=1 "
+            f"prebuilt_layers={len(standby_cache['pipeline_layers'])}",
+            rank=rank,
+        )
+    else:
+        config = load_qwen_config(
+            args.model_config, args.sequence_length
+        )
+        config._moegambit_router_aux_loss_coeff = (
+            args.router_aux_loss_coeff
+        )
+        use_grouped_mm = resolve_grouped_mm()
     Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=True)
     Path(args.state_dir).mkdir(parents=True, exist_ok=True)
 
@@ -726,8 +933,8 @@ def main() -> int:
         f"case={args.case_name} world={world_size} "
         f"PP={args.pipeline_parallel_size} EP={args.expert_parallel_size} "
         f"ZeRO={args.zero_stage} recovery_epoch="
-        f"{os.environ.get('MOEGAMBIT_RECOVERY_EPOCH', os.environ.get('TORCHELASTIC_RESTART_COUNT', '0'))} "
-        f"grouped_mm={use_grouped_mm}",
+        f"{recovery_epoch} grouped_mm={use_grouped_mm} "
+        f"recovery_gpu_build={recovery_gpu_build}",
         rank=rank,
     )
 
@@ -737,12 +944,34 @@ def main() -> int:
     log("MODEL_BUILD_START", rank=rank)
     try:
         if args.pipeline_parallel_size > 1:
+            prebuilt_layers = None
+            decoder_type = None
+            if standby_cache is not None:
+                prebuilt_layers = standby_cache["pipeline_layers"]
+                decoder_type = standby_cache["decoder_type"]
+            elif recovery_gpu_build:
+                prebuilt_layers, decoder_type = (
+                    build_local_pipeline_layers(
+                        config,
+                        args.pipeline_parallel_size,
+                        rank % args.pipeline_parallel_size,
+                        f"cuda:{args.local_rank}",
+                        args.seed,
+                    )
+                )
             model = build_pipeline_model(
                 config,
                 args.pipeline_parallel_size,
                 bool(args.activation_checkpointing),
                 world_size,
+                prebuilt_layers,
+                decoder_type,
             )
+        elif standby_cache is not None:
+            model = standby_cache["model"]
+        elif recovery_gpu_build:
+            with torch.device(f"cuda:{args.local_rank}"):
+                model = build_full_model(config)
         else:
             model = build_full_model(config)
     finally:
@@ -792,7 +1021,13 @@ def main() -> int:
     report_worker_phase("pipeline_validation_done", rank)
 
     report_worker_phase("dataset_init_start", rank)
-    source = MegatronMMapTokenSource(args.data_path, args.sequence_length)
+    source = (
+        standby_cache["source"]
+        if standby_cache is not None
+        else MegatronMMapTokenSource(
+            args.data_path, args.sequence_length
+        )
+    )
     report_worker_phase("dataset_init_done", rank)
     start_micro_batch = (
         int(engine.global_steps) * args.gradient_accumulation_steps

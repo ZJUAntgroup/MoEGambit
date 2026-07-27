@@ -15,8 +15,10 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -111,6 +113,22 @@ def _command_option(
             return command[index + 1]
         if item.startswith(prefix):
             return item[len(prefix):]
+    return None
+
+
+def _deepspeed_python_workload(
+    command: Sequence[str],
+) -> tuple[Path, tuple[str, ...]] | None:
+    """Extract a Python training script from a DeepSpeed runner command."""
+    try:
+        module_index = command.index("deepspeed.launcher.runner")
+    except ValueError:
+        return None
+    for index in range(module_index + 1, len(command)):
+        candidate = Path(command[index])
+        if candidate.suffix != ".py":
+            continue
+        return candidate, tuple(command[index + 1 :])
     return None
 
 
@@ -790,6 +808,13 @@ class AgentSupervisor:
         self._prefetch_stop = threading.Event()
         self._prefetch_thread: threading.Thread | None = None
         self._prefetched_checkpoint_tag: str | None = None
+        self._resident_process: subprocess.Popen | None = None
+        self._resident_session_id: str | None = None
+        self._resident_control_dir: Path | None = None
+        self._resident_num_workers = 0
+        self._resident_failed = False
+        self._resident_ready_logged = False
+        self._resident_last_status_log = 0.0
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
         self._last_control_warning = 0.0
@@ -832,11 +857,20 @@ class AgentSupervisor:
         last_warning = 0.0
         while not self._heartbeat_stop.wait(self.heartbeat_interval):
             process = self.process
-            state = (
-                "running"
-                if process is not None and process.poll() is None
-                else self.role
-            )
+            if process is not None and process.poll() is None:
+                state = "running"
+            elif (
+                self._resident_process is not None
+                and self._resident_process.poll() is None
+            ):
+                ready, _ = self._resident_ready_snapshot()
+                state = (
+                    "standby_ready"
+                    if len(ready) == self._resident_num_workers
+                    else "standby_warming"
+                )
+            else:
+                state = self.role
             try:
                 self._request(
                     "heartbeat",
@@ -896,6 +930,395 @@ class AgentSupervisor:
         }
         return tuple(item.format_map(values) for item in self.command)
 
+    def _resident_enabled(self) -> bool:
+        return (
+            self.role == "standby"
+            and os.environ.get(
+                "MOEGAMBIT_STANDBY_RESIDENT", "0"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+
+    def _resident_ready_snapshot(
+        self,
+    ) -> tuple[list[Mapping[str, Any]], list[int]]:
+        if (
+            self._resident_control_dir is None
+            or self._resident_session_id is None
+            or self._resident_num_workers <= 0
+        ):
+            return [], []
+        ready: list[Mapping[str, Any]] = []
+        missing: list[int] = []
+        for local_rank in range(self._resident_num_workers):
+            path = (
+                self._resident_control_dir
+                / (
+                    f"ready_{self._resident_session_id}_"
+                    f"{local_rank}.json"
+                )
+            )
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                missing.append(local_rank)
+                continue
+            if (
+                not isinstance(value, dict)
+                or value.get("session_id")
+                != self._resident_session_id
+                or int(value.get("local_rank", -1)) != local_rank
+            ):
+                missing.append(local_rank)
+                continue
+            ready.append(value)
+        return ready, missing
+
+    def _log_resident_readiness(self) -> None:
+        if self._resident_ready_logged:
+            return
+        ready, missing = self._resident_ready_snapshot()
+        if missing or not ready:
+            now = time.monotonic()
+            if now - self._resident_last_status_log >= 30.0:
+                phases: dict[int, str] = {}
+                if (
+                    self._resident_control_dir is not None
+                    and self._resident_session_id is not None
+                ):
+                    for local_rank in missing:
+                        status_path = (
+                            self._resident_control_dir
+                            / (
+                                f"status_{self._resident_session_id}_"
+                                f"{local_rank}.json"
+                            )
+                        )
+                        try:
+                            status = json.loads(
+                                status_path.read_text(
+                                    encoding="utf-8"
+                                )
+                            )
+                        except (OSError, ValueError):
+                            phases[local_rank] = "not_started"
+                        else:
+                            phases[local_rank] = str(
+                                status.get("phase", "unknown")
+                            )
+                logger.info(
+                    "resident standby warming ready=%d/%d "
+                    "missing_local_ranks=%s phases=%s",
+                    len(ready),
+                    self._resident_num_workers,
+                    missing,
+                    phases,
+                )
+                self._resident_last_status_log = now
+            return
+        allocated = sum(
+            float(value.get("allocated_gib", 0.0))
+            for value in ready
+        )
+        reserved = sum(
+            float(value.get("reserved_gib", 0.0))
+            for value in ready
+        )
+        warmup = max(
+            float(value.get("warmup_seconds", 0.0))
+            for value in ready
+        )
+        per_gpu = ",".join(
+            (
+                f"{int(value['local_rank'])}:"
+                f"{float(value.get('allocated_gib', 0.0)):.2f}G"
+            )
+            for value in ready
+        )
+        logger.warning(
+            "resident standby ready workers=%d/%d "
+            "allocated_gib=%.2f reserved_gib=%.2f "
+            "warmup_seconds=%.2f per_gpu=[%s]",
+            len(ready),
+            self._resident_num_workers,
+            allocated,
+            reserved,
+            warmup,
+            per_gpu,
+        )
+        self._resident_ready_logged = True
+
+    def _resident_failure_tail(self) -> str:
+        state_dir_text = _command_option(
+            self.command, "--state-dir"
+        )
+        if not state_dir_text or self._resident_session_id is None:
+            return ""
+        log_dir = (
+            Path(state_dir_text)
+            / "standby_logs"
+            / f"node_{self.physical_node}"
+        )
+        values: list[str] = []
+        for local_rank in range(self._resident_num_workers):
+            path = (
+                log_dir
+                / (
+                    f"{self._resident_session_id}_"
+                    f"local_rank{local_rank}.log"
+                )
+            )
+            tail = _tail_text(path, line_count=20)
+            if tail:
+                values.append(
+                    f"--- standby local_rank={local_rank} ---\n{tail}"
+                )
+        return "\n".join(values)[-16000:]
+
+    def _ensure_resident_standby(self) -> None:
+        if not self._resident_enabled() or self._resident_failed:
+            return
+        process = self._resident_process
+        if process is not None:
+            return_code = process.poll()
+            if return_code is None:
+                self._log_resident_readiness()
+                return
+            self._resident_process = None
+            self._resident_failed = True
+            logger.error(
+                "resident standby exited before activation code=%d\n%s",
+                return_code,
+                self._resident_failure_tail(),
+            )
+            return
+
+        workload = _deepspeed_python_workload(self.command)
+        num_workers_text = _command_option(
+            self.command, "--num_gpus"
+        )
+        num_nodes_text = _command_option(
+            self.command, "--num_nodes"
+        )
+        state_dir_text = _command_option(
+            self.command, "--state-dir"
+        )
+        if (
+            workload is None
+            or num_workers_text is None
+            or num_nodes_text is None
+            or state_dir_text is None
+        ):
+            logger.error(
+                "resident standby requires a DeepSpeed Python workload "
+                "with --num_nodes, --num_gpus, and --state-dir; "
+                "falling back to cold launch"
+            )
+            self._resident_failed = True
+            return
+        try:
+            num_workers = int(num_workers_text)
+            num_nodes = int(num_nodes_text)
+        except ValueError:
+            logger.error(
+                "invalid resident standby topology nodes=%s workers=%s",
+                num_nodes_text,
+                num_workers_text,
+            )
+            self._resident_failed = True
+            return
+        if num_workers <= 0 or num_nodes <= 0:
+            self._resident_failed = True
+            return
+
+        training_script, training_args = workload
+        expected_logical = int(
+            os.environ.get(
+                "MOEGAMBIT_STANDBY_PREFETCH_LOGICAL_NODE", "0"
+            )
+        )
+        session_id = (
+            f"{int(time.time())}-{os.getpid()}-"
+            f"{uuid.uuid4().hex[:8]}"
+        )
+        state_dir = Path(state_dir_text)
+        control_dir = (
+            state_dir
+            / "standby_control"
+            / f"node_{self.physical_node}"
+        )
+        log_dir = (
+            state_dir
+            / "standby_logs"
+            / f"node_{self.physical_node}"
+        )
+        command = (
+            sys.executable,
+            "-u",
+            "-m",
+            "moegambit.runtime.standby",
+            "--mode",
+            "launcher",
+            "--control-dir",
+            str(control_dir),
+            "--session-id",
+            session_id,
+            "--num-workers",
+            str(num_workers),
+            "--expected-logical-node",
+            str(expected_logical),
+            "--world-size",
+            str(num_nodes * num_workers),
+            "--training-script",
+            str(training_script),
+            "--log-dir",
+            str(log_dir),
+            "--",
+            *training_args,
+        )
+        control_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logger.warning(
+            "starting resident standby workers=%d expected_logical=%d "
+            "world_size=%d control_dir=%s",
+            num_workers,
+            expected_logical,
+            num_nodes * num_workers,
+            control_dir,
+        )
+        self._resident_session_id = session_id
+        self._resident_control_dir = control_dir
+        self._resident_num_workers = num_workers
+        self._resident_ready_logged = False
+        self._resident_last_status_log = 0.0
+        self._resident_process = subprocess.Popen(
+            command,
+            env=os.environ.copy(),
+            start_new_session=True,
+        )
+
+    def _stop_resident_standby(self) -> None:
+        process = self._resident_process
+        self._resident_process = None
+        if process is None or process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=10)
+
+    def _activate_resident_standby(
+        self,
+        *,
+        command: Sequence[str],
+        environment: Mapping[str, str],
+        logical_node: int,
+        epoch: int,
+    ) -> bool:
+        process = self._resident_process
+        if (
+            not self._resident_enabled()
+            or process is None
+            or self._resident_control_dir is None
+            or self._resident_session_id is None
+        ):
+            return False
+
+        wait_seconds = float(
+            os.environ.get(
+                "MOEGAMBIT_STANDBY_READY_TIMEOUT",
+                "30",
+            )
+        )
+        deadline = time.monotonic() + max(0.0, wait_seconds)
+        ready: list[Mapping[str, Any]] = []
+        missing: list[int] = list(
+            range(self._resident_num_workers)
+        )
+        while time.monotonic() <= deadline:
+            if process.poll() is not None:
+                logger.error(
+                    "resident standby failed before activation code=%d\n%s",
+                    process.returncode,
+                    self._resident_failure_tail(),
+                )
+                self._resident_process = None
+                self._resident_failed = True
+                return False
+            ready, missing = self._resident_ready_snapshot()
+            if len(ready) == self._resident_num_workers:
+                break
+            time.sleep(0.2)
+        if len(ready) != self._resident_num_workers:
+            logger.error(
+                "resident standby is not fully ready; ready=%d/%d "
+                "missing_local_ranks=%s after %.1fs; using cold launch",
+                len(ready),
+                self._resident_num_workers,
+                missing,
+                wait_seconds,
+            )
+            self._stop_resident_standby()
+            self._resident_failed = True
+            return False
+
+        rank_log_dir = _command_option(
+            command, "--enable_each_rank_log"
+        )
+        if not rank_log_dir:
+            rank_log_dir = str(
+                self._resident_control_dir / "rank_logs"
+            )
+        activation_path = (
+            self._resident_control_dir
+            / f"activate_{self._resident_session_id}.json"
+        )
+        temporary = activation_path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(
+                {
+                    "session_id": self._resident_session_id,
+                    "logical_node": logical_node,
+                    "epoch": epoch,
+                    "rank_log_dir": rank_log_dir,
+                    "environment": dict(environment),
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, activation_path)
+
+        self.process = process
+        self._resident_process = None
+        self.process_started_at = time.time()
+        self.process_logical_node = logical_node
+        self.process_command = tuple(command)
+        self.process_epoch = epoch
+        self.completed_epoch = None
+        self._relay_log_path = None
+        self._relay_log_offset = 0
+        self._relay_log_buffer = ""
+        logger.warning(
+            "activated resident standby workers=%d/%d "
+            "physical_node=%d logical_node=%d epoch=%d",
+            len(ready),
+            self._resident_num_workers,
+            self.physical_node,
+            logical_node,
+            epoch,
+        )
+        return True
+
     def _start_worker(
         self,
         logical_node: int,
@@ -906,11 +1329,6 @@ class AgentSupervisor:
         failure_step: int | None = None,
     ) -> None:
         self._stop_standby_prefetch()
-        if self.role == "standby" and epoch > 0:
-            # Checkpoint streaming can evict the dataset index from the page
-            # cache. Warm it once before eight local workers open it together.
-            self._prefetch_stop.clear()
-            self._prefetch_dataset_index("recovery")
         self._stop_worker()
         command = self._formatted_command(
             logical_node, epoch, master_addr, master_port
@@ -949,6 +1367,23 @@ class AgentSupervisor:
         rank_log_dir = _command_option(
             command, "--enable_each_rank_log"
         )
+        if (
+            self.role == "standby"
+            and epoch > 0
+            and self._activate_resident_standby(
+                command=command,
+                environment=environment,
+                logical_node=logical_node,
+                epoch=epoch,
+            )
+        ):
+            return
+        if self.role == "standby" and epoch > 0:
+            self._stop_resident_standby()
+            # Keep the old page-cache path as a fail-safe when resident
+            # preparation was disabled or did not reach all local ranks.
+            self._prefetch_stop.clear()
+            self._prefetch_dataset_index("recovery-cold-fallback")
         logger.warning(
             "starting worker physical_node=%d logical_node=%d epoch=%d "
             "local_world_size=%s master=%s:%d rank_logs=%s",
@@ -1251,6 +1686,7 @@ class AgentSupervisor:
         self._relay_worker_log()
 
     def run(self) -> int:
+        self._ensure_resident_standby()
         command = self._register()
         self._start_heartbeat()
         try:
@@ -1365,9 +1801,11 @@ class AgentSupervisor:
 
                 elif action in {"wait", "standby"}:
                     self._stop_worker()
+                    self._ensure_resident_standby()
                     self._ensure_standby_prefetch()
                 elif action == "retire":
                     self._stop_worker()
+                    self._stop_resident_standby()
                     if not self.retired_logged:
                         logger.error(
                             "physical node %d retired after failover; "
@@ -1377,6 +1815,7 @@ class AgentSupervisor:
                         self.retired_logged = True
                 elif action == "complete":
                     self._stop_worker()
+                    self._stop_resident_standby()
                     self._request(
                         "ack_complete", epoch=epoch, state="complete"
                     )
@@ -1416,6 +1855,7 @@ class AgentSupervisor:
                                 diagnostic,
                             )
                     self._stop_worker()
+                    self._stop_resident_standby()
                     logger.error(
                         "hot-spare recovery aborted: %s",
                         command.get("reason", "unknown reason"),
@@ -1461,6 +1901,7 @@ class AgentSupervisor:
         finally:
             self._stop_heartbeat()
             self._stop_standby_prefetch()
+            self._stop_resident_standby()
             self._stop_worker()
 
 
