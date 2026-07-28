@@ -1034,9 +1034,72 @@ def main(argv: Sequence[str] | None = None) -> int:
     import deepspeed
 
     torch.cuda.set_device(args.local_rank)
+    recovery_epoch = int(
+        os.environ.get(
+            "MOEGAMBIT_RECOVERY_EPOCH",
+            os.environ.get("TORCHELASTIC_RESTART_COUNT", "0"),
+        )
+    )
+    inprocess_replacement_startup = (
+        recovery_epoch > 0
+        and os.environ.get(
+            "MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT", "0"
+        ).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    startup_rank = int(os.environ.get("RANK", "0"))
+    startup_world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if inprocess_replacement_startup:
+        from moegambit.runtime.distributed import (
+            wait_for_recovery_group_barrier,
+        )
+
+        notify_hot_spare(
+            "rank_recovery_phase",
+            startup_rank,
+            phase="replacement_default_pg_retired_gate_start",
+        )
+        wait_for_recovery_group_barrier(
+            "default_pg_retired",
+            ordinal=-2,
+            rank=startup_rank,
+            world_size=startup_world_size,
+            timeout_seconds=float(
+                os.environ.get(
+                    "MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT", "300"
+                )
+            ),
+        )
+        notify_hot_spare(
+            "rank_recovery_phase",
+            startup_rank,
+            phase="replacement_default_pg_init_start",
+        )
     deepspeed.init_distributed(dist_backend="nccl")
     rank = torch_dist.get_rank()
     world_size = torch_dist.get_world_size()
+    if inprocess_replacement_startup:
+        notify_hot_spare(
+            "rank_recovery_phase",
+            rank,
+            phase="replacement_default_pg_init_done",
+        )
+        wait_for_recovery_group_barrier(
+            "default_pg_initialized",
+            ordinal=-1,
+            rank=rank,
+            world_size=world_size,
+            timeout_seconds=float(
+                os.environ.get(
+                    "MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT", "300"
+                )
+            ),
+        )
+        notify_hot_spare(
+            "rank_recovery_phase",
+            rank,
+            phase="replacement_default_pg_initialized_gate_done",
+        )
     from moegambit.runtime.hot_spare import report_worker_phase
 
     report_worker_phase("distributed_ready", rank)
@@ -1057,12 +1120,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     standby_cache = standby_cache_for(args)
-    recovery_epoch = int(
-        os.environ.get(
-            "MOEGAMBIT_RECOVERY_EPOCH",
-            os.environ.get("TORCHELASTIC_RESTART_COUNT", "0"),
-        )
-    )
     recovery_gpu_build = (
         recovery_epoch > 0
         and os.environ.get(
@@ -1102,6 +1159,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     original_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.bfloat16)
     report_worker_phase("model_build_start", rank)
+    if inprocess_replacement_startup:
+        notify_hot_spare(
+            "rank_recovery_phase",
+            rank,
+            phase="replacement_model_build_start",
+        )
     log("MODEL_BUILD_START", rank=rank)
     try:
         if args.pipeline_parallel_size > 1:
@@ -1139,9 +1202,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         torch.set_default_dtype(original_dtype)
     log("MODEL_BUILD_DONE", rank=rank)
     report_worker_phase("model_build_done", rank)
+    if inprocess_replacement_startup:
+        notify_hot_spare(
+            "rank_recovery_phase",
+            rank,
+            phase="replacement_model_build_done",
+        )
     maybe_log_memory(rank, "model-built-before-autoep", args.log_memory)
 
     report_worker_phase("engine_init_start", rank)
+    if inprocess_replacement_startup:
+        notify_hot_spare(
+            "rank_recovery_phase",
+            rank,
+            phase="replacement_engine_init_start",
+        )
     log("DEEPSPEED_ENGINE_INIT_START", rank=rank)
     engine, _, _, _ = deepspeed.initialize(
         model=model,
@@ -1150,6 +1225,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     log("DEEPSPEED_ENGINE_INIT_DONE", rank=rank)
     report_worker_phase("engine_init_done", rank)
+    if inprocess_replacement_startup:
+        notify_hot_spare(
+            "rank_recovery_phase",
+            rank,
+            phase="replacement_engine_init_done",
+        )
     maybe_log_memory(rank, "engine-ready-after-autoep", args.log_memory)
     runtime = getattr(engine, "_moegambit_runtime", None)
 

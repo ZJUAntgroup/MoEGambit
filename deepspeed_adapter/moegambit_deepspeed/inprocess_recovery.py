@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 
 class DeepSpeedInProcessRecoveryError(RuntimeError):
@@ -420,7 +420,9 @@ def _validate_manifest(engine: Any, failed_rank: int, epoch: int) -> None:
 
 
 def rebuild_engine_process_groups(
-    engine: Any, command: Mapping[str, Any]
+    engine: Any,
+    command: Mapping[str, Any],
+    phase_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Rebuild the complete DeepSpeed topology around resident tensors."""
     from deepspeed import comm as dist
@@ -447,6 +449,10 @@ def rebuild_engine_process_groups(
             "rank recovery command omitted the committed failure step"
         )
 
+    def report(phase: str) -> None:
+        if phase_callback is not None:
+            phase_callback(phase)
+
     old_group_manifest = _local_group_manifest(engine)
     os.environ.update(
         {
@@ -460,34 +466,72 @@ def rebuild_engine_process_groups(
             "MOEGAMBIT_RECOVERY_FAILURE_STEP": str(failure_step),
         }
     )
+    timeout_seconds = float(
+        os.environ.get("MOEGAMBIT_INPROCESS_PG_TIMEOUT", "600")
+    )
+    barrier_timeout = float(
+        os.environ.get(
+            "MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT", "300"
+        )
+    )
+    report("default_pg_teardown_start")
     _retire_process_group_generation(dist, rank)
+    report("default_pg_teardown_done")
+    from moegambit.runtime.distributed import (
+        wait_for_recovery_group_barrier,
+    )
+
+    report("default_pg_retired_gate_start")
+    wait_for_recovery_group_barrier(
+        "default_pg_retired",
+        ordinal=-2,
+        rank=rank,
+        world_size=world_size,
+        timeout_seconds=barrier_timeout,
+    )
+    report("default_pg_retired_gate_done")
     groups.reset_for_recovery()
+    report("default_pg_init_start")
     deepspeed.init_distributed(
         dist_backend="nccl",
         auto_mpi_discovery=False,
-        timeout=timedelta(
-            seconds=float(
-                os.environ.get(
-                    "MOEGAMBIT_INPROCESS_PG_TIMEOUT", "600"
-                )
-            )
-        ),
+        timeout=timedelta(seconds=timeout_seconds),
     )
+    report("default_pg_init_done")
+    report("default_pg_initialized_gate_start")
+    wait_for_recovery_group_barrier(
+        "default_pg_initialized",
+        ordinal=-1,
+        rank=rank,
+        world_size=world_size,
+        timeout_seconds=barrier_timeout,
+    )
+    report("default_pg_initialized_gate_done")
+    report("pipeline_groups_start")
     grid = (
         engine.module.rebuild_process_groups()
         if pipeline_engine
         else None
     )
+    report("pipeline_groups_done")
     groups.mpu = grid
+    report("expert_groups_start")
     _create_expert_groups(engine, grid)
+    report("expert_groups_done")
+    report("engine_group_rebind_start")
     _rebind_engine(engine, grid)
+    report("engine_group_rebind_done")
+    report("local_group_manifest_start")
     new_group_manifest = _local_group_manifest(engine)
     if new_group_manifest != old_group_manifest:
         raise DeepSpeedInProcessRecoveryError(
             "rebuilt DeepSpeed groups changed logical membership: "
             f"before={old_group_manifest} after={new_group_manifest}"
         )
+    report("local_group_manifest_done")
+    report("global_group_manifest_start")
     _validate_manifest(engine, failed_rank, epoch)
+    report("global_group_manifest_done")
     return {
         "rank": rank,
         "failed_rank": failed_rank,

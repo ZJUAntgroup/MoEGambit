@@ -8,6 +8,7 @@ from moegambit.runtime.distributed import (
     NoopOrdinalBarrier,
     TorchDistributedProtocol,
     WatcherOrdinalBarrier,
+    wait_for_recovery_group_barrier,
 )
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "WatcherOrdinalBarrier",
     "discover_adapters",
     "load_adapter",
+    "wait_for_recovery_group_barrier",
 ]

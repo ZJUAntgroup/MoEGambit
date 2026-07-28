@@ -281,8 +281,14 @@ class HotSpareCoordinator:
     recovery_ready_ranks: set[int] = field(default_factory=set)
     recovery_rank_phases: dict[int, str] = field(default_factory=dict)
     dispatched_epochs: dict[int, int] = field(default_factory=dict)
+    group_ordinal_barriers: dict[str, dict[str, Any]] = field(
+        default_factory=dict
+    )
     _lock: threading.RLock = field(
         default_factory=threading.RLock, init=False, repr=False
+    )
+    _group_barrier_cv: threading.Condition = field(
+        init=False, repr=False
     )
 
     def __post_init__(self) -> None:
@@ -308,6 +314,7 @@ class HotSpareCoordinator:
             rank: rank // self.local_world_size
             for rank in range(self.world_size)
         }
+        self._group_barrier_cv = threading.Condition(self._lock)
 
     @property
     def world_size(self) -> int:
@@ -359,6 +366,14 @@ class HotSpareCoordinator:
                 record.last_seen = now
                 record.state = str(payload.get("state", record.state))
 
+            if message.kind == "group_ordinal_barrier":
+                response = self._handle_group_ordinal_barrier(
+                    physical_node, payload
+                )
+                if self.status == "aborted":
+                    self._persist()
+                return response
+
             if message.kind == "rank_failure":
                 self._handle_rank_failure(physical_node, payload)
             elif message.kind == "runner_failure":
@@ -409,6 +424,168 @@ class HotSpareCoordinator:
             command = self._command_for(physical_node)
             self._record_command_dispatch(physical_node, command)
             return WireMessage("command", command)
+
+    def _handle_group_ordinal_barrier(
+        self,
+        physical_node: int,
+        payload: Mapping[str, Any],
+    ) -> WireMessage:
+        """Globally order recovery-only process-group creation."""
+        epoch = self._payload_epoch(payload)
+        try:
+            rank = int(payload["rank"])
+            ordinal = int(payload["ordinal"])
+            world_size = int(payload["world_size"])
+            ranks = tuple(int(item) for item in payload["ranks"])
+            timeout = float(payload.get("timeout_seconds", 300.0))
+        except (KeyError, TypeError, ValueError):
+            return WireMessage(
+                "error", {"error": "invalid_group_ordinal_barrier"}
+            )
+        if (
+            not self.rank_hot_swap
+            or epoch <= 0
+            or epoch != self.epoch
+            or self.status != "running"
+        ):
+            return WireMessage(
+                "error",
+                {
+                    "error": "inactive_recovery_group_barrier",
+                    "epoch": self.epoch,
+                    "status": self.status,
+                },
+            )
+        if world_size != self.world_size:
+            return WireMessage(
+                "error",
+                {
+                    "error": "group_barrier_world_size_mismatch",
+                    "expected": self.world_size,
+                    "actual": world_size,
+                },
+            )
+        if self.rank_mapping.get(rank) != physical_node:
+            return WireMessage(
+                "error",
+                {
+                    "error": "group_barrier_rank_mapping_mismatch",
+                    "rank": rank,
+                    "physical_node": physical_node,
+                    "expected_physical_node": self.rank_mapping.get(rank),
+                },
+            )
+        if (
+            not ranks
+            or len(set(ranks)) != len(ranks)
+            or any(item < 0 or item >= self.world_size for item in ranks)
+        ):
+            return WireMessage(
+                "error", {"error": "invalid_group_barrier_ranks"}
+            )
+
+        phase = str(payload.get("phase", "")).strip()
+        name = str(payload.get("group", "")).strip()
+        backend = str(payload.get("backend", "")).strip()
+        manifest = str(payload.get("manifest", "")).strip()
+        if phase not in {"ready", "start", "done"} or not name or not manifest:
+            return WireMessage(
+                "error", {"error": "incomplete_group_barrier_manifest"}
+            )
+
+        barrier_id = f"{epoch}:{ordinal}:{phase}"
+        descriptor = {
+            "name": name,
+            "ranks": ranks,
+            "backend": backend,
+            "manifest": manifest,
+            "world_size": world_size,
+        }
+        state = self.group_ordinal_barriers.setdefault(
+            barrier_id,
+            {
+                "descriptor": descriptor,
+                "arrived": set(),
+                "released": False,
+                "created": time.monotonic(),
+            },
+        )
+        if state["descriptor"] != descriptor:
+            self.status = "aborted"
+            self.abort_reason = (
+                "recovery group manifest mismatch at "
+                f"epoch={epoch} ordinal={ordinal} phase={phase}: "
+                f"expected={state['descriptor']} actual={descriptor} "
+                f"rank={rank}"
+            )
+            logger.error(self.abort_reason)
+            self._group_barrier_cv.notify_all()
+            return WireMessage(
+                "error",
+                {
+                    "error": "group_barrier_manifest_mismatch",
+                    "reason": self.abort_reason,
+                },
+            )
+
+        arrived = state["arrived"]
+        arrived.add(rank)
+        self.recovery_rank_phases[rank] = (
+            f"group_{ordinal:04d}_{phase}"
+        )
+        self._group_barrier_cv.notify_all()
+        deadline = time.monotonic() + max(1.0, timeout)
+        while len(arrived) < self.world_size:
+            if self.status != "running" or self.epoch != epoch:
+                return WireMessage(
+                    "error",
+                    {
+                        "error": "group_barrier_recovery_aborted",
+                        "reason": self.abort_reason,
+                    },
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                missing = sorted(set(range(self.world_size)) - arrived)
+                self.status = "aborted"
+                self.abort_reason = (
+                    "recovery group ordinal barrier timed out: "
+                    f"epoch={epoch} ordinal={ordinal} phase={phase} "
+                    f"group={name} arrived={sorted(arrived)} "
+                    f"missing={missing}"
+                )
+                logger.error(self.abort_reason)
+                self._group_barrier_cv.notify_all()
+                return WireMessage(
+                    "error",
+                    {
+                        "error": "group_barrier_timeout",
+                        "reason": self.abort_reason,
+                        "missing": missing,
+                    },
+                )
+            self._group_barrier_cv.wait(timeout=min(1.0, remaining))
+
+        if not state["released"]:
+            state["released"] = True
+            logger.info(
+                "GROUP_ORDINAL_READY epoch=%d ordinal=%d phase=%s "
+                "group=%s ranks=%s",
+                epoch,
+                ordinal,
+                phase,
+                name,
+                list(ranks),
+            )
+        return WireMessage(
+            "group_ordinal_ready",
+            {
+                "epoch": epoch,
+                "ordinal": ordinal,
+                "phase": phase,
+                "count": len(arrived),
+            },
+        )
 
     def _record_command_dispatch(
         self, physical_node: int, command: Mapping[str, Any]
@@ -935,6 +1112,7 @@ class HotSpareCoordinator:
         self.completion_acks.clear()
         self.recovery_ready_ranks.clear()
         self.recovery_rank_phases.clear()
+        self.group_ordinal_barriers.clear()
         self.recovery_started_at = time.monotonic()
         self.failure = {
             "previous_epoch": previous_epoch,
@@ -1214,6 +1392,7 @@ class AgentSupervisor:
         self.retired_logged = False
         self.process_started_at: float | None = None
         self.process_logical_node: int | None = None
+        self.process_rank: int | None = None
         self.process_command: tuple[str, ...] | None = None
         self._relay_log_path: Path | None = None
         self._relay_log_offset = 0
@@ -2180,6 +2359,11 @@ class AgentSupervisor:
                     ),
                 }
             )
+        self.process_rank = (
+            int(replacement_rank)
+            if replacement_rank is not None
+            else int(logical_node) * int(local_world_size or "1")
+        )
         if failed_logical_node is not None:
             environment[
                 "MOEGAMBIT_RECOVERY_FAILED_LOGICAL_NODE"
@@ -2291,7 +2475,11 @@ class AgentSupervisor:
             local_world_size = int(local_world_size_text or "1")
         except ValueError:
             local_world_size = 1
-        rank = self.process_logical_node * local_world_size
+        rank = (
+            self.process_rank
+            if self.process_rank is not None
+            else self.process_logical_node * local_world_size
+        )
         try:
             candidates = list(
                 Path(log_dir_text).glob(f"*_rank{rank}.log")
@@ -2357,7 +2545,14 @@ class AgentSupervisor:
                     "mixed-version hybrid restore",
                     "mixed-version contract",
                     "survivor handoff",
+                    "STANDBY_ACTIVATED",
+                    "STANDBY_CACHE_HIT",
                     "STANDBY_PACKED_CACHE",
+                    "MODEL_BUILD_START",
+                    "MODEL_BUILD_DONE",
+                    "DEEPSPEED_ENGINE_INIT_START",
+                    "DEEPSPEED_ENGINE_INIT_DONE",
+                    "RANK_INPROCESS_INITIAL_BARRIER",
                     "MoEGambit packed expert load",
                     "Traceback (most recent call last)",
                     "FATAL ",

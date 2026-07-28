@@ -65,6 +65,70 @@ def test_resident_and_gpu_build_optimizations_are_recovery_scoped():
     assert "standby_cache_for(args)" in workload
 
 
+def test_ordered_deepspeed_group_rebuild_is_recovery_scoped():
+    comm = (
+        ROOT / "DeepSpeed" / "deepspeed" / "comm" / "comm.py"
+    ).read_text(encoding="utf-8")
+    launcher = (
+        ROOT / "test_deepspeed_hotspare_replace.sh"
+    ).read_text(encoding="utf-8")
+    recovery = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit_deepspeed"
+        / "inprocess_recovery.py"
+    ).read_text(encoding="utf-8")
+
+    assert "MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD" in comm
+    assert "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY" in comm
+    assert 'os.environ.get("MOEGAMBIT_RECOVERY_EPOCH")' in comm
+    assert "return epoch > 0" in comm
+    assert 'barrier.wait("start"' in comm
+    assert 'barrier.wait("done"' in comm
+    assert "default_pg_retired" in recovery
+    assert "default_pg_initialized" in recovery
+    assert "MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD" in launcher
+
+
+def test_watcher_ordinal_barrier_retries_transient_connect_failure(
+    monkeypatch,
+):
+    from moegambit.runtime.distributed import (
+        GroupSpec,
+        WatcherOrdinalBarrier,
+    )
+    from moegambit.runtime.protocol import WireMessage
+
+    class FlakyClient:
+        calls = 0
+
+        def request(self, message):
+            self.calls += 1
+            if self.calls == 1:
+                raise ConnectionRefusedError("coordinator backlog")
+            assert message.payload["ordinal"] == 3
+            return WireMessage("group_ordinal_ready", {"count": 4})
+
+    monkeypatch.setattr(
+        "moegambit.runtime.distributed.time.sleep", lambda _delay: None
+    )
+    client = FlakyClient()
+    group = GroupSpec(3, "group_0003", (0, 2))
+    barrier = WatcherOrdinalBarrier(
+        client,
+        rank=1,
+        world_size=4,
+        run_id="run",
+        physical_node=8,
+        recovery_epoch=1,
+        timeout_seconds=1,
+    )
+
+    barrier.wait("start", group, group.fingerprint)
+
+    assert client.calls == 2
+
+
 def test_packed_expert_checkpoint_and_pinned_cache_are_recovery_scoped():
     workload = (
         ROOT / "deepspeed_qwen3_moe_pretrain.py"
@@ -1938,6 +2002,181 @@ def test_hot_spare_activates_only_fully_ready_resident_pool(
     assert activation["environment"]["MASTER_ADDR"] == "10.0.0.1"
 
 
+def test_rank_recovery_group_ordinal_barrier_waits_for_full_world():
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="ordered-groups",
+        training_nodes=2,
+        spare_physical_node=2,
+        base_master_port=24000,
+        local_world_size=2,
+        rank_hot_swap=True,
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "ordered-groups",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        )
+
+    for physical_node, role in (
+        (0, "active"),
+        (1, "active"),
+        (2, "standby"),
+    ):
+        request(
+            "register",
+            physical_node,
+            role=role,
+            advertise_addr=f"10.0.0.{physical_node + 1}",
+        )
+    request("worker_ready", 0, epoch=0, logical_node=0)
+    request("worker_ready", 1, epoch=0, logical_node=1)
+    request(
+        "rank_failure",
+        0,
+        epoch=0,
+        logical_node=0,
+        rank=1,
+        reason="injected",
+        global_step=17,
+    )
+
+    responses = []
+
+    def arrive(rank, physical_node):
+        responses.append(
+            request(
+                "group_ordinal_barrier",
+                physical_node,
+                epoch=1,
+                rank=rank,
+                ordinal=0,
+                phase="start",
+                group="deepspeed_group_0000",
+                ranks=[0, 2],
+                backend="nccl",
+                world_size=4,
+                manifest="same-manifest",
+                timeout_seconds=2,
+            )
+        )
+
+    owners = ((0, 0), (1, 2), (2, 1), (3, 1))
+    threads = [
+        threading.Thread(target=arrive, args=owner)
+        for owner in owners
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(responses) == 4
+    assert {response.kind for response in responses} == {
+        "group_ordinal_ready"
+    }
+    assert coordinator.status == "running"
+    state = coordinator.group_ordinal_barriers["1:0:start"]
+    assert state["arrived"] == {0, 1, 2, 3}
+
+
+def test_rank_recovery_group_manifest_mismatch_aborts():
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="mismatched-groups",
+        training_nodes=1,
+        spare_physical_node=1,
+        base_master_port=24000,
+        local_world_size=2,
+        rank_hot_swap=True,
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "mismatched-groups",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        )
+
+    request(
+        "register",
+        0,
+        role="active",
+        advertise_addr="10.0.0.1",
+    )
+    request(
+        "register",
+        1,
+        role="standby",
+        advertise_addr="10.0.0.2",
+    )
+    request("worker_ready", 0, epoch=0, logical_node=0)
+    request(
+        "rank_failure",
+        0,
+        epoch=0,
+        logical_node=0,
+        rank=1,
+        reason="injected",
+        global_step=17,
+    )
+
+    responses = []
+
+    def arrive(rank, physical_node, group_ranks, manifest):
+        responses.append(
+            request(
+                "group_ordinal_barrier",
+                physical_node,
+                epoch=1,
+                rank=rank,
+                ordinal=0,
+                phase="start",
+                group="deepspeed_group_0000",
+                ranks=group_ranks,
+                backend="nccl",
+                world_size=2,
+                manifest=manifest,
+                timeout_seconds=2,
+            )
+        )
+
+    threads = [
+        threading.Thread(
+            target=arrive, args=(0, 0, [0], "manifest-a")
+        ),
+        threading.Thread(
+            target=arrive, args=(1, 1, [1], "manifest-b")
+        ),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert {response.kind for response in responses} == {"error"}
+    assert coordinator.status == "aborted"
+    assert "manifest mismatch" in coordinator.abort_reason
+
+
 def test_resident_standby_workers_activate_without_process_replacement(
     tmp_path,
 ):
@@ -2204,6 +2443,48 @@ def test_hot_spare_key_relay_keeps_progress_and_suppresses_noise(
     assert "NCCL_IB_HCA" not in output
     assert "iteration 18/100" in output
     assert "single-stage hybrid restore complete" in output
+
+
+def test_hot_spare_relays_rank_granular_replacement_log(
+    tmp_path, capsys, monkeypatch
+):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    monkeypatch.setenv("MOEGAMBIT_RELAY_RANK_LOG", "key")
+    log_dir = tmp_path / "rank_logs"
+    log_dir.mkdir()
+    rank_log = log_dir / "20260728190000_standby_rank1.log"
+    rank_log.write_text(
+        "STANDBY_ACTIVATED local_rank=1 rank=1 epoch=1\n"
+        "MODEL_BUILD_START\n",
+        encoding="utf-8",
+    )
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=8,
+        role="standby",
+        advertise_addr="127.0.0.1",
+        command=("runner", "--num_gpus", "8"),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    supervisor.process_command = (
+        "runner",
+        "--num_gpus",
+        "8",
+        "--enable_each_rank_log",
+        str(log_dir),
+    )
+    supervisor.process_logical_node = 0
+    supervisor.process_rank = 1
+
+    supervisor._relay_worker_log()
+
+    output = capsys.readouterr().out
+    assert "[worker-rank1] STANDBY_ACTIVATED" in output
+    assert "[worker-rank1] MODEL_BUILD_START" in output
 
 
 def test_hot_spare_formats_rank_logs_by_epoch_and_physical_node():

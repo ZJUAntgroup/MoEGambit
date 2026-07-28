@@ -788,7 +788,9 @@ class DeepSpeedRecoveryRuntime:
             )
 
             rebuild_summary = rebuild_engine_process_groups(
-                self.engine, command
+                self.engine,
+                command,
+                phase_callback=self._report_rank_phase,
             )
             self._report_rank_phase("process_group_rebuild_done")
             self._restore_inprocess_mixed_version()
