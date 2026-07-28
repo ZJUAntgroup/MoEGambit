@@ -25,6 +25,14 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from moegambit.runtime.protocol import WireMessage
+from moegambit.runtime.recovery_handoff import (
+    PROTOCOL_VERSION,
+    handoff_root,
+    rank_error_path,
+    rank_ready_path,
+    request_path,
+    write_json_atomic,
+)
 from moegambit.runtime.watcher import WatcherRuntime
 from moegambit.runtime.watcher_client import WatcherClient, WatcherEndpoint
 
@@ -994,6 +1002,145 @@ class AgentSupervisor:
             "MOEGAMBIT_RECOVERY_FORCE_PREEMPT", "1"
         ).strip().lower() in {"1", "true", "yes", "on"}
 
+    def _survivor_handoff_enabled(self) -> bool:
+        return os.environ.get(
+            "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF", "0"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _prepare_survivor_handoff(
+        self,
+        command: Mapping[str, Any],
+        *,
+        process_epoch: int,
+    ) -> bool:
+        epoch = int(command["epoch"])
+        failure_step = command.get("failure_step")
+        failed_logical_node = command.get("failed_logical_node")
+        logical_node = self.process_logical_node
+        if (
+            failure_step is None
+            or failed_logical_node is None
+            or logical_node is None
+        ):
+            logger.error(
+                "survivor handoff command is incomplete physical_node=%d "
+                "epoch=%d failure_step=%s failed_logical_node=%s",
+                self.physical_node,
+                epoch,
+                failure_step,
+                failed_logical_node,
+            )
+            return False
+
+        root = handoff_root()
+        worker_command = self.process_command or self.command
+        local_world_size_text = _command_option(
+            worker_command, "--num_gpus"
+        )
+        if local_world_size_text is None:
+            logger.error(
+                "survivor handoff cannot determine local world size "
+                "physical_node=%d",
+                self.physical_node,
+            )
+            return False
+        local_world_size = int(local_world_size_text)
+        first_rank = int(logical_node) * local_world_size
+        ranks = list(range(first_rank, first_rank + local_world_size))
+        for rank in ranks:
+            rank_ready_path(root, epoch, rank).unlink(missing_ok=True)
+            rank_error_path(root, epoch, rank).unlink(missing_ok=True)
+        write_json_atomic(
+            request_path(root, epoch),
+            {
+                "protocol": PROTOCOL_VERSION,
+                "recovery_epoch": epoch,
+                "source_epoch": int(process_epoch),
+                "failed_logical_node": int(failed_logical_node),
+                "failure_step": int(failure_step),
+                "physical_node": self.physical_node,
+                "logical_node": int(logical_node),
+                "ranks": ranks,
+            },
+        )
+        timeout = float(
+            os.environ.get(
+                "MOEGAMBIT_RECOVERY_HANDOFF_TIMEOUT", "180"
+            )
+        )
+        deadline = time.monotonic() + timeout
+        next_heartbeat = 0.0
+        while time.monotonic() < deadline:
+            errors = [
+                path
+                for rank in ranks
+                if (
+                    path := rank_error_path(root, epoch, rank)
+                ).is_file()
+            ]
+            if errors:
+                details = [
+                    path.read_text(encoding="utf-8", errors="replace").strip()
+                    for path in errors
+                ]
+                logger.error(
+                    "survivor handoff failed physical_node=%d epoch=%d "
+                    "errors=%s",
+                    self.physical_node,
+                    epoch,
+                    details,
+                )
+                return False
+            ready = [
+                rank
+                for rank in ranks
+                if rank_ready_path(root, epoch, rank).is_file()
+            ]
+            if len(ready) == len(ranks):
+                logger.warning(
+                    "SURVIVOR_HANDOFF_READY physical_node=%d "
+                    "logical_node=%d epoch=%d step=%d ranks=%s",
+                    self.physical_node,
+                    logical_node,
+                    epoch,
+                    int(failure_step),
+                    ranks,
+                )
+                return True
+            now = time.monotonic()
+            if now >= next_heartbeat:
+                try:
+                    self._request(
+                        "heartbeat",
+                        epoch=process_epoch,
+                        state="survivor_handoff",
+                    )
+                except (ConnectionError, OSError, RuntimeError):
+                    logger.exception(
+                        "could not heartbeat during survivor handoff "
+                        "physical_node=%d",
+                        self.physical_node,
+                    )
+                next_heartbeat = now + max(
+                    1.0, min(self.heartbeat_interval, 5.0)
+                )
+            time.sleep(0.1)
+        missing = [
+            rank
+            for rank in ranks
+            if not rank_ready_path(root, epoch, rank).is_file()
+        ]
+        logger.error(
+            "survivor handoff timed out physical_node=%d epoch=%d "
+            "step=%d timeout_s=%.1f missing_ranks=%s",
+            self.physical_node,
+            epoch,
+            int(failure_step),
+            timeout,
+            missing,
+        )
+        return False
+
     def _observe_control_command(
         self,
         command: Mapping[str, Any],
@@ -1067,6 +1214,19 @@ class AgentSupervisor:
                 command_epoch,
                 source,
             )
+            if (
+                self._survivor_handoff_enabled()
+                and command_action == "run"
+                and command_epoch > process_epoch
+            ):
+                if not self._prepare_survivor_handoff(
+                    command_copy, process_epoch=process_epoch
+                ):
+                    logger.error(
+                        "survivor handoff did not complete; recovery epoch "
+                        "%d will fail closed",
+                        command_epoch,
+                    )
             try:
                 os.killpg(process.pid, signal.SIGKILL)
                 logger.warning(
@@ -1746,6 +1906,9 @@ class AgentSupervisor:
                     "iteration ",
                     "FAULT_",
                     "single-stage hybrid restore",
+                    "mixed-version hybrid restore",
+                    "mixed-version contract",
+                    "survivor handoff",
                     "STANDBY_PACKED_CACHE",
                     "MoEGambit packed expert load",
                     "Traceback (most recent call last)",

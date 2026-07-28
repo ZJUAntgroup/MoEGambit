@@ -346,7 +346,42 @@ def test_runtime_hooks_common_optimizer_boundary():
     assert "runtime._maybe_checkpoint(after)" in source
 
 
-def test_hybrid_restore_runs_after_checkpoint_and_has_no_later_phase():
+def test_mixed_restore_does_not_activate_on_plain_torchelastic(
+    monkeypatch,
+):
+    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+
+    monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
+    monkeypatch.setenv(
+        "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
+        "torch_elastic_checkpoint_relaunch",
+    )
+    monkeypatch.delenv(
+        "MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE", raising=False
+    )
+
+    settings = DeepSpeedRuntimeSettings.from_env()
+
+    assert settings.hot_swap is True
+    assert settings.hybrid_restore is False
+    assert settings.survivor_handoff is False
+
+
+def test_mixed_restore_requires_matching_recovery_strategy(monkeypatch):
+    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+
+    monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
+    monkeypatch.setenv(
+        "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
+        "torch_elastic_checkpoint_relaunch",
+    )
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE", "1")
+
+    with pytest.raises(ValueError, match="mixed_version_survivor_handoff"):
+        DeepSpeedRuntimeSettings.from_env()
+
+
+def test_hybrid_restore_uses_current_survivor_after_checkpoint_base_load():
     integration = (
         ROOT
         / "deepspeed_adapter"
@@ -361,12 +396,13 @@ def test_hybrid_restore_runs_after_checkpoint_and_has_no_later_phase():
     ).read_text(encoding="utf-8")
 
     assert integration.index("self.engine.load_checkpoint(") < (
-        integration.index("self._restore_non_expert_from_peer()")
+        integration.index("self._restore_mixed_version_from_handoff()")
     )
     assert '"expert_source": "checkpoint"' in hybrid
     assert '"non_expert_source": "live_dp_peer"' in hybrid
-    assert '"peer_state_origin": "checkpoint_relaunch"' in hybrid
-    assert '"optimizer_source": "checkpoint"' in hybrid
+    assert '"peer_state_origin": "survivor_handoff"' in hybrid
+    assert '"optimizer_source": "survivor_peer_replica"' in hybrid
+    assert '"rollback_steps": 0' in integration
     assert '"two_phase": False' in hybrid
 
 
@@ -650,6 +686,114 @@ def test_hybrid_restore_data_major_layout_selects_same_stage_donor():
     ] == [(0, 2), (1, 3)]
 
 
+def test_optimizer_replica_ring_places_node_failure_copy_off_node():
+    from moegambit.runtime.replica_placement import (
+        failure_domain_ring_order,
+    )
+    from moegambit_deepspeed.hybrid_restore import (
+        build_optimizer_peer_restore_plans,
+    )
+
+    ring = failure_domain_ring_order(
+        range(64), ranks_per_failure_domain=8
+    )
+    plans = build_optimizer_peer_restore_plans(
+        {"ranks-0-63": ring}, range(8)
+    )
+
+    assert [
+        (plan.replacement_rank, plan.source_rank)
+        for plan in plans
+    ] == [(rank, rank + 8) for rank in range(8)]
+    assert all(
+        plan.replacement_rank // 8 != plan.source_rank // 8
+        for plan in plans
+    )
+
+
+def test_optimizer_replica_ring_rejects_same_node_only_group():
+    from moegambit.runtime.replica_placement import (
+        ReplicaPlacementError,
+        failure_domain_ring_order,
+    )
+
+    with pytest.raises(
+        ReplicaPlacementError,
+        match="outside its owner's failure domain",
+    ):
+        failure_domain_ring_order(
+            range(8), ranks_per_failure_domain=8
+        )
+
+
+def test_optimizer_restore_rejects_backup_on_failed_node():
+    from moegambit_deepspeed.hybrid_restore import (
+        DeepSpeedHybridRestoreError,
+        build_optimizer_peer_restore_plans,
+    )
+
+    with pytest.raises(
+        DeepSpeedHybridRestoreError,
+        match="backup holder is also being replaced",
+    ):
+        build_optimizer_peer_restore_plans(
+            {"flat": list(range(64))}, range(8)
+        )
+
+
+def test_optimizer_restore_rejects_tensor_manifest_drift():
+    import hashlib
+
+    from moegambit_deepspeed.hybrid_restore import (
+        DeepSpeedHybridRestoreError,
+        OptimizerPeerRestorePlan,
+        _validate_optimizer_peer_entry,
+    )
+
+    manifest = [
+        {
+            "identity": "group/0/fp32_master",
+            "shape": [16],
+            "dtype": "torch.float32",
+            "numel": 16,
+            "offset": 0,
+            "is_expert": False,
+        }
+    ]
+    digest = hashlib.sha256(
+        json.dumps(
+            manifest, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    plan = OptimizerPeerRestorePlan(
+        namespace="dense",
+        replacement_rank=0,
+        source_rank=8,
+        replica_ring_ranks=(0, 8, 16, 24),
+    )
+    entry = {
+        "namespace": "dense",
+        "owner_rank": 0,
+        "holder_rank": 8,
+        "step": 17,
+        "replica_ring_ranks": [0, 8, 16, 24],
+        "manifest_hash": digest,
+        "manifest": [{**manifest[0], "shape": [8, 2]}],
+    }
+
+    with pytest.raises(
+        DeepSpeedHybridRestoreError,
+        match="optimizer state is incompatible",
+    ):
+        _validate_optimizer_peer_entry(
+            entry,
+            plan=plan,
+            expected_step=17,
+            local_manifest=manifest,
+            local_manifest_hash=digest,
+        )
+
+
 def test_hybrid_restore_rejects_a_stale_peer_version():
     from moegambit_deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
@@ -684,27 +828,54 @@ def test_hybrid_restore_rejects_a_stale_peer_version():
         )
 
 
-def test_hybrid_restore_uses_common_relaunch_checkpoint_version():
+def test_hybrid_restore_accepts_checkpoint_experts_and_current_survivors():
     from moegambit_deepspeed.hybrid_restore import (
-        validate_relaunch_checkpoint_steps,
+        validate_mixed_version_steps,
     )
 
     assert (
-        validate_relaunch_checkpoint_steps([10] * 64, failure_step=17) == 10
+        validate_mixed_version_steps(
+            [10] * 64, [17] * 56, failure_step=17
+        )
+        == 10
     )
 
 
-def test_hybrid_restore_rejects_mixed_relaunch_checkpoint_versions():
+def test_hybrid_restore_rejects_checkpoint_aged_survivor_peer():
     from moegambit_deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
-        validate_relaunch_checkpoint_steps,
+        validate_mixed_version_steps,
+    )
+
+    with pytest.raises(
+        DeepSpeedHybridRestoreError,
+        match="not at the failure safe step",
+    ):
+        validate_mixed_version_steps(
+            [10] * 64, [10] * 56, failure_step=17
+        )
+
+
+def test_fault_injection_holds_survivors_at_committed_step():
+    source = (
+        ROOT / "deepspeed_qwen3_moe_pretrain.py"
+    ).read_text(encoding="utf-8")
+
+    assert "FAULT_SAFE_STEP_WAITING_FOR_PREEMPTION" in source
+    assert "runtime.wait_for_recovery_preemption(global_step)" in source
+
+
+def test_hybrid_restore_rejects_mixed_checkpoint_base_versions():
+    from moegambit_deepspeed.hybrid_restore import (
+        DeepSpeedHybridRestoreError,
+        validate_checkpoint_base_steps,
     )
 
     with pytest.raises(
         DeepSpeedHybridRestoreError,
         match="different checkpoint versions",
     ):
-        validate_relaunch_checkpoint_steps(
+        validate_checkpoint_base_steps(
             [10, 10, 15, 10], failure_step=17
         )
 
@@ -712,14 +883,14 @@ def test_hybrid_restore_rejects_mixed_relaunch_checkpoint_versions():
 def test_hybrid_restore_rejects_checkpoint_newer_than_failure():
     from moegambit_deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
-        validate_relaunch_checkpoint_steps,
+        validate_checkpoint_base_steps,
     )
 
     with pytest.raises(
         DeepSpeedHybridRestoreError,
         match="newer than the recorded failure",
     ):
-        validate_relaunch_checkpoint_steps([20] * 4, failure_step=17)
+        validate_checkpoint_base_steps([20] * 4, failure_step=17)
 
 
 def test_local_adapter_discovers_bsr_vendored_deepspeed():
@@ -761,7 +932,7 @@ def test_deepspeed_adapter_does_not_inject_torchelastic_for_external_spare():
                 "MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR": "/tmp/checkpoint",
                 "MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL": "10",
                 "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY": (
-                    "node_hot_spare_epoch_relaunch"
+                    "mixed_version_survivor_handoff"
                 ),
             },
             features=FeatureSwitches(hot_swap=True, zero2=False),
@@ -771,7 +942,7 @@ def test_deepspeed_adapter_does_not_inject_torchelastic_for_external_spare():
     assert "--elastic_training" not in prepared.command
     assert (
         prepared.metadata["recovery_strategy"]
-        == "node_hot_spare_epoch_relaunch"
+        == "mixed_version_survivor_handoff"
     )
 
 
@@ -823,12 +994,16 @@ def test_multinode_script_dry_run_builds_real_commands(tmp_path):
     assert "--pipeline-parallel-size 1" in result.stdout
     assert "--zero-stage 2" in result.stdout
     assert "moegambit.runtime.hot_spare" in result.stdout
-    assert "node_hot_spare_epoch_relaunch" not in result.stderr
+    assert "mixed_version_survivor_handoff" not in result.stderr
     assert "--spare-node 8" in result.stdout
     assert "--node_rank \\{logical_node\\}" in result.stdout
     assert "--elastic_training" not in result.stdout
     assert "dry run complete" in result.stdout
     assert "hybrid_restore=1" in result.stdout
+    assert "survivor_handoff=1" in result.stdout
+    assert "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF" in (
+        ROOT / "test_deepspeed_hotspare_replace.sh"
+    ).read_text(encoding="utf-8")
     assert "LOCAL_WORLD_SIZE" in (
         ROOT / "test_deepspeed_hotspare_replace.sh"
     ).read_text(encoding="utf-8")

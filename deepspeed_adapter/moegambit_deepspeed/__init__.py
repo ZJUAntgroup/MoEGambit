@@ -138,7 +138,7 @@ class DeepSpeedAdapter:
             strategy = (
                 environment.get(
                     "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
-                    "node_hot_spare_epoch_relaunch",
+                    "mixed_version_survivor_handoff",
                 )
                 if external
                 else "torch_elastic_checkpoint_relaunch"

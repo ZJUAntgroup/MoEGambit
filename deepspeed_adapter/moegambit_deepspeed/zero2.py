@@ -10,10 +10,15 @@ from datetime import timedelta
 from typing import Any
 
 from moegambit.runtime.zero2_replica import (
+    OptimizerMemorySnapshot,
     OptimizerScalarRef,
     OptimizerTensorRef,
     Zero2MemoryReplicaManager,
     apply_optimizer_snapshot,
+    capture_optimizer_snapshot,
+)
+from moegambit.runtime.replica_placement import (
+    failure_domain_ring_order,
 )
 
 
@@ -48,7 +53,7 @@ def _is_expert_group(group: dict[str, Any]) -> bool:
 
 
 class DeepSpeedZero2Replica:
-    """Expose DeepSpeed's rank-local ZeRO-2 shard as stable replica refs."""
+    """Expose DeepSpeed's rank-local ZeRO-1/2 shard as stable replica refs."""
 
     def __init__(self, engine: Any, timeout: float = 300.0) -> None:
         self.engine = engine
@@ -65,7 +70,24 @@ class DeepSpeedZero2Replica:
         self.managers: dict[str, Zero2MemoryReplicaManager] = {}
         self.group_ranks: dict[str, list[int]] = {}
         self._group_indices: dict[str, tuple[int, ...]] = {}
+        self._prepared_groups: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
         self._store = None
+        self.replica_scope = os.environ.get(
+            "MOEGAMBIT_ZERO2_REPLICA_SCOPE", "all"
+        ).strip().lower()
+        if self.replica_scope not in {"all", "non_expert"}:
+            raise DeepSpeedZero2Error(
+                "MOEGAMBIT_ZERO2_REPLICA_SCOPE must be all or non_expert"
+            )
+        self.failure_domain_size = int(
+            os.environ.get(
+                "MOEGAMBIT_REPLICA_FAILURE_DOMAIN_SIZE", "1"
+            )
+        )
+        if self.failure_domain_size <= 0:
+            raise DeepSpeedZero2Error(
+                "MOEGAMBIT_REPLICA_FAILURE_DOMAIN_SIZE must be positive"
+            )
 
     def _validate_optimizer(self) -> None:
         optimizer = self.optimizer
@@ -75,10 +97,10 @@ class DeepSpeedZero2Replica:
             "dp_process_group",
         )
         missing = [name for name in required if not hasattr(optimizer, name)]
-        if missing or not getattr(optimizer, "partition_gradients", False):
+        if missing:
             raise DeepSpeedZero2Error(
-                "MoEGambit requires DeepSpeed ZeRO stage 2; missing "
-                + ", ".join(missing or ["partition_gradients"])
+                "MoEGambit optimizer replication requires DeepSpeed ZeRO "
+                "stage 1 or 2; missing " + ", ".join(missing)
             )
 
     def _tensor_refs(
@@ -167,7 +189,8 @@ class DeepSpeedZero2Replica:
             value = value.decode("utf-8")
         return json.loads(value)
 
-    def start(self, initial_step: int = 0) -> dict[str, Any]:
+    def prepare(self) -> None:
+        """Resolve optimizer process-group metadata without starting transport."""
         self._validate_optimizer()
         import torch.distributed as dist
 
@@ -176,13 +199,6 @@ class DeepSpeedZero2Replica:
                 "torch.distributed must be initialized before ZeRO-2 replication"
             )
         self._store = dist.distributed_c10d._get_default_store()
-        rank = dist.get_rank()
-        generation = int(
-            os.environ.get(
-                "MOEGAMBIT_RECOVERY_EPOCH",
-                os.environ.get("TORCHELASTIC_RESTART_COUNT", "0"),
-            )
-        )
         process_groups = getattr(
             self.optimizer,
             "real_dp_process_group",
@@ -191,14 +207,51 @@ class DeepSpeedZero2Replica:
         )
         buckets: dict[tuple[int, ...], list[int]] = {}
         for index, process_group in enumerate(process_groups):
+            if (
+                self.replica_scope == "non_expert"
+                and _is_expert_group(
+                    self.optimizer.optimizer.param_groups[index]
+                )
+            ):
+                continue
             ranks = tuple(dist.get_process_group_ranks(process_group))
             buckets.setdefault(ranks, []).append(index)
 
-        summaries = {}
-        ordered = sorted(
-            buckets.items(), key=lambda item: (-len(item[0]), item[0])
+        self._prepared_groups = [
+            (tuple(ranks), tuple(indices))
+            for ranks, indices in sorted(
+                buckets.items(),
+                key=lambda item: (-len(item[0]), item[0]),
+            )
+        ]
+        self.group_ranks.clear()
+        self._group_indices.clear()
+        for ranks, indices in self._prepared_groups:
+            namespace = "ranks-" + "-".join(str(item) for item in ranks)
+            if self.failure_domain_size > 1:
+                replica_ring = failure_domain_ring_order(
+                    ranks,
+                    ranks_per_failure_domain=self.failure_domain_size,
+                )
+            else:
+                replica_ring = list(ranks)
+            self.group_ranks[namespace] = replica_ring
+            self._group_indices[namespace] = tuple(indices)
+
+    def start(self, initial_step: int = 0) -> dict[str, Any]:
+        if not self._prepared_groups:
+            self.prepare()
+        import torch.distributed as dist
+
+        rank = dist.get_rank()
+        generation = int(
+            os.environ.get(
+                "MOEGAMBIT_RECOVERY_EPOCH",
+                os.environ.get("TORCHELASTIC_RESTART_COUNT", "0"),
+            )
         )
-        for ranks, indices_value in ordered:
+        summaries = {}
+        for ranks, indices in self._prepared_groups:
             if rank not in ranks:
                 continue
             if len(ranks) < 2:
@@ -207,7 +260,7 @@ class DeepSpeedZero2Replica:
                     "to contain at least two ranks"
                 )
             namespace = "ranks-" + "-".join(str(item) for item in ranks)
-            indices = tuple(indices_value)
+            replica_ring = self.group_ranks[namespace]
             manager = Zero2MemoryReplicaManager(
                 rank=rank,
                 tensor_refs_fn=lambda selected=indices: self._tensor_refs(
@@ -231,10 +284,8 @@ class DeepSpeedZero2Replica:
                 timeout=self.timeout,
                 buffer_slots=self.buffer_slots,
             )
-            manager.start_transport(list(ranks), generation=generation)
+            manager.start_transport(replica_ring, generation=generation)
             self.managers[namespace] = manager
-            self.group_ranks[namespace] = list(ranks)
-            self._group_indices[namespace] = indices
             summaries[namespace] = manager.schedule_snapshot(
                 int(initial_step)
             )
@@ -286,6 +337,57 @@ class DeepSpeedZero2Replica:
                 f"no local replica for owner={owner_rank} step={step}: "
                 f"{failures}"
             )
+
+    def wait_until_replicated(self, step: int) -> None:
+        for manager in self.managers.values():
+            manager.wait_until_replicated(int(step))
+
+    def capture_local_handoff(
+        self, step: int
+    ) -> OptimizerMemorySnapshot:
+        import torch.distributed as dist
+
+        return capture_optimizer_snapshot(
+            owner_rank=dist.get_rank(),
+            holder_rank=dist.get_rank(),
+            step=int(step),
+            tensor_refs=self._tensor_refs(),
+            scalar_refs=self._scalar_refs(),
+        )
+
+    def export_peer_handoff(
+        self, step: int
+    ) -> dict[str, OptimizerMemorySnapshot]:
+        snapshots = {}
+        for namespace, manager in self.managers.items():
+            manager.wait_until_peer_committed(int(step))
+            snapshots[namespace] = manager.get_peer_snapshot(
+                manager.owner_to_receive, int(step)
+            )
+        return snapshots
+
+    def restore_handoff_snapshot(
+        self,
+        snapshot: OptimizerMemorySnapshot,
+        *,
+        restore_expert: bool,
+    ) -> dict[str, Any]:
+        return apply_optimizer_snapshot(
+            snapshot,
+            self._tensor_refs(),
+            self._scalar_refs(),
+            restore_expert=restore_expert,
+        )
+
+    def tensor_refs_for_namespace(
+        self, namespace: str
+    ) -> list[OptimizerTensorRef]:
+        return self._tensor_refs(self._group_indices[namespace])
+
+    def scalar_refs_for_namespace(
+        self, namespace: str
+    ) -> list[OptimizerScalarRef]:
+        return self._scalar_refs(self._group_indices[namespace])
 
     def close(self) -> None:
         for manager in self.managers.values():

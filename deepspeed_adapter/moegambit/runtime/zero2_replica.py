@@ -207,6 +207,65 @@ def backup_holder_for_owner(group_ranks: list[int], owner_rank: int) -> int:
     return holder
 
 
+@torch.no_grad()
+def capture_optimizer_snapshot(
+    *,
+    owner_rank: int,
+    holder_rank: int,
+    step: int,
+    tensor_refs: Iterable[OptimizerTensorRef],
+    scalar_refs: Iterable[OptimizerScalarRef],
+) -> OptimizerMemorySnapshot:
+    """Synchronously capture optimizer references in host memory.
+
+    This is used only at a recovery boundary. The steady-state replica path
+    remains asynchronous; survivor handoff needs an immutable snapshot that
+    stays valid after the training worker exits.
+    """
+    refs = list(tensor_refs)
+    scalars_source = list(scalar_refs)
+    manifest, totals, manifest_hash = _manifest_for_refs(refs)
+    if not manifest:
+        raise RuntimeError("optimizer handoff snapshot has no tensor state")
+
+    buffers = {
+        dtype_name: _allocate_host_tensor(dtype_name, int(numel))
+        for dtype_name, numel in totals.items()
+    }
+    segments = [
+        {
+            "dtype": dtype_name,
+            "numel": int(numel),
+            "byte_count": int(numel) * buffers[dtype_name].element_size(),
+        }
+        for dtype_name, numel in sorted(totals.items())
+    ]
+    used_cuda = False
+    for ref, item in zip(refs, manifest):
+        destination = buffers[item["dtype"]].narrow(
+            0, int(item["offset"]), int(item["numel"])
+        )
+        non_blocking = bool(ref.tensor.is_cuda and destination.is_pinned())
+        destination.copy_(ref.tensor.detach().view(-1), non_blocking=non_blocking)
+        used_cuda = used_cuda or ref.tensor.is_cuda
+    if used_cuda:
+        torch.cuda.current_stream().synchronize()
+
+    return OptimizerMemorySnapshot(
+        owner_rank=int(owner_rank),
+        holder_rank=int(holder_rank),
+        step=int(step),
+        manifest_hash=manifest_hash,
+        manifest=manifest,
+        scalars={
+            ref.identity: ref.state[ref.key]
+            for ref in scalars_source
+        },
+        segments=segments,
+        buffers=buffers,
+    )
+
+
 class Zero2MemoryReplicaManager:
     """Double-buffered D2H/H2H optimizer-state replication."""
 
@@ -461,6 +520,24 @@ class Zero2MemoryReplicaManager:
                     raise TimeoutError(
                         f"optimizer snapshot step {step} not replicated; "
                         f"latest={self._local_replicated_step}"
+                    )
+                self._cv.wait(min(remaining, 0.5))
+            self._raise_if_failed()
+
+    def wait_until_peer_committed(
+        self, step: int, timeout: Optional[float] = None
+    ):
+        deadline = time.monotonic() + (
+            self.timeout if timeout is None else float(timeout)
+        )
+        with self._cv:
+            while self._peer_committed_step < int(step):
+                self._raise_if_failed()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"peer optimizer snapshot step {step} not committed; "
+                        f"latest={self._peer_committed_step}"
                     )
                 self._cv.wait(min(remaining, 0.5))
             self._raise_if_failed()

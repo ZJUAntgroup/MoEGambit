@@ -930,7 +930,10 @@ def notify_hot_spare(kind: str, rank: int, **payload) -> bool:
 
 
 def maybe_inject_fault(
-    args: argparse.Namespace, rank: int, global_step: int
+    args: argparse.Namespace,
+    rank: int,
+    global_step: int,
+    engine: Any | None = None,
 ) -> None:
     recovery_epoch = int(
         os.environ.get(
@@ -942,9 +945,34 @@ def maybe_inject_fault(
         args.fault_step < 0
         or recovery_epoch != 0
         or global_step != args.fault_step
-        or rank != args.fault_rank
     ):
         return
+    runtime = (
+        getattr(engine, "_moegambit_runtime", None)
+        if engine is not None
+        else None
+    )
+    if runtime is not None:
+        runtime.wait_for_failure_commit(global_step)
+    # The injected test fault represents a committed safe-point failure. Make
+    # every rank publish its optimizer replica before the target process exits;
+    # otherwise the local launcher could kill sibling ranks before their
+    # replacement shards reach the peer holders.
+    torch_dist.barrier()
+    if rank != args.fault_rank:
+        if runtime is None:
+            raise RuntimeError(
+                "hot-spare fault injection has no recovery runtime"
+            )
+        log(
+            "FAULT_SAFE_STEP_WAITING_FOR_PREEMPTION "
+            f"rank={rank} step={global_step}",
+            rank=rank,
+        )
+        runtime.wait_for_recovery_preemption(global_step)
+        raise RuntimeError(
+            "recovery preemption wait returned without retiring the worker"
+        )
     marker = Path(args.state_dir) / "fault_injected.json"
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(
@@ -961,6 +989,11 @@ def maybe_inject_fault(
         + "\n",
         encoding="utf-8",
     )
+    if runtime is not None:
+        log(
+            f"FAULT_SAFE_STEP_COMMITTED rank={rank} step={global_step}",
+            rank=rank,
+        )
     log(
         f"FAULT_INJECT rank={rank} step={global_step} signal=SIGKILL",
         rank=rank,
@@ -1111,6 +1144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     log("DEEPSPEED_ENGINE_INIT_DONE", rank=rank)
     report_worker_phase("engine_init_done", rank)
     maybe_log_memory(rank, "engine-ready-after-autoep", args.log_memory)
+    runtime = getattr(engine, "_moegambit_runtime", None)
 
     from deepspeed.module_inject.auto_ep_layer import AutoEPMoELayer
 
@@ -1164,7 +1198,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     log(
         f"TRAIN_READY global_step={engine.global_steps} "
         f"local_autoep_layers={local_autoep_layers} "
-        f"data_rank={data_parallel_rank}/{data_parallel_world_size}",
+        f"data_rank={data_parallel_rank}/{data_parallel_world_size} "
+        f"recovery_contract="
+        f"{getattr(runtime, 'recovery_contract', None)}",
         rank=rank,
     )
     if args.local_rank == 0:
@@ -1208,9 +1244,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"loss={loss_value:.6f} elapsed_s={elapsed:.3f}",
                 rank=rank,
             )
-        maybe_inject_fault(args, rank, step)
+        maybe_inject_fault(args, rank, step, engine)
 
-    runtime = getattr(engine, "_moegambit_runtime", None)
     if runtime is not None and runtime.zero2 is not None:
         for manager in runtime.zero2.managers.values():
             manager.wait_until_replicated(int(engine.global_steps))
@@ -1257,6 +1292,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "expert_parallel_size": args.expert_parallel_size,
                     "zero_stage": args.zero_stage,
                     "zero2_replication": zero2_replication,
+                    "recovery_contract": (
+                        runtime.recovery_contract
+                        if runtime is not None
+                        else None
+                    ),
                 },
                 sort_keys=True,
             )

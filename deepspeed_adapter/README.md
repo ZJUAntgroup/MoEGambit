@@ -12,9 +12,9 @@ The supported cases are deliberately separate:
 
 | Case | Topology | Validation |
 | --- | --- | --- |
-| `hot_swap` | 8 active nodes + 1 standby, 64 active GPUs, PP=8, EP=8, ZeRO-1 | kill rank 1 at step 17, move its logical node to node 8, and restore the step-10 DeepSpeed checkpoint in a new recovery epoch |
+| `hot_swap` | 8 active nodes + 1 standby, 64 active GPUs, PP=8, EP=8, ZeRO-1 | kill rank 1 at step 17, preserve survivor state, move its logical node to node 8, and resume at step 17 with replacement experts from the step-10 checkpoint |
 | `zero2` | 8 nodes, 64 GPUs, PP=1, EP=8, ZeRO-2 | replicate each rank-local optimizer shard through asynchronous D2H and TCP H2H |
-| `combined` | 8 active nodes + 1 standby, 64 active GPUs, PP=1, EP=8, ZeRO-2 | combine node replacement and optimizer replication; recovery still comes from the durable checkpoint |
+| `combined` | 8 active nodes + 1 standby, 64 active GPUs, PP=1, EP=8, ZeRO-2 | combine node replacement, survivor handoff, and optimizer replication with the same mixed-version contract |
 
 DeepSpeed's `PipelineEngine` rejects ZeRO-2 and ZeRO-3, including when AutoEP
 is enabled. For that reason, `PP=8 + ZeRO-2` is not offered as a fake or
@@ -23,9 +23,13 @@ unsupported test.
 DeepSpeed cannot replace one rank inside a live c10d/NCCL world. The adapter
 therefore implements node-level hot replacement: node 8 stays outside the
 healthy world, takes over all eight logical ranks of the failed node, and the
-seven survivors enter the same checkpoint-backed recovery epoch. The logical
-64-rank topology does not change. A second failure without another spare
-aborts every remaining agent.
+seven survivors enter a new process-group epoch. Before their old workers are
+retired, survivors freeze optimizer commits and persist current-step model and
+optimizer handoff state. In the new epoch, survivors recover that state;
+replacement non-expert model and optimizer state comes from a current-step
+peer, while replacement expert model and optimizer state remains at the latest
+checkpoint. The logical 64-rank topology and resume step do not change. Missing
+or stale handoff state aborts recovery instead of silently rolling back.
 
 ## Environment
 
@@ -42,6 +46,18 @@ export MOEGAMBIT_ZERO2_BUFFER_SLOTS=1
 This keeps one local staging snapshot and one peer snapshot. The default value
 of two keeps double buffers on both sides and consumes roughly four optimizer
 shards of host memory per rank.
+
+Mixed-version recovery also needs a handoff directory that survives worker
+process retirement. Point it at node-local NVMe with enough free space for one
+model-stage state and one optimizer shard per local rank:
+
+```bash
+export MOEGAMBIT_RECOVERY_HANDOFF_DIR=/local-nvme/moegambit-handoff
+```
+
+The test launcher adds the run ID and physical-node suffix. It also places every
+optimizer replica outside its owner's `LOCAL_WORLD_SIZE` failure domain, so a
+whole-node exit cannot remove both copies.
 
 The `hot_swap` case also enables packed AutoEP recovery checkpoints and the
 resident standby cache:
@@ -84,3 +100,8 @@ on every node to the address reachable by the other training nodes.
 `TEST_MODE=all` runs the `hot_swap` and `zero2` cases sequentially. A case is
 reported as successful only after its completion manifest proves the expected
 restart and optimizer replica commit.
+
+For a failure at step 17 with checkpoint step 10, the recovery log must contain
+`resume_step=17`, `rollback_steps=0`, and then `TRAIN_READY global_step=17`.
+Seeing `TRAIN_READY global_step=10` means the old checkpoint-relaunch mode is
+still running.
