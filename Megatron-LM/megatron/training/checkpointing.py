@@ -611,6 +611,31 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
                 # Save.
                 ensure_directory_exists(checkpoint_name)
                 torch.save(state_dict, checkpoint_name)
+
+    if (
+        ckpt_type == CheckpointType.LEGACY
+        and os.environ.get("ELASTIC_EXPERT_SIDECAR", "0").lower()
+        in ("1", "true", "yes", "on")
+    ):
+        try:
+            from megatron.training.elastic_client import (
+                elastic_save_expert_sidecar,
+            )
+
+            elastic_save_expert_sidecar(
+                save_dir,
+                iteration,
+                model,
+                optimizer,
+                num_floating_point_operations_so_far,
+            )
+        except Exception:
+            # The ordinary checkpoint remains authoritative. A sidecar failure
+            # must never turn a healthy training checkpoint into a job failure.
+            logger.exception(
+                "Failed to save elastic expert recovery sidecar; "
+                "replacement will use the full checkpoint fallback"
+            )
     start_misc = time()
     if ckpt_type != CheckpointType.LOCAL:
         if not args.async_save:

@@ -95,8 +95,10 @@ from megatron.training.elastic_client import (
     elastic_check_pause,
     elastic_do_rebuild,
     elastic_align_resume_state,
+    elastic_expert_sidecar_available,
     elastic_on_nccl_error,
     elastic_replacement_sync_params,
+    elastic_restore_expert_sidecar,
     elastic_report_recovery_phase,
     elastic_post_rebuild_iteration_barrier,
     elastic_trace_post_rebuild_phase,
@@ -774,20 +776,30 @@ def pretrain(
     _elastic_saved_load = None
     _elastic_saved_no_load_optim = None
     _elastic_saved_no_load_rng = None
+    _elastic_use_expert_sidecar = False
     if _elastic_rebuild:
         _elastic_saved_load = args.load
         _elastic_saved_no_load_optim = args.no_load_optim
         _elastic_saved_no_load_rng = args.no_load_rng
         args.no_load_optim = True
         args.no_load_rng = True
+        _elastic_use_expert_sidecar = elastic_expert_sidecar_available()
+        if _elastic_use_expert_sidecar:
+            # Build the replacement model/optimizer without deserializing the
+            # complete checkpoint. The packed expert shard is applied after
+            # construction; dense state then comes from the live DP peer.
+            args.load = None
         args.enable_gloo_process_groups = False
         args.moe_moegambit_weights_first_recovery = False
         args.moe_moegambit_async_recovery = False
         logger.warning(
-            "[elastic] REBUILD MODE: loading checkpoint model weights; the "
-            "ordinary optimizer loads its complete local checkpoint shard, "
-            "while distributed optimizer expert tensors use the local-only "
-            "loader; dense/non-expert state is then overwritten from a DP peer"
+            "[elastic] REBUILD MODE: expert_restore=%s; "
+            "dense/non-expert state will be overwritten from a DP peer",
+            (
+                "packed_rank_sidecar"
+                if _elastic_use_expert_sidecar
+                else "full_checkpoint_fallback"
+            ),
         )
 
     app_metrics = {}
@@ -848,8 +860,6 @@ def pretrain(
         initial_step=int(args.iteration),
         start_transport=not _elastic_rebuild,
     )
-    if _elastic_rebuild:
-        elastic_report_recovery_phase("model_optimizer_ready")
 
     timers('model-and-optimizer-setup').stop(barrier=not _elastic_rebuild)
     print_datetime('after model, optimizer, and learning rate ' 'scheduler are built')
@@ -857,7 +867,36 @@ def pretrain(
 
     # Elastic rebuild mode: replacement node receives params from DP peer
     if _elastic_rebuild:
-        args.load = _elastic_saved_load  # Restore for future checkpoint saves
+        args.load = _elastic_saved_load
+        if _elastic_use_expert_sidecar:
+            try:
+                sidecar_summary = elastic_restore_expert_sidecar(model, optimizer)
+                elastic_report_recovery_phase(
+                    "checkpoint_loaded",
+                    checkpoint_source="expert_packed_sidecar",
+                    expert_sidecar=sidecar_summary,
+                )
+            except Exception:
+                logger.exception(
+                    "[elastic] packed expert sidecar restore failed; "
+                    "loading the authoritative full checkpoint"
+                )
+                args.no_load_optim = True
+                args.no_load_rng = True
+                (
+                    args.iteration,
+                    args.num_floating_point_operations_so_far,
+                ) = load_checkpoint(
+                    model,
+                    optimizer,
+                    opt_param_scheduler,
+                    checkpointing_context=checkpointing_context,
+                )
+                elastic_report_recovery_phase(
+                    "checkpoint_loaded",
+                    checkpoint_source="full_checkpoint_after_sidecar_fallback",
+                )
+        elastic_report_recovery_phase("model_optimizer_ready")
         args.no_load_optim = _elastic_saved_no_load_optim
         args.no_load_rng = _elastic_saved_no_load_rng
         elastic_replacement_sync_params(model, optimizer, opt_param_scheduler)

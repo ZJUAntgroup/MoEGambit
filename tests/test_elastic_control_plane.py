@@ -246,6 +246,75 @@ def test_recovery_peer_publishers_include_a_routable_host():
     assert 'endpoint_msg["host"] = advertised_host' in peer_source
 
 
+def test_megatron_peer_sync_uses_one_manifest_and_raw_pinned_pipeline():
+    elastic_client_path = (
+        Path(__file__).parents[1]
+        / "Megatron-LM"
+        / "megatron"
+        / "training"
+        / "elastic_client.py"
+    )
+    source = elastic_client_path.read_text()
+    tree = ast.parse(source)
+    peer_stream = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "_PeerSyncStream"
+    )
+    send_tensor = next(
+        node
+        for node in peer_stream.body
+        if isinstance(node, ast.FunctionDef) and node.name == "send_tensor"
+    )
+    recv_tensor = next(
+        node
+        for node in peer_stream.body
+        if isinstance(node, ast.FunctionDef) and node.name == "recv_tensor_into"
+    )
+    sync_params = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_sync_params_to_new_rank"
+    )
+
+    send_source = ast.get_source_segment(source, send_tensor)
+    recv_source = ast.get_source_segment(source, recv_tensor)
+    peer_source = ast.get_source_segment(source, peer_stream)
+    sync_source = ast.get_source_segment(source, sync_params)
+    assert "torch.save" not in send_source
+    assert "torch.load" not in recv_source
+    assert "pin_memory=True" in peer_source
+    assert "_get_host_buffers" in send_source
+    assert "_get_host_buffers" in recv_source
+    assert "torch.cuda.Stream" in send_source
+    assert "torch.cuda.Stream" in recv_source
+    assert sync_source.count("_exchange_peer_sync_manifest(") == 1
+
+
+def test_expert_sidecar_is_atomic_prefetched_and_has_full_checkpoint_fallback():
+    root = Path(__file__).parents[1]
+    elastic_source = (
+        root / "Megatron-LM" / "megatron" / "training" / "elastic_client.py"
+    ).read_text()
+    checkpoint_source = (
+        root / "Megatron-LM" / "megatron" / "training" / "checkpointing.py"
+    ).read_text()
+    training_source = (
+        root / "Megatron-LM" / "megatron" / "training" / "training.py"
+    ).read_text()
+    launch_script = (root / "test_hotspare_replace.sh").read_text()
+
+    assert 'os.environ.get("ELASTIC_EXPERT_SIDECAR", "0")' in elastic_source
+    assert "os.replace(tmp_payload, payload_name)" in elastic_source
+    assert "_atomic_json_dump(manifest, manifest_name)" in elastic_source
+    assert "payload_sha256" in elastic_source
+    assert "now + 5.0" in elastic_source
+    assert "elastic_save_expert_sidecar(" in checkpoint_source
+    assert "full_checkpoint_after_sidecar_fallback" in training_source
+    assert 'ELASTIC_EXPERT_SIDECAR:-1' in launch_script
+
+
 def test_recovery_abort_releases_pending_ordinal_barriers():
     with tempfile.TemporaryDirectory() as fault_dir:
         args = _args(fault_dir)

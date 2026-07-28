@@ -33,7 +33,6 @@ import hashlib
 import fcntl
 import logging
 import os
-import io
 import signal as signal_module
 import socket
 import struct
@@ -73,6 +72,11 @@ _LAUNCHER_STATUS_SOCKET = None
 _ZERO2_MEMORY_MANAGER: Optional[Zero2MemoryReplicaManager] = None
 _ZERO2_OPTIMIZER = None
 _ZERO2_MODEL_PARAM_TO_NAME = None
+_EXPERT_SIDECAR_CACHE = {}
+_EXPERT_SIDECAR_CACHE_LOCK = threading.Lock()
+_EXPERT_SIDECAR_PREFETCH_THREAD = None
+_EXPERT_SIDECAR_PREFETCH_SUMMARY = {}
+_EXPERT_SIDECAR_RESTORE_SUMMARY = None
 
 _POST_REBUILD_STATE_ENV = (
     "ELASTIC_RECOVERY_STATE",
@@ -252,12 +256,14 @@ def elastic_prearm_standby_cuda_runtime(device):
         te_status = f"import_only:{type(exc).__name__}"
         logger.warning("[elastic] standby TE operator warmup skipped: %s", exc)
     torch.cuda.synchronize(device)
+    sidecar_prefetch = elastic_prefetch_expert_sidecar()
     summary = {
         "enabled": True,
         "device": str(device),
         "te_status": te_status,
         "allocated_bytes": int(torch.cuda.memory_allocated(device)),
         "reserved_bytes": int(torch.cuda.memory_reserved(device)),
+        "expert_sidecar_prefetch": sidecar_prefetch,
     }
     _PREARMED_STANDBY_RUNTIME = {"cache": cache, "summary": summary}
     logger.warning("[elastic] prearmed standby CUDA runtime ready: %s", summary)
@@ -274,6 +280,7 @@ def elastic_refresh_prearmed_standby_assignment():
     timeout = float(os.environ.get("ELASTIC_STANDBY_ASSIGNMENT_TIMEOUT_SECONDS", "30"))
     deadline = time.time() + timeout
     assignment = None
+    next_sidecar_prefetch = 0.0
     logger.warning(
         "[elastic] prearmed standby waiting for activation assignment before "
         "TCPStore: path=%s timeout=%.1fs",
@@ -286,6 +293,14 @@ def elastic_refresh_prearmed_standby_assignment():
                 assignment = json.load(assignment_file)
             break
         except (OSError, ValueError, TypeError):
+            now = time.monotonic()
+            if now >= next_sidecar_prefetch:
+                sidecar_prefetch = _start_expert_sidecar_prefetch()
+                if sidecar_prefetch.get("available"):
+                    _PREARMED_STANDBY_RUNTIME.setdefault("summary", {})[
+                        "expert_sidecar_prefetch"
+                    ] = sidecar_prefetch
+                next_sidecar_prefetch = now + 5.0
             time.sleep(0.05)
     if not isinstance(assignment, dict):
         raise RuntimeError(
@@ -3543,6 +3558,677 @@ def _require_optimizer_role_ready(summary, role):
         )
 
 
+_EXPERT_SIDECAR_VERSION = 1
+
+
+def _expert_sidecar_enabled():
+    return os.environ.get("ELASTIC_EXPERT_SIDECAR", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _expert_sidecar_paths(checkpoint_dir, iteration, logical_rank):
+    base_dir = os.path.join(
+        os.path.abspath(checkpoint_dir),
+        f"iter_{int(iteration):07d}",
+        "elastic_expert_recovery",
+    )
+    stem = f"rank_{int(logical_rank):06d}"
+    return (
+        os.path.join(base_dir, f"{stem}.pt"),
+        os.path.join(base_dir, f"{stem}.manifest.json"),
+    )
+
+
+def _atomic_json_dump(payload, filename):
+    tmp_name = f"{filename}.tmp.{os.getpid()}"
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    try:
+        with open(tmp_name, "w", encoding="utf-8") as output:
+            json.dump(payload, output, sort_keys=True, separators=(",", ":"))
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(tmp_name, filename)
+    finally:
+        try:
+            os.remove(tmp_name)
+        except OSError:
+            pass
+
+
+def _file_sha256(filename):
+    digest = hashlib.sha256()
+    with open(filename, "rb") as input_file:
+        while True:
+            chunk = input_file.read(8 * 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _sidecar_cpu_tensor(tensor):
+    return tensor.detach().to(device="cpu", non_blocking=False).contiguous().clone()
+
+
+def _sidecar_tensor_bytes(value):
+    if isinstance(value, torch.Tensor):
+        return int(value.numel() * value.element_size())
+    if isinstance(value, dict):
+        return sum(_sidecar_tensor_bytes(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return sum(_sidecar_tensor_bytes(item) for item in value)
+    return 0
+
+
+def _pin_sidecar_tensors(value):
+    if isinstance(value, torch.Tensor):
+        if value.device.type != "cpu" or value.is_pinned():
+            return value
+        try:
+            return value.pin_memory()
+        except RuntimeError:
+            return value
+    if isinstance(value, dict):
+        return {key: _pin_sidecar_tensors(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_pin_sidecar_tensors(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_pin_sidecar_tensors(item) for item in value)
+    return value
+
+
+def _expert_model_sidecar_entries(model):
+    entries = []
+    for chunk_index, model_chunk in enumerate(model):
+        for name, param in model_chunk.named_parameters():
+            if not _is_expert_model_param(name, param):
+                continue
+            entries.append(
+                {
+                    "identity": f"chunk{chunk_index}:{name}",
+                    "shape": list(param.shape),
+                    "dtype": str(param.dtype),
+                    "tensor": _sidecar_cpu_tensor(param),
+                }
+            )
+    return entries
+
+
+def _expert_optimizer_sidecar_payload(optimizer, model_param_to_name):
+    entries = []
+    wrappers = []
+    unmapped = []
+    unsupported = []
+    for wrapper_index, megatron_optimizer in enumerate(
+        _iter_megatron_optimizers(optimizer)
+    ):
+        inner_optimizer, param_to_name, param_to_is_expert = (
+            _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name)
+        )
+        if inner_optimizer is None:
+            unsupported.append(wrapper_index)
+            continue
+        param_groups = []
+        for group in getattr(inner_optimizer, "param_groups", []):
+            param_groups.append(
+                {
+                    str(key): value
+                    for key, value in group.items()
+                    if key != "params"
+                    and isinstance(value, (bool, int, float, str))
+                }
+            )
+        grad_scaler = getattr(megatron_optimizer, "grad_scaler", None)
+        wrappers.append(
+            {
+                "wrapper_index": wrapper_index,
+                "param_groups": param_groups,
+                "grad_scaler": (
+                    grad_scaler.state_dict() if grad_scaler is not None else None
+                ),
+            }
+        )
+        for group_index, group in enumerate(
+            getattr(inner_optimizer, "param_groups", [])
+        ):
+            for param_index, param in enumerate(group.get("params", [])):
+                name = param_to_name.get(param)
+                if name is None:
+                    unmapped.append((wrapper_index, group_index, param_index))
+                    continue
+                if not param_to_is_expert.get(
+                    param, _is_expert_param_name(name)
+                ):
+                    continue
+                state = inner_optimizer.state.get(param, {})
+                tensor_state = {
+                    str(key): _sidecar_cpu_tensor(value)
+                    for key, value in state.items()
+                    if isinstance(value, torch.Tensor)
+                }
+                tensor_state_devices = {
+                    str(key): value.device.type
+                    for key, value in state.items()
+                    if isinstance(value, torch.Tensor)
+                }
+                scalar_state = {
+                    str(key): value
+                    for key, value in state.items()
+                    if isinstance(value, (bool, int, float, str))
+                }
+                entries.append(
+                    {
+                        "identity": (
+                            f"w{wrapper_index}/g{group_index}/"
+                            f"p{param_index}:{name}"
+                        ),
+                        "name": name,
+                        "shape": list(param.shape),
+                        "dtype": str(param.dtype),
+                        "main_param": _sidecar_cpu_tensor(param.data),
+                        "tensor_state": tensor_state,
+                        "tensor_state_devices": tensor_state_devices,
+                        "scalar_state": scalar_state,
+                    }
+                )
+    if unsupported:
+        raise RuntimeError(
+            "[elastic] cannot save expert sidecar for optimizer wrappers "
+            f"{unsupported}"
+        )
+    if unmapped:
+        raise RuntimeError(
+            "[elastic] cannot save expert sidecar with incomplete optimizer "
+            f"mapping: unmapped={len(unmapped)} sample={unmapped[:8]}"
+        )
+    return {"entries": entries, "wrappers": wrappers}
+
+
+def elastic_save_expert_sidecar(
+    checkpoint_dir,
+    iteration,
+    model,
+    optimizer,
+    num_floating_point_operations_so_far=0,
+):
+    """Write an atomic rank-local expert model/optimizer recovery shard."""
+    if not _expert_sidecar_enabled() or optimizer is None:
+        return None
+    rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
+    target_rank = int(
+        os.environ.get("ELASTIC_EXPERT_SIDECAR_TARGET_RANK", "-1")
+    )
+    if target_rank >= 0 and rank != target_rank:
+        return {
+            "skipped": True,
+            "logical_rank": int(rank),
+            "target_rank": target_rank,
+        }
+    started = time.monotonic()
+    model_param_to_name = _build_model_param_name_map(model)
+    payload = {
+        "format": "megatron-expert-recovery-sidecar",
+        "version": _EXPERT_SIDECAR_VERSION,
+        "iteration": int(iteration),
+        "logical_rank": int(rank),
+        "checkpoint_version": 3.0,
+        "num_floating_point_operations_so_far": int(
+            num_floating_point_operations_so_far
+        ),
+        "model": _expert_model_sidecar_entries(model),
+        "optimizer": _expert_optimizer_sidecar_payload(
+            optimizer, model_param_to_name
+        ),
+    }
+    payload_name, manifest_name = _expert_sidecar_paths(
+        checkpoint_dir, iteration, rank
+    )
+    os.makedirs(os.path.dirname(payload_name), exist_ok=True)
+    tmp_payload = f"{payload_name}.tmp.{os.getpid()}"
+    try:
+        torch.save(payload, tmp_payload)
+        with open(tmp_payload, "rb") as payload_file:
+            os.fsync(payload_file.fileno())
+        os.replace(tmp_payload, payload_name)
+        payload_size = os.path.getsize(payload_name)
+        payload_sha256 = _file_sha256(payload_name)
+        manifest = {
+            "format": payload["format"],
+            "version": _EXPERT_SIDECAR_VERSION,
+            "iteration": int(iteration),
+            "logical_rank": int(rank),
+            "payload": os.path.basename(payload_name),
+            "payload_bytes": int(payload_size),
+            "payload_sha256": payload_sha256,
+            "model_param_count": len(payload["model"]),
+            "optimizer_param_count": len(payload["optimizer"]["entries"]),
+        }
+        _atomic_json_dump(manifest, manifest_name)
+    finally:
+        try:
+            os.remove(tmp_payload)
+        except OSError:
+            pass
+    summary = {
+        "iteration": int(iteration),
+        "logical_rank": int(rank),
+        "payload": payload_name,
+        "bytes": int(payload_size),
+        "model_params": len(payload["model"]),
+        "optimizer_params": len(payload["optimizer"]["entries"]),
+        "seconds": time.monotonic() - started,
+    }
+    logger.warning("[elastic] expert recovery sidecar saved: %s", summary)
+    return summary
+
+
+def _resolve_expert_sidecar():
+    if not _expert_sidecar_enabled() or not is_rebuild_mode():
+        return None
+    from megatron.training import get_args
+    from megatron.training.checkpointing import (
+        get_checkpoint_tracker_filename,
+        isfile,
+        read_metadata,
+    )
+
+    args = get_args()
+    checkpoint_dir = getattr(args, "load", None) or os.environ.get("CKPT_DIR")
+    if not checkpoint_dir:
+        return None
+    iteration = int(os.environ.get("ELASTIC_CHECKPOINT_STEP", "-1"))
+    if iteration < 0 and getattr(args, "ckpt_step", None):
+        iteration = int(args.ckpt_step)
+    if iteration < 0:
+        tracker = get_checkpoint_tracker_filename(checkpoint_dir)
+        if not isfile(tracker):
+            return None
+        iteration, release = read_metadata(tracker)
+        if release:
+            return None
+    logical_rank = int(
+        os.environ.get(
+            "ELASTIC_REPLACEMENT_RANK", os.environ.get("RANK", "0")
+        )
+    )
+    payload_name, manifest_name = _expert_sidecar_paths(
+        checkpoint_dir, iteration, logical_rank
+    )
+    return {
+        "checkpoint_dir": checkpoint_dir,
+        "iteration": int(iteration),
+        "logical_rank": logical_rank,
+        "payload": payload_name,
+        "manifest": manifest_name,
+        "cache_key": (
+            os.path.abspath(checkpoint_dir),
+            int(iteration),
+            logical_rank,
+        ),
+    }
+
+
+def _load_expert_sidecar_into_cache(*, pin_memory):
+    resolved = _resolve_expert_sidecar()
+    if resolved is None:
+        return None, {"available": False, "reason": "disabled_or_unresolved"}
+    cache_key = resolved["cache_key"]
+    with _EXPERT_SIDECAR_CACHE_LOCK:
+        cached = _EXPERT_SIDECAR_CACHE.get(cache_key)
+    if cached is not None:
+        return cached, {
+            "available": True,
+            "cached": True,
+            "iteration": resolved["iteration"],
+            "logical_rank": resolved["logical_rank"],
+            "bytes": _sidecar_tensor_bytes(cached),
+        }
+    try:
+        with open(resolved["manifest"], "r", encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+        if (
+            manifest.get("format") != "megatron-expert-recovery-sidecar"
+            or int(manifest.get("version", -1)) != _EXPERT_SIDECAR_VERSION
+            or int(manifest.get("iteration", -1)) != resolved["iteration"]
+            or int(manifest.get("logical_rank", -1)) != resolved["logical_rank"]
+            or manifest.get("payload")
+            != os.path.basename(resolved["payload"])
+        ):
+            raise RuntimeError(f"manifest identity mismatch: {manifest}")
+        payload_size = os.path.getsize(resolved["payload"])
+        if payload_size != int(manifest.get("payload_bytes", -1)):
+            raise RuntimeError(
+                f"payload size mismatch: local={payload_size} manifest={manifest}"
+            )
+        if os.environ.get("ELASTIC_EXPERT_SIDECAR_VERIFY_SHA256", "1") == "1":
+            payload_sha256 = _file_sha256(resolved["payload"])
+            if payload_sha256 != manifest.get("payload_sha256"):
+                raise RuntimeError(
+                    "payload sha256 mismatch: "
+                    f"local={payload_sha256} manifest={manifest.get('payload_sha256')}"
+                )
+        try:
+            payload = torch.load(
+                resolved["payload"], map_location="cpu", weights_only=False
+            )
+        except TypeError:
+            payload = torch.load(resolved["payload"], map_location="cpu")
+        if (
+            payload.get("format") != "megatron-expert-recovery-sidecar"
+            or int(payload.get("version", -1)) != _EXPERT_SIDECAR_VERSION
+            or int(payload.get("iteration", -1)) != resolved["iteration"]
+            or int(payload.get("logical_rank", -1)) != resolved["logical_rank"]
+        ):
+            raise RuntimeError("payload identity does not match its manifest")
+        if (
+            len(payload.get("model", []))
+            != int(manifest.get("model_param_count", -1))
+            or len(payload.get("optimizer", {}).get("entries", []))
+            != int(manifest.get("optimizer_param_count", -1))
+        ):
+            raise RuntimeError("payload parameter counts do not match its manifest")
+        tensor_bytes = _sidecar_tensor_bytes(payload)
+        max_host_gb = float(
+            os.environ.get("ELASTIC_EXPERT_SIDECAR_MAX_HOST_GB_PER_RANK", "0")
+        )
+        if max_host_gb > 0 and tensor_bytes > max_host_gb * 1024**3:
+            raise RuntimeError(
+                f"sidecar requires {tensor_bytes / 1024**3:.2f} GiB, "
+                f"limit is {max_host_gb:.2f} GiB"
+            )
+        if pin_memory and torch.cuda.is_available():
+            payload = _pin_sidecar_tensors(payload)
+        current = _resolve_expert_sidecar()
+        if current is None or current["cache_key"] != cache_key:
+            return None, {
+                "available": False,
+                "reason": "stale_during_prefetch",
+                "iteration": resolved["iteration"],
+                "logical_rank": resolved["logical_rank"],
+            }
+        with _EXPERT_SIDECAR_CACHE_LOCK:
+            for stale_key in list(_EXPERT_SIDECAR_CACHE):
+                if stale_key != cache_key:
+                    _EXPERT_SIDECAR_CACHE.pop(stale_key, None)
+            _EXPERT_SIDECAR_CACHE[cache_key] = payload
+        return payload, {
+            "available": True,
+            "cached": False,
+            "iteration": resolved["iteration"],
+            "logical_rank": resolved["logical_rank"],
+            "bytes": tensor_bytes,
+            "pinned": bool(pin_memory),
+            "payload": resolved["payload"],
+        }
+    except FileNotFoundError:
+        return None, {
+            "available": False,
+            "reason": "not_yet_committed",
+            "iteration": resolved["iteration"],
+            "logical_rank": resolved["logical_rank"],
+        }
+    except Exception as exc:
+        logger.warning(
+            "[elastic] expert recovery sidecar unavailable; using full "
+            "checkpoint fallback: %s",
+            exc,
+        )
+        return None, {
+            "available": False,
+            "reason": type(exc).__name__,
+            "error": str(exc),
+            "iteration": resolved["iteration"],
+            "logical_rank": resolved["logical_rank"],
+        }
+
+
+def elastic_prefetch_expert_sidecar():
+    started = time.monotonic()
+    payload, summary = _load_expert_sidecar_into_cache(pin_memory=True)
+    summary = dict(summary)
+    summary["seconds"] = time.monotonic() - started
+    if payload is not None and not summary.get("cached", False):
+        logger.warning("[elastic] prearmed expert sidecar ready: %s", summary)
+    return summary
+
+
+def _start_expert_sidecar_prefetch():
+    global _EXPERT_SIDECAR_PREFETCH_THREAD
+    global _EXPERT_SIDECAR_PREFETCH_SUMMARY
+
+    resolved = _resolve_expert_sidecar()
+    if resolved is not None:
+        with _EXPERT_SIDECAR_CACHE_LOCK:
+            cached = _EXPERT_SIDECAR_CACHE.get(resolved["cache_key"])
+        if cached is not None:
+            return {
+                "available": True,
+                "cached": True,
+                "iteration": resolved["iteration"],
+                "logical_rank": resolved["logical_rank"],
+                "bytes": _sidecar_tensor_bytes(cached),
+            }
+    thread = _EXPERT_SIDECAR_PREFETCH_THREAD
+    if thread is not None and thread.is_alive():
+        summary = dict(_EXPERT_SIDECAR_PREFETCH_SUMMARY)
+        summary["in_progress"] = True
+        return summary
+
+    def run_prefetch():
+        global _EXPERT_SIDECAR_PREFETCH_SUMMARY
+        summary = elastic_prefetch_expert_sidecar()
+        _EXPERT_SIDECAR_PREFETCH_SUMMARY = dict(summary)
+        if (
+            summary.get("available")
+            and os.environ.get("ELASTIC_STANDBY_ACTIVATED", "0") != "1"
+        ):
+            _PREARMED_STANDBY_RUNTIME.setdefault("summary", {})[
+                "expert_sidecar_prefetch"
+            ] = dict(summary)
+
+    _EXPERT_SIDECAR_PREFETCH_SUMMARY = {
+        "available": False,
+        "in_progress": True,
+    }
+    _EXPERT_SIDECAR_PREFETCH_THREAD = threading.Thread(
+        target=run_prefetch,
+        name="megatron-expert-sidecar-prefetch",
+        daemon=True,
+    )
+    _EXPERT_SIDECAR_PREFETCH_THREAD.start()
+    return dict(_EXPERT_SIDECAR_PREFETCH_SUMMARY)
+
+
+def elastic_expert_sidecar_available():
+    payload, summary = _load_expert_sidecar_into_cache(
+        pin_memory=os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1"
+    )
+    if payload is not None:
+        logger.warning("[elastic] selecting expert-only sidecar restore: %s", summary)
+        return True
+    return False
+
+
+def _copy_sidecar_tensor(destination, source, identity):
+    if list(destination.shape) != list(source.shape) or destination.dtype != source.dtype:
+        raise RuntimeError(
+            f"[elastic] expert sidecar tensor mismatch for {identity}: "
+            f"local shape={list(destination.shape)} dtype={destination.dtype}, "
+            f"sidecar shape={list(source.shape)} dtype={source.dtype}"
+        )
+    destination.copy_(
+        source,
+        non_blocking=(
+            destination.device.type == "cuda"
+            and source.device.type == "cpu"
+            and source.is_pinned()
+        ),
+    )
+
+
+@torch.no_grad()
+def elastic_restore_expert_sidecar(model, optimizer):
+    """Apply a validated expert-only sidecar to a newly built replacement."""
+    global _EXPERT_SIDECAR_RESTORE_SUMMARY
+    started = time.monotonic()
+    payload, load_summary = _load_expert_sidecar_into_cache(
+        pin_memory=os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1"
+    )
+    if payload is None:
+        raise RuntimeError(
+            "[elastic] selected expert sidecar restore but payload is unavailable"
+        )
+
+    local_model = {}
+    for chunk_index, model_chunk in enumerate(model):
+        for name, param in model_chunk.named_parameters():
+            if _is_expert_model_param(name, param):
+                local_model[f"chunk{chunk_index}:{name}"] = param
+    remote_model = {
+        entry["identity"]: entry for entry in payload.get("model", [])
+    }
+    if set(local_model) != set(remote_model):
+        raise RuntimeError(
+            "[elastic] expert model sidecar coverage mismatch: "
+            f"local={len(local_model)} remote={len(remote_model)} "
+            f"missing={sorted(set(local_model) - set(remote_model))[:8]} "
+            f"extra={sorted(set(remote_model) - set(local_model))[:8]}"
+        )
+    for identity, param in local_model.items():
+        _copy_sidecar_tensor(
+            param.data, remote_model[identity]["tensor"], identity
+        )
+
+    model_param_to_name = _build_model_param_name_map(model)
+    local_optimizer = {}
+    wrappers = list(_iter_megatron_optimizers(optimizer))
+    for wrapper_index, megatron_optimizer in enumerate(wrappers):
+        _ensure_optimizer_tensor_state_for_peer(megatron_optimizer)
+        inner_optimizer, param_to_name, param_to_is_expert = (
+            _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name)
+        )
+        if inner_optimizer is None:
+            raise RuntimeError(
+                f"[elastic] expert sidecar optimizer wrapper {wrapper_index} unsupported"
+            )
+        for group_index, group in enumerate(inner_optimizer.param_groups):
+            for param_index, param in enumerate(group.get("params", [])):
+                name = param_to_name.get(param)
+                if name is None or not param_to_is_expert.get(
+                    param, _is_expert_param_name(name or "")
+                ):
+                    continue
+                identity = (
+                    f"w{wrapper_index}/g{group_index}/p{param_index}:{name}"
+                )
+                state = inner_optimizer.state.setdefault(param, {})
+                local_optimizer[identity] = (param, state)
+
+    remote_optimizer = {
+        entry["identity"]: entry
+        for entry in payload.get("optimizer", {}).get("entries", [])
+    }
+    if set(local_optimizer) != set(remote_optimizer):
+        raise RuntimeError(
+            "[elastic] expert optimizer sidecar coverage mismatch: "
+            f"local={len(local_optimizer)} remote={len(remote_optimizer)} "
+            f"missing={sorted(set(local_optimizer) - set(remote_optimizer))[:8]} "
+            f"extra={sorted(set(remote_optimizer) - set(local_optimizer))[:8]}"
+        )
+    loaded_tensors = 0
+    for identity, (param, state) in local_optimizer.items():
+        remote_entry = remote_optimizer[identity]
+        _copy_sidecar_tensor(
+            param.data, remote_entry["main_param"], f"{identity}:main_param"
+        )
+        loaded_tensors += 1
+        for key, source in remote_entry.get("tensor_state", {}).items():
+            destination = state.get(key)
+            if not isinstance(destination, torch.Tensor):
+                source_device_type = remote_entry.get(
+                    "tensor_state_devices", {}
+                ).get(key, param.device.type)
+                destination_device = (
+                    torch.device("cpu")
+                    if source_device_type == "cpu"
+                    else param.device
+                )
+                destination = torch.empty_like(
+                    source,
+                    device=destination_device,
+                    memory_format=torch.contiguous_format,
+                )
+                state[key] = destination
+            _copy_sidecar_tensor(
+                destination, source, f"{identity}:state:{key}"
+            )
+            loaded_tensors += 1
+        for key, value in remote_entry.get("scalar_state", {}).items():
+            state[key] = value
+
+    for wrapper_payload in payload.get("optimizer", {}).get("wrappers", []):
+        wrapper_index = int(wrapper_payload["wrapper_index"])
+        if wrapper_index >= len(wrappers):
+            raise RuntimeError(
+                f"[elastic] expert sidecar wrapper index out of range: {wrapper_index}"
+            )
+        megatron_optimizer = wrappers[wrapper_index]
+        inner_optimizer = getattr(megatron_optimizer, "optimizer", None)
+        remote_groups = wrapper_payload.get("param_groups", [])
+        if len(remote_groups) != len(inner_optimizer.param_groups):
+            raise RuntimeError(
+                f"[elastic] expert sidecar param-group mismatch for wrapper {wrapper_index}"
+            )
+        for local_group, remote_group in zip(
+            inner_optimizer.param_groups, remote_groups
+        ):
+            for key, value in remote_group.items():
+                local_group[key] = value
+        grad_scaler_state = wrapper_payload.get("grad_scaler")
+        grad_scaler = getattr(megatron_optimizer, "grad_scaler", None)
+        if grad_scaler_state is not None and grad_scaler is not None:
+            grad_scaler.load_state_dict(grad_scaler_state)
+
+    synchronize_steps = getattr(optimizer, "_synchronize_steps", None)
+    if synchronize_steps is not None:
+        synchronize_steps()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    summary = _optimizer_role_state_summary(
+        optimizer, model_param_to_name, expert=True
+    )
+    summary.update(
+        {
+            "source": "checkpoint_expert_packed_sidecar",
+            "loaded_params": len(local_optimizer),
+            "loaded_tensors": loaded_tensors,
+            "model_params": len(local_model),
+            "iteration": int(payload["iteration"]),
+            "bytes": int(load_summary.get("bytes", _sidecar_tensor_bytes(payload))),
+            "resident_prefetch": bool(
+                load_summary.get("cached", False)
+                and os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1"
+            ),
+            "restore_seconds": time.monotonic() - started,
+        }
+    )
+    _require_optimizer_role_ready(summary, "expert")
+    _EXPERT_SIDECAR_RESTORE_SUMMARY = summary
+    from megatron.training import get_args
+
+    args = get_args()
+    args.iteration = int(payload["iteration"])
+    args.num_floating_point_operations_so_far = int(
+        payload.get("num_floating_point_operations_so_far", 0)
+    )
+    logger.warning("[elastic] expert recovery sidecar restored: %s", summary)
+    return summary
+
+
 def _get_local_distributed_optimizer_checkpoint_name():
     from megatron.training import get_args
     from megatron.training.checkpointing import (
@@ -3709,6 +4395,10 @@ def _copy_expert_state_from_dp_zero_world_tensors(
 
 
 def _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name):
+    if _EXPERT_SIDECAR_RESTORE_SUMMARY is not None:
+        summary = dict(_EXPERT_SIDECAR_RESTORE_SUMMARY)
+        _require_optimizer_role_ready(summary, "expert")
+        return summary
     if optimizer is None:
         raise RuntimeError("[elastic] state contract failed: optimizer is missing")
 
@@ -4071,6 +4761,10 @@ class _PeerSyncStream:
         self.server_sock = None
         self.timeout = float(os.environ.get("ELASTIC_PEER_SYNC_TIMEOUT", "900"))
         self.chunk_mb = int(os.environ.get("ELASTIC_PARAM_SYNC_CHUNK_MB", "256"))
+        self._send_buffers = []
+        self._recv_buffers = []
+        self._send_stream = None
+        self._recv_stream = None
 
     def __enter__(self):
         if self.rank == self.src_rank:
@@ -4254,24 +4948,44 @@ class _PeerSyncStream:
             remaining -= len(chunk)
         return b"".join(chunks)
 
+    def _get_host_buffers(self, direction, buffer_bytes, buffer_count):
+        attribute = (
+            "_send_buffers" if direction == "send" else "_recv_buffers"
+        )
+        buffers = getattr(self, attribute)
+        if (
+            len(buffers) >= buffer_count
+            and all(buffer.numel() >= buffer_bytes for buffer in buffers)
+        ):
+            return buffers[:buffer_count]
+        buffers = []
+        for _ in range(buffer_count):
+            try:
+                buffer = torch.empty(
+                    buffer_bytes,
+                    dtype=torch.uint8,
+                    device="cpu",
+                    pin_memory=True,
+                )
+            except RuntimeError:
+                buffer = torch.empty(
+                    buffer_bytes, dtype=torch.uint8, device="cpu"
+                )
+            buffers.append(buffer)
+        setattr(self, attribute, buffers)
+        return buffers
+
     def send_tensor(self, tensor, label: str):
         if tensor.numel() == 0:
-            self.send_json({"label": label, "chunks": 0, "numel": 0})
+            self.sock.sendall(struct.pack("!Q", 0))
             return
         flat = tensor.contiguous().view(-1)
-        max_elems = max(1, (max(1, self.chunk_mb) * 1024 * 1024) // max(1, tensor.element_size()))
-        chunks = (flat.numel() + max_elems - 1) // max_elems
-        self.send_json(
-            {
-                "label": label,
-                "chunks": chunks,
-                "numel": flat.numel(),
-                "shape": list(tensor.shape),
-                "dtype": str(tensor.dtype),
-            }
-        )
+        total_bytes = flat.numel() * flat.element_size()
+        max_bytes = max(1, self.chunk_mb) * 1024 * 1024
+        chunks = (total_bytes + max_bytes - 1) // max_bytes
+        self.sock.sendall(struct.pack("!Q", total_bytes))
         logger.info(
-            "[elastic] Rank %d: peer-tcp-send %s to rank %d "
+            "[elastic] Rank %d: peer-raw-send %s to rank %d "
             "(numel=%d, dtype=%s, chunks=%d, chunk_mb=%d)",
             self.rank,
             label,
@@ -4281,22 +4995,55 @@ class _PeerSyncStream:
             chunks,
             self.chunk_mb,
         )
-        for start in range(0, flat.numel(), max_elems):
-            cpu_chunk = flat[start : start + max_elems].detach().to("cpu", non_blocking=False).contiguous()
-            buffer = io.BytesIO()
-            torch.save(cpu_chunk, buffer)
-            self.send_blob(buffer.getvalue())
+        if flat.device.type == "cpu":
+            byte_view = memoryview(flat.view(torch.uint8).numpy()).cast("B")
+            for start in range(0, len(byte_view), max_bytes):
+                self.sock.sendall(byte_view[start : start + max_bytes])
+            return
+
+        flat_bytes = flat.view(torch.uint8)
+        buffers = self._get_host_buffers(
+            "send", min(max_bytes, total_bytes), min(2, chunks)
+        )
+        if self._send_stream is None:
+            self._send_stream = torch.cuda.Stream(device=flat.device)
+        transfer_stream = self._send_stream
+        transfer_stream.wait_stream(torch.cuda.current_stream(flat.device))
+        events = [None] * len(buffers)
+
+        def stage(chunk_index):
+            start = chunk_index * max_bytes
+            count = min(max_bytes, total_bytes - start)
+            buffer_index = chunk_index % len(buffers)
+            with torch.cuda.stream(transfer_stream):
+                buffers[buffer_index][:count].copy_(
+                    flat_bytes[start : start + count],
+                    non_blocking=buffers[buffer_index].is_pinned(),
+                )
+                event = torch.cuda.Event()
+                event.record(transfer_stream)
+            events[buffer_index] = event
+            return buffer_index, count
+
+        current_buffer, current_count = stage(0)
+        for chunk_index in range(chunks):
+            events[current_buffer].synchronize()
+            if chunk_index + 1 < chunks:
+                next_buffer, next_count = stage(chunk_index + 1)
+            self.sock.sendall(
+                memoryview(buffers[current_buffer][:current_count].numpy()).cast("B")
+            )
+            if chunk_index + 1 < chunks:
+                current_buffer, current_count = next_buffer, next_count
 
     def recv_tensor_into(self, tensor, label: str):
-        meta = self.recv_json()
-        if meta.get("label") != label:
+        header = self._recvall(8)
+        (remote_bytes,) = struct.unpack("!Q", header)
+        expected_bytes = tensor.numel() * tensor.element_size()
+        if remote_bytes != expected_bytes:
             raise RuntimeError(
-                f"[elastic] peer tensor label mismatch: expected={label} got={meta.get('label')}"
-            )
-        if int(meta.get("numel", -1)) != tensor.numel() or meta.get("dtype") != str(tensor.dtype):
-            raise RuntimeError(
-                f"[elastic] peer tensor metadata mismatch for {label}: "
-                f"local numel={tensor.numel()} dtype={tensor.dtype}, remote={meta}"
+                f"[elastic] peer raw tensor size mismatch for {label}: "
+                f"local={expected_bytes} remote={remote_bytes}"
             )
         if tensor.numel() == 0:
             return
@@ -4306,52 +5053,74 @@ class _PeerSyncStream:
         else:
             flat = tensor.contiguous().view(-1)
             needs_copy_back = True
-        offset = 0
-        for _ in range(int(meta.get("chunks", 0))):
-            payload = self.recv_blob()
-            chunk = torch.load(io.BytesIO(payload), map_location="cpu")
-            if chunk.dtype != tensor.dtype:
-                raise RuntimeError(
-                    f"[elastic] peer tensor chunk dtype mismatch for {label}: "
-                    f"local={tensor.dtype} remote={chunk.dtype}"
+        max_bytes = max(1, self.chunk_mb) * 1024 * 1024
+        chunks = (remote_bytes + max_bytes - 1) // max_bytes
+        logger.info(
+            "[elastic] Rank %d: peer-raw-recv %s from rank %d "
+            "(numel=%d, dtype=%s, chunks=%d, chunk_mb=%d)",
+            self.rank,
+            label,
+            self.src_rank,
+            tensor.numel(),
+            tensor.dtype,
+            chunks,
+            self.chunk_mb,
+        )
+        if flat.device.type == "cpu":
+            target_view = memoryview(flat.view(torch.uint8).numpy()).cast("B")
+            offset = 0
+            while offset < remote_bytes:
+                received = self.sock.recv_into(
+                    target_view[offset:],
+                    min(remote_bytes - offset, 8 * 1024 * 1024),
                 )
-            end = offset + chunk.numel()
-            if end > flat.numel():
-                raise RuntimeError(f"[elastic] peer tensor chunk overflow for {label}")
-            flat[offset:end].copy_(chunk.to(device=flat.device, non_blocking=False))
-            offset = end
-        if offset != flat.numel():
-            raise RuntimeError(
-                f"[elastic] peer tensor underflow for {label}: got={offset} expected={flat.numel()}"
+                if received <= 0:
+                    raise RuntimeError(
+                        "[elastic] peer sync socket closed during raw tensor transfer"
+                    )
+                offset += received
+        else:
+            flat_bytes = flat.view(torch.uint8)
+            buffers = self._get_host_buffers(
+                "recv", min(max_bytes, remote_bytes), min(2, chunks)
             )
+            if self._recv_stream is None:
+                self._recv_stream = torch.cuda.Stream(device=flat.device)
+            transfer_stream = self._recv_stream
+            transfer_stream.wait_stream(torch.cuda.current_stream(flat.device))
+            events = [None] * len(buffers)
+            offset = 0
+            for chunk_index in range(chunks):
+                buffer_index = chunk_index % len(buffers)
+                if events[buffer_index] is not None:
+                    events[buffer_index].synchronize()
+                count = min(max_bytes, remote_bytes - offset)
+                byte_view = memoryview(
+                    buffers[buffer_index][:count].numpy()
+                ).cast("B")
+                received_bytes = 0
+                while received_bytes < len(byte_view):
+                    received = self.sock.recv_into(
+                        byte_view[received_bytes:],
+                        min(len(byte_view) - received_bytes, 8 * 1024 * 1024),
+                    )
+                    if received <= 0:
+                        raise RuntimeError(
+                            "[elastic] peer sync socket closed during raw tensor transfer"
+                        )
+                    received_bytes += received
+                with torch.cuda.stream(transfer_stream):
+                    flat_bytes[offset : offset + count].copy_(
+                        buffers[buffer_index][:count],
+                        non_blocking=buffers[buffer_index].is_pinned(),
+                    )
+                    event = torch.cuda.Event()
+                    event.record(transfer_stream)
+                events[buffer_index] = event
+                offset += count
+            transfer_stream.synchronize()
         if needs_copy_back:
             tensor.copy_(flat.view_as(tensor))
-
-
-def _sync_optimizer_state_tensor_peer(val, src_rank, dst_rank, device, peer_stream):
-    if peer_stream is not None:
-        _sync_tensor_peer_chunked(
-            val, src_rank, dst_rank, label="optimizer-state", peer_stream=peer_stream
-        )
-        return
-
-    if val.is_cuda:
-        _sync_tensor_peer_chunked(
-            val, src_rank, dst_rank, label="optimizer-state", peer_stream=peer_stream
-        )
-        return
-
-    if isinstance(device, torch.device) and device.type == "cuda":
-        broadcast_device = device
-    else:
-        broadcast_device = torch.device("cuda", torch.cuda.current_device())
-
-    tmp = val.to(device=broadcast_device, non_blocking=True)
-    _sync_tensor_peer_chunked(
-        tmp, src_rank, dst_rank, label="optimizer-state", peer_stream=peer_stream
-    )
-    if dist.get_rank() == dst_rank:
-        val.copy_(tmp.to(device=val.device))
 
 
 def _stable_hash_int(text: str) -> int:
@@ -4385,63 +5154,69 @@ def _sync_tensor_peer_chunked(tensor, src_rank, dst_rank, label: str, peer_strea
         peer_stream.recv_tensor_into(tensor, label)
 
 
-def _validate_param_peer_manifest(name, param, index, src_rank, dst_rank, peer_stream=None):
-    rank = dist.get_rank()
-    if rank not in (src_rank, dst_rank):
-        return
-
-    local_meta_obj = {
-        "index": index,
-        "numel": param.numel(),
-        "shape": list(param.shape),
-        "shape_hash": _shape_hash(param.shape),
-        "dtype": str(param.dtype),
-        "dtype_code": _dtype_code(param.dtype),
-        "name_hash": _stable_hash_int(name),
+def _peer_tensor_manifest_entry(label, tensor, index):
+    return {
+        "index": int(index),
+        "label": str(label),
+        "name_hash": _stable_hash_int(str(label)),
+        "numel": int(tensor.numel()),
+        "byte_count": int(tensor.numel() * tensor.element_size()),
+        "shape": list(tensor.shape),
+        "shape_hash": _shape_hash(tensor.shape),
+        "dtype": str(tensor.dtype),
+        "dtype_code": _dtype_code(tensor.dtype),
     }
-    if peer_stream is None:
-        raise RuntimeError("[elastic] peer manifest sync requires a TCP peer stream")
-    if rank == src_rank:
-        peer_stream.send_json(local_meta_obj)
-        status_obj = peer_stream.recv_json()
-        status = int(status_obj.get("status", 1))
-    else:
-        src_meta_obj = peer_stream.recv_json()
-        status = 0 if local_meta_obj == src_meta_obj else 1
-        peer_stream.send_json({"status": status})
-        if status != 0:
-            logger.error(
-                "[elastic] Rank %d: dense param manifest mismatch at index=%d "
-                "(local name=%s shape=%s dtype=%s meta=%s src_meta=%s)",
-                rank,
-                index,
-                name,
-                tuple(param.shape),
-                param.dtype,
-                local_meta_obj,
-                src_meta_obj,
-            )
 
-    if status != 0:
-        logger.error(
-            "[elastic] Rank %d: dense param manifest mismatch at index=%d "
-            "(local name=%s shape=%s dtype=%s)",
-            rank,
-            index,
-            name,
-            tuple(param.shape),
-            param.dtype,
+
+def _ensure_optimizer_tensor_state_for_peer(megatron_optimizer):
+    inner_optimizer = getattr(megatron_optimizer, "optimizer", None)
+    if inner_optimizer is None:
+        return False
+    has_tensor_state = any(
+        any(isinstance(value, torch.Tensor) for value in state.values())
+        for state in getattr(inner_optimizer, "state", {}).values()
+    )
+    if not has_tensor_state:
+        init_fn = getattr(
+            megatron_optimizer,
+            "_init_optimizer_states_with_dummy_values",
+            None,
         )
-        raise RuntimeError(
-            "[elastic] dense param sync manifest mismatch; "
-            "replacement and source ranks do not have identical dense parameter order"
-        )
+        if init_fn is not None:
+            init_fn()
+        else:
+            init_fn = getattr(megatron_optimizer, "init_state_fn", None)
+            if init_fn is not None:
+                init_fn(inner_optimizer, megatron_optimizer.config)
+
+    # Native Adam stores its common step as a scalar tensor. An expert-only
+    # sidecar may introduce that key only on expert params, so seed matching
+    # placeholders on the replacement's dense params before manifest
+    # comparison; the live peer immediately overwrites their values.
+    if is_rebuild_mode():
+        scalar_templates = {}
+        for state in getattr(inner_optimizer, "state", {}).values():
+            for key, value in state.items():
+                if isinstance(value, torch.Tensor) and value.numel() == 1:
+                    scalar_templates.setdefault(key, value)
+        if scalar_templates:
+            for group in getattr(inner_optimizer, "param_groups", []):
+                for param in group.get("params", []):
+                    state = inner_optimizer.state.setdefault(param, {})
+                    for key, template in scalar_templates.items():
+                        if key not in state:
+                            state[key] = torch.empty_like(template)
+    return any(
+        any(isinstance(value, torch.Tensor) for value in state.values())
+        for state in getattr(inner_optimizer, "state", {}).values()
+    )
 
 
-def _sync_non_expert_optimizer_state_peer(
-    optimizer, model_param_to_name, sync_src_rank, replacement_rank, peer_stream
-):
-    rank = dist.get_rank()
+def _build_non_expert_optimizer_peer_plan(optimizer, model_param_to_name):
+    transfers = []
+    parameter_manifest = []
+    scalar_values = []
+    scalar_targets = {}
     main_param_count = 0
     state_tensor_count = 0
     skipped_state_count = 0
@@ -4449,12 +5224,10 @@ def _sync_non_expert_optimizer_state_peer(
     params_with_adam_state = 0
     unsupported_count = 0
 
-    if rank not in (sync_src_rank, replacement_rank):
-        return None
-    if peer_stream is None:
-        raise RuntimeError("[elastic] non-expert optimizer sync requires a TCP peer stream")
-
-    for megatron_optimizer in _iter_megatron_optimizers(optimizer):
+    for wrapper_index, megatron_optimizer in enumerate(
+        _iter_megatron_optimizers(optimizer)
+    ):
+        _ensure_optimizer_tensor_state_for_peer(megatron_optimizer)
         inner_optimizer, optim_param_to_name, optim_param_to_is_expert = (
             _build_optimizer_param_name_map(megatron_optimizer, model_param_to_name)
         )
@@ -4462,106 +5235,234 @@ def _sync_non_expert_optimizer_state_peer(
             unsupported_count += 1
             continue
 
-        for group in getattr(inner_optimizer, "param_groups", []):
-            for param in group.get("params", []):
+        for group_index, group in enumerate(
+            getattr(inner_optimizer, "param_groups", [])
+        ):
+            for param_index, param in enumerate(group.get("params", [])):
                 name = optim_param_to_name.get(param)
                 if name is None:
                     unmapped_count += 1
                     continue
-                if optim_param_to_is_expert.get(param, _is_expert_param_name(name)):
+                if optim_param_to_is_expert.get(
+                    param, _is_expert_param_name(name)
+                ):
                     continue
 
-                _validate_param_peer_manifest(
-                    f"optimizer:{name}",
-                    param.data,
-                    main_param_count + 1,
-                    sync_src_rank,
-                    replacement_rank,
-                    peer_stream=peer_stream,
+                identity = (
+                    f"w{wrapper_index}/g{group_index}/p{param_index}:{name}"
                 )
-                _sync_optimizer_state_tensor_peer(
-                    param.data, sync_src_rank, replacement_rank, param.device, peer_stream
+                transfers.append(
+                    (f"optimizer:{identity}:main_param", param.data)
                 )
                 main_param_count += 1
 
                 state = inner_optimizer.state.get(param, {})
-                tensor_state = [
-                    (str(key), value)
-                    for key, value in state.items()
-                    if isinstance(value, torch.Tensor)
-                ]
-                tensor_state.sort(key=lambda item: item[0])
+                tensor_state = sorted(
+                    (
+                        (str(key), value)
+                        for key, value in state.items()
+                        if isinstance(value, torch.Tensor)
+                    ),
+                    key=lambda item: item[0],
+                )
                 scalar_state = {
                     str(key): value
-                    for key, value in state.items()
+                    for key, value in sorted(
+                        state.items(), key=lambda item: str(item[0])
+                    )
                     if isinstance(value, (bool, int, float, str))
                 }
-                local_state_manifest = [
+                scalar_schema = {
+                    key: type(value).__name__ for key, value in scalar_state.items()
+                }
+                parameter_manifest.append(
                     {
-                        "key": key,
-                        "shape": list(value.shape),
-                        "dtype": str(value.dtype),
+                        "identity": identity,
+                        "name_hash": _stable_hash_int(name),
+                        "scalar_schema": scalar_schema,
+                        "state_tensor_keys": [key for key, _ in tensor_state],
                     }
-                    for key, value in tensor_state
-                ]
-                if rank == sync_src_rank:
-                    peer_stream.send_json(
-                        {
-                            "state_manifest": local_state_manifest,
-                            "scalar_state": scalar_state,
-                        }
-                    )
-                    status_obj = peer_stream.recv_json()
-                    manifest_matches = bool(status_obj.get("manifest_matches", False))
-                else:
-                    src_state_obj = peer_stream.recv_json()
-                    manifest_matches = (
-                        local_state_manifest == src_state_obj.get("state_manifest", [])
-                    )
-                    if manifest_matches:
-                        for key, value in src_state_obj.get("scalar_state", {}).items():
-                            state[key] = value
-                    peer_stream.send_json({"manifest_matches": manifest_matches})
-                if not manifest_matches:
-                    raise RuntimeError(
-                        "[elastic] non-expert optimizer state manifest mismatch "
-                        f"for {name}: local={local_state_manifest}"
-                    )
+                )
+                scalar_values.append(
+                    {"identity": identity, "values": scalar_state}
+                )
+                scalar_targets[identity] = state
+
                 if not tensor_state:
                     skipped_state_count += 1
                     continue
-
                 state_keys = {key for key, _ in tensor_state}
                 if {"exp_avg", "exp_avg_sq"}.issubset(state_keys):
                     params_with_adam_state += 1
-                for key, val in tensor_state:
-                    _sync_optimizer_state_tensor_peer(
-                        val, sync_src_rank, replacement_rank, param.device, peer_stream
+                for key, value in tensor_state:
+                    transfers.append(
+                        (f"optimizer:{identity}:state:{key}", value)
                     )
                     state_tensor_count += 1
 
+    return {
+        "transfers": transfers,
+        "parameter_manifest": parameter_manifest,
+        "scalar_values": scalar_values,
+        "scalar_targets": scalar_targets,
+        "summary": {
+            "source": "current_step_dense_dp_peer_raw_v2",
+            "expected_params": main_param_count,
+            "params_with_adam_state": params_with_adam_state,
+            "state_tensors": state_tensor_count,
+            "skipped_state_params": skipped_state_count,
+            "unmapped_params": unmapped_count,
+            "unsupported_wrappers": unsupported_count,
+        },
+    }
+
+
+def _exchange_peer_sync_manifest(
+    peer_stream,
+    src_rank,
+    dst_rank,
+    model_transfers,
+    optimizer_plan,
+):
+    all_transfers = list(model_transfers) + list(optimizer_plan["transfers"])
+    local_manifest = {
+        "protocol": "megatron-peer-raw-v2",
+        "tensor_count": len(all_transfers),
+        "total_bytes": sum(
+            int(tensor.numel() * tensor.element_size())
+            for _, tensor in all_transfers
+        ),
+        "tensors": [
+            _peer_tensor_manifest_entry(label, tensor, index)
+            for index, (label, tensor) in enumerate(all_transfers)
+        ],
+        "optimizer_params": optimizer_plan["parameter_manifest"],
+    }
+    local_digest = hashlib.sha256(
+        json.dumps(
+            local_manifest, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    rank = dist.get_rank()
+    remote_scalar_values = None
+    if rank == src_rank:
+        peer_stream.send_json(
+            {
+                "manifest": local_manifest,
+                "manifest_sha256": local_digest,
+                "optimizer_scalar_values": optimizer_plan["scalar_values"],
+            }
+        )
+        status = peer_stream.recv_json()
+        if not status.get("ok", False):
+            raise RuntimeError(
+                "[elastic] peer sync manifest rejected by replacement: "
+                f"{status.get('error', 'unknown mismatch')}"
+            )
+    elif rank == dst_rank:
+        remote = peer_stream.recv_json()
+        remote_manifest = remote.get("manifest")
+        remote_digest = remote.get("manifest_sha256")
+        computed_remote_digest = hashlib.sha256(
+            json.dumps(
+                remote_manifest, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        matches = (
+            remote_manifest == local_manifest
+            and remote_digest == local_digest
+            and computed_remote_digest == remote_digest
+        )
+        if not matches:
+            error = (
+                f"local_sha256={local_digest} "
+                f"remote_sha256={remote_digest} "
+                f"remote_computed_sha256={computed_remote_digest}"
+            )
+            peer_stream.send_json({"ok": False, "error": error})
+            raise RuntimeError(
+                "[elastic] replacement/source peer sync manifests differ: "
+                + error
+            )
+        remote_scalar_values = remote.get("optimizer_scalar_values", [])
+        peer_stream.send_json({"ok": True, "manifest_sha256": local_digest})
+    logger.warning(
+        "[elastic] Rank %d: peer sync manifest ready "
+        "(protocol=%s tensors=%d bytes=%d sha256=%s)",
+        rank,
+        local_manifest["protocol"],
+        local_manifest["tensor_count"],
+        local_manifest["total_bytes"],
+        local_digest[:16],
+    )
+    return remote_scalar_values
+
+
+def _sync_non_expert_optimizer_state_peer(
+    sync_src_rank,
+    replacement_rank,
+    peer_stream,
+    optimizer_plan,
+    remote_scalar_values=None,
+):
+    rank = dist.get_rank()
+
+    if rank not in (sync_src_rank, replacement_rank):
+        return None
+    if peer_stream is None:
+        raise RuntimeError("[elastic] non-expert optimizer sync requires a TCP peer stream")
+
+    if rank == replacement_rank:
+        remote_scalar_values = remote_scalar_values or []
+        remote_scalar_identities = [
+            entry.get("identity") for entry in remote_scalar_values
+        ]
+        local_scalar_identities = set(optimizer_plan["scalar_targets"])
+        if (
+            len(remote_scalar_values) != len(local_scalar_identities)
+            or len(set(remote_scalar_identities)) != len(remote_scalar_identities)
+            or set(remote_scalar_identities) != local_scalar_identities
+        ):
+            raise RuntimeError(
+                "[elastic] optimizer scalar manifest identity mismatch: "
+                f"local={len(local_scalar_identities)} "
+                f"remote={len(remote_scalar_values)} "
+                f"missing={sorted(local_scalar_identities - set(remote_scalar_identities))[:8]}"
+            )
+        for remote_entry in remote_scalar_values:
+            identity = remote_entry.get("identity")
+            state = optimizer_plan["scalar_targets"].get(identity)
+            if state is None:
+                raise RuntimeError(
+                    f"[elastic] optimizer scalar target is missing: {identity}"
+                )
+            for key, value in remote_entry.get("values", {}).items():
+                state[key] = value
+
+    for label, tensor in optimizer_plan["transfers"]:
+        _sync_tensor_peer_chunked(
+            tensor,
+            sync_src_rank,
+            replacement_rank,
+            label=label,
+            peer_stream=peer_stream,
+        )
+
+    summary = dict(optimizer_plan["summary"])
     logger.warning(
         "[elastic] Rank %d: non-expert optimizer sync complete "
         "(main_params=%d, state_tensors=%d, skipped=%d, unmapped=%d)",
         rank,
-        main_param_count,
-        state_tensor_count,
-        skipped_state_count,
-        unmapped_count,
+        summary["expected_params"],
+        summary["state_tensors"],
+        summary["skipped_state_params"],
+        summary["unmapped_params"],
     )
-    summary = {
-        "source": "current_step_dense_dp_peer",
-        "expected_params": main_param_count,
-        "params_with_adam_state": params_with_adam_state,
-        "state_tensors": state_tensor_count,
-        "skipped_state_params": skipped_state_count,
-        "unmapped_params": unmapped_count,
-        "unsupported_wrappers": unsupported_count,
-    }
-    if unsupported_count:
+    if summary["unsupported_wrappers"]:
         raise RuntimeError(
             "[elastic] state contract failed: non-expert optimizer peer sync "
-            f"does not support {unsupported_count} optimizer wrapper(s)"
+            "does not support "
+            f"{summary['unsupported_wrappers']} optimizer wrapper(s)"
         )
     _require_optimizer_role_ready(summary, "non-expert")
     return summary
@@ -4716,11 +5617,33 @@ def _sync_params_to_new_rank(
         f"(pp_rank={pp_rank}, dp_rank={dp_rank}, group={sync_group_ranks}, "
         f"src={sync_src_rank}, replacement={replacement_rank})"
     )
+    sync_started = time.monotonic()
 
     if model_param_to_name is None:
         model_param_to_name = _build_model_param_name_map(model)
-    dense_count = 0
+    model_transfers = []
     expert_count = 0
+    for chunk_index, model_chunk in enumerate(model):
+        for name, param in model_chunk.named_parameters():
+            if _is_expert_model_param(name, param):
+                expert_count += 1
+                continue
+            label = f"dense-param:chunk{chunk_index}:{name}"
+            model_transfers.append((label, param.data))
+    dense_count = len(model_transfers)
+    if not zero2_memory_enabled:
+        optimizer_plan = _build_non_expert_optimizer_peer_plan(
+            optimizer, model_param_to_name
+        )
+    else:
+        optimizer_plan = {
+            "transfers": [],
+            "parameter_manifest": [],
+            "scalar_values": [],
+            "scalar_targets": {},
+            "summary": {},
+        }
+
     if rank in (sync_src_rank, replacement_rank):
         peer_stream_context = _PeerSyncStream(
             sync_src_rank, replacement_rank, purpose="model-params"
@@ -4733,37 +5656,37 @@ def _sync_params_to_new_rank(
     try:
         peer_stream = peer_stream_context
         if rank in (sync_src_rank, replacement_rank):
-            for model_chunk in model:
-                for name, param in model_chunk.named_parameters():
-                    if _is_expert_model_param(name, param):
-                        expert_count += 1
-                        continue
-                    dense_count += 1
-                    _validate_param_peer_manifest(
-                        name,
-                        param.data,
-                        dense_count,
-                        sync_src_rank,
-                        replacement_rank,
-                        peer_stream=peer_stream,
+            remote_scalar_values = _exchange_peer_sync_manifest(
+                peer_stream,
+                sync_src_rank,
+                replacement_rank,
+                model_transfers,
+                optimizer_plan,
+            )
+            for dense_index, (label, tensor) in enumerate(
+                model_transfers, start=1
+            ):
+                if (
+                    dense_index <= 3
+                    or tensor.numel() * tensor.element_size()
+                    >= 128 * 1024 * 1024
+                ):
+                    logger.info(
+                        "[elastic] Rank %d: syncing dense param %d label=%s "
+                        "shape=%s dtype=%s",
+                        rank,
+                        dense_index,
+                        label,
+                        tuple(tensor.shape),
+                        tensor.dtype,
                     )
-                    if dense_count <= 3 or param.data.numel() * param.data.element_size() >= 128 * 1024 * 1024:
-                        logger.info(
-                            "[elastic] Rank %d: syncing dense param %d name=%s "
-                            "shape=%s dtype=%s",
-                            rank,
-                            dense_count,
-                            name,
-                            tuple(param.data.shape),
-                            param.data.dtype,
-                        )
-                    _sync_tensor_peer_chunked(
-                        param.data,
-                        sync_src_rank,
-                        replacement_rank,
-                        label=f"dense-param:{name}",
-                        peer_stream=peer_stream,
-                    )
+                _sync_tensor_peer_chunked(
+                    tensor,
+                    sync_src_rank,
+                    replacement_rank,
+                    label=label,
+                    peer_stream=peer_stream,
+                )
 
             logger.warning(
                 "[elastic] Rank %d: dense model param sync complete "
@@ -4774,11 +5697,11 @@ def _sync_params_to_new_rank(
             )
             if not zero2_memory_enabled:
                 optimizer_summary = _sync_non_expert_optimizer_state_peer(
-                    optimizer,
-                    model_param_to_name,
                     sync_src_rank,
                     replacement_rank,
                     peer_stream,
+                    optimizer_plan,
+                    remote_scalar_values=remote_scalar_values,
                 )
             else:
                 optimizer_summary = None
@@ -4796,13 +5719,23 @@ def _sync_params_to_new_rank(
             replacement_rank,
         )
 
-    logger.info(f"[elastic] Rank {rank}: param sync complete")
+    sync_seconds = time.monotonic() - sync_started
+    logger.warning(
+        "[elastic] Rank %d: param sync complete in %.3fs "
+        "(dense_params=%d expert_params=%d protocol=raw_v2)",
+        rank,
+        sync_seconds,
+        dense_count,
+        expert_count,
+    )
     return {
         "dense_model_params": dense_count,
         "checkpoint_expert_model_params": expert_count,
         "non_expert_optimizer": optimizer_summary,
         "source_rank": sync_src_rank,
         "replacement_rank": replacement_rank,
+        "seconds": sync_seconds,
+        "peer_protocol": "raw_v2",
     }
 
 
