@@ -54,7 +54,7 @@ HANDOFF_ROOT_BASE="${MOEGAMBIT_RECOVERY_HANDOFF_DIR:-/tmp/moegambit-deepspeed-ha
 
 MODEL_CONFIG="${MODEL_CONFIG:-${SCRIPT_DIR}/tokenizer}"
 DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
-RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/86hotspare/deepspeed_real}"
+RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/87hotspare/deepspeed_real}"
 RUN_ROOT="${RUN_ROOT_BASE%/}/${RUN_ID}"
 HOSTFILE="${DEEPSPEED_HOSTFILE:-/tmp/moegambit-deepspeed-hosts-${MASTER_PORT}}"
 
