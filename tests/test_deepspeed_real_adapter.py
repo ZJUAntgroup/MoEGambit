@@ -129,6 +129,45 @@ def test_watcher_ordinal_barrier_retries_transient_connect_failure(
     assert client.calls == 2
 
 
+def test_recovery_control_gate_commits_metadata(monkeypatch):
+    from moegambit.runtime import distributed
+
+    fingerprints = []
+
+    class FakeBarrier:
+        def wait(self, phase, group, manifest_fingerprint):
+            assert phase == "ready"
+            assert group.backend == "control"
+            fingerprints.append(manifest_fingerprint)
+
+    fake = FakeBarrier()
+    monkeypatch.setattr(
+        distributed.WatcherOrdinalBarrier,
+        "from_environment",
+        lambda rank, world_size, timeout_seconds: fake,
+    )
+
+    distributed.wait_for_recovery_group_barrier(
+        "topology_commit",
+        ordinal=-10,
+        rank=1,
+        world_size=4,
+        timeout_seconds=30,
+        metadata={"epoch": 2, "dims": [2, 2]},
+    )
+    distributed.wait_for_recovery_group_barrier(
+        "topology_commit",
+        ordinal=-10,
+        rank=1,
+        world_size=4,
+        timeout_seconds=30,
+        metadata={"epoch": 2, "dims": [4, 1]},
+    )
+
+    assert len(fingerprints) == 2
+    assert fingerprints[0] != fingerprints[1]
+
+
 def test_packed_expert_checkpoint_and_pinned_cache_are_recovery_scoped():
     workload = (
         ROOT / "deepspeed_qwen3_moe_pretrain.py"
@@ -539,6 +578,79 @@ def test_inprocess_pipeline_rebuild_resets_p2p_metadata_protocol():
     assert "p2p._grid = None" in recovery
     assert "engine.reset_activation_shape()" in recovery
     assert "engine.first_gradient_send = True" in recovery
+
+
+def test_inprocess_recovery_control_path_avoids_full_world_collectives():
+    integration = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit_deepspeed"
+        / "integration.py"
+    ).read_text(encoding="utf-8")
+    start = integration.index(
+        "    def _restore_inprocess_mixed_version"
+    )
+    end = integration.index(
+        "\n    def _start_handoff_watcher", start
+    )
+    recovery_path = integration[start:end]
+
+    assert "dist.barrier(" not in recovery_path
+    assert "dist.all_gather_object(" not in recovery_path
+    assert "wait_for_inprocess_recovery_gate(" in recovery_path
+    assert '"checkpoint_selected"' in recovery_path
+    assert '"recovery_state_committed"' in recovery_path
+
+
+def test_inprocess_optimizer_manifest_is_derived_from_topology():
+    from moegambit_deepspeed.hybrid_restore import (
+        derive_inprocess_optimizer_group_manifest,
+    )
+
+    class Topology:
+        @staticmethod
+        def get_axis_names():
+            return ("pipe", "data")
+
+        @staticmethod
+        def get_coord(rank):
+            return types.SimpleNamespace(pipe=rank % 2, data=rank // 2)
+
+        @staticmethod
+        def filter_match(**filters):
+            return [
+                rank
+                for rank in range(4)
+                if rank % 2 == filters["pipe"]
+            ]
+
+    engine = types.SimpleNamespace(
+        grid=types.SimpleNamespace(_topo=Topology())
+    )
+    replica = types.SimpleNamespace(
+        failure_domain_size=1,
+        group_ranks={"ranks-0-2": [0, 2]},
+    )
+
+    manifest = derive_inprocess_optimizer_group_manifest(
+        engine,
+        replica,
+        replacement_ranks=(2,),
+        rank=0,
+        world_size=4,
+    )
+
+    assert manifest == {"ranks-0-2": [0, 2]}
+
+
+def test_rank_inprocess_checkpoint_tag_requires_explicit_step():
+    from moegambit_deepspeed.checkpoint_commit import (
+        checkpoint_step_from_tag,
+    )
+
+    assert checkpoint_step_from_tag("global_step17") == 17
+    with pytest.raises(RuntimeError, match="global_step checkpoint"):
+        checkpoint_step_from_tag("latest")
 
 
 def test_inprocess_optimizer_rebind_reuses_initialized_moe_layout():

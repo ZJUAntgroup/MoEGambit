@@ -11,6 +11,51 @@ class DeepSpeedInProcessRecoveryError(RuntimeError):
     pass
 
 
+_CONTROL_ORDINALS = {
+    "topology_commit": -10,
+    "checkpoint_selected": -11,
+    "checkpoint_restored": -12,
+    "survivor_state_committed": -13,
+    "model_peer_restored": -14,
+    "optimizer_peer_restored": -15,
+    "recovery_state_committed": -16,
+    "optimizer_replica_started": -17,
+}
+
+
+def wait_for_inprocess_recovery_gate(
+    phase: str,
+    *,
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
+    """Commit one recovery-epoch phase through the watcher control plane."""
+    try:
+        ordinal = _CONTROL_ORDINALS[phase]
+    except KeyError as exc:
+        raise DeepSpeedInProcessRecoveryError(
+            f"unknown in-process recovery control phase: {phase}"
+        ) from exc
+
+    import torch.distributed as dist
+    from moegambit.runtime.distributed import (
+        wait_for_recovery_group_barrier,
+    )
+
+    timeout = float(
+        os.environ.get(
+            "MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT", "300"
+        )
+    )
+    wait_for_recovery_group_barrier(
+        f"deepspeed_{phase}",
+        ordinal=ordinal,
+        rank=dist.get_rank(),
+        world_size=dist.get_world_size(),
+        timeout_seconds=timeout,
+        metadata=metadata,
+    )
+
+
 def _c10d_generation_state() -> dict[str, int | bool]:
     import torch
 
@@ -406,17 +451,10 @@ def _validate_manifest(engine: Any, failed_rank: int, epoch: int) -> None:
             else [dist.get_world_size()]
         ),
     }
-    gathered = [None] * dist.get_world_size()
-    dist.all_gather_object(gathered, local)
-    mismatches = [
-        {"rank": rank, "manifest": manifest}
-        for rank, manifest in enumerate(gathered)
-        if manifest != local
-    ]
-    if mismatches:
-        raise DeepSpeedInProcessRecoveryError(
-            f"rebuilt DeepSpeed group manifest mismatch: {mismatches}"
-        )
+    wait_for_inprocess_recovery_gate(
+        "topology_commit",
+        metadata=local,
+    )
 
 
 def rebuild_engine_process_groups(
@@ -549,10 +587,17 @@ def rebuild_engine_process_groups(
     }
 
 
-def validate_replacement_process_groups(engine: Any) -> None:
+def validate_replacement_process_groups(
+    engine: Any,
+    phase_callback: Callable[[str], None] | None = None,
+) -> None:
     """Join the same post-rebuild manifest collective as all survivors."""
     failed_rank = int(
         os.environ["MOEGAMBIT_RECOVERY_FAILED_RANK"]
     )
     epoch = int(os.environ["MOEGAMBIT_RECOVERY_EPOCH"])
+    if phase_callback is not None:
+        phase_callback("global_group_manifest_start")
     _validate_manifest(engine, failed_rank, epoch)
+    if phase_callback is not None:
+        phase_callback("global_group_manifest_done")

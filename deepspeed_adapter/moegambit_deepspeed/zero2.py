@@ -296,9 +296,30 @@ class DeepSpeedZero2Replica:
         self.manager = next(iter(self.managers.values()))
         # Ranks that do not belong to a smaller expert-DP group would otherwise
         # return to the application while expert ranks are still creating TCP
-        # replica rings. This barrier is only on the healthy initialization
-        # path and uses DeepSpeed's already-established global process group.
-        dist.barrier()
+        # replica rings. During rank recovery, keep this synchronization off
+        # the rebuilt full-world NCCL communicator, matching Megatron's
+        # watcher-gated rebuild completion.
+        inprocess_recovery = (
+            os.environ.get(
+                "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY", "0"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"}
+            and generation > 0
+        )
+        if inprocess_recovery:
+            from moegambit_deepspeed.inprocess_recovery import (
+                wait_for_inprocess_recovery_gate,
+            )
+
+            wait_for_inprocess_recovery_gate(
+                "optimizer_replica_started",
+                metadata={
+                    "generation": generation,
+                    "initial_step": int(initial_step),
+                },
+            )
+        else:
+            dist.barrier()
         return summaries
 
     def before_step(self, step: int) -> None:

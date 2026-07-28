@@ -675,7 +675,11 @@ class PipelineModule(nn.Module):
             #         f'RANK={self.global_rank} Loaded layer={idx+self._local_start} file={load_path}'
             #     )
 
-        self._synchronize_tied_weights()
+        inprocess_replacement = os.environ.get(
+            "MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT", "0"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if not inprocess_replacement:
+            self._synchronize_tied_weights()
 
     def _is_checkpointable(self, funcs):
 

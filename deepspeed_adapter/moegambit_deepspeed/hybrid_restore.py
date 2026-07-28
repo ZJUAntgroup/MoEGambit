@@ -48,6 +48,43 @@ class _FlatDataParallelTopology:
         return list(range(self._world_size))
 
 
+def _inprocess_recovery_active() -> bool:
+    return (
+        os.environ.get(
+            "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY", "0"
+        ).strip().lower()
+        in {"1", "true", "yes", "on"}
+        and int(os.environ.get("MOEGAMBIT_RECOVERY_EPOCH", "0")) > 0
+    )
+
+
+def _complete_restore_phase(
+    phase: str,
+    *,
+    metadata: dict[str, Any],
+) -> None:
+    import torch.distributed as dist
+
+    if not _inprocess_recovery_active():
+        dist.barrier()
+        return
+    from moegambit_deepspeed.inprocess_recovery import (
+        wait_for_inprocess_recovery_gate,
+    )
+
+    wait_for_inprocess_recovery_gate(phase, metadata=metadata)
+
+
+def _new_restore_group(ranks: list[int]):
+    if _inprocess_recovery_active():
+        from deepspeed import comm as dist
+
+        return dist.new_group(ranks=ranks)
+    import torch.distributed as dist
+
+    return dist.new_group(ranks=ranks)
+
+
 def is_expert_parameter(parameter: Any) -> bool:
     return (
         getattr(parameter, "ds_zero_placement_family", "replicated")
@@ -189,6 +226,61 @@ def build_optimizer_peer_restore_plans(
     return plans
 
 
+def derive_inprocess_optimizer_group_manifest(
+    engine: Any,
+    optimizer_replica: Any,
+    replacement_ranks: Iterable[int],
+    *,
+    rank: int,
+    world_size: int,
+) -> dict[str, list[int]]:
+    """Derive the failed dense ZeRO ring without a full-world collective."""
+    replacement_set = {int(item) for item in replacement_ranks}
+    topology = getattr(getattr(engine, "grid", None), "_topo", None)
+    if topology is None:
+        topology = _FlatDataParallelTopology(world_size)
+    model_plans = build_peer_restore_plans(
+        topology, replacement_set
+    )
+    from moegambit.runtime.replica_placement import (
+        failure_domain_ring_order,
+    )
+
+    group_manifest: dict[str, list[int]] = {}
+    for model_plan in model_plans:
+        ranks = tuple(model_plan.data_parallel_ranks)
+        namespace = "ranks-" + "-".join(str(item) for item in ranks)
+        if optimizer_replica.failure_domain_size > 1:
+            replica_ring = failure_domain_ring_order(
+                ranks,
+                ranks_per_failure_domain=(
+                    optimizer_replica.failure_domain_size
+                ),
+            )
+        else:
+            replica_ring = list(ranks)
+        previous = group_manifest.setdefault(
+            namespace, list(replica_ring)
+        )
+        if previous != list(replica_ring):
+            raise DeepSpeedHybridRestoreError(
+                "derived optimizer replica rings disagree for "
+                f"{namespace}: {previous} != {list(replica_ring)}"
+            )
+        local_ring = optimizer_replica.group_ranks.get(namespace)
+        if rank in ranks and (
+            local_ring is None
+            or list(local_ring) != list(replica_ring)
+        ):
+            raise DeepSpeedHybridRestoreError(
+                "local optimizer replica ring does not match the "
+                "recovery topology: "
+                f"rank={rank} namespace={namespace} "
+                f"expected={list(replica_ring)} actual={local_ring}"
+            )
+    return group_manifest
+
+
 def validate_checkpoint_base_steps(
     checkpoint_steps: Iterable[int],
     *,
@@ -312,8 +404,8 @@ def restore_non_expert_model_from_peer(
     local_roles = []
 
     for ordinal, plan in enumerate(plans):
-        pair_group = dist.new_group(
-            ranks=[plan.source_rank, plan.replacement_rank]
+        pair_group = _new_restore_group(
+            [plan.source_rank, plan.replacement_rank]
         )
         if rank not in (plan.source_rank, plan.replacement_rank):
             continue
@@ -384,7 +476,16 @@ def restore_non_expert_model_from_peer(
             "source" if rank == plan.source_rank else "replacement"
         )
 
-    dist.barrier()
+    _complete_restore_phase(
+        "model_peer_restored",
+        metadata={
+            "expected_step": int(expected_step),
+            "replacement_ranks": [
+                plan.replacement_rank for plan in plans
+            ],
+            "source_ranks": [plan.source_rank for plan in plans],
+        },
+    )
     return {
         "expected_step": expected_step,
         "replacement_ranks": [plan.replacement_rank for plan in plans],
@@ -490,24 +591,35 @@ def restore_non_expert_optimizer_from_peer(
     import torch.distributed as dist
 
     replacement_set = {int(rank) for rank in replacement_ranks}
-    local_groups = dict(optimizer_replica.group_ranks)
-    gathered_groups: list[dict[str, list[int]] | None] = [
-        None
-    ] * dist.get_world_size()
-    dist.all_gather_object(gathered_groups, local_groups)
-    group_manifest: dict[str, list[int]] = {}
-    for rank_groups in gathered_groups:
-        if not rank_groups:
-            continue
-        for namespace, ranks in rank_groups.items():
-            normalized = [int(item) for item in ranks]
-            previous = group_manifest.setdefault(namespace, normalized)
-            if previous != normalized:
-                raise DeepSpeedHybridRestoreError(
-                    "optimizer replica group manifest is inconsistent: "
-                    f"namespace={namespace} first={previous} "
-                    f"other={normalized}"
+    if _inprocess_recovery_active():
+        group_manifest = derive_inprocess_optimizer_group_manifest(
+            engine,
+            optimizer_replica,
+            replacement_set,
+            rank=dist.get_rank(),
+            world_size=dist.get_world_size(),
+        )
+    else:
+        local_groups = dict(optimizer_replica.group_ranks)
+        gathered_groups: list[dict[str, list[int]] | None] = [
+            None
+        ] * dist.get_world_size()
+        dist.all_gather_object(gathered_groups, local_groups)
+        group_manifest = {}
+        for rank_groups in gathered_groups:
+            if not rank_groups:
+                continue
+            for namespace, ranks in rank_groups.items():
+                normalized = [int(item) for item in ranks]
+                previous = group_manifest.setdefault(
+                    namespace, normalized
                 )
+                if previous != normalized:
+                    raise DeepSpeedHybridRestoreError(
+                        "optimizer replica group manifest is inconsistent: "
+                        f"namespace={namespace} first={previous} "
+                        f"other={normalized}"
+                    )
     plans = build_optimizer_peer_restore_plans(
         group_manifest, replacement_set
     )
@@ -518,8 +630,8 @@ def restore_non_expert_optimizer_from_peer(
     local_roles = []
 
     for ordinal, plan in enumerate(plans):
-        pair_group = dist.new_group(
-            ranks=[plan.source_rank, plan.replacement_rank]
+        pair_group = _new_restore_group(
+            [plan.source_rank, plan.replacement_rank]
         )
         if rank not in (plan.source_rank, plan.replacement_rank):
             continue
@@ -721,7 +833,17 @@ def restore_non_expert_optimizer_from_peer(
             "source" if rank == plan.source_rank else "replacement"
         )
 
-    dist.barrier()
+    _complete_restore_phase(
+        "optimizer_peer_restored",
+        metadata={
+            "expected_step": int(expected_step),
+            "replacement_ranks": sorted(replacement_set),
+            "group_manifest": {
+                name: list(ranks)
+                for name, ranks in sorted(group_manifest.items())
+            },
+        },
+    )
     return {
         "expected_step": int(expected_step),
         "replacement_ranks": sorted(replacement_set),

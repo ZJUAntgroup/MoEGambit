@@ -213,3 +213,13 @@ def resolve_committed_checkpoint(checkpoint_dir: Path) -> str:
     raise RuntimeError(
         f"no complete DeepSpeed checkpoint in {checkpoint_dir}: {detail}"
     )
+
+
+def checkpoint_step_from_tag(tag: str) -> int:
+    match = _STEP_TAG.match(str(tag))
+    if match is None:
+        raise RuntimeError(
+            "rank in-process recovery requires a global_step checkpoint "
+            f"tag; got {tag!r}"
+        )
+    return int(match.group(1))

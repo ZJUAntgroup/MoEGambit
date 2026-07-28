@@ -163,10 +163,24 @@ class DeepSpeedRecoveryRuntime:
         if needs_optimizer_replica:
             from moegambit_deepspeed.zero2 import DeepSpeedZero2Replica
 
+            if (
+                self.settings.inprocess_recovery
+                and self.settings.inprocess_replacement
+            ):
+                self._report_rank_phase(
+                    "replacement_optimizer_prepare_start"
+                )
             self.zero2 = DeepSpeedZero2Replica(
                 self.engine, timeout=self.settings.replica_timeout
             )
             self.zero2.prepare()
+            if (
+                self.settings.inprocess_recovery
+                and self.settings.inprocess_replacement
+            ):
+                self._report_rank_phase(
+                    "replacement_optimizer_prepare_done"
+                )
         if (
             self.settings.inprocess_recovery
             and self.settings.inprocess_replacement
@@ -175,7 +189,10 @@ class DeepSpeedRecoveryRuntime:
                 validate_replacement_process_groups,
             )
 
-            validate_replacement_process_groups(self.engine)
+            validate_replacement_process_groups(
+                self.engine,
+                phase_callback=self._report_rank_phase,
+            )
             self._restore_inprocess_mixed_version()
         else:
             self._restore_after_elastic_restart()
@@ -390,12 +407,16 @@ class DeepSpeedRecoveryRuntime:
     def _restore_inprocess_mixed_version(self) -> None:
         """Restore only the replacement while survivors retain live state."""
         from moegambit_deepspeed.checkpoint_commit import (
+            checkpoint_step_from_tag,
             resolve_committed_checkpoint,
         )
         from moegambit_deepspeed.hybrid_restore import (
             restore_non_expert_model_from_peer,
             restore_non_expert_optimizer_from_peer,
             validate_checkpoint_base_steps,
+        )
+        from moegambit_deepspeed.inprocess_recovery import (
+            wait_for_inprocess_recovery_gate,
         )
         import torch.distributed as dist
 
@@ -423,29 +444,26 @@ class DeepSpeedRecoveryRuntime:
                 f"replacement_env={self.settings.inprocess_replacement}"
             )
 
-        selection: list[tuple[str | None, str | None]] = [(None, None)]
-        if rank == 0:
-            try:
-                selection[0] = (
-                    resolve_committed_checkpoint(
-                        self.settings.checkpoint_dir
-                    ),
-                    None,
-                )
-            except Exception as exc:
-                selection[0] = (
-                    None,
-                    f"{type(exc).__name__}: {exc}",
-                )
-        dist.broadcast_object_list(selection, src=0)
-        tag, error = selection[0]
-        if error is not None or tag is None:
-            raise RuntimeError(
-                "DeepSpeed in-process checkpoint selection failed: "
-                f"{error}"
-            )
+        self._report_rank_phase("checkpoint_selection_start")
+        tag = resolve_committed_checkpoint(
+            self.settings.checkpoint_dir
+        )
+        checkpoint_step_value = validate_checkpoint_base_steps(
+            (checkpoint_step_from_tag(tag),),
+            failure_step=failure_step,
+        )
+        wait_for_inprocess_recovery_gate(
+            "checkpoint_selected",
+            metadata={
+                "epoch": self.current_recovery_epoch,
+                "failed_rank": failed_rank,
+                "failure_step": failure_step,
+                "checkpoint_tag": tag,
+                "checkpoint_step": checkpoint_step_value,
+            },
+        )
+        self._report_rank_phase("checkpoint_selection_done")
 
-        checkpoint_step = None
         if is_replacement:
             self._report_rank_phase("replacement_checkpoint_restore_start")
             load_path, _ = self.engine.load_checkpoint(
@@ -457,44 +475,52 @@ class DeepSpeedRecoveryRuntime:
                     "replacement could not load committed checkpoint "
                     f"{tag} from {self.settings.checkpoint_dir}"
                 )
-            checkpoint_step = int(
+            loaded_checkpoint_step = int(
                 getattr(self.engine, "global_steps", -1)
             )
+            if loaded_checkpoint_step != checkpoint_step_value:
+                raise RuntimeError(
+                    "replacement loaded an unexpected checkpoint step: "
+                    f"tag={tag} expected={checkpoint_step_value} "
+                    f"actual={loaded_checkpoint_step}"
+                )
             self._report_rank_phase("replacement_checkpoint_restore_done")
-        dist.barrier()
+        self._report_rank_phase("checkpoint_restore_gate_start")
+        wait_for_inprocess_recovery_gate(
+            "checkpoint_restored",
+            metadata={
+                "epoch": self.current_recovery_epoch,
+                "failed_rank": failed_rank,
+                "checkpoint_tag": tag,
+                "checkpoint_step": checkpoint_step_value,
+            },
+        )
+        self._report_rank_phase("checkpoint_restore_gate_done")
 
-        checkpoint_steps: list[int | None] = [
-            None
-        ] * dist.get_world_size()
-        dist.all_gather_object(checkpoint_steps, checkpoint_step)
-        checkpoint_step_value = validate_checkpoint_base_steps(
-            (
-                value
-                for value in checkpoint_steps
-                if value is not None
-            ),
-            failure_step=failure_step,
+        expected_local_step = (
+            checkpoint_step_value if is_replacement else failure_step
         )
-        survivor_step = (
-            None
-            if is_replacement
-            else int(getattr(self.engine, "global_steps", -1))
+        actual_local_step = int(
+            getattr(self.engine, "global_steps", -1)
         )
-        survivor_steps: list[int | None] = [
-            None
-        ] * dist.get_world_size()
-        dist.all_gather_object(survivor_steps, survivor_step)
-        valid_survivors = [
-            value for value in survivor_steps if value is not None
-        ]
-        if (
-            len(valid_survivors) != dist.get_world_size() - 1
-            or set(valid_survivors) != {failure_step}
-        ):
+        if actual_local_step != expected_local_step:
             raise RuntimeError(
-                "resident survivor state is not aligned at the committed "
-                f"failure step {failure_step}: {survivor_steps}"
+                "local mixed-version recovery state is not aligned: "
+                f"rank={rank} replacement={is_replacement} "
+                f"expected={expected_local_step} "
+                f"actual={actual_local_step}"
             )
+        self._report_rank_phase("survivor_state_commit_start")
+        wait_for_inprocess_recovery_gate(
+            "survivor_state_committed",
+            metadata={
+                "epoch": self.current_recovery_epoch,
+                "failed_rank": failed_rank,
+                "failure_step": failure_step,
+                "checkpoint_step": checkpoint_step_value,
+            },
+        )
+        self._report_rank_phase("survivor_state_commit_done")
 
         self._report_rank_phase("non_expert_peer_restore_start")
         model_summary = restore_non_expert_model_from_peer(
@@ -519,17 +545,26 @@ class DeepSpeedRecoveryRuntime:
         )
         if callable(synchronize_tied_weights):
             synchronize_tied_weights()
-        local_steps: list[int | None] = [
-            None
-        ] * dist.get_world_size()
-        dist.all_gather_object(
-            local_steps, int(getattr(self.engine, "global_steps", -1))
+        final_local_step = int(
+            getattr(self.engine, "global_steps", -1)
         )
-        if set(local_steps) != {failure_step}:
+        if final_local_step != failure_step:
             raise RuntimeError(
                 "in-process recovery did not converge on the resume step: "
-                f"expected={failure_step} actual={sorted(set(local_steps))}"
+                f"rank={rank} expected={failure_step} "
+                f"actual={final_local_step}"
             )
+        self._report_rank_phase("recovery_state_commit_start")
+        wait_for_inprocess_recovery_gate(
+            "recovery_state_committed",
+            metadata={
+                "epoch": self.current_recovery_epoch,
+                "failed_rank": failed_rank,
+                "failure_step": failure_step,
+                "checkpoint_step": checkpoint_step_value,
+            },
+        )
+        self._report_rank_phase("recovery_state_commit_done")
         self.recovery_contract = {
             "mode": "rank_in_process_hybrid",
             "checkpoint_step": checkpoint_step_value,
@@ -966,6 +1001,11 @@ def attach_engine(engine: Any) -> DeepSpeedRecoveryRuntime | None:
     settings = DeepSpeedRuntimeSettings.from_env()
     if not settings.hot_swap and not settings.zero2:
         return None
-    runtime = DeepSpeedRecoveryRuntime(engine, settings).start()
+    runtime = DeepSpeedRecoveryRuntime(engine, settings)
+    if settings.inprocess_recovery and settings.inprocess_replacement:
+        runtime._report_rank_phase("replacement_runtime_attach_start")
+    runtime.start()
+    if settings.inprocess_recovery and settings.inprocess_replacement:
+        runtime._report_rank_phase("replacement_runtime_attach_done")
     engine._moegambit_runtime = runtime
     return runtime

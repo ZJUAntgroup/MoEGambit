@@ -206,8 +206,15 @@ def wait_for_recovery_group_barrier(
     world_size: int,
     timeout_seconds: float,
     phase: str = "ready",
+    metadata: Mapping[str, Any] | None = None,
 ) -> None:
-    """Wait out of band without using the retiring or new NCCL world."""
+    """Wait out of band without using the retiring or new NCCL world.
+
+    ``metadata`` is folded into the manifest fingerprint. This turns the
+    barrier into a recovery-epoch commit point: every rank must agree on the
+    same state contract without issuing a collective on the rebuilt NCCL
+    world.
+    """
     group = GroupSpec(
         ordinal=ordinal,
         name=name,
@@ -219,7 +226,20 @@ def wait_for_recovery_group_barrier(
         world_size,
         timeout_seconds=timeout_seconds,
     )
-    barrier.wait(phase, group, group.fingerprint)
+    manifest_fingerprint = group.fingerprint
+    if metadata is not None:
+        encoded = json.dumps(
+            {
+                "group": group.as_dict(),
+                "metadata": metadata,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        manifest_fingerprint = hashlib.sha256(
+            encoded.encode("utf-8")
+        ).hexdigest()
+    barrier.wait(phase, group, manifest_fingerprint)
 
 
 class TorchDistributedProtocol:
