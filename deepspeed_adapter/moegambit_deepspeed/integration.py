@@ -37,6 +37,8 @@ class DeepSpeedRuntimeSettings:
     replica_timeout: float
     hybrid_restore: bool = False
     survivor_handoff: bool = False
+    inprocess_recovery: bool = False
+    inprocess_replacement: bool = False
 
     @classmethod
     def from_env(cls) -> "DeepSpeedRuntimeSettings":
@@ -56,9 +58,22 @@ class DeepSpeedRuntimeSettings:
             "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
             "torch_elastic_checkpoint_relaunch",
         )
-        mixed_version_strategy = (
-            recovery_strategy == "mixed_version_survivor_handoff"
+        mixed_version_strategy = recovery_strategy in {
+            "mixed_version_survivor_handoff",
+            "rank_in_process_hybrid",
+        }
+        inprocess_recovery = env_bool(
+            "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY", False
         )
+        if (
+            inprocess_recovery
+            and recovery_strategy != "rank_in_process_hybrid"
+        ):
+            raise ValueError(
+                "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY requires "
+                "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY="
+                "rank_in_process_hybrid"
+            )
         hybrid_requested = env_bool(
             "MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE",
             hot_swap and mixed_version_strategy,
@@ -67,9 +82,27 @@ class DeepSpeedRuntimeSettings:
             raise ValueError(
                 "MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE requires "
                 "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY="
-                "mixed_version_survivor_handoff"
+                "mixed_version_survivor_handoff or rank_in_process_hybrid"
             )
         hybrid_restore = hot_swap and hybrid_requested
+        inprocess_replacement = env_bool(
+            "MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT", False
+        )
+        if inprocess_recovery and not hot_swap:
+            raise ValueError(
+                "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY requires "
+                "MOEGAMBIT_HOT_SWAP=1"
+            )
+        if inprocess_recovery and not hybrid_restore:
+            raise ValueError(
+                "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY requires "
+                "MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE=1"
+            )
+        if inprocess_replacement and not inprocess_recovery:
+            raise ValueError(
+                "MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT is valid only "
+                "inside rank-granular recovery"
+            )
         return cls(
             hot_swap=hot_swap,
             zero2=env_bool(
@@ -94,10 +127,13 @@ class DeepSpeedRuntimeSettings:
             hybrid_restore=hybrid_restore,
             survivor_handoff=(
                 hybrid_restore
+                and not inprocess_recovery
                 and env_bool(
                     "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF", True
                 )
             ),
+            inprocess_recovery=inprocess_recovery,
+            inprocess_replacement=inprocess_replacement,
         )
 
 
@@ -116,10 +152,13 @@ class DeepSpeedRecoveryRuntime:
         self._handoff_thread: threading.Thread | None = None
         self._survivor_payload: dict[str, Any] | None = None
         self.recovery_contract: dict[str, Any] | None = None
+        self.current_recovery_epoch = settings.recovery_epoch
 
     def start(self) -> "DeepSpeedRecoveryRuntime":
         needs_optimizer_replica = (
-            self.settings.zero2 or self.settings.survivor_handoff
+            self.settings.zero2
+            or self.settings.survivor_handoff
+            or self.settings.hybrid_restore
         )
         if needs_optimizer_replica:
             from moegambit_deepspeed.zero2 import DeepSpeedZero2Replica
@@ -128,9 +167,25 @@ class DeepSpeedRecoveryRuntime:
                 self.engine, timeout=self.settings.replica_timeout
             )
             self.zero2.prepare()
-        self._restore_after_elastic_restart()
+        if (
+            self.settings.inprocess_recovery
+            and self.settings.inprocess_replacement
+        ):
+            from moegambit_deepspeed.inprocess_recovery import (
+                validate_replacement_process_groups,
+            )
+
+            validate_replacement_process_groups(self.engine)
+            self._restore_inprocess_mixed_version()
+        else:
+            self._restore_after_elastic_restart()
         if self.zero2 is not None:
             self.zero2.start(int(getattr(self.engine, "global_steps", 0)))
+        if (
+            self.settings.inprocess_recovery
+            and self.settings.inprocess_replacement
+        ):
+            self._report_rank_event("rank_recovery_ready")
         self._install_optimizer_step_hook()
         if (
             self.settings.survivor_handoff
@@ -285,6 +340,8 @@ class DeepSpeedRecoveryRuntime:
             replacement_ranks=replacement_ranks,
             expected_step=failure_step,
         )
+        self._report_phase("non_expert_model_restore_done")
+        self._report_phase("non_expert_optimizer_restore_start")
         optimizer_summary = restore_non_expert_optimizer_from_peer(
             self.engine,
             self.zero2,
@@ -292,6 +349,7 @@ class DeepSpeedRecoveryRuntime:
             replacement_ranks=replacement_ranks,
             expected_step=failure_step,
         )
+        self._report_phase("non_expert_optimizer_restore_done")
         local_steps: list[int | None] = [
             None
         ] * dist.get_world_size()
@@ -325,6 +383,181 @@ class DeepSpeedRecoveryRuntime:
                 **self.recovery_contract,
                 "replacement_non_expert_model": model_summary,
                 "replacement_non_expert_optimizer": optimizer_summary,
+                "two_phase": False,
+            },
+        )
+
+    def _restore_inprocess_mixed_version(self) -> None:
+        """Restore only the replacement while survivors retain live state."""
+        from moegambit_deepspeed.checkpoint_commit import (
+            resolve_committed_checkpoint,
+        )
+        from moegambit_deepspeed.hybrid_restore import (
+            restore_non_expert_model_from_peer,
+            restore_non_expert_optimizer_from_peer,
+            validate_checkpoint_base_steps,
+        )
+        import torch.distributed as dist
+
+        if (
+            not self.settings.hybrid_restore
+            or self.settings.checkpoint_dir is None
+            or self.zero2 is None
+        ):
+            raise RuntimeError(
+                "in-process mixed-version recovery requires checkpoint, "
+                "hybrid restore, and optimizer peer replication"
+            )
+        failed_rank = int(
+            os.environ["MOEGAMBIT_RECOVERY_FAILED_RANK"]
+        )
+        failure_step = int(
+            os.environ["MOEGAMBIT_RECOVERY_FAILURE_STEP"]
+        )
+        rank = dist.get_rank()
+        is_replacement = rank == failed_rank
+        if is_replacement != self.settings.inprocess_replacement:
+            raise RuntimeError(
+                "in-process replacement identity mismatch: "
+                f"rank={rank} failed_rank={failed_rank} "
+                f"replacement_env={self.settings.inprocess_replacement}"
+            )
+
+        selection: list[tuple[str | None, str | None]] = [(None, None)]
+        if rank == 0:
+            try:
+                selection[0] = (
+                    resolve_committed_checkpoint(
+                        self.settings.checkpoint_dir
+                    ),
+                    None,
+                )
+            except Exception as exc:
+                selection[0] = (
+                    None,
+                    f"{type(exc).__name__}: {exc}",
+                )
+        dist.broadcast_object_list(selection, src=0)
+        tag, error = selection[0]
+        if error is not None or tag is None:
+            raise RuntimeError(
+                "DeepSpeed in-process checkpoint selection failed: "
+                f"{error}"
+            )
+
+        checkpoint_step = None
+        if is_replacement:
+            self._report_rank_phase("replacement_checkpoint_restore_start")
+            load_path, _ = self.engine.load_checkpoint(
+                str(self.settings.checkpoint_dir),
+                tag=tag,
+            )
+            if load_path is None:
+                raise RuntimeError(
+                    "replacement could not load committed checkpoint "
+                    f"{tag} from {self.settings.checkpoint_dir}"
+                )
+            checkpoint_step = int(
+                getattr(self.engine, "global_steps", -1)
+            )
+            self._report_rank_phase("replacement_checkpoint_restore_done")
+        dist.barrier()
+
+        checkpoint_steps: list[int | None] = [
+            None
+        ] * dist.get_world_size()
+        dist.all_gather_object(checkpoint_steps, checkpoint_step)
+        checkpoint_step_value = validate_checkpoint_base_steps(
+            (
+                value
+                for value in checkpoint_steps
+                if value is not None
+            ),
+            failure_step=failure_step,
+        )
+        survivor_step = (
+            None
+            if is_replacement
+            else int(getattr(self.engine, "global_steps", -1))
+        )
+        survivor_steps: list[int | None] = [
+            None
+        ] * dist.get_world_size()
+        dist.all_gather_object(survivor_steps, survivor_step)
+        valid_survivors = [
+            value for value in survivor_steps if value is not None
+        ]
+        if (
+            len(valid_survivors) != dist.get_world_size() - 1
+            or set(valid_survivors) != {failure_step}
+        ):
+            raise RuntimeError(
+                "resident survivor state is not aligned at the committed "
+                f"failure step {failure_step}: {survivor_steps}"
+            )
+
+        self._report_rank_phase("non_expert_peer_restore_start")
+        model_summary = restore_non_expert_model_from_peer(
+            self.engine,
+            replacement_ranks=(failed_rank,),
+            expected_step=failure_step,
+        )
+        self._report_rank_phase("non_expert_model_restore_done")
+        optimizer_summary = restore_non_expert_optimizer_from_peer(
+            self.engine,
+            self.zero2,
+            survivor_payload=self._survivor_payload,
+            replacement_ranks=(failed_rank,),
+            expected_step=failure_step,
+        )
+        self._report_rank_phase("non_expert_optimizer_restore_done")
+
+        # Pipeline replacement construction deliberately deferred this
+        # collective so rank 0 can never broadcast random standby weights.
+        synchronize_tied_weights = getattr(
+            self.engine.module, "_synchronize_tied_weights", None
+        )
+        if callable(synchronize_tied_weights):
+            synchronize_tied_weights()
+        local_steps: list[int | None] = [
+            None
+        ] * dist.get_world_size()
+        dist.all_gather_object(
+            local_steps, int(getattr(self.engine, "global_steps", -1))
+        )
+        if set(local_steps) != {failure_step}:
+            raise RuntimeError(
+                "in-process recovery did not converge on the resume step: "
+                f"expected={failure_step} actual={sorted(set(local_steps))}"
+            )
+        self.recovery_contract = {
+            "mode": "rank_in_process_hybrid",
+            "checkpoint_step": checkpoint_step_value,
+            "resume_step": failure_step,
+            "expert_staleness": (
+                failure_step - checkpoint_step_value
+            ),
+            "rollback_steps": 0,
+            "survivor_state": "resident_cuda",
+            "survivor_processes_restarted": 0,
+            "replacement_ranks": [failed_rank],
+            "replacement_non_expert_model": "current_step_peer",
+            "replacement_non_expert_optimizer": (
+                "current_step_peer_replica"
+            ),
+            "replacement_rng": "current_step_peer",
+            "replacement_expert_model": "checkpoint",
+            "replacement_expert_optimizer": "checkpoint",
+        }
+        self._report_rank_phase("non_expert_peer_restore_done")
+        logger.warning(
+            "MoEGambit in-process hybrid restore complete: %s",
+            {
+                **self.recovery_contract,
+                "replacement_non_expert_model_summary": model_summary,
+                "replacement_non_expert_optimizer_summary": (
+                    optimizer_summary
+                ),
                 "two_phase": False,
             },
         )
@@ -446,6 +679,159 @@ class DeepSpeedRecoveryRuntime:
         rank = int(getattr(self.engine, "global_rank", 0))
         report_worker_phase(phase, rank)
 
+    def _report_rank_event(
+        self, kind: str, *, epoch: int | None = None, **payload: Any
+    ) -> dict[str, Any] | None:
+        from moegambit.runtime.hot_spare import request_worker_command
+
+        rank = int(getattr(self.engine, "global_rank", 0))
+        if epoch is not None:
+            payload["epoch"] = int(epoch)
+        command = request_worker_command(kind, rank, **payload)
+        return dict(command) if command is not None else None
+
+    def _report_rank_phase(self, phase: str) -> None:
+        self._report_rank_event(
+            "rank_recovery_phase",
+            epoch=self.current_recovery_epoch,
+            phase=phase,
+        )
+
+    def _wait_for_rank_recovery_command(
+        self, step: int
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + float(
+            os.environ.get(
+                "MOEGAMBIT_INPROCESS_RECOVERY_TIMEOUT", "300"
+            )
+        )
+        old_epoch = self.current_recovery_epoch
+        while time.monotonic() < deadline:
+            command = self._report_rank_event(
+                "poll",
+                epoch=old_epoch,
+                state="rank_quiesced",
+                global_step=int(step),
+            )
+            if command is None:
+                raise RuntimeError(
+                    "rank recovery has no configured coordinator"
+                )
+            if command.get("action") == "abort":
+                raise RuntimeError(
+                    "rank recovery aborted by coordinator: "
+                    f"{command.get('reason', 'unknown reason')}"
+                )
+            if (
+                command.get("recovery_mode") == "rank_in_process"
+                and int(command.get("epoch", old_epoch)) > old_epoch
+                and command.get("failed_rank") is not None
+            ):
+                if int(command.get("failure_step", -1)) != int(step):
+                    raise RuntimeError(
+                        "coordinator failure step does not match the local "
+                        f"safe point: command={command.get('failure_step')} "
+                        f"local={step}"
+                    )
+                return command
+            time.sleep(0.2)
+        raise TimeoutError(
+            "timed out waiting for rank-granular recovery command at "
+            f"step {step}"
+        )
+
+    def recover_in_process(self, step: int) -> dict[str, Any]:
+        """Keep survivor tensors resident while replacing one failed rank."""
+        if not self.settings.inprocess_recovery:
+            raise RuntimeError("in-process DeepSpeed recovery is disabled")
+        if self.settings.inprocess_replacement:
+            raise RuntimeError(
+                "replacement rank cannot enter the survivor rebuild path"
+            )
+        actual_step = int(getattr(self.engine, "global_steps", -1))
+        if actual_step != int(step):
+            raise RuntimeError(
+                "survivor is not at the committed recovery step: "
+                f"expected={step} actual={actual_step}"
+            )
+        if self.zero2 is None:
+            raise RuntimeError(
+                "in-process recovery requires optimizer peer replication"
+            )
+
+        self._recovery_freeze.set()
+        command: dict[str, Any] | None = None
+        old_zero2 = self.zero2
+        try:
+            command = self._wait_for_rank_recovery_command(step)
+            recovery_epoch = int(command["epoch"])
+            self.current_recovery_epoch = recovery_epoch
+            self._report_rank_event(
+                "rank_recovery_phase",
+                epoch=recovery_epoch,
+                phase="optimizer_replica_capture_start",
+            )
+            old_zero2.wait_until_replicated(int(step))
+            peer_optimizer = old_zero2.export_peer_handoff(int(step))
+            for manager in old_zero2.managers.values():
+                manager.stop_transport()
+            self._survivor_payload = {
+                "peer_optimizer": peer_optimizer,
+            }
+            self._report_rank_event(
+                "rank_recovery_phase",
+                epoch=recovery_epoch,
+                phase="process_group_rebuild_start",
+            )
+            from moegambit_deepspeed.inprocess_recovery import (
+                rebuild_engine_process_groups,
+            )
+
+            rebuild_summary = rebuild_engine_process_groups(
+                self.engine, command
+            )
+            self._report_rank_phase("process_group_rebuild_done")
+            self._restore_inprocess_mixed_version()
+
+            old_zero2.close()
+            self._survivor_payload = None
+            from moegambit_deepspeed.zero2 import DeepSpeedZero2Replica
+
+            self.zero2 = DeepSpeedZero2Replica(
+                self.engine, timeout=self.settings.replica_timeout
+            )
+            self.zero2.prepare()
+            self.zero2.start(int(step))
+            self._report_rank_event(
+                "rank_recovery_ready",
+                epoch=recovery_epoch,
+                global_step=int(step),
+            )
+            self._recovery_freeze.clear()
+            return {
+                **rebuild_summary,
+                "recovery_contract": self.recovery_contract,
+            }
+        except BaseException as exc:
+            logger.exception(
+                "DeepSpeed in-process recovery failed at step %d", step
+            )
+            try:
+                self._report_rank_event(
+                    "rank_recovery_failed",
+                    epoch=(
+                        int(command["epoch"])
+                        if command is not None
+                        else self.current_recovery_epoch
+                    ),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            except Exception:
+                logger.exception(
+                    "could not report in-process recovery failure"
+                )
+            raise
+
     def _install_optimizer_step_hook(self) -> None:
         runtime = self
 
@@ -496,7 +882,9 @@ class DeepSpeedRecoveryRuntime:
                 tag=tag,
                 client_state={
                     "moegambit_checkpoint_step": step,
-                    "moegambit_recovery_epoch": self.settings.recovery_epoch,
+                    "moegambit_recovery_epoch": (
+                        self.current_recovery_epoch
+                    ),
                 },
                 save_latest=False,
             )
@@ -524,7 +912,10 @@ class DeepSpeedRecoveryRuntime:
             self.zero2.close()
 
     def wait_for_failure_commit(self, step: int) -> None:
-        if self.settings.survivor_handoff:
+        if (
+            self.settings.survivor_handoff
+            or self.settings.inprocess_recovery
+        ):
             if self.zero2 is None:
                 raise RuntimeError(
                     "failure injection requires optimizer peer replication"
@@ -533,6 +924,9 @@ class DeepSpeedRecoveryRuntime:
 
     def wait_for_recovery_preemption(self, step: int) -> None:
         """Hold a synthetic safe-point fault at ``step`` until retirement."""
+        if self.settings.inprocess_recovery:
+            self.recover_in_process(step)
+            return
         if not self.settings.survivor_handoff:
             raise RuntimeError(
                 "safe-point preemption requires survivor handoff"

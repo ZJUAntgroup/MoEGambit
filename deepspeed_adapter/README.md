@@ -12,24 +12,24 @@ The supported cases are deliberately separate:
 
 | Case | Topology | Validation |
 | --- | --- | --- |
-| `hot_swap` | 8 active nodes + 1 standby, 64 active GPUs, PP=8, EP=8, ZeRO-1 | kill rank 1 at step 17, preserve survivor state, move its logical node to node 8, and resume at step 17 with replacement experts from the step-10 checkpoint |
+| `hot_swap` | 8 active nodes + 1 standby, 64 active GPUs, PP=8, EP=8, ZeRO-1 | kill rank 1 at step 17, keep the other 63 workers and their CUDA state resident, start only rank 1 on node 8, and resume at step 17 |
 | `zero2` | 8 nodes, 64 GPUs, PP=1, EP=8, ZeRO-2 | replicate each rank-local optimizer shard through asynchronous D2H and TCP H2H |
-| `combined` | 8 active nodes + 1 standby, 64 active GPUs, PP=1, EP=8, ZeRO-2 | combine node replacement, survivor handoff, and optimizer replication with the same mixed-version contract |
+| `combined` | 8 active nodes + 1 standby, 64 active GPUs, PP=1, EP=8, ZeRO-2 | combine single-rank replacement and optimizer replication with the same mixed-version contract |
 
 DeepSpeed's `PipelineEngine` rejects ZeRO-2 and ZeRO-3, including when AutoEP
 is enabled. For that reason, `PP=8 + ZeRO-2` is not offered as a fake or
 unsupported test.
 
-DeepSpeed cannot replace one rank inside a live c10d/NCCL world. The adapter
-therefore implements node-level hot replacement: node 8 stays outside the
-healthy world, takes over all eight logical ranks of the failed node, and the
-seven survivors enter a new process-group epoch. Before their old workers are
-retired, survivors freeze optimizer commits and persist current-step model and
-optimizer handoff state. In the new epoch, survivors recover that state;
-replacement non-expert model and optimizer state comes from a current-step
-peer, while replacement expert model and optimizer state remains at the latest
-checkpoint. The logical 64-rank topology and resume step do not change. Missing
-or stale handoff state aborts recovery instead of silently rolling back.
+The default hot-swap path is rank-granular. Node 8 stays outside the healthy
+world with resident GPU workers. At a committed safe point, only the failed
+worker exits; the other 63 Python processes, model parameters, and optimizer
+parameters stay resident on CUDA. All participating ranks retire the old c10d
+generation and deterministically rebuild the DeepSpeed Pipeline, AutoEP, and
+ZeRO process-group handles around those tensors. The replacement loads its
+expert model and optimizer state from the latest checkpoint, then overwrites
+non-expert model and optimizer state from current-step peers. The logical
+64-rank topology and resume step do not change. Any incomplete topology,
+missing peer replica, or stale state aborts the whole run.
 
 ## Environment
 
@@ -47,11 +47,12 @@ This keeps one local staging snapshot and one peer snapshot. The default value
 of two keeps double buffers on both sides and consumes roughly four optimizer
 shards of host memory per rank.
 
-Mixed-version recovery also needs a handoff directory that survives worker
-process retirement. Point it at node-local NVMe with enough free space for one
-model-stage state and one optimizer shard per local rank:
+The legacy node-relaunch path still needs a handoff directory that survives
+worker retirement. It is used only when in-process recovery is explicitly
+disabled:
 
 ```bash
+export MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY=0
 export MOEGAMBIT_RECOVERY_HANDOFF_DIR=/local-nvme/moegambit-handoff
 ```
 
@@ -92,9 +93,10 @@ nohup bash ./test_deepspeed_hotspare_replace.sh \
   > "/personal/hotspare94/deepspeed-node${NODE_RANK}.log" 2>&1 &
 ```
 
-On node 8, `NODE_RANK=8` starts only the coordinator/supervisor. It does not
-join `torch.distributed` until a recovery epoch assigns it a failed logical
-node. On multi-NIC hosts, set `MOEGAMBIT_HOT_SPARE_ADVERTISE_ADDR` separately
+On node 8, `NODE_RANK=8` starts the coordinator/supervisor and resident standby
+GPU workers, but none joins the healthy `torch.distributed` world. Recovery
+activates only the standby worker whose local rank matches the failed global
+rank. On multi-NIC hosts, set `MOEGAMBIT_HOT_SPARE_ADVERTISE_ADDR` separately
 on every node to the address reachable by the other training nodes.
 
 `TEST_MODE=all` runs the `hot_swap` and `zero2` cases sequentially. A case is

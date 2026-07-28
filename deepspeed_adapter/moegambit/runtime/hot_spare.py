@@ -44,8 +44,10 @@ _ZERO_OPTIM_SHARD = re.compile(
 )
 
 
-def send_worker_event(kind: str, rank: int, **payload: Any) -> bool:
-    """Send a rank-scoped lifecycle event when hot-spare control is active."""
+def request_worker_command(
+    kind: str, rank: int, **payload: Any
+) -> Mapping[str, Any] | None:
+    """Send a rank-scoped event and return the coordinator command."""
     coordinator_host = os.environ.get(
         "MOEGAMBIT_HOT_SPARE_COORDINATOR_ADDR"
     )
@@ -54,7 +56,7 @@ def send_worker_event(kind: str, rank: int, **payload: Any) -> bool:
     )
     run_id = os.environ.get("MOEGAMBIT_HOT_SPARE_RUN_ID")
     if not coordinator_host or not coordinator_port or not run_id:
-        return False
+        return None
 
     local_world_size = int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
     logical_node = rank // local_world_size
@@ -97,7 +99,12 @@ def send_worker_event(kind: str, rank: int, **payload: Any) -> bool:
         raise RuntimeError(
             f"unexpected hot-spare response {response.kind!r}"
         )
-    return True
+    return dict(response.payload)
+
+
+def send_worker_event(kind: str, rank: int, **payload: Any) -> bool:
+    """Send a rank-scoped lifecycle event when hot-spare control is active."""
+    return request_worker_command(kind, rank, **payload) is not None
 
 
 def report_worker_phase(phase: str, rank: int) -> bool:
@@ -255,6 +262,8 @@ class HotSpareCoordinator:
     heartbeat_timeout: float = 30.0
     recovery_timeout: float = 300.0
     state_path: Path | None = None
+    local_world_size: int = 1
+    rank_hot_swap: bool = False
     epoch: int = 0
     status: str = "forming"
     mapping: dict[int, int] = field(default_factory=dict)
@@ -268,6 +277,9 @@ class HotSpareCoordinator:
     recovery_started_at: float | None = None
     ready_logical_nodes: set[int] = field(default_factory=set)
     worker_phases: dict[int, str] = field(default_factory=dict)
+    rank_mapping: dict[int, int] = field(default_factory=dict)
+    recovery_ready_ranks: set[int] = field(default_factory=set)
+    recovery_rank_phases: dict[int, str] = field(default_factory=dict)
     dispatched_epochs: dict[int, int] = field(default_factory=dict)
     _lock: threading.RLock = field(
         default_factory=threading.RLock, init=False, repr=False
@@ -286,10 +298,20 @@ class HotSpareCoordinator:
             raise ValueError("heartbeat_timeout must be positive")
         if self.recovery_timeout <= 0:
             raise ValueError("recovery_timeout must be positive")
+        if self.local_world_size <= 0:
+            raise ValueError("local_world_size must be positive")
         self.mapping = {
             logical_node: logical_node
             for logical_node in range(self.training_nodes)
         }
+        self.rank_mapping = {
+            rank: rank // self.local_world_size
+            for rank in range(self.world_size)
+        }
+
+    @property
+    def world_size(self) -> int:
+        return self.training_nodes * self.local_world_size
 
     @property
     def master_port(self) -> int:
@@ -297,6 +319,8 @@ class HotSpareCoordinator:
 
     @property
     def active_physical_nodes(self) -> set[int]:
+        if self.rank_hot_swap and self.epoch > 0:
+            return set(self.rank_mapping.values())
         return set(self.mapping.values())
 
     def handle(self, message: WireMessage) -> WireMessage:
@@ -345,6 +369,18 @@ class HotSpareCoordinator:
                 self._handle_worker_ready(physical_node, payload)
             elif message.kind == "worker_phase":
                 self._handle_worker_phase(physical_node, payload)
+            elif message.kind == "rank_recovery_phase":
+                self._handle_rank_recovery_phase(
+                    physical_node, payload
+                )
+            elif message.kind == "rank_recovery_ready":
+                self._handle_rank_recovery_ready(
+                    physical_node, payload
+                )
+            elif message.kind == "rank_recovery_failed":
+                self._handle_rank_recovery_failed(
+                    physical_node, payload
+                )
             elif message.kind == "ack_complete":
                 self.completion_acks.add(physical_node)
             elif message.kind == "ack_abort":
@@ -463,6 +499,46 @@ class HotSpareCoordinator:
         failed_physical_node = self.mapping.get(logical_node)
         if failed_physical_node is None:
             return
+        if self.rank_hot_swap:
+            try:
+                failed_rank = int(payload["rank"])
+            except (KeyError, TypeError, ValueError):
+                self.status = "aborted"
+                self.abort_reason = (
+                    "rank-granular recovery requires the failed global rank"
+                )
+                return
+            if not 0 <= failed_rank < self.world_size:
+                self.status = "aborted"
+                self.abort_reason = (
+                    f"failed rank {failed_rank} is outside world size "
+                    f"{self.world_size}"
+                )
+                return
+            if failed_rank // self.local_world_size != logical_node:
+                self.status = "aborted"
+                self.abort_reason = (
+                    "rank failure topology mismatch: "
+                    f"rank={failed_rank} logical_node={logical_node}"
+                )
+                return
+            expected_physical_node = self.rank_mapping.get(failed_rank)
+            if reporting_physical_node != expected_physical_node:
+                self.status = "aborted"
+                self.abort_reason = (
+                    "rank failure reporter does not own the failed rank: "
+                    f"rank={failed_rank} reporter={reporting_physical_node} "
+                    f"expected={expected_physical_node}"
+                )
+                return
+            self._start_rank_failover(
+                failed_rank,
+                failed_physical_node,
+                str(payload.get("reason", "rank_failure")),
+                reporting_physical_node=reporting_physical_node,
+                global_step=payload.get("global_step"),
+            )
+            return
         self._start_failover(
             logical_node,
             failed_physical_node,
@@ -472,12 +548,108 @@ class HotSpareCoordinator:
             global_step=payload.get("global_step"),
         )
 
+    def _handle_rank_recovery_phase(
+        self, physical_node: int, payload: Mapping[str, Any]
+    ) -> None:
+        if not self.rank_hot_swap or self._payload_epoch(payload) != self.epoch:
+            return
+        try:
+            rank = int(payload["rank"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if self.rank_mapping.get(rank) != physical_node:
+            logger.error(
+                "rejecting rank recovery phase with inconsistent topology: "
+                "rank=%d physical_node=%d expected_physical=%s",
+                rank,
+                physical_node,
+                self.rank_mapping.get(rank),
+            )
+            return
+        phase = str(payload.get("phase", "")).strip()
+        if not phase:
+            return
+        previous = self.recovery_rank_phases.get(rank)
+        self.recovery_rank_phases[rank] = phase
+        if phase != previous:
+            logger.info(
+                "RANK_RECOVERY_PHASE rank=%d physical_node=%d phase=%s",
+                rank,
+                physical_node,
+                phase,
+            )
+
+    def _handle_rank_recovery_ready(
+        self, physical_node: int, payload: Mapping[str, Any]
+    ) -> None:
+        if not self.rank_hot_swap or self._payload_epoch(payload) != self.epoch:
+            return
+        try:
+            rank = int(payload["rank"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if self.rank_mapping.get(rank) != physical_node:
+            logger.error(
+                "rejecting rank recovery ready with inconsistent topology: "
+                "rank=%d physical_node=%d expected_physical=%s",
+                rank,
+                physical_node,
+                self.rank_mapping.get(rank),
+            )
+            return
+        self.recovery_ready_ranks.add(rank)
+        self.recovery_rank_phases[rank] = "train_ready"
+        logger.info(
+            "RANK_RECOVERY_READY rank=%d physical_node=%d (%d/%d)",
+            rank,
+            physical_node,
+            len(self.recovery_ready_ranks),
+            self.world_size,
+        )
+        if (
+            self.recovery_started_at is not None
+            and len(self.recovery_ready_ranks) == self.world_size
+        ):
+            elapsed = time.monotonic() - self.recovery_started_at
+            if self.failure is not None:
+                self.failure["train_ready_seconds"] = elapsed
+            logger.warning(
+                "rank recovery epoch %d reached TRAIN_READY on all ranks "
+                "in %.2fs",
+                self.epoch,
+                elapsed,
+            )
+            self.recovery_started_at = None
+
+    def _handle_rank_recovery_failed(
+        self, physical_node: int, payload: Mapping[str, Any]
+    ) -> None:
+        if not self.rank_hot_swap or self._payload_epoch(payload) != self.epoch:
+            return
+        self.status = "aborted"
+        self.abort_reason = (
+            "rank-granular recovery failed closed: "
+            f"physical_node={physical_node} rank={payload.get('rank')} "
+            f"error={payload.get('error', 'unknown error')}"
+        )
+        logger.error(self.abort_reason)
+
     def _handle_runner_failure(
         self, physical_node: int, payload: Mapping[str, Any]
     ) -> None:
         if self.status not in {"running", "recovering"}:
             return
         if self._payload_epoch(payload) != self.epoch:
+            return
+        if self.rank_hot_swap and self.epoch > 0:
+            self.status = "aborted"
+            self.abort_reason = (
+                "a launcher exited during rank-granular recovery; "
+                "refusing to continue with a partial world: "
+                f"physical_node={physical_node} "
+                f"return_code={payload.get('return_code', 'unknown')}"
+            )
+            logger.error(self.abort_reason)
             return
         logical_node = next(
             (
@@ -504,6 +676,16 @@ class HotSpareCoordinator:
             self.abort_reason = (
                 "initial training runner exited before every logical node "
                 "reached TRAIN_READY; refusing to consume the hot spare: "
+                f"physical_node={physical_node} "
+                f"return_code={payload.get('return_code', 'unknown')}"
+            )
+            logger.error(self.abort_reason)
+            return
+        if self.rank_hot_swap:
+            self.status = "aborted"
+            self.abort_reason = (
+                "an active launcher exited without a committed rank-scoped "
+                "failure; refusing to guess which rank can be replaced: "
                 f"physical_node={physical_node} "
                 f"return_code={payload.get('return_code', 'unknown')}"
             )
@@ -686,6 +868,95 @@ class HotSpareCoordinator:
         # Agents enter the new epoch as soon as they observe this mapping.
         self.status = "running"
 
+    def _start_rank_failover(
+        self,
+        failed_rank: int,
+        failed_physical_node: int,
+        reason: str,
+        **metadata: Any,
+    ) -> None:
+        if self.failure is not None or self.epoch > 0:
+            self.status = "aborted"
+            self.abort_reason = (
+                "a second failure occurred after the hot spare was consumed: "
+                f"rank={failed_rank} reason={reason}"
+            )
+            logger.error(self.abort_reason)
+            return
+        try:
+            failure_step = int(metadata["global_step"])
+        except (KeyError, TypeError, ValueError):
+            self.status = "aborted"
+            self.abort_reason = (
+                "rank-granular recovery requires a committed non-negative "
+                f"failure step: rank={failed_rank}"
+            )
+            logger.error(self.abort_reason)
+            return
+        if failure_step < 0:
+            self.status = "aborted"
+            self.abort_reason = (
+                "rank-granular recovery requires a committed non-negative "
+                f"failure step: rank={failed_rank} step={failure_step}"
+            )
+            logger.error(self.abort_reason)
+            return
+        metadata["global_step"] = failure_step
+        spare = self.spare_physical_node
+        spare_record = self.agents.get(spare)
+        spare_available = (
+            spare not in self.rank_mapping.values()
+            and spare_record is not None
+            and time.monotonic() - spare_record.last_seen
+            <= self.heartbeat_timeout
+        )
+        if not spare_available:
+            self.status = "aborted"
+            self.abort_reason = (
+                f"no hot spare available for rank {failed_rank}: {reason}"
+            )
+            logger.error(self.abort_reason)
+            return
+        if len(self.ready_logical_nodes) < self.training_nodes:
+            self.status = "aborted"
+            self.abort_reason = (
+                "rank failure occurred before every logical node reached "
+                "TRAIN_READY; refusing in-process recovery"
+            )
+            logger.error(self.abort_reason)
+            return
+
+        previous_epoch = self.epoch
+        logical_node = failed_rank // self.local_world_size
+        self.rank_mapping[failed_rank] = spare
+        self.epoch += 1
+        self.status = "running"
+        self.completed.clear()
+        self.completion_acks.clear()
+        self.recovery_ready_ranks.clear()
+        self.recovery_rank_phases.clear()
+        self.recovery_started_at = time.monotonic()
+        self.failure = {
+            "previous_epoch": previous_epoch,
+            "epoch": self.epoch,
+            "logical_node": logical_node,
+            "failed_rank": failed_rank,
+            "failed_local_rank": failed_rank % self.local_world_size,
+            "failed_physical_node": failed_physical_node,
+            "replacement_physical_node": spare,
+            "reason": reason,
+            **metadata,
+        }
+        logger.warning(
+            "starting rank recovery epoch %d: global rank %d moves "
+            "physical %d -> %d; %d survivor processes stay resident",
+            self.epoch,
+            failed_rank,
+            failed_physical_node,
+            spare,
+            self.world_size - 1,
+        )
+
     def _detect_timeouts(self, now: float) -> None:
         if self.status != "running":
             return
@@ -693,17 +964,47 @@ class HotSpareCoordinator:
             self.recovery_started_at is not None
             and now - self.recovery_started_at > self.recovery_timeout
         ):
-            missing = sorted(
-                set(range(self.training_nodes)) - self.ready_logical_nodes
-            )
+            if self.rank_hot_swap:
+                missing = sorted(
+                    set(range(self.world_size))
+                    - self.recovery_ready_ranks
+                )
+                detail = (
+                    f"missing ranks={missing}; last rank phases="
+                    f"{dict(sorted(self.recovery_rank_phases.items()))}"
+                )
+            else:
+                missing = sorted(
+                    set(range(self.training_nodes))
+                    - self.ready_logical_nodes
+                )
+                detail = (
+                    f"missing logical nodes={missing}; last phases="
+                    f"{dict(sorted(self.worker_phases.items()))}"
+                )
             self.status = "aborted"
             self.abort_reason = (
                 f"recovery epoch {self.epoch} did not reach TRAIN_READY "
                 f"within {self.recovery_timeout:.1f}s; "
-                f"missing logical nodes={missing}; "
-                f"last phases={dict(sorted(self.worker_phases.items()))}"
+                f"{detail}"
             )
             logger.error(self.abort_reason)
+            return
+        if self.rank_hot_swap and self.epoch > 0:
+            for physical_node in sorted(self.active_physical_nodes):
+                record = self.agents.get(physical_node)
+                if (
+                    record is not None
+                    and now - record.last_seen <= self.heartbeat_timeout
+                ):
+                    continue
+                self.status = "aborted"
+                self.abort_reason = (
+                    "an active physical agent disappeared after rank "
+                    f"replacement: physical_node={physical_node}"
+                )
+                logger.error(self.abort_reason)
+                return
             return
         for logical_node, physical_node in tuple(self.mapping.items()):
             record = self.agents.get(physical_node)
@@ -724,6 +1025,15 @@ class HotSpareCoordinator:
                 )
                 logger.error(self.abort_reason)
                 return
+            if self.rank_hot_swap:
+                self.status = "aborted"
+                self.abort_reason = (
+                    "an active physical agent disappeared without a "
+                    "committed rank-scoped failure; refusing node-level "
+                    f"fallback: physical_node={physical_node}"
+                )
+                logger.error(self.abort_reason)
+                return
             self._start_failover(
                 logical_node,
                 physical_node,
@@ -732,7 +1042,11 @@ class HotSpareCoordinator:
             break
 
     def _command_for(self, physical_node: int) -> dict[str, Any]:
-        rank_zero_physical = self.mapping[0]
+        rank_zero_physical = (
+            self.rank_mapping[0]
+            if self.rank_hot_swap
+            else self.mapping[0]
+        )
         rank_zero_agent = self.agents.get(rank_zero_physical)
         common = {
             "status": self.status,
@@ -747,6 +1061,15 @@ class HotSpareCoordinator:
                 str(logical): physical
                 for logical, physical in sorted(self.mapping.items())
             },
+            "rank_mapping": {
+                str(rank): physical
+                for rank, physical in sorted(self.rank_mapping.items())
+            },
+            "recovery_mode": (
+                "rank_in_process"
+                if self.rank_hot_swap
+                else "node_relaunch"
+            ),
             "failed_logical_node": (
                 self.failure.get("logical_node")
                 if self.failure is not None
@@ -754,6 +1077,11 @@ class HotSpareCoordinator:
             ),
             "failure_step": (
                 self.failure.get("global_step")
+                if self.failure is not None
+                else None
+            ),
+            "failed_rank": (
+                self.failure.get("failed_rank")
                 if self.failure is not None
                 else None
             ),
@@ -768,6 +1096,32 @@ class HotSpareCoordinator:
             }
         if self.status == "complete":
             return {**common, "action": "complete"}
+        if self.rank_hot_swap and self.failure is not None:
+            replacement = int(
+                self.failure["replacement_physical_node"]
+            )
+            if physical_node == replacement:
+                return {
+                    **common,
+                    "action": "replace_rank",
+                    "logical_node": int(self.failure["logical_node"]),
+                    "replacement_rank": int(
+                        self.failure["failed_rank"]
+                    ),
+                    "replacement_local_rank": int(
+                        self.failure["failed_local_rank"]
+                    ),
+                    "checkpoint_required": True,
+                }
+            if 0 <= physical_node < self.training_nodes:
+                return {
+                    **common,
+                    "action": "run",
+                    "logical_node": physical_node,
+                    "preserve_process": True,
+                    "checkpoint_required": False,
+                }
+            return {**common, "action": "standby"}
         if physical_node in self.retired:
             return {**common, "action": "retire"}
         logical_node = next(
@@ -799,6 +1153,11 @@ class HotSpareCoordinator:
                 str(logical): physical
                 for logical, physical in sorted(self.mapping.items())
             },
+            "rank_mapping": {
+                str(rank): physical
+                for rank, physical in sorted(self.rank_mapping.items())
+            },
+            "rank_hot_swap": self.rank_hot_swap,
             "retired": sorted(self.retired),
             "completed": sorted(self.completed),
             "failure": self.failure,
@@ -807,6 +1166,13 @@ class HotSpareCoordinator:
             "worker_phases": {
                 str(logical): phase
                 for logical, phase in sorted(self.worker_phases.items())
+            },
+            "recovery_ready_ranks": sorted(self.recovery_ready_ranks),
+            "recovery_rank_phases": {
+                str(rank): phase
+                for rank, phase in sorted(
+                    self.recovery_rank_phases.items()
+                )
             },
         }
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -961,13 +1327,26 @@ class AgentSupervisor:
             )
         else:
             mapping_signature = ()
+        rank_mapping = command.get("rank_mapping", {})
+        if isinstance(rank_mapping, Mapping):
+            rank_mapping_signature = tuple(
+                sorted(
+                    (str(key), str(value))
+                    for key, value in rank_mapping.items()
+                )
+            )
+        else:
+            rank_mapping_signature = ()
         return (
             command.get("epoch"),
             command.get("action"),
             command.get("logical_node"),
+            command.get("replacement_rank"),
+            command.get("preserve_process"),
             command.get("master_addr"),
             command.get("master_port"),
             mapping_signature,
+            rank_mapping_signature,
         )
 
     @staticmethod
@@ -989,6 +1368,7 @@ class AgentSupervisor:
             "wait": 0,
             "standby": 0,
             "run": 1,
+            "replace_rank": 1,
             "retire": 2,
             "complete": 3,
             "abort": 3,
@@ -1174,14 +1554,20 @@ class AgentSupervisor:
                 self._recovery_command_received_at.setdefault(
                     command_epoch, time.monotonic()
                 )
+            terminal_action = command_action in {"abort", "retire"}
             should_preempt = (
-                self._recovery_force_preempt_enabled()
-                and process is not None
+                process is not None
                 and process.poll() is None
                 and process_epoch is not None
                 and (
-                    command_epoch > process_epoch
-                    or command_action in {"abort", "retire"}
+                    terminal_action
+                    or (
+                        self._recovery_force_preempt_enabled()
+                        and command_epoch > process_epoch
+                        and not bool(command_copy.get("preserve_process"))
+                        and command_copy.get("recovery_mode")
+                        != "rank_in_process"
+                    )
                 )
             )
             preempt_key = (
@@ -1609,6 +1995,7 @@ class AgentSupervisor:
         environment: Mapping[str, str],
         logical_node: int,
         epoch: int,
+        target_local_rank: int | None = None,
     ) -> bool:
         process = self._resident_process
         if (
@@ -1675,6 +2062,7 @@ class AgentSupervisor:
                     "session_id": self._resident_session_id,
                     "logical_node": logical_node,
                     "epoch": epoch,
+                    "target_local_rank": target_local_rank,
                     "rank_log_dir": rank_log_dir,
                     "environment": dict(environment),
                 },
@@ -1699,12 +2087,18 @@ class AgentSupervisor:
         command_delay = self._recovery_command_delay(epoch)
         logger.warning(
             "activated resident standby workers=%d/%d "
-            "physical_node=%d logical_node=%d epoch=%d%s",
+            "physical_node=%d logical_node=%d epoch=%d "
+            "target_local_rank=%s%s",
             len(ready),
             self._resident_num_workers,
             self.physical_node,
             logical_node,
             epoch,
+            (
+                str(target_local_rank)
+                if target_local_rank is not None
+                else "all"
+            ),
             (
                 f" recovery_command_to_activate_s={command_delay:.2f}"
                 if command_delay is not None
@@ -1721,6 +2115,7 @@ class AgentSupervisor:
         master_port: int,
         failed_logical_node: int | None = None,
         failure_step: int | None = None,
+        replacement_rank: int | None = None,
     ) -> None:
         self._stop_standby_prefetch()
         previous_epoch = self.process_epoch
@@ -1756,6 +2151,35 @@ class AgentSupervisor:
                 "MOEGAMBIT_HOT_SPARE_RUN_ID": self.run_id,
             }
         )
+        target_local_rank = None
+        if replacement_rank is not None:
+            if local_world_size is None:
+                raise RuntimeError(
+                    "rank replacement requires --num_gpus"
+                )
+            local_world_size_value = int(local_world_size)
+            target_local_rank = (
+                int(replacement_rank) % local_world_size_value
+            )
+            environment.update(
+                {
+                    "RANK": str(replacement_rank),
+                    "LOCAL_RANK": str(target_local_rank),
+                    "LOCAL_WORLD_SIZE": str(local_world_size_value),
+                    "LOCAL_SIZE": str(local_world_size_value),
+                    "WORLD_SIZE": str(
+                        int(
+                            _command_option(command, "--num_nodes")
+                            or "1"
+                        )
+                        * local_world_size_value
+                    ),
+                    "MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT": "1",
+                    "MOEGAMBIT_RECOVERY_FAILED_RANK": str(
+                        replacement_rank
+                    ),
+                }
+            )
         if failed_logical_node is not None:
             environment[
                 "MOEGAMBIT_RECOVERY_FAILED_LOGICAL_NODE"
@@ -1783,11 +2207,35 @@ class AgentSupervisor:
                 environment=environment,
                 logical_node=logical_node,
                 epoch=epoch,
+                target_local_rank=target_local_rank,
             )
         ):
             return
         if self.role == "standby" and epoch > 0:
             self._stop_resident_standby()
+            if replacement_rank is not None:
+                workload = _deepspeed_python_workload(command)
+                if workload is None or target_local_rank is None:
+                    raise RuntimeError(
+                        "rank replacement has no direct Python workload "
+                        "fallback"
+                    )
+                training_script, training_args = workload
+                direct_command = [
+                    sys.executable,
+                    "-u",
+                    str(training_script),
+                    *training_args,
+                ]
+                if not any(
+                    item == "--local_rank"
+                    or item.startswith("--local_rank=")
+                    for item in direct_command
+                ):
+                    direct_command.append(
+                        f"--local_rank={target_local_rank}"
+                    )
+                command = tuple(direct_command)
             # Keep the old page-cache path as a fail-safe when resident
             # preparation was disabled or did not reach all local ranks.
             self._prefetch_stop.clear()
@@ -2246,7 +2694,16 @@ class AgentSupervisor:
                         if failure_step is not None
                         else None
                     )
-                    if self.process_epoch != epoch:
+                    preserve_process = bool(
+                        command.get("preserve_process")
+                    )
+                    if (
+                        preserve_process
+                        and self.process is not None
+                        and self.process.poll() is None
+                    ):
+                        self.process_epoch = epoch
+                    elif self.process_epoch != epoch:
                         self._start_worker(
                             logical_node,
                             epoch,
@@ -2331,6 +2788,62 @@ class AgentSupervisor:
                                 return_code=return_code,
                                 reason=f"runner_exit_{return_code}",
                                 diagnostic=diagnostic[-8000:],
+                            )
+                            continue
+
+                elif action == "replace_rank":
+                    logical_node = int(command["logical_node"])
+                    replacement_rank = int(
+                        command["replacement_rank"]
+                    )
+                    master_addr = str(command["master_addr"])
+                    master_port = int(command["master_port"])
+                    failed_logical_node = command.get(
+                        "failed_logical_node"
+                    )
+                    failure_step = command.get("failure_step")
+                    if self.process_epoch != epoch:
+                        self._start_worker(
+                            logical_node,
+                            epoch,
+                            master_addr,
+                            master_port,
+                            (
+                                int(failed_logical_node)
+                                if failed_logical_node is not None
+                                else None
+                            ),
+                            (
+                                int(failure_step)
+                                if failure_step is not None
+                                else None
+                            ),
+                            replacement_rank,
+                        )
+
+                    if self.process is not None:
+                        return_code = self.process.poll()
+                        self._relay_worker_log()
+                        if return_code is not None:
+                            with self._control_lock:
+                                self.process = None
+                            if return_code == 0:
+                                self.completed_epoch = epoch
+                                command = self._request(
+                                    "runner_complete",
+                                    epoch=epoch,
+                                    state="completed",
+                                )
+                                continue
+                            command = self._request(
+                                "runner_failure",
+                                epoch=epoch,
+                                state="failed",
+                                return_code=return_code,
+                                reason=(
+                                    "replacement_rank_exit_"
+                                    f"{return_code}"
+                                ),
                             )
                             continue
 
@@ -2479,6 +2992,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--training-nodes", type=int, required=True)
     parser.add_argument("--spare-node", type=int, required=True)
     parser.add_argument("--physical-node", type=int, required=True)
+    parser.add_argument("--local-world-size", type=int, default=1)
+    parser.add_argument("--rank-hot-swap", action="store_true")
     parser.add_argument("--advertise-addr")
     parser.add_argument("--base-master-port", type=int, required=True)
     parser.add_argument("--master-port-stride", type=int, default=1)
@@ -2539,6 +3054,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         heartbeat_timeout=args.heartbeat_timeout,
         recovery_timeout=args.recovery_timeout,
         state_path=Path(args.state_path) if args.state_path else None,
+        local_world_size=args.local_world_size,
+        rank_hot_swap=args.rank_hot_swap,
     )
     runtime = WatcherRuntime(
         args.listen_host, args.coordinator_port, coordinator.handle

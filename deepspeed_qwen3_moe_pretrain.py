@@ -970,6 +970,13 @@ def maybe_inject_fault(
             rank=rank,
         )
         runtime.wait_for_recovery_preemption(global_step)
+        if runtime.settings.inprocess_recovery:
+            log(
+                "RANK_INPROCESS_RECOVERY_RESUMED "
+                f"rank={rank} step={global_step}",
+                rank=rank,
+            )
+            return
         raise RuntimeError(
             "recovery preemption wait returned without retiring the worker"
         )
@@ -1203,7 +1210,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{getattr(runtime, 'recovery_contract', None)}",
         rank=rank,
     )
-    if args.local_rank == 0:
+    inprocess_replacement = bool(
+        runtime is not None
+        and runtime.settings.inprocess_replacement
+    )
+    if args.local_rank == 0 and not inprocess_replacement:
         try:
             notify_hot_spare(
                 "worker_ready",
@@ -1214,9 +1225,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise RuntimeError(
                 "failed to report TRAIN_READY to hot-spare coordinator"
             ) from exc
-    report_worker_phase("train_barrier_start", rank)
-    torch_dist.barrier()
-    report_worker_phase("train_barrier_done", rank)
+    if inprocess_replacement:
+        log(
+            "RANK_INPROCESS_INITIAL_BARRIER_SKIPPED "
+            f"rank={rank} step={engine.global_steps}",
+            rank=rank,
+        )
+    else:
+        report_worker_phase("train_barrier_start", rank)
+        torch_dist.barrier()
+        report_worker_phase("train_barrier_done", rank)
 
     while int(engine.global_steps) < args.train_iters:
         iteration_started = time.monotonic()

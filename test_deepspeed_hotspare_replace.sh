@@ -49,6 +49,7 @@ TEST_TIMEOUT_SECONDS="${TEST_TIMEOUT_SECONDS:-14400}"
 DRY_RUN="${DRY_RUN:-0}"
 PACKED_EXPERT_CHECKPOINT="${DEEPSPEED_MOEGAMBIT_PACKED_EXPERT_CHECKPOINT:-1}"
 PACKED_EXPERT_CACHE="${MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE:-1}"
+INPROCESS_RECOVERY="${MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY:-1}"
 HANDOFF_ROOT_BASE="${MOEGAMBIT_RECOVERY_HANDOFF_DIR:-/tmp/moegambit-deepspeed-handoff}"
 
 MODEL_CONFIG="${MODEL_CONFIG:-${SCRIPT_DIR}/tokenizer}"
@@ -126,6 +127,8 @@ case "${TEST_MODE}" in
   hot_swap|zero2|combined|all) ;;
   *) fail "TEST_MODE must be hot_swap, zero2, combined, or all" ;;
 esac
+[[ "${INPROCESS_RECOVERY}" == "0" || "${INPROCESS_RECOVERY}" == "1" ]] || fail \
+  "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY must be 0 or 1"
 (( TRAINING_NNODES > 0 )) || fail "TRAINING_NNODES must be positive"
 (( NPROC_PER_NODE > 0 )) || fail "NPROC_PER_NODE must be positive"
 (( SPARE_NODE_RANK == TRAINING_NNODES )) || fail \
@@ -184,7 +187,11 @@ export MOEGAMBIT_LAUNCHER_LOG_LEVEL="${MOEGAMBIT_LAUNCHER_LOG_LEVEL:-warning}"
 export MOEGAMBIT_STANDBY_RESIDENT="${MOEGAMBIT_STANDBY_RESIDENT:-1}"
 export MOEGAMBIT_STANDBY_READY_TIMEOUT="${MOEGAMBIT_STANDBY_READY_TIMEOUT:-10}"
 export MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD="${MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD:-1}"
-export MOEGAMBIT_RECOVERY_FORCE_PREEMPT="${MOEGAMBIT_RECOVERY_FORCE_PREEMPT:-1}"
+if [[ "${INPROCESS_RECOVERY}" == "1" ]]; then
+  export MOEGAMBIT_RECOVERY_FORCE_PREEMPT=0
+else
+  export MOEGAMBIT_RECOVERY_FORCE_PREEMPT="${MOEGAMBIT_RECOVERY_FORCE_PREEMPT:-1}"
+fi
 export MOEGAMBIT_STANDBY_PREFETCH="${MOEGAMBIT_STANDBY_PREFETCH:-1}"
 export MOEGAMBIT_STANDBY_PREFETCH_LOGICAL_NODE="$FAULT_INJECT_NODE"
 export MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB="${MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB:-128}"
@@ -350,7 +357,21 @@ run_case() {
   export MOEGAMBIT_HOT_SWAP="${hot_swap}"
   export MOEGAMBIT_ZERO2="${zero2}"
   export MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE="${hot_swap}"
-  export MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF="${hot_swap}"
+  export MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT=0
+  export MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY="$(
+    if [[ "${hot_swap}" == "1" ]]; then
+      printf '%s' "${INPROCESS_RECOVERY}"
+    else
+      printf '0'
+    fi
+  )"
+  export MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF="$(
+    if [[ "${hot_swap}" == "1" && "${INPROCESS_RECOVERY}" != "1" ]]; then
+      printf '1'
+    else
+      printf '0'
+    fi
+  )"
   export MOEGAMBIT_RECOVERY_HANDOFF_DIR="${handoff_dir}"
   export MOEGAMBIT_RECOVERY_HANDOFF_TIMEOUT="${MOEGAMBIT_RECOVERY_HANDOFF_TIMEOUT:-180}"
   export MOEGAMBIT_ZERO2_REPLICA_SCOPE="$(
@@ -384,7 +405,11 @@ run_case() {
   export MOEGAMBIT_DEEPSPEED_EXTERNAL_ELASTIC="${hot_swap}"
   export MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY="$(
     if [[ "${hot_swap}" == "1" ]]; then
-      printf 'mixed_version_survivor_handoff'
+      if [[ "${INPROCESS_RECOVERY}" == "1" ]]; then
+        printf 'rank_in_process_hybrid'
+      else
+        printf 'mixed_version_survivor_handoff'
+      fi
     else
       printf 'disabled'
     fi
@@ -397,6 +422,8 @@ run_case() {
   echo "[deepspeed-real-launch] case=${case_name} node=${NODE_RANK} "\
 "PP=${pp_size} EP=${EP_SIZE} ZeRO=${zero_stage} hot_swap=${hot_swap} zero2=${zero2} "\
 "hybrid_restore=${MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE} "\
+"inprocess_recovery=${MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY} "\
+"recovery_strategy=${MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY} "\
 "survivor_handoff=${MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF} "\
 "optimizer_peer_replica=${hot_swap} replica_scope=${MOEGAMBIT_ZERO2_REPLICA_SCOPE} "\
 "replica_failure_domain=${MOEGAMBIT_REPLICA_FAILURE_DOMAIN_SIZE} "\
@@ -465,12 +492,16 @@ run_case() {
       --training-nodes "${TRAINING_NNODES}" \
       --spare-node "${SPARE_NODE_RANK}" \
       --physical-node "${NODE_RANK}" \
+      --local-world-size "${NPROC_PER_NODE}" \
       --base-master-port "${case_port}" \
       --heartbeat-timeout "${HOT_SPARE_HEARTBEAT_TIMEOUT}" \
       --recovery-timeout "${HOT_SPARE_RECOVERY_TIMEOUT}" \
       --startup-timeout "${HOT_SPARE_STARTUP_TIMEOUT}" \
       --state-path "${state_dir}/hot_spare_coordinator.json"
     )
+    if [[ "${INPROCESS_RECOVERY}" == "1" ]]; then
+      supervised_command+=(--rank-hot-swap)
+    fi
     local advertise_addr="${MOEGAMBIT_HOT_SPARE_ADVERTISE_ADDR:-}"
     if [[ -z "${advertise_addr}" ]] && (( NODE_RANK == 0 )); then
       advertise_addr="${MASTER_ADDR}"

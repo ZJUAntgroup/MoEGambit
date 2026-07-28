@@ -215,9 +215,25 @@ class PipelineModule(nn.Module):
         self.to(get_accelerator().device_name(self.local_rank))
 
         self.tied_comms = self._index_tied_modules()
-        self._synchronize_tied_weights()
+        defer_tied_sync = os.environ.get("MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT",
+                                         "0").strip().lower() in {"1", "true", "yes", "on"}
+        if not defer_tied_sync:
+            self._synchronize_tied_weights()
 
         self.dynamic_shape = dynamic_shape
+
+    def rebuild_process_groups(self):
+        """Recreate pipeline handles while retaining module parameters."""
+        self.world_group = dist.new_group(ranks=range(dist.get_world_size()))
+        self.global_rank = dist.get_rank(group=self.world_group)
+        self.world_size = dist.get_world_size(group=self.world_group)
+        self._grid = PipelineParallelGrid(
+            process_group=self.world_group,
+            topology=self._topo,
+        )
+        self.stage_id = self._topo.get_coord(self.global_rank).pipe
+        self.tied_comms = self._index_tied_modules()
+        return self._grid
 
     def _precompute_checkpointable_values(self):
         if self.activation_checkpoint_interval > 0 and self.is_checkpointable_results_interval != self.activation_checkpoint_interval:

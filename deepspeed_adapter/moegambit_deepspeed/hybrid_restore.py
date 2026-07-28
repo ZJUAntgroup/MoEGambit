@@ -677,20 +677,29 @@ def restore_non_expert_optimizer_from_peer(
                 chunk_numel = max(
                     1, chunk_bytes // destination.element_size()
                 )
+                staging_numel = min(chunk_numel, destination.numel())
+                staging = torch.empty(
+                    staging_numel,
+                    dtype=destination.dtype,
+                    device=engine.device,
+                )
                 for offset in range(0, destination.numel(), chunk_numel):
                     count = min(
                         chunk_numel, destination.numel() - offset
                     )
+                    transfer = staging.narrow(0, 0, count)
                     if rank == plan.source_rank:
-                        transfer = source_cpu.narrow(
-                            0, offset, count
-                        ).to(device=engine.device, non_blocking=False)
-                    else:
-                        transfer = destination.narrow(0, offset, count)
+                        transfer.copy_(
+                            source_cpu.narrow(0, offset, count),
+                            non_blocking=False,
+                        )
                     dist.broadcast(
                         transfer, src=plan.source_rank, group=pair_group
                     )
                     if rank == plan.replacement_rank:
+                        destination.narrow(0, offset, count).copy_(
+                            transfer, non_blocking=False
+                        )
                         copied_bytes += (
                             transfer.numel() * transfer.element_size()
                         )

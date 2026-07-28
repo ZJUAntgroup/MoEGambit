@@ -85,6 +85,36 @@ _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE = None
 _MPU_TENSOR_MODEL_PARALLEL_RANK = None
 
 
+def reset_for_recovery():
+    """Drop cached handles after the default process group is destroyed."""
+    global _WORLD_GROUP
+    global _ZERO_PARAM_INTRA_PARALLEL_GROUP
+    global _TENSOR_MODEL_PARALLEL_GROUP
+    global _MODEL_PARALLEL_GROUP
+    global _DATA_PARALLEL_GROUP
+    global _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE
+    global _MPU_TENSOR_MODEL_PARALLEL_RANK
+    global expert_tensor_parallel_world_size
+    global mesh_device
+    global mpu
+
+    _EXPERT_PARALLEL_GROUP.clear()
+    _EXPERT_PARALLEL_GROUP_RANKS.clear()
+    _EXPERT_DATA_PARALLEL_GROUP.clear()
+    _EXPERT_DATA_PARALLEL_GROUP_RANKS.clear()
+    _ALL_TO_ALL_GROUP.clear()
+    _WORLD_GROUP = None
+    _ZERO_PARAM_INTRA_PARALLEL_GROUP = None
+    _TENSOR_MODEL_PARALLEL_GROUP = None
+    _MODEL_PARALLEL_GROUP = None
+    _DATA_PARALLEL_GROUP = None
+    _MPU_TENSOR_MODEL_PARALLEL_WORLD_SIZE = None
+    _MPU_TENSOR_MODEL_PARALLEL_RANK = None
+    expert_tensor_parallel_world_size = 1
+    mesh_device = None
+    mpu = None
+
+
 def _init_tp_groups_with_new_group(tensor_model_parallel_size=1, data_parallel_size=None):
     """Initialize TP/DP groups with explicit rank lists.
 

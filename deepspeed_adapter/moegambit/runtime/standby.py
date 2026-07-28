@@ -208,12 +208,19 @@ def _worker(args: argparse.Namespace, training_args: Sequence[str]) -> int:
         )
         activation: Mapping[str, Any] | None = None
         while activation is None:
-            activation = _read_json(activation_path)
+            candidate = _read_json(activation_path)
             if (
-                activation is not None
-                and activation.get("session_id") != args.session_id
+                candidate is not None
+                and candidate.get("session_id") == args.session_id
             ):
-                activation = None
+                target_local_rank = candidate.get(
+                    "target_local_rank"
+                )
+                if (
+                    target_local_rank is None
+                    or int(target_local_rank) == args.local_rank
+                ):
+                    activation = candidate
             if activation is None:
                 time.sleep(0.1)
 
@@ -319,6 +326,7 @@ def _launcher(args: argparse.Namespace, training_args: Sequence[str]) -> int:
     control_dir = Path(args.control_dir)
     control_dir.mkdir(parents=True, exist_ok=True)
     children: list[subprocess.Popen] = []
+    child_local_ranks: dict[subprocess.Popen, int] = {}
     stopping = False
 
     def stop(_signum=None, _frame=None) -> None:
@@ -358,7 +366,9 @@ def _launcher(args: argparse.Namespace, training_args: Sequence[str]) -> int:
             "--",
             *training_args,
         ]
-        children.append(subprocess.Popen(command, env=os.environ.copy()))
+        child = subprocess.Popen(command, env=os.environ.copy())
+        children.append(child)
+        child_local_ranks[child] = local_rank
 
     ready_logged = False
     try:
@@ -372,6 +382,29 @@ def _launcher(args: argparse.Namespace, training_args: Sequence[str]) -> int:
             if failed:
                 _terminate_children(children)
                 return int(failed[0])
+            activation = _read_json(
+                control_dir / f"activate_{args.session_id}.json"
+            )
+            target_local_rank = (
+                int(activation["target_local_rank"])
+                if activation is not None
+                and activation.get("target_local_rank") is not None
+                else None
+            )
+            if target_local_rank is not None:
+                target = next(
+                    (
+                        child
+                        for child, local_rank in child_local_ranks.items()
+                        if local_rank == target_local_rank
+                    ),
+                    None,
+                )
+                if target is not None and target.poll() == 0:
+                    _terminate_children(
+                        [child for child in children if child is not target]
+                    )
+                    return 0
             if all(code == 0 for code in return_codes):
                 return 0
 

@@ -1767,7 +1767,9 @@ class DeepSpeedEngine(Module):
             summary += "***********************************************"
             logger.info(summary)
 
-        if not (self.amp_enabled() or is_zero_init_model):
+        inprocess_replacement = os.environ.get("MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT",
+                                               "0").strip().lower() in {"1", "true", "yes", "on"}
+        if not (self.amp_enabled() or is_zero_init_model or inprocess_replacement):
             self._broadcast_model()
 
     def _validate_zero3_moe_compatibility(self):

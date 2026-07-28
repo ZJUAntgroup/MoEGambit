@@ -32,6 +32,31 @@ from .constants import ELASTIC_TRAINING_ID_DEFAULT
 PID_FILE_BASEPATH = "/tmp"
 
 
+def _rank_recovery_enabled():
+    return os.environ.get("MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _confirm_rank_recovery(dist_rank, return_code):
+    """Ask the external controller before preserving sibling workers."""
+    if not _rank_recovery_enabled():
+        return False
+    try:
+        from moegambit.runtime.hot_spare import request_worker_command
+
+        command = request_worker_command(
+            "rank_failure",
+            int(dist_rank),
+            reason=f"launcher_observed_exit_{return_code}",
+            return_code=int(return_code),
+        )
+    except Exception as exc:
+        logger.error(f"rank {dist_rank} recovery confirmation failed: {exc}")
+        return False
+    return bool(command and command.get("recovery_mode") == "rank_in_process"
+                and int(command.get("failed_rank", -1)) == int(dist_rank) and command.get("failure_step") is not None
+                and int(command.get("epoch", 0)) > 0)
+
+
 def parse_args():
     parser = ArgumentParser(description="DeepSpeed distributed training launch"
                             " utility that creates multiple distributed"
@@ -219,6 +244,7 @@ def main():
                     current_env[key] = val
 
     processes = []
+    process_ranks = {}
     cmd = []
 
     if not args.enable_elastic_training:
@@ -273,6 +299,7 @@ def main():
             # logs the command from processes
             logger.info(f"process {process.pid} spawned with command: {cmd}")
             processes.append(process)
+            process_ranks[process] = dist_rank
     else:
         from ..elasticity import DSElasticAgent
         from torch.distributed.elastic.rendezvous import RendezvousParameters
@@ -354,6 +381,7 @@ def main():
     signal.signal(signal.SIGTERM, sigkill_handler)
 
     alive_processes = set(processes)
+    recovered_failed_processes = set()
     while len(alive_processes):
         finished_processes = []
         for process in alive_processes:
@@ -362,8 +390,16 @@ def main():
                 continue
             else:
                 if process.returncode != 0:
-                    last_return_code = process.returncode  # for sigkill_handler
-                    sigkill_handler(signal.SIGTERM, None)  # not coming back
+                    dist_rank = process_ranks.get(process, -1)
+                    if (process not in recovered_failed_processes
+                            and _confirm_rank_recovery(dist_rank, process.returncode)):
+                        logger.warning("Preserving sibling workers after confirmed "
+                                       f"in-process replacement of rank {dist_rank}")
+                        recovered_failed_processes.add(process)
+                        finished_processes.append(process)
+                    else:
+                        last_return_code = process.returncode  # for sigkill_handler
+                        sigkill_handler(signal.SIGTERM, None)  # not coming back
                 else:
                     # exited cleanly
                     logger.info(f"Process {process.pid} exits successfully.")

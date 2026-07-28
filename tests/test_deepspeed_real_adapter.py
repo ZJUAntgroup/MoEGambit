@@ -381,6 +381,102 @@ def test_mixed_restore_requires_matching_recovery_strategy(monkeypatch):
         DeepSpeedRuntimeSettings.from_env()
 
 
+def test_rank_inprocess_strategy_disables_file_handoff(monkeypatch):
+    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+
+    monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
+    monkeypatch.setenv(
+        "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
+        "rank_in_process_hybrid",
+    )
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE", "1")
+    monkeypatch.setenv(
+        "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY", "1"
+    )
+    monkeypatch.setenv(
+        "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF", "1"
+    )
+
+    settings = DeepSpeedRuntimeSettings.from_env()
+
+    assert settings.inprocess_recovery is True
+    assert settings.hybrid_restore is True
+    assert settings.survivor_handoff is False
+
+
+def test_inprocess_replacement_flag_cannot_pollute_normal_start(monkeypatch):
+    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+
+    monkeypatch.setenv(
+        "MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT", "1"
+    )
+
+    with pytest.raises(
+        ValueError, match="valid only inside rank-granular recovery"
+    ):
+        DeepSpeedRuntimeSettings.from_env()
+
+
+def test_rank_recovery_command_requires_complete_world_mapping():
+    from moegambit_deepspeed.inprocess_recovery import (
+        DeepSpeedInProcessRecoveryError,
+        _require_rank_command,
+    )
+
+    command = {
+        "recovery_mode": "rank_in_process",
+        "failed_rank": 1,
+        "epoch": 2,
+        "master_addr": "10.0.0.1",
+        "master_port": 24002,
+        "rank_mapping": {"0": 0, "1": 8, "2": 0, "3": 0},
+    }
+
+    assert _require_rank_command(command, 2, 4) == (
+        1,
+        2,
+        "10.0.0.1",
+        24002,
+    )
+    command["rank_mapping"] = {"0": 0, "1": 8, "2": 0}
+    with pytest.raises(
+        DeepSpeedInProcessRecoveryError,
+        match="does not cover the complete world",
+    ):
+        _require_rank_command(command, 2, 4)
+
+
+def test_inprocess_replacement_does_not_repeat_initial_world_barrier():
+    workload = (
+        ROOT / "deepspeed_qwen3_moe_pretrain.py"
+    ).read_text(encoding="utf-8")
+    start = workload.index("    inprocess_replacement = bool(")
+    end = workload.index("\n    while int(engine.global_steps)", start)
+    ready_block = workload[start:end]
+
+    assert (
+        "if args.local_rank == 0 and not inprocess_replacement:"
+        in ready_block
+    )
+    assert "if inprocess_replacement:" in ready_block
+    assert ready_block.count("torch_dist.barrier()") == 1
+    assert "RANK_INPROCESS_INITIAL_BARRIER_SKIPPED" in ready_block
+
+
+def test_inprocess_pipeline_rebuild_resets_p2p_metadata_protocol():
+    recovery = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit_deepspeed"
+        / "inprocess_recovery.py"
+    ).read_text(encoding="utf-8")
+
+    assert "p2p._groups = None" in recovery
+    assert "p2p._grid = None" in recovery
+    assert "engine.reset_activation_shape()" in recovery
+    assert "engine.first_gradient_send = True" in recovery
+
+
 def test_hybrid_restore_uses_current_survivor_after_checkpoint_base_load():
     integration = (
         ROOT
@@ -404,6 +500,30 @@ def test_hybrid_restore_uses_current_survivor_after_checkpoint_base_load():
     assert '"optimizer_source": "survivor_peer_replica"' in hybrid
     assert '"rollback_steps": 0' in integration
     assert '"two_phase": False' in hybrid
+    assert integration.index(
+        'self._report_phase("non_expert_model_restore_done")'
+    ) < integration.index(
+        'self._report_phase("non_expert_optimizer_restore_start")'
+    )
+    assert integration.index(
+        'self._report_phase("non_expert_optimizer_restore_start")'
+    ) < integration.index(
+        "optimizer_summary = restore_non_expert_optimizer_from_peer("
+    )
+
+
+def test_optimizer_peer_restore_stages_nccl_payloads_on_engine_device():
+    hybrid = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit_deepspeed"
+        / "hybrid_restore.py"
+    ).read_text(encoding="utf-8")
+
+    assert "staging = torch.empty(" in hybrid
+    assert "device=engine.device" in hybrid
+    assert "transfer = destination.narrow" not in hybrid
+    assert "destination.narrow(0, offset, count).copy_(" in hybrid
 
 
 def test_runtime_checkpoint_hook_runs_for_common_model_step(
@@ -1000,7 +1120,10 @@ def test_multinode_script_dry_run_builds_real_commands(tmp_path):
     assert "--elastic_training" not in result.stdout
     assert "dry run complete" in result.stdout
     assert "hybrid_restore=1" in result.stdout
-    assert "survivor_handoff=1" in result.stdout
+    assert "inprocess_recovery=1" in result.stdout
+    assert "survivor_handoff=0" in result.stdout
+    assert "rank_in_process_hybrid" in result.stdout
+    assert "--rank-hot-swap" in result.stdout
     assert "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF" in (
         ROOT / "test_deepspeed_hotspare_replace.sh"
     ).read_text(encoding="utf-8")
@@ -1111,6 +1234,171 @@ def test_hot_spare_coordinator_replaces_failed_logical_node(tmp_path):
     assert replacement_command["failure_step"] == 17
     assert request("poll", 1)["logical_node"] == 1
     assert (tmp_path / "state.json").is_file()
+
+
+def test_hot_spare_coordinator_replaces_only_failed_rank(tmp_path):
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="rank-run",
+        training_nodes=2,
+        spare_physical_node=2,
+        base_master_port=24000,
+        local_world_size=2,
+        rank_hot_swap=True,
+        state_path=tmp_path / "rank-state.json",
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "rank-run",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        ).payload
+
+    request("register", 0, role="active", advertise_addr="10.0.0.1")
+    request("register", 1, role="active", advertise_addr="10.0.0.2")
+    request("register", 2, role="standby", advertise_addr="10.0.0.3")
+    request("worker_ready", 0, epoch=0, logical_node=0)
+    request("worker_ready", 1, epoch=0, logical_node=1)
+
+    survivor = request(
+        "rank_failure",
+        0,
+        epoch=0,
+        logical_node=0,
+        rank=1,
+        reason="injected_sigkill",
+        global_step=17,
+    )
+
+    assert survivor["action"] == "run"
+    assert survivor["preserve_process"] is True
+    assert survivor["failed_rank"] == 1
+    assert coordinator.mapping == {0: 0, 1: 1}
+    assert coordinator.rank_mapping == {0: 0, 1: 2, 2: 1, 3: 1}
+    assert coordinator.retired == set()
+
+    duplicate = request(
+        "rank_failure",
+        0,
+        epoch=0,
+        logical_node=0,
+        rank=1,
+        reason="launcher_observed_exit_-9",
+        global_step=17,
+    )
+    assert duplicate["action"] == "run"
+    assert coordinator.status == "running"
+    assert coordinator.epoch == 1
+
+    replacement = request("poll", 2, epoch=0)
+    assert replacement["action"] == "replace_rank"
+    assert replacement["replacement_rank"] == 1
+    assert replacement["replacement_local_rank"] == 1
+    assert replacement["master_addr"] == "10.0.0.1"
+    assert request("poll", 1, epoch=0)["preserve_process"] is True
+
+    for rank, physical in ((0, 0), (1, 2), (2, 1), (3, 1)):
+        request(
+            "rank_recovery_ready",
+            physical,
+            epoch=1,
+            rank=rank,
+            logical_node=rank // 2,
+        )
+    assert coordinator.recovery_ready_ranks == {0, 1, 2, 3}
+    assert coordinator.recovery_started_at is None
+
+
+def test_rank_hot_swap_rejects_ambiguous_launcher_failure():
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="rank-fail-closed",
+        training_nodes=1,
+        spare_physical_node=1,
+        base_master_port=24000,
+        local_world_size=2,
+        rank_hot_swap=True,
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "rank-fail-closed",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        ).payload
+
+    request("register", 0, role="active", advertise_addr="10.0.0.1")
+    request("register", 1, role="standby", advertise_addr="10.0.0.2")
+    request("worker_ready", 0, epoch=0, logical_node=0)
+    command = request(
+        "runner_failure",
+        0,
+        epoch=0,
+        return_code=-9,
+        reason="ambiguous_launcher_exit",
+    )
+
+    assert command["action"] == "abort"
+    assert coordinator.epoch == 0
+    assert coordinator.rank_mapping == {0: 0, 1: 0}
+    assert "committed rank-scoped failure" in command["reason"]
+
+
+def test_rank_hot_swap_requires_committed_failure_step():
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="rank-step-required",
+        training_nodes=1,
+        spare_physical_node=1,
+        base_master_port=24000,
+        local_world_size=2,
+        rank_hot_swap=True,
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "rank-step-required",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        ).payload
+
+    request("register", 0, role="active", advertise_addr="10.0.0.1")
+    request("register", 1, role="standby", advertise_addr="10.0.0.2")
+    request("worker_ready", 0, epoch=0, logical_node=0)
+    command = request(
+        "rank_failure",
+        0,
+        epoch=0,
+        logical_node=0,
+        rank=1,
+        reason="uncommitted_exit",
+    )
+
+    assert command["action"] == "abort"
+    assert coordinator.epoch == 0
+    assert "committed non-negative failure step" in command["reason"]
 
 
 def test_hot_spare_coordinator_tracks_recovery_worker_phases(tmp_path):
@@ -1564,6 +1852,7 @@ def test_hot_spare_activates_only_fully_ready_resident_pool(
         environment={"MASTER_ADDR": "10.0.0.1", "MASTER_PORT": "25001"},
         logical_node=0,
         epoch=1,
+        target_local_rank=1,
     )
 
     assert activated is True
@@ -1576,6 +1865,7 @@ def test_hot_spare_activates_only_fully_ready_resident_pool(
     )
     assert activation["logical_node"] == 0
     assert activation["epoch"] == 1
+    assert activation["target_local_rank"] == 1
     assert activation["environment"]["MASTER_ADDR"] == "10.0.0.1"
 
 
@@ -2036,13 +2326,63 @@ def test_hot_spare_abort_preempts_same_epoch(monkeypatch):
         "killpg",
         lambda pid, signum: signals.append((pid, signum)),
     )
+    monkeypatch.setenv("MOEGAMBIT_RECOVERY_FORCE_PREEMPT", "0")
 
     supervisor._observe_control_command(
-        {"action": "abort", "epoch": 1},
+        {
+            "action": "abort",
+            "epoch": 1,
+            "preserve_process": True,
+            "recovery_mode": "rank_in_process",
+        },
         source="test",
     )
 
     assert signals == [(43212, signal.SIGKILL)]
+
+
+def test_rank_recovery_command_preserves_survivor_launcher(monkeypatch):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    class RunningProcess:
+        pid = 43213
+
+        @staticmethod
+        def poll():
+            return None
+
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=0,
+        role="active",
+        advertise_addr="127.0.0.1",
+        command=("runner",),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    supervisor.process = RunningProcess()
+    supervisor.process_epoch = 0
+    signals = []
+    monkeypatch.setattr(
+        os,
+        "killpg",
+        lambda pid, signum: signals.append((pid, signum)),
+    )
+
+    supervisor._observe_control_command(
+        {
+            "action": "run",
+            "epoch": 1,
+            "logical_node": 0,
+            "preserve_process": True,
+            "recovery_mode": "rank_in_process",
+        },
+        source="test",
+    )
+
+    assert signals == []
 
 
 def test_hot_spare_coordinator_aborts_stalled_recovery():

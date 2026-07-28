@@ -7,6 +7,7 @@ from types import MethodType
 from collections import OrderedDict
 from functools import reduce
 from operator import mul
+import os
 
 import torch
 from deepspeed import comm as dist
@@ -156,7 +157,10 @@ class PipelineEngine(DeepSpeedEngine):
                     tied_params += sum(p.numel() for p in d['module'].parameters())
             unique_params -= tied_params
         params_tensor = torch.LongTensor(data=[num_params, unique_params]).to(self.device)
-        dist.all_reduce(params_tensor, group=self.grid.get_model_parallel_group())
+        inprocess_replacement = os.environ.get("MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT",
+                                               "0").strip().lower() in {"1", "true", "yes", "on"}
+        if not inprocess_replacement:
+            dist.all_reduce(params_tensor, group=self.grid.get_model_parallel_group())
         params_tensor = params_tensor.tolist()
         total_params = params_tensor[0]
         unique_params = params_tensor[1]
