@@ -255,6 +255,7 @@ class HotSpareCoordinator:
     recovery_started_at: float | None = None
     ready_logical_nodes: set[int] = field(default_factory=set)
     worker_phases: dict[int, str] = field(default_factory=dict)
+    dispatched_epochs: dict[int, int] = field(default_factory=dict)
     _lock: threading.RLock = field(
         default_factory=threading.RLock, init=False, repr=False
     )
@@ -356,7 +357,40 @@ class HotSpareCoordinator:
                 or durable_state_changed
             ):
                 self._persist()
-            return WireMessage("command", self._command_for(physical_node))
+            command = self._command_for(physical_node)
+            self._record_command_dispatch(physical_node, command)
+            return WireMessage("command", command)
+
+    def _record_command_dispatch(
+        self, physical_node: int, command: Mapping[str, Any]
+    ) -> None:
+        try:
+            command_epoch = int(command.get("epoch", -1))
+        except (TypeError, ValueError):
+            return
+        previous_epoch = self.dispatched_epochs.get(physical_node, -1)
+        if command_epoch <= previous_epoch:
+            return
+        self.dispatched_epochs[physical_node] = command_epoch
+        if command_epoch <= 0 or self.recovery_started_at is None:
+            return
+        elapsed = time.monotonic() - self.recovery_started_at
+        logger.warning(
+            "RECOVERY_COMMAND_DISPATCH physical_node=%d action=%s "
+            "epoch=%d recovery_elapsed_s=%.2f",
+            physical_node,
+            command.get("action", "unknown"),
+            command_epoch,
+            elapsed,
+        )
+        if self.failure is not None:
+            agent_phases = self.failure.setdefault(
+                "agent_phase_seconds", {}
+            )
+            physical_phases = agent_phases.setdefault(
+                str(physical_node), {}
+            )
+            physical_phases["command_dispatched"] = elapsed
 
     def _register(
         self,
@@ -818,6 +852,11 @@ class AgentSupervisor:
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
         self._last_control_warning = 0.0
+        self._control_lock = threading.Lock()
+        self._pending_command: dict[str, Any] | None = None
+        self._control_signature: tuple[Any, ...] | None = None
+        self._preempted_processes: set[tuple[int, int]] = set()
+        self._recovery_command_received_at: dict[int, float] = {}
 
     def _request(
         self, kind: str, **payload: Any
@@ -872,10 +911,13 @@ class AgentSupervisor:
             else:
                 state = self.role
             try:
-                self._request(
+                command = self._request(
                     "heartbeat",
                     epoch=int(self.process_epoch or 0),
                     state=state,
+                )
+                self._observe_control_command(
+                    command, source="heartbeat"
                 )
             except (
                 ConnectionError,
@@ -891,6 +933,186 @@ class AgentSupervisor:
                         exc,
                     )
                     last_warning = now
+
+    @staticmethod
+    def _command_signature(
+        command: Mapping[str, Any],
+    ) -> tuple[Any, ...]:
+        mapping = command.get("mapping", {})
+        if isinstance(mapping, Mapping):
+            mapping_signature = tuple(
+                sorted(
+                    (str(key), str(value))
+                    for key, value in mapping.items()
+                )
+            )
+        else:
+            mapping_signature = ()
+        return (
+            command.get("epoch"),
+            command.get("action"),
+            command.get("logical_node"),
+            command.get("master_addr"),
+            command.get("master_port"),
+            mapping_signature,
+        )
+
+    @staticmethod
+    def _command_supersedes(
+        candidate: Mapping[str, Any],
+        current: Mapping[str, Any],
+    ) -> bool:
+        try:
+            candidate_epoch = int(candidate.get("epoch", -1))
+        except (TypeError, ValueError):
+            candidate_epoch = -1
+        try:
+            current_epoch = int(current.get("epoch", -1))
+        except (TypeError, ValueError):
+            current_epoch = -1
+        if candidate_epoch != current_epoch:
+            return candidate_epoch > current_epoch
+        action_priority = {
+            "wait": 0,
+            "standby": 0,
+            "run": 1,
+            "retire": 2,
+            "complete": 3,
+            "abort": 3,
+        }
+        return action_priority.get(
+            str(candidate.get("action", "")), -1
+        ) >= action_priority.get(str(current.get("action", "")), -1)
+
+    def _recovery_force_preempt_enabled(self) -> bool:
+        return os.environ.get(
+            "MOEGAMBIT_RECOVERY_FORCE_PREEMPT", "1"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _observe_control_command(
+        self,
+        command: Mapping[str, Any],
+        *,
+        source: str,
+    ) -> None:
+        command_copy = dict(command)
+        signature = self._command_signature(command_copy)
+        try:
+            command_epoch = int(command_copy.get("epoch", -1))
+        except (TypeError, ValueError):
+            command_epoch = -1
+        command_action = str(command_copy.get("action", ""))
+
+        with self._control_lock:
+            if signature != self._control_signature:
+                self._control_signature = signature
+                if (
+                    self._pending_command is None
+                    or self._command_supersedes(
+                        command_copy, self._pending_command
+                    )
+                ):
+                    self._pending_command = command_copy
+
+            process = self.process
+            process_epoch = self.process_epoch
+            if command_epoch > 0 and (
+                process_epoch is None or command_epoch > process_epoch
+            ):
+                self._recovery_command_received_at.setdefault(
+                    command_epoch, time.monotonic()
+                )
+            should_preempt = (
+                self._recovery_force_preempt_enabled()
+                and process is not None
+                and process.poll() is None
+                and process_epoch is not None
+                and (
+                    command_epoch > process_epoch
+                    or command_action in {"abort", "retire"}
+                )
+            )
+            preempt_key = (
+                (process.pid, command_epoch)
+                if should_preempt and process is not None
+                else None
+            )
+            if (
+                preempt_key is not None
+                and preempt_key in self._preempted_processes
+            ):
+                should_preempt = False
+            elif preempt_key is not None:
+                self._preempted_processes.add(preempt_key)
+
+        if not should_preempt or process is None:
+            return
+        with self._control_lock:
+            if (
+                self.process is not process
+                or self.process_epoch != process_epoch
+            ):
+                return
+            logger.warning(
+                "RECOVERY_COMMAND_RECEIVED physical_node=%d action=%s "
+                "old_epoch=%d new_epoch=%d source=%s",
+                self.physical_node,
+                command_action or "unknown",
+                process_epoch,
+                command_epoch,
+                source,
+            )
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                logger.warning(
+                    "RECOVERY_PREEMPT_SIGNAL physical_node=%d pid=%d "
+                    "old_epoch=%d new_epoch=%d signal=SIGKILL",
+                    self.physical_node,
+                    process.pid,
+                    process_epoch,
+                    command_epoch,
+                )
+            except PermissionError as exc:
+                logger.warning(
+                    "could not signal old worker process group; falling "
+                    "back to launcher process physical_node=%d pid=%d "
+                    "error=%s",
+                    self.physical_node,
+                    process.pid,
+                    exc,
+                )
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+            except ProcessLookupError:
+                logger.info(
+                    "old worker already exited before recovery preemption "
+                    "physical_node=%d pid=%d old_epoch=%d new_epoch=%d",
+                    self.physical_node,
+                    process.pid,
+                    process_epoch,
+                    command_epoch,
+                )
+
+    def _take_pending_command(
+        self, current: Mapping[str, Any]
+    ) -> dict[str, Any] | None:
+        with self._control_lock:
+            pending = self._pending_command
+            self._pending_command = None
+        if (
+            pending is not None
+            and self._command_supersedes(pending, current)
+        ):
+            return pending
+        return None
+
+    def _recovery_command_delay(self, epoch: int) -> float | None:
+        received_at = self._recovery_command_received_at.get(epoch)
+        if received_at is None:
+            return None
+        return time.monotonic() - received_at
 
     def _start_heartbeat(self) -> None:
         if (
@@ -1298,7 +1520,6 @@ class AgentSupervisor:
         )
         os.replace(temporary, activation_path)
 
-        self.process = process
         self._resident_process = None
         self.process_started_at = time.time()
         self.process_logical_node = logical_node
@@ -1308,14 +1529,22 @@ class AgentSupervisor:
         self._relay_log_path = None
         self._relay_log_offset = 0
         self._relay_log_buffer = ""
+        with self._control_lock:
+            self.process = process
+        command_delay = self._recovery_command_delay(epoch)
         logger.warning(
             "activated resident standby workers=%d/%d "
-            "physical_node=%d logical_node=%d epoch=%d",
+            "physical_node=%d logical_node=%d epoch=%d%s",
             len(ready),
             self._resident_num_workers,
             self.physical_node,
             logical_node,
             epoch,
+            (
+                f" recovery_command_to_activate_s={command_delay:.2f}"
+                if command_delay is not None
+                else ""
+            ),
         )
         return True
 
@@ -1329,7 +1558,21 @@ class AgentSupervisor:
         failure_step: int | None = None,
     ) -> None:
         self._stop_standby_prefetch()
-        self._stop_worker()
+        previous_epoch = self.process_epoch
+        force_recovery_stop = (
+            self._recovery_force_preempt_enabled()
+            and self.process is not None
+            and previous_epoch is not None
+            and epoch > previous_epoch
+        )
+        self._stop_worker(
+            force=force_recovery_stop,
+            reason=(
+                f"recovery_epoch_{previous_epoch}_to_{epoch}"
+                if force_recovery_stop
+                else "worker_restart"
+            ),
+        )
         command = self._formatted_command(
             logical_node, epoch, master_addr, master_port
         )
@@ -1384,9 +1627,10 @@ class AgentSupervisor:
             # preparation was disabled or did not reach all local ranks.
             self._prefetch_stop.clear()
             self._prefetch_dataset_index("recovery-cold-fallback")
+        command_delay = self._recovery_command_delay(epoch)
         logger.warning(
             "starting worker physical_node=%d logical_node=%d epoch=%d "
-            "local_world_size=%s master=%s:%d rank_logs=%s",
+            "local_world_size=%s master=%s:%d rank_logs=%s%s",
             self.physical_node,
             logical_node,
             epoch,
@@ -1394,9 +1638,14 @@ class AgentSupervisor:
             master_addr,
             master_port,
             rank_log_dir or "disabled",
+            (
+                f" recovery_command_to_spawn_s={command_delay:.2f}"
+                if command_delay is not None
+                else ""
+            ),
         )
         logger.debug("worker command=%s", command)
-        self.process = subprocess.Popen(
+        launched_process = subprocess.Popen(
             command,
             env=environment,
             start_new_session=True,
@@ -1409,6 +1658,9 @@ class AgentSupervisor:
         self._relay_log_path = None
         self._relay_log_offset = 0
         self._relay_log_buffer = ""
+        # Publish the process only after its epoch and metadata are coherent.
+        with self._control_lock:
+            self.process = launched_process
 
     def _rank_log_path(self) -> Path | None:
         if self.process_logical_node is None:
@@ -1546,22 +1798,31 @@ class AgentSupervisor:
         except OSError:
             return tag, []
 
-        zero_prefixes = (
-            f"zero_pp_rank_{logical_node}_",
-            f"bf16_zero_pp_rank_{logical_node}_",
-        )
+        # In the supported hot-swap topology, replacement local workers span
+        # PP stages. Warm all model ranks and cap ZeRO coverage by byte budget.
         selected = [
             path
             for path in candidates
             if path.name.endswith("_model_states.pt")
             or (
                 path.name.endswith("_optim_states.pt")
-                and path.name.startswith(zero_prefixes)
+                and path.name.startswith(
+                    ("zero_pp_rank_", "bf16_zero_pp_rank_")
+                )
             )
         ]
         selected.sort(
             key=lambda path: (
-                not path.name.endswith("_model_states.pt"),
+                0
+                if (
+                    path.name.startswith("mp_rank_")
+                    and path.name.endswith("_model_states.pt")
+                )
+                else (
+                    1
+                    if path.name.endswith("_model_states.pt")
+                    else 2
+                ),
                 path.name,
             )
         )
@@ -1623,17 +1884,21 @@ class AgentSupervisor:
                 amount = self._prefetch_file(path, remaining)
                 warmed += amount
                 remaining -= amount
-            if not self._prefetch_stop.is_set():
-                self._prefetched_checkpoint_tag = tag
+            completed = not self._prefetch_stop.is_set()
+            if warmed:
                 logger.info(
-                    "standby prefetched checkpoint tag=%s logical_node=%d "
-                    "files=%d bytes=%d seconds=%.2f",
+                    "standby checkpoint prefetch progress tag=%s "
+                    "logical_node=%d files=%d bytes=%d seconds=%.2f "
+                    "completed=%s",
                     tag,
                     logical_node,
                     len(paths),
                     warmed,
                     time.monotonic() - started,
+                    completed,
                 )
+            if completed:
+                self._prefetched_checkpoint_tag = tag
                 self._prefetch_dataset_index("post-checkpoint")
 
     def _ensure_standby_prefetch(self) -> None:
@@ -1665,32 +1930,88 @@ class AgentSupervisor:
         thread.join(timeout=5.0)
         self._prefetch_thread = None
 
-    def _stop_worker(self) -> None:
-        process = self.process
-        self._relay_worker_log()
-        self.process = None
-        if process is None or process.poll() is not None:
+    def _stop_worker(
+        self,
+        *,
+        force: bool = False,
+        reason: str = "supervisor_stop",
+    ) -> None:
+        with self._control_lock:
+            process = self.process
+            self.process = None
+        if not force:
+            self._relay_worker_log()
+        if process is None:
             return
+        if process.poll() is not None:
+            if force:
+                self._relay_worker_log()
+            return
+        started = time.monotonic()
+        stop_signal = signal.SIGKILL if force else signal.SIGTERM
+        logger.warning(
+            "stopping worker physical_node=%d pid=%d epoch=%s "
+            "signal=%s reason=%s",
+            self.physical_node,
+            process.pid,
+            self.process_epoch,
+            signal.Signals(stop_signal).name,
+            reason,
+        )
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            os.killpg(process.pid, stop_signal)
+        except PermissionError as exc:
+            logger.warning(
+                "could not signal worker process group; falling back to "
+                "launcher process physical_node=%d pid=%d error=%s",
+                self.physical_node,
+                process.pid,
+                exc,
+            )
+            try:
+                process.send_signal(stop_signal)
+            except ProcessLookupError:
+                return
         except ProcessLookupError:
             return
         try:
-            process.wait(timeout=20)
+            process.wait(timeout=5 if force else 20)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
+            except PermissionError:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
             except ProcessLookupError:
                 pass
             process.wait(timeout=10)
         self._relay_worker_log()
+        logger.warning(
+            "worker stopped physical_node=%d pid=%d epoch=%s "
+            "return_code=%s elapsed_s=%.2f reason=%s",
+            self.physical_node,
+            process.pid,
+            self.process_epoch,
+            process.returncode,
+            time.monotonic() - started,
+            reason,
+        )
 
     def run(self) -> int:
         self._ensure_resident_standby()
         command = self._register()
+        self._observe_control_command(command, source="register")
+        pending = self._take_pending_command(command)
+        if pending is not None:
+            command = pending
         self._start_heartbeat()
         try:
             while True:
+                pending = self._take_pending_command(command)
+                if pending is not None:
+                    command = pending
                 action = str(command.get("action", "wait"))
                 epoch = int(command.get("epoch", 0))
 
@@ -1768,7 +2089,8 @@ class AgentSupervisor:
                                         "was found",
                                         return_code,
                                     )
-                            self.process = None
+                            with self._control_lock:
+                                self.process = None
                             if return_code == 0:
                                 self.completed_epoch = epoch
                                 command = self._request(
@@ -1874,7 +2196,7 @@ class AgentSupervisor:
 
                 time.sleep(self.heartbeat_interval)
                 try:
-                    command = self._request(
+                    latest = self._request(
                         "poll",
                         epoch=epoch,
                         state=(
@@ -1884,6 +2206,11 @@ class AgentSupervisor:
                             else action
                         ),
                     )
+                    self._observe_control_command(
+                        latest, source="poll"
+                    )
+                    if self._command_supersedes(latest, command):
+                        command = dict(latest)
                 except (
                     ConnectionError,
                     OSError,

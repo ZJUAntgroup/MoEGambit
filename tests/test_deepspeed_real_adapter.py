@@ -1,6 +1,7 @@
 import ast
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -57,6 +58,7 @@ def test_resident_and_gpu_build_optimizations_are_recovery_scoped():
     assert "MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD" in workload
     assert "MOEGAMBIT_STANDBY_RESIDENT" in launcher
     assert "MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD" in launcher
+    assert "MOEGAMBIT_RECOVERY_FORCE_PREEMPT" in launcher
     assert 'self.role == "standby"' in hot_spare
     assert "standby_cache_for(args)" in workload
 
@@ -925,6 +927,9 @@ def test_hot_spare_prefetch_selects_replacement_checkpoint_shards(tmp_path):
         "layer_0_expert_0_mp_rank_00_model_states.pt",
         "bf16_zero_pp_rank_0_mp_rank_00_optim_states.pt",
         "bf16_zero_pp_rank_1_mp_rank_00_optim_states.pt",
+        "mp_rank_01_model_states.pt",
+        "layer_0_expert_0_mp_rank_01_model_states.pt",
+        "bf16_zero_pp_rank_0_mp_rank_01_optim_states.pt",
         "other.txt",
     )
     for name in names:
@@ -936,7 +941,7 @@ def test_hot_spare_prefetch_selects_replacement_checkpoint_shards(tmp_path):
         physical_node=2,
         role="standby",
         advertise_addr="127.0.0.1",
-        command=("train.py",),
+        command=("train.py", "--pipeline-parallel-size", "8"),
         heartbeat_interval=1,
         startup_timeout=1,
     )
@@ -949,7 +954,20 @@ def test_hot_spare_prefetch_selects_replacement_checkpoint_shards(tmp_path):
         "mp_rank_00_model_states.pt",
         "layer_0_expert_0_mp_rank_00_model_states.pt",
         "bf16_zero_pp_rank_0_mp_rank_00_optim_states.pt",
+        "bf16_zero_pp_rank_1_mp_rank_00_optim_states.pt",
+        "mp_rank_01_model_states.pt",
+        "layer_0_expert_0_mp_rank_01_model_states.pt",
+        "bf16_zero_pp_rank_0_mp_rank_01_optim_states.pt",
     }
+    assert [path.name for path in selected[:2]] == [
+        "mp_rank_00_model_states.pt",
+        "mp_rank_01_model_states.pt",
+    ]
+
+    _, stage_one = supervisor._checkpoint_prefetch_files(
+        checkpoint_dir, logical_node=1
+    )
+    assert stage_one == selected
 
 
 def test_hot_spare_prefetch_rewarms_dataset_index(tmp_path, monkeypatch):
@@ -1393,6 +1411,142 @@ def test_hot_spare_heartbeat_runs_independently_of_supervision():
     assert calls[0][1]["state"] == "active"
 
 
+def test_hot_spare_heartbeat_preempts_old_recovery_epoch(monkeypatch):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    class RunningProcess:
+        pid = 43210
+
+        @staticmethod
+        def poll():
+            return None
+
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=3,
+        role="active",
+        advertise_addr="127.0.0.1",
+        command=("runner",),
+        heartbeat_interval=0.01,
+        startup_timeout=1,
+    )
+    supervisor.process = RunningProcess()
+    supervisor.process_epoch = 0
+    signal_sent = threading.Event()
+    signals = []
+
+    def killpg(pid, signum):
+        signals.append((pid, signum))
+        signal_sent.set()
+
+    def request(kind, **payload):
+        assert kind == "heartbeat"
+        return {
+            "action": "run",
+            "epoch": 1,
+            "logical_node": 3,
+            "master_addr": "10.0.0.1",
+            "master_port": 25001,
+        }
+
+    monkeypatch.setattr(os, "killpg", killpg)
+    supervisor._request = request
+    supervisor._start_heartbeat()
+    try:
+        assert signal_sent.wait(timeout=1.0)
+    finally:
+        supervisor._stop_heartbeat()
+
+    assert signals == [(43210, signal.SIGKILL)]
+    pending = supervisor._take_pending_command(
+        {"action": "run", "epoch": 0}
+    )
+    assert pending is not None
+    assert pending["epoch"] == 1
+
+
+def test_hot_spare_same_epoch_command_never_preempts(monkeypatch):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    class RunningProcess:
+        pid = 43211
+
+        @staticmethod
+        def poll():
+            return None
+
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=3,
+        role="active",
+        advertise_addr="127.0.0.1",
+        command=("runner",),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    supervisor.process = RunningProcess()
+    supervisor.process_epoch = 0
+
+    def unexpected_killpg(pid, signum):
+        raise AssertionError(
+            f"normal epoch attempted to kill pid={pid} signal={signum}"
+        )
+
+    monkeypatch.setattr(os, "killpg", unexpected_killpg)
+    supervisor._observe_control_command(
+        {
+            "action": "run",
+            "epoch": 0,
+            "logical_node": 3,
+            "master_addr": "10.0.0.1",
+            "master_port": 25000,
+        },
+        source="test",
+    )
+
+
+def test_hot_spare_abort_preempts_same_epoch(monkeypatch):
+    from moegambit.runtime.hot_spare import AgentSupervisor
+    from moegambit.runtime.watcher_client import WatcherEndpoint
+
+    class RunningProcess:
+        pid = 43212
+
+        @staticmethod
+        def poll():
+            return None
+
+    supervisor = AgentSupervisor(
+        endpoint=WatcherEndpoint("127.0.0.1", 1),
+        run_id="test-run",
+        physical_node=3,
+        role="active",
+        advertise_addr="127.0.0.1",
+        command=("runner",),
+        heartbeat_interval=1,
+        startup_timeout=1,
+    )
+    supervisor.process = RunningProcess()
+    supervisor.process_epoch = 1
+    signals = []
+    monkeypatch.setattr(
+        os,
+        "killpg",
+        lambda pid, signum: signals.append((pid, signum)),
+    )
+
+    supervisor._observe_control_command(
+        {"action": "abort", "epoch": 1},
+        source="test",
+    )
+
+    assert signals == [(43212, signal.SIGKILL)]
+
+
 def test_hot_spare_coordinator_aborts_stalled_recovery():
     from moegambit.runtime.hot_spare import HotSpareCoordinator
     from moegambit.runtime.protocol import WireMessage
@@ -1555,6 +1709,7 @@ time.sleep(0.2)
         stdout + stderr for stdout, stderr in results
     )
     assert "starting recovery epoch 1" in combined_logs
+    assert "RECOVERY_PREEMPT_SIGNAL" in combined_logs
     assert "physical_node=2 logical_node=0 epoch=1" in combined_logs
 
 
