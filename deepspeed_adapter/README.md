@@ -43,6 +43,22 @@ This keeps one local staging snapshot and one peer snapshot. The default value
 of two keeps double buffers on both sides and consumes roughly four optimizer
 shards of host memory per rank.
 
+The `hot_swap` case also enables packed AutoEP recovery checkpoints and the
+resident standby cache:
+
+```bash
+export DEEPSPEED_MOEGAMBIT_PACKED_EXPERT_CHECKPOINT=1
+export MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE=1
+export MOEGAMBIT_STANDBY_PACKED_EXPERT_PIN_MEMORY=1
+export MOEGAMBIT_STANDBY_PACKED_EXPERT_MAX_GIB_PER_RANK=16
+```
+
+Each resident worker prefetches only its `(mp_rank, ep_rank)` fused expert
+shards. Set `DEEPSPEED_MOEGAMBIT_PACKED_EXPERT_CHECKPOINT=0` to use the
+legacy per-expert checkpoint/load path. Disabling only
+`MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE` keeps the packed format and reads its
+shards from checkpoint storage during recovery.
+
 ## Launch
 
 Run the same command on physical nodes 0 through 8, changing only `NODE_RANK`.

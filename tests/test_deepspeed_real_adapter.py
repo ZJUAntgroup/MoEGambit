@@ -1,4 +1,5 @@
 import ast
+import importlib.util
 import json
 import os
 import signal
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -61,6 +63,212 @@ def test_resident_and_gpu_build_optimizations_are_recovery_scoped():
     assert "MOEGAMBIT_RECOVERY_FORCE_PREEMPT" in launcher
     assert 'self.role == "standby"' in hot_spare
     assert "standby_cache_for(args)" in workload
+
+
+def test_packed_expert_checkpoint_and_pinned_cache_are_recovery_scoped():
+    workload = (
+        ROOT / "deepspeed_qwen3_moe_pretrain.py"
+    ).read_text(encoding="utf-8")
+    launcher = (
+        ROOT / "test_deepspeed_hotspare_replace.sh"
+    ).read_text(encoding="utf-8")
+    engine = (
+        ROOT / "DeepSpeed" / "deepspeed" / "runtime" / "engine.py"
+    ).read_text(encoding="utf-8")
+
+    assert "DEEPSPEED_MOEGAMBIT_PACKED_EXPERT_CHECKPOINT" in launcher
+    assert "MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE" in launcher
+    assert 'if [[ "${hot_swap}" == "1" ]]' in launcher
+    assert "PackedExpertPrefetcher" in workload
+    assert "activate_standby" in workload
+    assert "build_packed_expert_state" in engine
+    assert "take_cached_packed_expert" in engine
+    assert "torch.stack(stacked[wname], dim=0)" in engine
+    save_start = engine.index("    def _save_moe_checkpoint(")
+    save_end = engine.index(
+        "    def _create_checkpoint_file(", save_start
+    )
+    save_moe = engine[save_start:save_end]
+    assert "packed_autoep_checkpoint = (" in save_moe
+    assert "packed_mp_rank =" in save_moe
+
+
+def test_standby_packed_expert_coordinates_cover_pp_and_ep_layouts():
+    source = (
+        ROOT / "deepspeed_qwen3_moe_pretrain.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "standby_packed_expert_coordinates"
+    )
+    namespace = {}
+    exec(
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            "deepspeed_qwen3_moe_pretrain.py",
+            "exec",
+        ),
+        namespace,
+    )
+    coordinates = namespace["standby_packed_expert_coordinates"]
+
+    assert [
+        coordinates(0, local_rank, 8, 8, 8)
+        for local_rank in range(8)
+    ] == [
+        (local_rank, local_rank, 0, 0)
+        for local_rank in range(8)
+    ]
+    assert [
+        coordinates(7, local_rank, 8, 8, 8)
+        for local_rank in range(8)
+    ] == [
+        (56 + local_rank, local_rank, 7, 7)
+        for local_rank in range(8)
+    ]
+    assert [
+        coordinates(0, local_rank, 8, 1, 8)
+        for local_rank in range(8)
+    ] == [
+        (local_rank, 0, local_rank, local_rank)
+        for local_rank in range(8)
+    ]
+
+
+def test_packed_expert_prefetch_hands_state_to_loader(tmp_path, monkeypatch):
+    class FakeTensor:
+        def __init__(self, shape):
+            self.shape = tuple(shape)
+            self.device = types.SimpleNamespace(type="cpu")
+            self.pinned = False
+
+        def dim(self):
+            return len(self.shape)
+
+        def numel(self):
+            result = 1
+            for value in self.shape:
+                result *= value
+            return result
+
+        @staticmethod
+        def element_size():
+            return 2
+
+        @staticmethod
+        def is_contiguous():
+            return True
+
+        def is_pinned(self):
+            return self.pinned
+
+        def pin_memory(self):
+            self.pinned = True
+            return self
+
+    fake_torch = types.ModuleType("torch")
+    fake_torch.Tensor = FakeTensor
+    states = {}
+    fake_torch.load = lambda path, **_kwargs: states[Path(path).name]
+    fake_constants = types.ModuleType("deepspeed.checkpoint.constants")
+    fake_constants.FOLDING_METADATA_KEY = "folding"
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "deepspeed", types.ModuleType("deepspeed"))
+    monkeypatch.setitem(
+        sys.modules,
+        "deepspeed.checkpoint",
+        types.ModuleType("deepspeed.checkpoint"),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "deepspeed.checkpoint.constants",
+        fake_constants,
+    )
+
+    path = (
+        ROOT
+        / "DeepSpeed"
+        / "deepspeed"
+        / "checkpoint"
+        / "packed_moe.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "_packed_moe_test", path
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    checkpoint_dir = tmp_path / "checkpoint"
+    tag = "global_step10"
+    tag_dir = checkpoint_dir / tag
+    tag_dir.mkdir(parents=True)
+    packed_path = Path(
+        module.packed_expert_checkpoint_name(
+            checkpoint_dir,
+            layer_id=0,
+            ep_rank=2,
+            mp_rank=3,
+            tag=tag,
+        )
+    )
+    packed_path.write_bytes(b"packed")
+    states[packed_path.name] = module.build_packed_expert_state(
+        layer_id=0,
+        ep_rank=2,
+        mp_rank=3,
+        module_path="layers.0.mlp",
+        global_expert_start=4,
+        num_local_experts=2,
+        tensors={
+            "layers.0.mlp.experts.w1": FakeTensor((2, 4, 8)),
+            "layers.0.mlp.experts.w2": FakeTensor((2, 8, 4)),
+            "layers.0.mlp.experts.w3": FakeTensor((2, 4, 8)),
+        },
+    )
+    (checkpoint_dir / "latest").write_text(
+        f"{tag}\n", encoding="utf-8"
+    )
+
+    prefetcher = module.PackedExpertPrefetcher(
+        checkpoint_dir,
+        mp_rank=3,
+        ep_rank=2,
+        expected_layers=1,
+        max_bytes=1024 * 1024,
+        pin_memory=True,
+        poll_interval=0.01,
+    )
+    prefetcher.start()
+    deadline = time.monotonic() + 2
+    while (
+        not prefetcher.snapshot()["completed"]
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+    snapshot = prefetcher.stop()
+
+    assert snapshot["completed"] is True
+    assert snapshot["files"] == 1
+    assert snapshot["pinned_bytes"] == snapshot["bytes"]
+    cached = module.take_cached_packed_expert(packed_path)
+    assert cached is not None
+    tensors = module.validate_packed_expert_state(
+        cached,
+        layer_id=0,
+        ep_rank=2,
+        mp_rank=3,
+        module_path="layers.0.mlp",
+        num_local_experts=2,
+    )
+    assert set(tensors) == {
+        "layers.0.mlp.experts.w1",
+        "layers.0.mlp.experts.w2",
+        "layers.0.mlp.experts.w3",
+    }
 
 
 def test_pipeline_backward_has_single_hook_owned_lifecycle():
@@ -283,6 +491,56 @@ def test_checkpoint_selection_falls_back_to_previous_complete_tag(tmp_path):
     (tmp_path / "global_step20" / "mp_rank_01_model_states.pt").unlink()
 
     assert resolve_committed_checkpoint(tmp_path) == "global_step10"
+
+
+def test_checkpoint_manifest_covers_packed_expert_shards(
+    tmp_path, monkeypatch
+):
+    from moegambit_deepspeed import checkpoint_commit
+
+    class FakeEngine:
+        mp_world_size = 1
+        dp_world_size = 1
+
+        @staticmethod
+        def zero_optimization_partition_weights():
+            return False
+
+    tag = "global_step10"
+    tag_dir = tmp_path / tag
+    tag_dir.mkdir()
+    (tag_dir / "mp_rank_00_model_states.pt").write_bytes(b"dense")
+    packed = [
+        tag_dir
+        / (
+            f"layer_0_ep_rank_{ep_rank:04d}_mp_rank_00_"
+            "packed_expert_states.pt"
+        )
+        for ep_rank in range(2)
+    ]
+    for path in packed:
+        path.write_bytes(b"packed")
+
+    monkeypatch.setenv(
+        "DEEPSPEED_MOEGAMBIT_PACKED_EXPERT_CHECKPOINT", "1"
+    )
+    monkeypatch.setattr(
+        checkpoint_commit,
+        "_expected_packed_expert_shards",
+        lambda _engine: 2,
+    )
+    manifest = checkpoint_commit.build_checkpoint_manifest(
+        FakeEngine(), tmp_path, tag
+    )
+    (tag_dir / checkpoint_commit.MANIFEST_NAME).write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+
+    assert manifest["expected_packed_expert_shards"] == 2
+    assert len(manifest["packed_expert_shards"]) == 2
+    packed[1].unlink()
+    with pytest.raises(RuntimeError, match="packed_shards=2/2"):
+        checkpoint_commit.validate_checkpoint_manifest(tmp_path, tag)
 
 
 def test_hybrid_restore_classifies_autoep_experts_without_name_heuristics():
@@ -969,6 +1227,59 @@ def test_hot_spare_prefetch_selects_replacement_checkpoint_shards(tmp_path):
     )
     assert stage_one == selected
 
+    supervisor.command = (
+        "runner",
+        "--num_gpus",
+        "2",
+        "train.py",
+        "--pipeline-parallel-size",
+        "2",
+    )
+    _, node_zero = supervisor._checkpoint_prefetch_files(
+        checkpoint_dir, logical_node=0
+    )
+    assert {
+        path.name
+        for path in node_zero
+        if path.name.endswith("_optim_states.pt")
+    } == {
+        "bf16_zero_pp_rank_0_mp_rank_00_optim_states.pt",
+        "bf16_zero_pp_rank_0_mp_rank_01_optim_states.pt",
+    }
+    _, node_one = supervisor._checkpoint_prefetch_files(
+        checkpoint_dir, logical_node=1
+    )
+    assert {
+        path.name
+        for path in node_one
+        if path.name.endswith("_optim_states.pt")
+    } == {
+        "bf16_zero_pp_rank_1_mp_rank_00_optim_states.pt",
+    }
+
+    supervisor.command = (
+        "runner",
+        "--num_gpus",
+        "2",
+        "train.py",
+        "--pipeline-parallel-size",
+        "2",
+        "--zero-stage",
+        "2",
+    )
+    _, zero_two = supervisor._checkpoint_prefetch_files(
+        checkpoint_dir, logical_node=0
+    )
+    assert {
+        path.name
+        for path in zero_two
+        if path.name.endswith("_optim_states.pt")
+    } == {
+        "bf16_zero_pp_rank_0_mp_rank_00_optim_states.pt",
+        "bf16_zero_pp_rank_1_mp_rank_00_optim_states.pt",
+        "bf16_zero_pp_rank_0_mp_rank_01_optim_states.pt",
+    }
+
 
 def test_hot_spare_prefetch_rewarms_dataset_index(tmp_path, monkeypatch):
     from moegambit.runtime.hot_spare import AgentSupervisor
@@ -1134,12 +1445,20 @@ import os
 from pathlib import Path
 
 
+activation = {}
+
+
 def prepare_standby(argv, **context):
     return {
         "model_ready": True,
         "argv_count": len(argv),
         "prepared_local_rank": context["local_rank"],
     }
+
+
+def activate_standby(_argv, **context):
+    activation.update(context)
+    return {"cache_handoff": True}
 
 
 def main(_argv):
@@ -1153,6 +1472,8 @@ def main(_argv):
                 "rank": rank,
                 "local_rank": int(os.environ["LOCAL_RANK"]),
                 "world_size": int(os.environ["WORLD_SIZE"]),
+                "activation_rank": activation["rank"],
+                "activation_epoch": activation["epoch"],
             }
         ),
         encoding="utf-8",
@@ -1254,6 +1575,8 @@ def main(_argv):
     ]
     assert [state["local_rank"] for state in states] == [0, 1]
     assert {state["world_size"] for state in states} == {4}
+    assert [state["activation_rank"] for state in states] == [2, 3]
+    assert {state["activation_epoch"] for state in states} == {1}
     ready_pids = {
         json.loads(
             (

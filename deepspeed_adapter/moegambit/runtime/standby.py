@@ -259,6 +259,26 @@ def _worker(args: argparse.Namespace, training_args: Sequence[str]) -> int:
             f"{os.environ.get('MASTER_PORT')}",
             flush=True,
         )
+        activate = getattr(module, "activate_standby", None)
+        if callable(activate):
+            activated = activate(
+                worker_arguments,
+                local_rank=args.local_rank,
+                logical_node=logical_node,
+                rank=rank,
+                epoch=int(activation["epoch"]),
+            )
+            activation_details = (
+                dict(activated)
+                if isinstance(activated, Mapping)
+                else {}
+            )
+            write_status(
+                "activation_prepared",
+                rank=rank,
+                epoch=int(activation["epoch"]),
+                **activation_details,
+            )
         return _call_main(module, worker_arguments)
     except BaseException as exc:
         try:

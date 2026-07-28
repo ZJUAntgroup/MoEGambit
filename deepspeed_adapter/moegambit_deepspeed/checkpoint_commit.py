@@ -12,6 +12,10 @@ from typing import Any
 
 MANIFEST_NAME = ".moegambit-complete.json"
 _STEP_TAG = re.compile(r"^global_step(\d+)$")
+_PACKED_EXPERT_ENV = "DEEPSPEED_MOEGAMBIT_PACKED_EXPERT_CHECKPOINT"
+_PACKED_EXPERT_PATTERN = (
+    "layer_*_ep_rank_*_mp_rank_*_packed_expert_states.pt"
+)
 
 
 def _atomic_write_text(path: Path, value: str) -> None:
@@ -27,6 +31,34 @@ def _dense_shards(tag_dir: Path, zero3: bool) -> list[Path]:
         else "mp_rank_*_model_states.pt"
     )
     return sorted(tag_dir.glob(pattern))
+
+
+def _env_enabled(name: str) -> bool:
+    return os.environ.get(name, "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _expected_packed_expert_shards(engine: Any) -> int:
+    from deepspeed.module_inject.auto_ep_layer import AutoEPMoELayer
+
+    layers = [
+        module
+        for module in engine.module.modules()
+        if isinstance(module, AutoEPMoELayer)
+    ]
+    if not layers:
+        return 0
+    ep_sizes = {int(module.ep_size) for module in layers}
+    if len(ep_sizes) != 1:
+        raise RuntimeError(
+            "packed expert checkpoint requires one AutoEP group size; "
+            f"found {sorted(ep_sizes)}"
+        )
+    return int(engine.mp_world_size) * ep_sizes.pop() * len(layers)
 
 
 def build_checkpoint_manifest(
@@ -47,7 +79,7 @@ def build_checkpoint_manifest(
             f"{tag}: dense_shards={len(shards)}/{expected} "
             f"empty={invalid}"
         )
-    return {
+    manifest = {
         "format_version": 1,
         "tag": tag,
         "created_at": time.time(),
@@ -56,6 +88,27 @@ def build_checkpoint_manifest(
             path.name: path.stat().st_size for path in shards
         },
     }
+    packed_required = (
+        _env_enabled(_PACKED_EXPERT_ENV)
+        and not zero3
+    )
+    if packed_required:
+        packed = sorted(tag_dir.glob(_PACKED_EXPERT_PATTERN))
+        expected_packed = _expected_packed_expert_shards(engine)
+        invalid_packed = [
+            path.name for path in packed if path.stat().st_size <= 0
+        ]
+        if len(packed) != expected_packed or invalid_packed:
+            raise RuntimeError(
+                "incomplete packed expert checkpoint "
+                f"{tag}: packed_shards={len(packed)}/{expected_packed} "
+                f"empty={invalid_packed}"
+            )
+        manifest["expected_packed_expert_shards"] = expected_packed
+        manifest["packed_expert_shards"] = {
+            path.name: path.stat().st_size for path in packed
+        }
+    return manifest
 
 
 def publish_checkpoint(
@@ -109,6 +162,25 @@ def validate_checkpoint_manifest(
             "checkpoint manifest validation failed "
             f"{tag}: dense_shards={len(recorded)}/{expected} "
             f"missing_or_changed={missing_or_changed}"
+        )
+    expected_packed = int(
+        manifest.get("expected_packed_expert_shards", 0)
+    )
+    recorded_packed = manifest.get("packed_expert_shards", {})
+    changed_packed = []
+    for name, saved_size in recorded_packed.items():
+        path = checkpoint_dir / tag / name
+        if not path.is_file() or path.stat().st_size != int(saved_size):
+            changed_packed.append(name)
+    if (
+        len(recorded_packed) != expected_packed
+        or changed_packed
+    ):
+        raise RuntimeError(
+            "checkpoint manifest validation failed "
+            f"{tag}: packed_shards="
+            f"{len(recorded_packed)}/{expected_packed} "
+            f"missing_or_changed={changed_packed}"
         )
     return manifest
 

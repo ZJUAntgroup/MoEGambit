@@ -6,6 +6,7 @@
 import os
 import re
 import stat
+import time
 import torch
 import hashlib
 from collections import defaultdict, OrderedDict, deque
@@ -89,6 +90,16 @@ from deepspeed.checkpoint.constants import (
 from deepspeed.checkpoint.autoep_zero3_metadata import (
     is_autoep_zero3_partitioned_entry,
     validate_autoep_zero3_partitioned_metadata,
+)
+from deepspeed.checkpoint.packed_moe import (
+    PACKED_EXPERT_FORMAT,
+    PACKED_EXPERT_FORMAT_VERSION,
+    build_packed_expert_state,
+    packed_expert_checkpoint_enabled,
+    packed_expert_checkpoint_name,
+    packed_expert_tensor_bytes,
+    take_cached_packed_expert,
+    validate_packed_expert_state,
 )
 from deepspeed.checkpoint.utils import clone_tensors_for_torch_save
 from deepspeed.checkpoint.ds_to_universal import dp_index_to_str
@@ -3924,6 +3935,66 @@ class DeepSpeedEngine(Module):
                     expp_rank = groups._get_expert_parallel_rank(group_name)
                     exp_dp_rank = groups._get_expert_data_parallel_rank(group_name)
                     module_prefix = f"{n_module}." if n_module else ""
+                    mp_rank = 0 if mpu is None else mpu.get_model_parallel_rank()
+                    packed_path = DeepSpeedEngine._get_packed_expert_ckpt_name(
+                        checkpoint_path,
+                        moe_layer_id,
+                        expp_rank,
+                        tag,
+                        mpu,
+                    )
+                    packed_required = any(
+                        entry.get(AUTOEP_ZERO3_EXPERT_STATE_FORMAT_KEY) == PACKED_EXPERT_FORMAT
+                        for entry in (autoep_layers or [])
+                        if isinstance(entry, dict) and entry.get('moe_layer_id') == moe_layer_id
+                    )
+                    if packed_required and os.path.exists(packed_path):
+                        started = time.monotonic()
+                        packed_state = take_cached_packed_expert(packed_path)
+                        source = 'standby_cache' if packed_state is not None else 'checkpoint'
+                        if packed_state is None:
+                            packed_state = checkpoint_engine.load(packed_path, map_location=torch.device('cpu'))
+                        packed_tensors = validate_packed_expert_state(
+                            packed_state,
+                            layer_id=moe_layer_id,
+                            ep_rank=expp_rank,
+                            mp_rank=mp_rank,
+                            module_path=n_module,
+                            num_local_experts=num_local_experts,
+                        )
+                        DeepSpeedEngine._validate_autoep_folding_checkpoint_metadata(
+                            packed_state,
+                            folding_spec=folding_spec,
+                            family="routed_expert",
+                            zero_partition_group="edp",
+                            zero_partition_count=folding_spec.edp_size if folded_autoep_tp else None,
+                            tp_rank=groups.get_tensor_model_parallel_rank() if folded_autoep_tp else None,
+                            ep_rank=expp_rank if folded_autoep_tp else None)
+                        expected_keys = {
+                            f"{module_prefix}experts.{wname}" for wname in ('w1', 'w2', 'w3')
+                        }
+                        if set(packed_tensors) != expected_keys:
+                            raise RuntimeError(
+                                "Packed expert checkpoint has unexpected tensor keys: "
+                                f"got={sorted(packed_tensors)} expected={sorted(expected_keys)}")
+                        state_dict.update(packed_tensors)
+                        logger.info(
+                            "MoEGambit packed expert load rank=%s layer=%d ep_rank=%d mp_rank=%d "
+                            "source=%s bytes=%d seconds=%.3f",
+                            dist.get_rank(),
+                            moe_layer_id,
+                            expp_rank,
+                            mp_rank,
+                            source,
+                            packed_expert_tensor_bytes(packed_state),
+                            time.monotonic() - started,
+                        )
+                        moe_layer_id += 1
+                        continue
+                    if packed_required:
+                        raise FileNotFoundError(
+                            f"Packed expert checkpoint file not found: {packed_path}. "
+                            f"Expected layer={moe_layer_id}, ep_rank={expp_rank}, mp_rank={mp_rank}.")
 
                     # Collect per-expert tensors to stack
                     stacked = {wname: [] for wname in ('w1', 'w2', 'w3')}
@@ -4065,6 +4136,15 @@ class DeepSpeedEngine(Module):
         ckpt_name = os.path.join(checkpoints_path, str(tag),
                                  f'expp_rank_{expp_rank}_mp_rank_{mp_rank:02d}_optim_states.pt')
         return ckpt_name
+
+    @staticmethod
+    def _get_packed_expert_ckpt_name(checkpoints_path, layer_id, expp_rank, tag, mpu=None):
+        mp_rank = 0 if mpu is None else mpu.get_model_parallel_rank()
+        return packed_expert_checkpoint_name(checkpoints_path,
+                                             layer_id=layer_id,
+                                             ep_rank=expp_rank,
+                                             mp_rank=mp_rank,
+                                             tag=tag)
 
     @staticmethod
     def _get_expert_ckpt_name(checkpoints_path, layer_id, expert_id, tag, mpu=None):
@@ -4750,6 +4830,11 @@ class DeepSpeedEngine(Module):
 
         folding_spec = getattr(self, "_autoep_folding_spec", None)
         folded_autoep_tp = folding_spec is not None and folding_spec.tp_size > 1
+        packed_autoep_checkpoint = (
+            packed_expert_checkpoint_enabled()
+            and not self.zero_optimization_partition_weights()
+        )
+        packed_mp_rank = 0 if self.mpu is None else self.mpu.get_model_parallel_rank()
 
         def folding_metadata(*,
                              family,
@@ -4877,9 +4962,12 @@ class DeepSpeedEngine(Module):
                     f"{module_prefix}experts",
                     AUTOEP_ZERO3_EXPERT_STATE_FORMAT_KEY:
                     AUTOEP_ZERO3_PARTITIONED_EXPERT_STATE_FORMAT
-                    if self.zero_optimization_partition_weights() else 'per_expert_files',
+                    if self.zero_optimization_partition_weights() else (
+                        PACKED_EXPERT_FORMAT if packed_autoep_checkpoint else 'per_expert_files'),
                     AUTOEP_ZERO3_EXPERT_STATE_FORMAT_VERSION_KEY:
-                    AUTOEP_ZERO3_EXPERT_STATE_FORMAT_VERSION if self.zero_optimization_partition_weights() else None,
+                    AUTOEP_ZERO3_EXPERT_STATE_FORMAT_VERSION
+                    if self.zero_optimization_partition_weights() else (
+                        PACKED_EXPERT_FORMAT_VERSION if packed_autoep_checkpoint else None),
                     'ep_group_name':
                     group_name,
                     'ep_rank':
@@ -4907,30 +4995,63 @@ class DeepSpeedEngine(Module):
 
                 with deepspeed.zero.GatheredParameters(expert_params):
                     if autoep_expert_writer():
-                        # Slice fused 3D tensors into per-expert state dicts.
-                        for local_expert_id in range(num_local_experts):
-                            global_expert_id = expp_rank * num_local_experts + local_expert_id
-                            expert_state_dict = {}
+                        if packed_autoep_checkpoint:
+                            packed_tensors = {}
                             for wname in ('w1', 'w2', 'w3'):
                                 fused_key = f"{module_prefix}experts.{wname}"
                                 param = getattr(module.experts, wname)
-                                expert_state_dict[f"{fused_key}.{global_expert_id}"] = (
-                                    param[local_expert_id].clone().detach())
+                                packed_tensors[fused_key] = param.detach().to(
+                                    device='cpu', copy=True)
+                            packed_folding = None
                             if folded_autoep_tp:
-                                expert_state_dict[FOLDING_METADATA_KEY] = folding_metadata(
+                                packed_folding = folding_metadata(
                                     family="routed_expert",
                                     ep_rank=expp_rank,
                                     zero_partition_group="edp",
                                     zero_partition_rank=exp_dp_rank,
                                     zero_partition_count=folding_spec.edp_size,
                                 )
+                            packed_state = build_packed_expert_state(
+                                layer_id=moe_layer_id,
+                                ep_rank=expp_rank,
+                                mp_rank=packed_mp_rank,
+                                module_path=n_module,
+                                global_expert_start=expp_rank * num_local_experts,
+                                num_local_experts=num_local_experts,
+                                tensors=packed_tensors,
+                                folding_metadata=packed_folding,
+                            )
+                            packed_save_path = self._get_packed_expert_ckpt_name(
+                                save_dir, moe_layer_id, expp_rank, tag, self.mpu)
+                            # CPU copies own their storage, avoiding serialization of
+                            # a larger flattened ZeRO backing buffer.
+                            self.checkpoint_engine.save(packed_state, packed_save_path)
+                            del packed_state, packed_tensors
+                        else:
+                            # Slice fused 3D tensors into per-expert state dicts.
+                            for local_expert_id in range(num_local_experts):
+                                global_expert_id = expp_rank * num_local_experts + local_expert_id
+                                expert_state_dict = {}
+                                for wname in ('w1', 'w2', 'w3'):
+                                    fused_key = f"{module_prefix}experts.{wname}"
+                                    param = getattr(module.experts, wname)
+                                    expert_state_dict[f"{fused_key}.{global_expert_id}"] = (
+                                        param[local_expert_id].clone().detach())
+                                if folded_autoep_tp:
+                                    expert_state_dict[FOLDING_METADATA_KEY] = folding_metadata(
+                                        family="routed_expert",
+                                        ep_rank=expp_rank,
+                                        zero_partition_group="edp",
+                                        zero_partition_rank=exp_dp_rank,
+                                        zero_partition_count=folding_spec.edp_size,
+                                    )
 
-                            moe_save_path = self._get_expert_ckpt_name(save_dir, moe_layer_id, global_expert_id, tag,
-                                                                       self.mpu)
-                            saveable = expert_state_dict
-                            if self.checkpoint_engine.preserves_storage_sharing():
-                                saveable = clone_tensors_for_torch_save(expert_state_dict)
-                            self.checkpoint_engine.save(saveable, moe_save_path)
+                                moe_save_path = self._get_expert_ckpt_name(
+                                    save_dir, moe_layer_id, global_expert_id, tag, self.mpu)
+                                saveable = expert_state_dict
+                                if self.checkpoint_engine.preserves_storage_sharing():
+                                    saveable = clone_tensors_for_torch_save(expert_state_dict)
+                                self.checkpoint_engine.save(saveable, moe_save_path)
 
                 moe_layer_id += 1
 

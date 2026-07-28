@@ -12,6 +12,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -29,6 +30,10 @@ from moegambit.runtime.watcher_client import WatcherClient, WatcherEndpoint
 
 
 logger = logging.getLogger(__name__)
+_ZERO_OPTIM_SHARD = re.compile(
+    r"^(?:bf16_|fp16_)?zero_pp_rank_(?P<dp>\d+)_"
+    r"mp_rank_(?P<mp>\d+)_optim_states\.pt$"
+)
 
 
 def send_worker_event(kind: str, rank: int, **payload: Any) -> bool:
@@ -1741,6 +1746,8 @@ class AgentSupervisor:
                     "iteration ",
                     "FAULT_",
                     "single-stage hybrid restore",
+                    "STANDBY_PACKED_CACHE",
+                    "MoEGambit packed expert load",
                     "Traceback (most recent call last)",
                     "FATAL ",
                     "RuntimeError:",
@@ -1798,18 +1805,61 @@ class AgentSupervisor:
         except OSError:
             return tag, []
 
+        needed_optimizer_shards: set[tuple[int, int]] | None = None
+        pipeline_text = _command_option(
+            self.command, "--pipeline-parallel-size"
+        )
+        workers_text = _command_option(self.command, "--num_gpus")
+        zero_stage_text = _command_option(
+            self.command, "--zero-stage"
+        )
+        try:
+            pipeline_size = int(pipeline_text or "")
+            local_workers = int(workers_text or "")
+            zero_stage = int(zero_stage_text or "1")
+        except ValueError:
+            pipeline_size = 0
+            local_workers = 0
+            zero_stage = 1
+        if pipeline_size > 0 and local_workers > 0:
+            needed_optimizer_shards = set()
+            first_rank = logical_node * local_workers
+            for local_rank in range(local_workers):
+                global_rank = first_rank + local_rank
+                needed_optimizer_shards.add(
+                    (
+                        global_rank // pipeline_size,
+                        global_rank % pipeline_size,
+                    )
+                )
+
+        def selected_for_replacement(path: Path) -> bool:
+            if path.name.endswith("_model_states.pt"):
+                return True
+            match = _ZERO_OPTIM_SHARD.match(path.name)
+            if match is None:
+                return False
+            if needed_optimizer_shards is None:
+                return True
+            if zero_stage == 2:
+                needed_mp_ranks = {
+                    mp_rank
+                    for _, mp_rank in needed_optimizer_shards
+                }
+                return int(match.group("mp")) in needed_mp_ranks
+            return (
+                int(match.group("dp")),
+                int(match.group("mp")),
+            ) in needed_optimizer_shards
+
         # In the supported hot-swap topology, replacement local workers span
-        # PP stages. Warm all model ranks and cap ZeRO coverage by byte budget.
+        # PP stages. ZeRO-1 loads one local DP shard per worker, while the
+        # elastic ZeRO-2 path loads every DP shard for that worker's MP rank.
+        # Warm exactly that union, then cap total coverage by the byte budget.
         selected = [
             path
             for path in candidates
-            if path.name.endswith("_model_states.pt")
-            or (
-                path.name.endswith("_optim_states.pt")
-                and path.name.startswith(
-                    ("zero_pp_rank_", "bf16_zero_pp_rank_")
-                )
-            )
+            if selected_for_replacement(path)
         ]
         selected.sort(
             key=lambda path: (

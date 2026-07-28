@@ -557,6 +557,38 @@ def _standby_signature(
     )
 
 
+def _env_enabled(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def standby_packed_expert_coordinates(
+    logical_node: int,
+    local_rank: int,
+    local_world_size: int,
+    pipeline_parallel_size: int,
+    expert_parallel_size: int,
+) -> tuple[int, int, int, int]:
+    if min(
+        local_world_size,
+        pipeline_parallel_size,
+        expert_parallel_size,
+    ) <= 0:
+        raise ValueError("parallel sizes must be positive")
+    global_rank = logical_node * local_world_size + local_rank
+    data_rank, stage_id = divmod(
+        global_rank, pipeline_parallel_size
+    )
+    return (
+        global_rank,
+        stage_id,
+        data_rank,
+        data_rank % expert_parallel_size,
+    )
+
+
 def prepare_standby(
     argv: Sequence[str],
     *,
@@ -604,11 +636,18 @@ def prepare_standby(
     model: nn.Module | None = None
     prebuilt_layers: dict[int, nn.Module] = {}
     decoder_type = None
-    stage_id = (
-        logical_node
-        * int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
-        + local_rank
-    ) % args.pipeline_parallel_size
+    (
+        _,
+        stage_id,
+        _,
+        standby_expert_rank,
+    ) = standby_packed_expert_coordinates(
+        logical_node,
+        local_rank,
+        int(os.environ.get("LOCAL_WORLD_SIZE", "1")),
+        args.pipeline_parallel_size,
+        args.expert_parallel_size,
+    )
     original_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.bfloat16)
     try:
@@ -632,6 +671,41 @@ def prepare_standby(
     # Touch one sample so both mmap files and their first data pages are valid.
     source.sample(0)
     torch.cuda.synchronize(local_rank)
+    packed_prefetcher = None
+    if _env_enabled("MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE"):
+        from deepspeed.checkpoint.packed_moe import (
+            PackedExpertPrefetcher,
+            packed_expert_checkpoint_enabled,
+        )
+
+        if packed_expert_checkpoint_enabled():
+            local_layers, remainder = divmod(
+                int(config.num_hidden_layers),
+                args.pipeline_parallel_size,
+            )
+            if remainder:
+                raise ValueError(
+                    "packed expert prefetch requires transformer layers "
+                    "to divide pipeline_parallel_size"
+                )
+            max_gib = float(
+                os.environ.get(
+                    "MOEGAMBIT_STANDBY_PACKED_EXPERT_MAX_GIB_PER_RANK",
+                    "16",
+                )
+            )
+            packed_prefetcher = PackedExpertPrefetcher(
+                args.checkpoint_dir,
+                mp_rank=stage_id,
+                ep_rank=standby_expert_rank,
+                expected_layers=local_layers,
+                max_bytes=max(0, int(max_gib * 1024**3)),
+                pin_memory=_env_enabled(
+                    "MOEGAMBIT_STANDBY_PACKED_EXPERT_PIN_MEMORY",
+                    True,
+                ),
+            )
+            packed_prefetcher.start()
     _STANDBY_CACHE = {
         "signature": signature,
         "config": config,
@@ -640,6 +714,7 @@ def prepare_standby(
         "pipeline_layers": prebuilt_layers,
         "decoder_type": decoder_type,
         "source": source,
+        "packed_expert_prefetcher": packed_prefetcher,
     }
     return {
         "dataset_ready": True,
@@ -650,6 +725,9 @@ def prepare_standby(
             if args.pipeline_parallel_size > 1
             else int(config.num_hidden_layers) + 3
         ),
+        "packed_expert_prefetch": packed_prefetcher is not None,
+        "packed_expert_mp_rank": stage_id,
+        "packed_expert_ep_rank": standby_expert_rank,
     }
 
 
@@ -664,6 +742,49 @@ def standby_cache_for(
     ):
         return None
     return cache
+
+
+def activate_standby(
+    _argv: Sequence[str],
+    *,
+    local_rank: int,
+    logical_node: int,
+    rank: int,
+    epoch: int,
+) -> dict[str, Any]:
+    """Freeze the resident worker's CPU cache before distributed startup."""
+    cache = _STANDBY_CACHE
+    prefetcher = (
+        cache.get("packed_expert_prefetcher")
+        if cache is not None
+        else None
+    )
+    if prefetcher is None:
+        return {"packed_cache_enabled": False}
+    snapshot = prefetcher.stop(timeout=0.25)
+    log(
+        "STANDBY_PACKED_CACHE "
+        f"tag={snapshot.get('tag')} files={snapshot.get('files')} "
+        f"bytes={snapshot.get('bytes')} "
+        f"pinned_bytes={snapshot.get('pinned_bytes')} "
+        f"completed={snapshot.get('completed')} "
+        f"thread_alive={snapshot.get('thread_alive')} "
+        f"error={snapshot.get('error')} "
+        f"logical_node={logical_node} local_rank={local_rank} "
+        f"epoch={epoch}",
+        rank=rank,
+    )
+    return {
+        "packed_cache_enabled": True,
+        "packed_cache_tag": snapshot.get("tag"),
+        "packed_cache_files": int(snapshot.get("files", 0)),
+        "packed_cache_bytes": int(snapshot.get("bytes", 0)),
+        "packed_cache_pinned_bytes": int(
+            snapshot.get("pinned_bytes", 0)
+        ),
+        "packed_cache_completed": bool(snapshot.get("completed")),
+        "packed_cache_error": snapshot.get("error"),
+    }
 
 
 class DeterministicBatchIterator(Iterator):
