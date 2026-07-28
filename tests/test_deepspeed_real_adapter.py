@@ -580,6 +580,32 @@ def test_inprocess_pipeline_rebuild_resets_p2p_metadata_protocol():
     assert "engine.first_gradient_send = True" in recovery
 
 
+def test_inprocess_replacement_skips_unmatched_pipeline_probe():
+    source = (
+        ROOT
+        / "DeepSpeed"
+        / "deepspeed"
+        / "runtime"
+        / "pipe"
+        / "engine.py"
+    ).read_text(encoding="utf-8")
+    start = source.index(
+        "        # A replacement is the only rank constructing a new engine."
+    )
+    end = source.index(
+        "\n        # XXX look into timer reporting timing", start
+    )
+    probe = source[start:end]
+
+    assert "if not inprocess_replacement:" in probe
+    assert "p2p.send(self.loss, self.next_stage)" in probe
+    assert "p2p.recv(self.loss, self.prev_stage)" in probe
+    assert (
+        "Skipping constructor pipeline communicator probe for "
+        in probe
+    )
+
+
 def test_inprocess_recovery_control_path_avoids_full_world_collectives():
     integration = (
         ROOT

@@ -231,17 +231,26 @@ class PipelineEngine(DeepSpeedEngine):
             self.loss_model = self.module.loss_fn
 
         self.has_attention_mask = self.module.__class__.__name__ == 'GPT2ModelPipe'
-        # Initialize pipeline communicators. Just send a 0.
-        if is_even(self.stage_id):
-            if not self.is_last_stage():
-                p2p.send(self.loss, self.next_stage)
-            if not self.is_first_stage():
-                p2p.recv(self.loss, self.prev_stage)
+        # A replacement is the only rank constructing a new engine. Its peers keep
+        # their existing engines, so repeating this constructor-time probe would
+        # wait forever for matching send/recv calls that they will never issue.
+        if not inprocess_replacement:
+            # Initialize pipeline communicators. Just send a 0.
+            if is_even(self.stage_id):
+                if not self.is_last_stage():
+                    p2p.send(self.loss, self.next_stage)
+                if not self.is_first_stage():
+                    p2p.recv(self.loss, self.prev_stage)
+            else:
+                if not self.is_first_stage():
+                    p2p.recv(self.loss, self.prev_stage)
+                if not self.is_last_stage():
+                    p2p.send(self.loss, self.next_stage)
         else:
-            if not self.is_first_stage():
-                p2p.recv(self.loss, self.prev_stage)
-            if not self.is_last_stage():
-                p2p.send(self.loss, self.next_stage)
+            logger.info(
+                "Skipping constructor pipeline communicator probe for "
+                "in-process replacement rank"
+            )
 
         # XXX look into timer reporting timing
         # Initialize some timers because of early weirdness.
