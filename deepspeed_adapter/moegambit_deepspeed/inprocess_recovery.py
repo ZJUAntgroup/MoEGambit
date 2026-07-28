@@ -227,6 +227,82 @@ def _folding_group_handles(engine: Any) -> Any:
     )
 
 
+def _rebind_optimizer_process_groups(
+    engine: Any, grid: Any | None, dist: Any
+) -> None:
+    optimizer = engine.optimizer
+    dense_group = engine.seq_data_parallel_group
+    optimizer.mpu = grid
+    optimizer.dp_process_group = dense_group
+    optimizer.ep_process_group = engine.expert_parallel_group
+    optimizer.expert_dp_process_group = (
+        engine.expert_data_parallel_group
+    )
+
+    param_groups = optimizer.optimizer.param_groups
+    group_count = len(param_groups)
+    dense_size = dist.get_world_size(group=dense_group)
+    optimizer.real_dp_process_group = [
+        dense_group for _ in range(group_count)
+    ]
+    optimizer.partition_count = [
+        dense_size for _ in range(group_count)
+    ]
+    optimizer.sequence_parallel_size = engine.sequence_parallel_size
+
+    if engine.has_moe_layers:
+        # ZeRO replaces param_group["params"] with FP32 master shards after
+        # its constructor. Reuse its original MoE classification here.
+        moe_layout = getattr(optimizer, "is_moe_param_group", None)
+        if not isinstance(moe_layout, (list, tuple)):
+            raise DeepSpeedInProcessRecoveryError(
+                "ZeRO optimizer omitted its initialized MoE group layout"
+            )
+        if len(moe_layout) != group_count:
+            raise DeepSpeedInProcessRecoveryError(
+                "ZeRO MoE group layout no longer matches optimizer groups: "
+                f"layout={len(moe_layout)} groups={group_count}"
+            )
+        expert_groups = engine.expert_data_parallel_group
+        if not isinstance(expert_groups, Mapping):
+            raise DeepSpeedInProcessRecoveryError(
+                "rebuilt expert data-parallel groups are unavailable"
+            )
+        for index, is_moe_group in enumerate(moe_layout):
+            if not is_moe_group:
+                continue
+            group_name = param_groups[index].get("name")
+            if not group_name or group_name not in expert_groups:
+                raise DeepSpeedInProcessRecoveryError(
+                    "rebuilt expert data-parallel group is missing for "
+                    f"optimizer group {index}: name={group_name!r}"
+                )
+            expert_group = expert_groups[group_name]
+            if expert_group is None:
+                raise DeepSpeedInProcessRecoveryError(
+                    "rebuilt expert data-parallel group is empty for "
+                    f"optimizer group {index}: name={group_name!r}"
+                )
+            optimizer.real_dp_process_group[index] = expert_group
+            optimizer.partition_count[index] = dist.get_world_size(
+                group=expert_group
+            )
+
+    optimizer.configure_autoep_folding_tp_gradient_reduction(
+        getattr(engine, "_autoep_folding_spec", None)
+    )
+    if grid is None:
+        optimizer.model_parallel_group = None
+        optimizer.model_parallel_world_size = 1
+        optimizer.model_parallel_rank = 0
+    else:
+        optimizer.model_parallel_group = grid.get_model_parallel_group()
+        optimizer.model_parallel_world_size = (
+            grid.get_model_parallel_world_size()
+        )
+        optimizer.model_parallel_rank = grid.get_model_parallel_rank()
+
+
 def _rebind_engine(engine: Any, grid: Any | None) -> None:
     from deepspeed import comm as dist
     from deepspeed.module_inject.auto_ep_layer import AutoEPMoELayer
@@ -298,37 +374,7 @@ def _rebind_engine(engine: Any, grid: Any | None) -> None:
         engine.reset_activation_shape()
         engine.first_gradient_send = True
 
-    optimizer = engine.optimizer
-    optimizer.mpu = grid
-    optimizer.dp_process_group = engine.seq_data_parallel_group
-    optimizer.ep_process_group = engine.expert_parallel_group
-    optimizer.expert_dp_process_group = (
-        engine.expert_data_parallel_group
-    )
-    group_count = len(optimizer.optimizer.param_groups)
-    optimizer.real_dp_process_group = [
-        engine.seq_data_parallel_group for _ in range(group_count)
-    ]
-    optimizer.partition_count = [
-        dist.get_world_size(group=engine.seq_data_parallel_group)
-        for _ in range(group_count)
-    ]
-    optimizer.sequence_parallel_size = engine.sequence_parallel_size
-    if engine.has_moe_layers:
-        optimizer._configure_moe_settings()
-    optimizer.configure_autoep_folding_tp_gradient_reduction(
-        getattr(engine, "_autoep_folding_spec", None)
-    )
-    if grid is None:
-        optimizer.model_parallel_group = None
-        optimizer.model_parallel_world_size = 1
-        optimizer.model_parallel_rank = 0
-    else:
-        optimizer.model_parallel_group = grid.get_model_parallel_group()
-        optimizer.model_parallel_world_size = (
-            grid.get_model_parallel_world_size()
-        )
-        optimizer.model_parallel_rank = grid.get_model_parallel_rank()
+    _rebind_optimizer_process_groups(engine, grid, dist)
 
 
 def _validate_manifest(engine: Any, failed_rank: int, epoch: int) -> None:

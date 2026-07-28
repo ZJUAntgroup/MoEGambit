@@ -477,6 +477,75 @@ def test_inprocess_pipeline_rebuild_resets_p2p_metadata_protocol():
     assert "engine.first_gradient_send = True" in recovery
 
 
+def test_inprocess_optimizer_rebind_reuses_initialized_moe_layout():
+    from moegambit_deepspeed.inprocess_recovery import (
+        _rebind_optimizer_process_groups,
+    )
+
+    dense_group = object()
+    expert_group = object()
+    model_group = object()
+    folding_spec = object()
+    group_sizes = {dense_group: 8, expert_group: 1}
+
+    class FakeDist:
+        @staticmethod
+        def get_world_size(group=None):
+            return group_sizes[group]
+
+    folding_calls = []
+    optimizer = types.SimpleNamespace(
+        optimizer=types.SimpleNamespace(
+            param_groups=[
+                {"name": "dense", "params": [object()]},
+                {
+                    "name": "ep_size_8",
+                    "moe": True,
+                    # ZeRO has already replaced the original expert params.
+                    "params": [object()],
+                },
+            ]
+        ),
+        is_moe_param_group=[False, True],
+        configure_autoep_folding_tp_gradient_reduction=(
+            lambda spec: folding_calls.append(spec)
+        ),
+    )
+    engine = types.SimpleNamespace(
+        optimizer=optimizer,
+        seq_data_parallel_group=dense_group,
+        expert_parallel_group={"ep_size_8": object()},
+        expert_data_parallel_group={"ep_size_8": expert_group},
+        sequence_parallel_size=1,
+        has_moe_layers=True,
+        _autoep_folding_spec=folding_spec,
+    )
+    grid = types.SimpleNamespace(
+        get_model_parallel_group=lambda: model_group,
+        get_model_parallel_world_size=lambda: 8,
+        get_model_parallel_rank=lambda: 3,
+    )
+
+    _rebind_optimizer_process_groups(engine, grid, FakeDist())
+
+    assert optimizer.real_dp_process_group == [
+        dense_group,
+        expert_group,
+    ]
+    assert optimizer.partition_count == [8, 1]
+    assert optimizer.model_parallel_group is model_group
+    assert optimizer.model_parallel_world_size == 8
+    assert optimizer.model_parallel_rank == 3
+    assert folding_calls == [folding_spec]
+    recovery = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit_deepspeed"
+        / "inprocess_recovery.py"
+    ).read_text(encoding="utf-8")
+    assert "optimizer._configure_moe_settings()" not in recovery
+
+
 def test_hybrid_restore_uses_current_survivor_after_checkpoint_base_load():
     integration = (
         ROOT
