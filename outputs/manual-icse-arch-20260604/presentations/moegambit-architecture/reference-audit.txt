@@ -1,4 +1,0 @@
-Reference quality target:
-- ICSE-style technical figure: sparse, auditable, mechanism-first, readable when embedded in a paper.
-- Avoid: large card grids, decorative borders, long bullets, nested boxes, low-contrast captions.
-- Preferred: one dominant path diagram, color-coded fast/fallback semantics, compact contract guard rail, direct labels.

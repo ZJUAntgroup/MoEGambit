@@ -6,11 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "moegambit"
 version = "0.1.0.dev0"
 description = "Framework-agnostic elastic recovery runtime for distributed training"
-readme = "docs/design/RUNTIME_NON_DEEPSPEED_DEVELOPMENT_PLAN.md"
-requires-python = ">=3.9"
+readme = "README.md"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{ name = "MoEGambit authors" }]
-keywords = ["distributed-training", "fault-tolerance", "moe", "elastic", "megatron"]
+keywords = ["distributed-training", "fault-tolerance", "moe", "elastic", "megatron", "deepspeed"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

@@ -343,10 +343,12 @@ run_case() {
     # starts accepting active-node registrations.
     reset_owner="${SPARE_NODE_RANK}"
   fi
-  if (( NODE_RANK == reset_owner )) && [[ "${RESET_RUN}" == "1" ]]; then
-    rm -rf "${case_root}"
+  if [[ "${DRY_RUN}" != "1" ]]; then
+    if (( NODE_RANK == reset_owner )) && [[ "${RESET_RUN}" == "1" ]]; then
+      rm -rf "${case_root}"
+    fi
+    mkdir -p "${checkpoint_dir}" "${state_dir}"
   fi
-  mkdir -p "${checkpoint_dir}" "${state_dir}"
 
   export MASTER_ADDR
   export MASTER_PORT="${case_port}"
@@ -421,7 +423,9 @@ run_case() {
     launch_master_port="{master_port}"
     rank_log_dir="${state_dir}/rank_logs/epoch_{recovery_epoch}/node_{physical_node}"
   fi
-  mkdir -p "${state_dir}/rank_logs"
+  if [[ "${DRY_RUN}" != "1" ]]; then
+    mkdir -p "${state_dir}/rank_logs"
+  fi
   echo "[deepspeed-real-launch] full_rank_logs=${rank_log_dir}"
   local -a launch_command=(
     "${PYTHON_BIN}" -u -m deepspeed.launcher.runner \
@@ -506,7 +510,9 @@ generate_hostfile
 if [[ "${DRY_RUN}" != "1" ]]; then
   preflight
 fi
-mkdir -p "${RUN_ROOT}"
+if [[ "${DRY_RUN}" != "1" ]]; then
+  mkdir -p "${RUN_ROOT}"
+fi
 
 case "${TEST_MODE}" in
   hot_swap)

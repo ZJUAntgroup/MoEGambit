@@ -32,6 +32,7 @@ set -uo pipefail
 set -x
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DRY_RUN="${DRY_RUN:-0}"
 
 # =============================================================================
 # Configuration
@@ -67,7 +68,7 @@ export NNODES="${TRAINING_NNODES}"
 # Elastic watcher address (备用节点的 IP)
 export ELASTIC_WATCHER_ADDR="${ELASTIC_WATCHER_ADDR:-${MASTER_ADDR}}"
 export ELASTIC_FAULT_DIR="${ELASTIC_FAULT_DIR:-/tmp/elastic_faults}"
-if [ "${ELASTIC_RESET_FAULT_DIR:-1}" = "1" ]; then
+if [ "${DRY_RUN}" != "1" ] && [ "${ELASTIC_RESET_FAULT_DIR:-1}" = "1" ]; then
   rm -rf "${ELASTIC_FAULT_DIR}"
 fi
 mkdir -p "${ELASTIC_FAULT_DIR}"
@@ -111,6 +112,8 @@ unset MOEGAMBIT_FAULT_INJECT_STEP 2>/dev/null || true
 export SAVE_INTERVAL=10
 export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt}"
 export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
+export DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
+export TOKENIZER_DIR="${TOKENIZER_DIR:-${SCRIPT_DIR}/tokenizer}"
 
 if [ "${ELASTIC_ZERO2_MEMORY_REPLICATION}" = "1" ] && \
    [ "${ELASTIC_ZERO2_USE_DISTRIBUTED_OPTIMIZER}" != "1" ]; then
@@ -216,7 +219,9 @@ export ELASTIC_NCCL_CLASSIFICATION_GRACE_SECONDS="${ELASTIC_NCCL_CLASSIFICATION_
 HOTSPARE_MAX_RETRIES=0
 HOTSPARE_RETRY_DELAY="${HOTSPARE_RETRY_DELAY:-30}"
 
-mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
+if [ "${DRY_RUN}" != "1" ]; then
+  mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
+fi
 
 # =============================================================================
 # Compute derived values
@@ -264,6 +269,36 @@ echo "[test-replace] Optimizer memory: enabled=${ELASTIC_ZERO2_MEMORY_REPLICATIO
 echo "[test-replace] R2 contract:      gap=[${MOEGAMBIT_DELTA_TIME_MIN_GAP},${MOEGAMBIT_MAX_SINGLE_GAP}], window=${MOEGAMBIT_EXPOSURE_WINDOW_STEPS}, phi_max=${MOEGAMBIT_MAX_EXPERT_STALENESS_DENSITY}, experts=${MOEGAMBIT_NUM_EXPERTS}"
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
+
+if [ "${DRY_RUN}" = "1" ]; then
+  if [ "${IS_SPARE}" = "1" ]; then
+    printf '[test-replace] DRY_RUN python3 %q' "${SCRIPT_DIR}/elastic_watcher.py"
+    printf ' %q' \
+      --port "${ELASTIC_WATCHER_PORT}" \
+      --training-nnodes "${TRAINING_NNODES}" \
+      --nproc-per-node "${NPROC_PER_NODE}" \
+      --master-addr "${MASTER_ADDR}" \
+      --master-port "${MASTER_PORT}" \
+      --fault-inject-step "${FAULT_INJECT_STEP}" \
+      --fault-inject-node "${FAULT_INJECT_NODE}" \
+      --fault-inject-local-rank "${FAULT_INJECT_LOCAL_RANK}"
+    printf '\n'
+  else
+    printf '[test-replace] DRY_RUN python3 %q' "${SCRIPT_DIR}/elastic_launcher.py"
+    printf ' %q' \
+      --nproc-per-node "${NPROC_PER_NODE}" \
+      --nnodes "${NNODES}" \
+      --node-rank "${NODE_RANK}" \
+      --master-addr "${MASTER_ADDR}" \
+      --master-port "${MASTER_PORT}" \
+      -- python3 "${SCRIPT_DIR}/Megatron-LM/pretrain_gpt.py" \
+      --data-path "${DATA_PATH}" \
+      --save "${CKPT_DIR}"
+    printf '\n'
+  fi
+  echo "[test-replace] dry run complete"
+  exit 0
+fi
 
 # =============================================================================
 # SPARE NODE: run watcher (with fault injection)
@@ -412,9 +447,9 @@ run_training() {
   --sequence-parallel \
   --legacy-tokenizer \
   --tokenizer-type HuggingFaceTokenizer \
-  --tokenizer-model ./tokenizer \
-  --vocab-file "./tokenizer/vocab.json" \
-  --merge-file "./tokenizer/merges.txt" \
+  --tokenizer-model "${TOKENIZER_DIR}" \
+  --vocab-file "${TOKENIZER_DIR}/vocab.json" \
+  --merge-file "${TOKENIZER_DIR}/merges.txt" \
   --num-layers 48 \
   --hidden-size 2048 \
   --ffn-hidden-size 6144 \
@@ -458,7 +493,7 @@ run_training() {
   --distributed-timeout-seconds-after-init 60 \
   "${ZERO2_ARGS[@]}" \
   "${MOEGAMBIT_ARGS[@]}" \
-  --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
+  --data-path "${DATA_PATH}" \
   --split 100,0,0 \
   --ckpt-format torch \
   --save "${CKPT_DIR}" \

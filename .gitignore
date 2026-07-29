@@ -1,11 +1,19 @@
+.DS_Store
+.idea/
+.vscode/
+*.egg-info/
+*.py[cod]
+*.log
 *.parquet
 *.jsonl
-train.jsonl
+.coverage
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+build/
+dist/
 datasets/
+outputs/
+train.jsonl
 __pycache__/
-
-# evaluation venv & logs & data cache (data is shipped out-of-band)
-eval/.venv/
-eval/data/
-eval/data_download.log
-eval/results/

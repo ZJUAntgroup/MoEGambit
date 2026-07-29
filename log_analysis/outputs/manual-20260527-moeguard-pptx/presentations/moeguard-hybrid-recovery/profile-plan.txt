@@ -1,8 +1,0 @@
-Task mode: create
-Primary deck-profile: engineering-platform
-Secondary profile gates: none
-Required proof objects: one full-slide workflow diagram converted from the SVG source.
-Source/asset requirements: use /Users/zds/bsr/log_analysis/figures/innovation1_hybrid_recovery.svg.
-Brand authenticity constraints: no external logos or identity marks are introduced.
-Profile-specific QA gates: diagram must render legibly, preserve labels, and remain non-empty in the PPTX package.
-Known missing inputs: none.

@@ -1,8 +1,0 @@
-task mode: create from source PPTX
-primary deck-profile: engineering-platform
-secondary gates: ICSE paper-figure readability; double-column screenshot survival
-required proof objects: architecture/workflow map; runtime contract guards; fast-path/fallback comparison; metric evidence tied to the recovery path
-source assets: source deck at /Users/zds/Desktop/架构图1.pptx; paper.tex architecture narrative
-brand constraints: no logos or pseudo-brands; use neutral academic palette and simple system icons only
-QA gates: readable at thumbnail; no dense bullet blocks; connectors show actual recovery direction; R1/R2/R3 remain technically precise
-known missing inputs: none

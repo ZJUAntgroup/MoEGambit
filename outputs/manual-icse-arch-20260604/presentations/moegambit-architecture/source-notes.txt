@@ -1,7 +1,0 @@
-Source PPTX summary:
-- One source slide with a dense MoEGambit architecture diagram.
-- Main retained content: training failure event, safe-point repair, rank-exposure/staleness policy, hybrid recovery fast path, checkpoint restart fallback, two-phase recovery, reintegration/audit concept.
-- Main omitted content: detailed pipeline-stage grid, long bullet lists, repeated stage labels, small formula variants, duplicated prose inside panels.
-
-Identity assets:
-- None. No logos or official marks used.

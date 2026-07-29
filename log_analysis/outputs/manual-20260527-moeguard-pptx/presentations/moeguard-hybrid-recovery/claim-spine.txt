@@ -1,9 +1,0 @@
-Thesis: MoEGuard hybrid recovery restores a failed worker by combining peer weights/state with checkpoint expert state, then resumes healthy training.
-Audience: technical paper or research presentation readers.
-One-line arc: failure detection, hybrid recovery, rebuild and resume.
-
-Slide list:
-1. Claim: MoEGuard recovers a failed stage worker through peer-assisted hybrid restoration.
-   Proof object: full-slide workflow diagram from the SVG source.
-   Source: /Users/zds/bsr/log_analysis/figures/innovation1_hybrid_recovery.svg
-   Omission notes: no additional slides requested.
