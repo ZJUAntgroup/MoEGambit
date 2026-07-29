@@ -363,20 +363,7 @@ class DeepSpeedZero2Replica:
         for manager in self.managers.values():
             manager.wait_until_replicated(int(step))
 
-    def capture_local_handoff(
-        self, step: int
-    ) -> OptimizerMemorySnapshot:
-        import torch.distributed as dist
-
-        return capture_optimizer_snapshot(
-            owner_rank=dist.get_rank(),
-            holder_rank=dist.get_rank(),
-            step=int(step),
-            tensor_refs=self._tensor_refs(),
-            scalar_refs=self._scalar_refs(),
-        )
-
-    def export_peer_handoff(
+    def export_peer_snapshots(
         self, step: int
     ) -> dict[str, OptimizerMemorySnapshot]:
         snapshots = {}
@@ -386,19 +373,6 @@ class DeepSpeedZero2Replica:
                 manager.owner_to_receive, int(step)
             )
         return snapshots
-
-    def restore_handoff_snapshot(
-        self,
-        snapshot: OptimizerMemorySnapshot,
-        *,
-        restore_expert: bool,
-    ) -> dict[str, Any]:
-        return apply_optimizer_snapshot(
-            snapshot,
-            self._tensor_refs(),
-            self._scalar_refs(),
-            restore_expert=restore_expert,
-        )
 
     def tensor_refs_for_namespace(
         self, namespace: str

@@ -219,14 +219,14 @@ def capture_optimizer_snapshot(
     """Synchronously capture optimizer references in host memory.
 
     This is used only at a recovery boundary. The steady-state replica path
-    remains asynchronous; survivor handoff needs an immutable snapshot that
-    stays valid after the training worker exits.
+    remains asynchronous; recovery freezes an immutable snapshot while the
+    survivor process stays resident.
     """
     refs = list(tensor_refs)
     scalars_source = list(scalar_refs)
     manifest, totals, manifest_hash = _manifest_for_refs(refs)
     if not manifest:
-        raise RuntimeError("optimizer handoff snapshot has no tensor state")
+        raise RuntimeError("optimizer recovery snapshot has no tensor state")
 
     buffers = {
         dtype_name: _allocate_host_tensor(dtype_name, int(numel))

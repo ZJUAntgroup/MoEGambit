@@ -14,7 +14,7 @@ The supported cases are deliberately separate:
 | --- | --- | --- |
 | `hot_swap` | 8 active nodes + 1 standby, 64 active GPUs, PP=8, EP=8, ZeRO-1 | kill rank 1 at step 17, keep the other 63 workers and their CUDA state resident, start only rank 1 on node 8, and resume at step 17 |
 | `zero2` | 8 nodes, 64 GPUs, PP=1, EP=8, ZeRO-2 | replicate each rank-local optimizer shard through asynchronous D2H and TCP H2H |
-| `combined` | 8 active nodes + 1 standby, 64 active GPUs, PP=1, EP=8, ZeRO-2 | combine single-rank replacement and optimizer replication with the same mixed-version contract |
+| `combined` | 8 active nodes + 1 standby, 64 active GPUs, PP=1, EP=8, ZeRO-2 | combine single-rank replacement and optimizer replication with the same in-process hybrid contract |
 
 DeepSpeed's `PipelineEngine` rejects ZeRO-2 and ZeRO-3, including when AutoEP
 is enabled. For that reason, `PP=8 + ZeRO-2` is not offered as a fake or
@@ -47,18 +47,9 @@ This keeps one local staging snapshot and one peer snapshot. The default value
 of two keeps double buffers on both sides and consumes roughly four optimizer
 shards of host memory per rank.
 
-The legacy node-relaunch path still needs a handoff directory that survives
-worker retirement. It is used only when in-process recovery is explicitly
-disabled:
-
-```bash
-export MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY=0
-export MOEGAMBIT_RECOVERY_HANDOFF_DIR=/local-nvme/moegambit-handoff
-```
-
-The test launcher adds the run ID and physical-node suffix. It also places every
-optimizer replica outside its owner's `LOCAL_WORLD_SIZE` failure domain, so a
-whole-node exit cannot remove both copies.
+The launcher places every optimizer replica outside its owner's
+`LOCAL_WORLD_SIZE` failure domain, so a whole-node exit cannot remove both
+copies.
 
 The `hot_swap` case also enables packed AutoEP recovery checkpoints and the
 resident standby cache:

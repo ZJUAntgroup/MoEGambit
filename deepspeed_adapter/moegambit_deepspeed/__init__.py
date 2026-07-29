@@ -1,4 +1,4 @@
-"""DeepSpeed adapter for elastic relaunch and ZeRO-2 host replication."""
+"""DeepSpeed adapter for rank-granular hot swap and ZeRO-2 replication."""
 
 from __future__ import annotations
 
@@ -11,28 +11,6 @@ from moegambit.interfaces import (
     LaunchRequest,
     PreparedLaunch,
 )
-
-
-def _has_option(command: Sequence[str], name: str) -> bool:
-    return name in command or any(item.startswith(name + "=") for item in command)
-
-
-def _runner_option_index(command: Sequence[str]) -> int | None:
-    if command and Path(command[0]).name in {"deepspeed", "deepspeed.exe"}:
-        return 1
-    if (
-        len(command) >= 3
-        and command[1] == "-m"
-        and command[2] == "deepspeed.launcher.runner"
-    ):
-        return 3
-    return None
-
-
-def _insert_option(
-    command: tuple[str, ...], index: int, option: str
-) -> tuple[str, ...]:
-    return (*command[:index], option, *command[index:])
 
 
 def _prepend_path(environment: dict[str, str], path: Path) -> None:
@@ -82,10 +60,6 @@ class DeepSpeedAdapter:
 
         strategy = "disabled"
         if request.features.hot_swap:
-            application_checkpoint = _enabled(
-                environment,
-                "MOEGAMBIT_DEEPSPEED_APPLICATION_CHECKPOINT",
-            )
             checkpoint_dir = environment.get(
                 "MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR"
             )
@@ -99,50 +73,30 @@ class DeepSpeedAdapter:
                 raise ValueError(
                     "MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL must be an integer"
                 ) from exc
-            if (
-                not application_checkpoint
-                and (not checkpoint_dir or checkpoint_interval <= 0)
-            ):
+            if not checkpoint_dir or checkpoint_interval <= 0:
                 raise ValueError(
                     "DeepSpeed hot swap needs durable recovery state: set "
                     "MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR and a positive "
-                    "MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL, or set "
-                    "MOEGAMBIT_DEEPSPEED_APPLICATION_CHECKPOINT=1 when the "
-                    "training application saves and restores checkpoints"
+                    "MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL"
                 )
-            option_index = _runner_option_index(command)
-            external = environment.get(
-                "MOEGAMBIT_DEEPSPEED_EXTERNAL_ELASTIC", "0"
-            ).lower() in {"1", "true", "yes", "on"}
-            if option_index is None and not external:
+            if not _enabled(
+                environment, "MOEGAMBIT_DEEPSPEED_EXTERNAL_COORDINATOR"
+            ):
                 raise ValueError(
-                    "DeepSpeed hot swap requires the `deepspeed` launcher, "
-                    "`python -m deepspeed.launcher.runner`, or "
-                    "MOEGAMBIT_DEEPSPEED_EXTERNAL_ELASTIC=1"
+                    "rank-granular DeepSpeed hot swap requires "
+                    "MOEGAMBIT_DEEPSPEED_EXTERNAL_COORDINATOR=1 and the "
+                    "MoEGambit hot-spare coordinator"
                 )
-            if option_index is not None and not external:
-                options: list[str] = []
-                if not _has_option(command, "--elastic_training"):
-                    options.append("--elastic_training")
-                master_addr = environment.get("MASTER_ADDR")
-                if master_addr and not _has_option(command, "--master_addr"):
-                    options.append(f"--master_addr={master_addr}")
-                min_nodes = environment.get("MOEGAMBIT_DEEPSPEED_MIN_NODES")
-                if min_nodes and not _has_option(command, "--min_elastic_nodes"):
-                    options.append(f"--min_elastic_nodes={min_nodes}")
-                max_nodes = environment.get("MOEGAMBIT_DEEPSPEED_MAX_NODES")
-                if max_nodes and not _has_option(command, "--max_elastic_nodes"):
-                    options.append(f"--max_elastic_nodes={max_nodes}")
-                for option in reversed(options):
-                    command = _insert_option(command, option_index, option)
-            strategy = (
-                environment.get(
-                    "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
-                    "mixed_version_survivor_handoff",
-                )
-                if external
-                else "torch_elastic_checkpoint_relaunch"
+            requested_strategy = environment.get(
+                "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
+                "rank_in_process_hybrid",
             )
+            if requested_strategy != "rank_in_process_hybrid":
+                raise ValueError(
+                    "DeepSpeed hot swap supports only "
+                    "rank_in_process_hybrid"
+                )
+            strategy = "rank_in_process_hybrid"
 
         environment.update(
             {
@@ -154,6 +108,12 @@ class DeepSpeedAdapter:
                     "1" if request.features.zero2 else "0"
                 ),
                 "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY": strategy,
+                "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY": (
+                    "1" if request.features.hot_swap else "0"
+                ),
+                "MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE": (
+                    "1" if request.features.hot_swap else "0"
+                ),
             }
         )
         return PreparedLaunch(

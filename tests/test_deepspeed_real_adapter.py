@@ -620,9 +620,7 @@ def test_runtime_hooks_common_optimizer_boundary():
     assert "runtime._maybe_checkpoint(after)" in source
 
 
-def test_mixed_restore_does_not_activate_on_plain_torchelastic(
-    monkeypatch,
-):
+def test_hot_swap_rejects_legacy_torchelastic_strategy(monkeypatch):
     from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
 
     monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
@@ -630,32 +628,14 @@ def test_mixed_restore_does_not_activate_on_plain_torchelastic(
         "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
         "torch_elastic_checkpoint_relaunch",
     )
-    monkeypatch.delenv(
-        "MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE", raising=False
-    )
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR", "/tmp/ckpt")
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL", "10")
 
-    settings = DeepSpeedRuntimeSettings.from_env()
-
-    assert settings.hot_swap is True
-    assert settings.hybrid_restore is False
-    assert settings.survivor_handoff is False
-
-
-def test_mixed_restore_requires_matching_recovery_strategy(monkeypatch):
-    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
-
-    monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
-    monkeypatch.setenv(
-        "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
-        "torch_elastic_checkpoint_relaunch",
-    )
-    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE", "1")
-
-    with pytest.raises(ValueError, match="mixed_version_survivor_handoff"):
+    with pytest.raises(ValueError, match="supports only"):
         DeepSpeedRuntimeSettings.from_env()
 
 
-def test_rank_inprocess_strategy_disables_file_handoff(monkeypatch):
+def test_hot_swap_selects_only_rank_inprocess_hybrid(monkeypatch):
     from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
 
     monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
@@ -667,28 +647,45 @@ def test_rank_inprocess_strategy_disables_file_handoff(monkeypatch):
     monkeypatch.setenv(
         "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY", "1"
     )
-    monkeypatch.setenv(
-        "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF", "1"
-    )
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR", "/tmp/ckpt")
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL", "10")
 
     settings = DeepSpeedRuntimeSettings.from_env()
 
     assert settings.inprocess_recovery is True
     assert settings.hybrid_restore is True
-    assert settings.survivor_handoff is False
+    assert not hasattr(settings, "survivor_handoff")
 
 
-def test_inprocess_replacement_flag_cannot_pollute_normal_start(monkeypatch):
+def test_removed_file_handoff_switch_fails_closed(monkeypatch):
     from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
 
-    monkeypatch.setenv(
-        "MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT", "1"
-    )
+    monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR", "/tmp/ckpt")
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL", "10")
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF", "1")
 
-    with pytest.raises(
-        ValueError, match="valid only inside rank-granular recovery"
-    ):
+    with pytest.raises(ValueError, match="was removed"):
         DeepSpeedRuntimeSettings.from_env()
+
+
+def test_recovery_flags_cannot_pollute_normal_start(monkeypatch):
+    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT", "1")
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF", "1")
+    monkeypatch.setenv(
+        "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY",
+        "torch_elastic_checkpoint_relaunch",
+    )
+    monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL", "invalid")
+
+    settings = DeepSpeedRuntimeSettings.from_env()
+
+    assert settings.hot_swap is False
+    assert settings.inprocess_recovery is False
+    assert settings.inprocess_replacement is False
+    assert settings.hybrid_restore is False
 
 
 def test_rank_recovery_command_requires_complete_world_mapping():
@@ -785,10 +782,10 @@ def test_inprocess_recovery_control_path_avoids_full_world_collectives():
         / "integration.py"
     ).read_text(encoding="utf-8")
     start = integration.index(
-        "    def _restore_inprocess_mixed_version"
+        "    def _restore_inprocess_hybrid"
     )
     end = integration.index(
-        "\n    def _start_handoff_watcher", start
+        "\n    def _report_rank_event", start
     )
     recovery_path = integration[start:end]
 
@@ -919,7 +916,7 @@ def test_inprocess_optimizer_rebind_reuses_initialized_moe_layout():
     assert "optimizer._configure_moe_settings()" not in recovery
 
 
-def test_hybrid_restore_uses_current_survivor_after_checkpoint_base_load():
+def test_hybrid_restore_loads_checkpoint_before_live_peer_overrides():
     integration = (
         ROOT
         / "deepspeed_adapter"
@@ -934,21 +931,18 @@ def test_hybrid_restore_uses_current_survivor_after_checkpoint_base_load():
     ).read_text(encoding="utf-8")
 
     assert integration.index("self.engine.load_checkpoint(") < (
-        integration.index("self._restore_mixed_version_from_handoff()")
+        integration.index(
+            "model_summary = restore_non_expert_model_from_peer("
+        )
     )
     assert '"expert_source": "checkpoint"' in hybrid
     assert '"non_expert_source": "live_dp_peer"' in hybrid
-    assert '"peer_state_origin": "survivor_handoff"' in hybrid
-    assert '"optimizer_source": "survivor_peer_replica"' in hybrid
+    assert '"peer_state_origin": "resident_live_peer"' in hybrid
+    assert '"optimizer_source": "resident_peer_replica"' in hybrid
     assert '"rollback_steps": 0' in integration
     assert '"two_phase": False' in hybrid
     assert integration.index(
-        'self._report_phase("non_expert_model_restore_done")'
-    ) < integration.index(
-        'self._report_phase("non_expert_optimizer_restore_start")'
-    )
-    assert integration.index(
-        'self._report_phase("non_expert_optimizer_restore_start")'
+        'self._report_rank_phase("non_expert_model_restore_done")'
     ) < integration.index(
         "optimizer_summary = restore_non_expert_optimizer_from_peer("
     )
@@ -1002,10 +996,8 @@ def test_runtime_checkpoint_hook_runs_for_common_model_step(
     settings = DeepSpeedRuntimeSettings(
         hot_swap=True,
         zero2=False,
-        application_checkpoint=False,
         checkpoint_dir=tmp_path,
         checkpoint_interval=2,
-        restart_count=0,
         recovery_epoch=0,
         replica_timeout=1.0,
     )
@@ -1390,34 +1382,6 @@ def test_hybrid_restore_rejects_a_stale_peer_version():
         )
 
 
-def test_hybrid_restore_accepts_checkpoint_experts_and_current_survivors():
-    from moegambit_deepspeed.hybrid_restore import (
-        validate_mixed_version_steps,
-    )
-
-    assert (
-        validate_mixed_version_steps(
-            [10] * 64, [17] * 56, failure_step=17
-        )
-        == 10
-    )
-
-
-def test_hybrid_restore_rejects_checkpoint_aged_survivor_peer():
-    from moegambit_deepspeed.hybrid_restore import (
-        DeepSpeedHybridRestoreError,
-        validate_mixed_version_steps,
-    )
-
-    with pytest.raises(
-        DeepSpeedHybridRestoreError,
-        match="not at the failure safe step",
-    ):
-        validate_mixed_version_steps(
-            [10] * 64, [10] * 56, failure_step=17
-        )
-
-
 def test_fault_injection_holds_survivors_at_committed_step():
     source = (
         ROOT / "deepspeed_qwen3_moe_pretrain.py"
@@ -1476,7 +1440,7 @@ def test_local_adapter_discovers_bsr_vendored_deepspeed():
     )
 
 
-def test_deepspeed_adapter_does_not_inject_torchelastic_for_external_spare():
+def test_deepspeed_adapter_selects_rank_inprocess_hot_swap():
     from moegambit.core.contracts import FeatureSwitches
     from moegambit.interfaces import LaunchRequest
     from moegambit_deepspeed import DeepSpeedAdapter
@@ -1490,11 +1454,11 @@ def test_deepspeed_adapter_does_not_inject_torchelastic_for_external_spare():
                 "train.py",
             ),
             environment={
-                "MOEGAMBIT_DEEPSPEED_EXTERNAL_ELASTIC": "1",
+                "MOEGAMBIT_DEEPSPEED_EXTERNAL_COORDINATOR": "1",
                 "MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR": "/tmp/checkpoint",
                 "MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL": "10",
                 "MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY": (
-                    "mixed_version_survivor_handoff"
+                    "rank_in_process_hybrid"
                 ),
             },
             features=FeatureSwitches(hot_swap=True, zero2=False),
@@ -1504,7 +1468,15 @@ def test_deepspeed_adapter_does_not_inject_torchelastic_for_external_spare():
     assert "--elastic_training" not in prepared.command
     assert (
         prepared.metadata["recovery_strategy"]
-        == "mixed_version_survivor_handoff"
+        == "rank_in_process_hybrid"
+    )
+    assert (
+        prepared.environment["MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY"]
+        == "1"
+    )
+    assert (
+        prepared.environment["MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE"]
+        == "1"
     )
 
 
@@ -1563,13 +1535,12 @@ def test_multinode_script_dry_run_builds_real_commands(tmp_path):
     assert "dry run complete" in result.stdout
     assert "hybrid_restore=1" in result.stdout
     assert "inprocess_recovery=1" in result.stdout
-    assert "survivor_handoff=0" in result.stdout
     assert "rank_in_process_hybrid" in result.stdout
     assert "--rank-hot-swap" in result.stdout
     launcher = (
         ROOT / "test_deepspeed_hotspare_replace.sh"
     ).read_text(encoding="utf-8")
-    assert "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF" in launcher
+    assert "MOEGAMBIT_RECOVERY_HANDOFF_DIR" not in launcher
     assert "LOCAL_WORLD_SIZE" in launcher
     assert '"rank_in_process_hybrid"' in launcher
     assert '"resident_cuda"' in launcher

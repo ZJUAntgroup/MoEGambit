@@ -4,8 +4,7 @@
 # Start this script independently on NODE_RANK=0..8.  Physical nodes 0..7
 # host the healthy 64-rank training world.  Physical node 8 runs the recovery
 # coordinator and remains outside torch.distributed until a failure.  It then
-# takes over the failed logical node while the other seven nodes enter the same
-# mixed-version recovery epoch without rolling healthy state back.
+# takes over the failed rank while healthy workers keep their CUDA state.
 #
 # Cases:
 #   TEST_MODE=hot_swap  PP=8, EP=8, ZeRO-1, node-8 hot replacement
@@ -49,8 +48,6 @@ TEST_TIMEOUT_SECONDS="${TEST_TIMEOUT_SECONDS:-14400}"
 DRY_RUN="${DRY_RUN:-0}"
 PACKED_EXPERT_CHECKPOINT="${DEEPSPEED_MOEGAMBIT_PACKED_EXPERT_CHECKPOINT:-1}"
 PACKED_EXPERT_CACHE="${MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE:-1}"
-INPROCESS_RECOVERY="${MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY:-1}"
-HANDOFF_ROOT_BASE="${MOEGAMBIT_RECOVERY_HANDOFF_DIR:-/tmp/moegambit-deepspeed-handoff}"
 
 MODEL_CONFIG="${MODEL_CONFIG:-${SCRIPT_DIR}/tokenizer}"
 DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
@@ -127,8 +124,6 @@ case "${TEST_MODE}" in
   hot_swap|zero2|combined|all) ;;
   *) fail "TEST_MODE must be hot_swap, zero2, combined, or all" ;;
 esac
-[[ "${INPROCESS_RECOVERY}" == "0" || "${INPROCESS_RECOVERY}" == "1" ]] || fail \
-  "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY must be 0 or 1"
 (( TRAINING_NNODES > 0 )) || fail "TRAINING_NNODES must be positive"
 (( NPROC_PER_NODE > 0 )) || fail "NPROC_PER_NODE must be positive"
 (( SPARE_NODE_RANK == TRAINING_NNODES )) || fail \
@@ -180,7 +175,6 @@ export MOEGAMBIT_ZERO2_REPLICATION_TIMEOUT="${MOEGAMBIT_ZERO2_REPLICATION_TIMEOU
 # One local staging slot plus one peer slot. Two slots would use roughly four
 # optimizer shards of host memory per rank for this 30B-class model.
 export MOEGAMBIT_ZERO2_BUFFER_SLOTS="${MOEGAMBIT_ZERO2_BUFFER_SLOTS:-1}"
-export MOEGAMBIT_DEEPSPEED_APPLICATION_CHECKPOINT=0
 export MOEGAMBIT_RELAY_RANK_LOG="${MOEGAMBIT_RELAY_RANK_LOG:-key}"
 export MOEGAMBIT_DEEPSPEED_LOG_LEVEL="${MOEGAMBIT_DEEPSPEED_LOG_LEVEL:-info}"
 export MOEGAMBIT_LAUNCHER_LOG_LEVEL="${MOEGAMBIT_LAUNCHER_LOG_LEVEL:-warning}"
@@ -190,11 +184,7 @@ export MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD="${MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD:
 export MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD="${MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD:-1}"
 export MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT="${MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT:-300}"
 export MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP="${MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP:-1}"
-if [[ "${INPROCESS_RECOVERY}" == "1" ]]; then
-  export MOEGAMBIT_RECOVERY_FORCE_PREEMPT=0
-else
-  export MOEGAMBIT_RECOVERY_FORCE_PREEMPT="${MOEGAMBIT_RECOVERY_FORCE_PREEMPT:-1}"
-fi
+export MOEGAMBIT_RECOVERY_FORCE_PREEMPT=0
 export MOEGAMBIT_STANDBY_PREFETCH="${MOEGAMBIT_STANDBY_PREFETCH:-1}"
 export MOEGAMBIT_STANDBY_PREFETCH_LOGICAL_NODE="$FAULT_INJECT_NODE"
 export MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB="${MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB:-128}"
@@ -260,7 +250,7 @@ validate_case() {
   "${PYTHON_BIN}" - \
     "${completion}" "${state_dir}/fault_injected.json" \
     "${expect_fault}" "${expect_zero2}" "${TRAIN_ITERS}" \
-    "${FAULT_INJECT_STEP}" "${INPROCESS_RECOVERY}" <<'PY'
+    "${FAULT_INJECT_STEP}" <<'PY'
 import json
 import pathlib
 import sys
@@ -271,7 +261,6 @@ expect_fault = sys.argv[3] == "1"
 expect_zero2 = sys.argv[4] == "1"
 train_iters = int(sys.argv[5])
 fault_step = int(sys.argv[6])
-inprocess_recovery = sys.argv[7] == "1"
 state = json.loads(completion.read_text(encoding="utf-8"))
 
 assert state["global_step"] == train_iters, state
@@ -280,23 +269,12 @@ if expect_fault:
     assert state["restart_count"] >= 1, state
     contract = state.get("recovery_contract")
     assert contract, "recovery contract is missing"
-    expected_mode = (
-        "rank_in_process_hybrid"
-        if inprocess_recovery
-        else "mixed_version"
-    )
-    assert contract["mode"] == expected_mode, contract
+    assert contract["mode"] == "rank_in_process_hybrid", contract
     assert contract["resume_step"] == fault_step, contract
     assert contract["rollback_steps"] == 0, contract
     assert contract["checkpoint_step"] < fault_step, contract
-    expected_survivor_state = (
-        "resident_cuda"
-        if inprocess_recovery
-        else "current_step_handoff"
-    )
-    assert contract["survivor_state"] == expected_survivor_state, contract
-    if inprocess_recovery:
-        assert contract["survivor_processes_restarted"] == 0, contract
+    assert contract["survivor_state"] == "resident_cuda", contract
+    assert contract["survivor_processes_restarted"] == 0, contract
     assert contract["replacement_non_expert_model"] == "current_step_peer", contract
     assert contract["replacement_non_expert_optimizer"] == "current_step_peer_replica", contract
     assert contract["replacement_expert_model"] == "checkpoint", contract
@@ -347,7 +325,6 @@ run_case() {
   local case_port=$((BASE_MASTER_PORT + port_offset))
   local coordinator_port=$((HOT_SPARE_PORT + port_offset))
   local recovery_run_id="${RUN_ID}-${case_name}"
-  local handoff_dir="${HANDOFF_ROOT_BASE%/}/${recovery_run_id}/physical_${NODE_RANK}"
   local fault_rank=$((FAULT_INJECT_NODE * NPROC_PER_NODE + FAULT_INJECT_LOCAL_RANK))
   local fault_step=-1
 
@@ -367,35 +344,15 @@ run_case() {
   if (( NODE_RANK == reset_owner )) && [[ "${RESET_RUN}" == "1" ]]; then
     rm -rf "${case_root}"
   fi
-  if [[ "${RESET_RUN}" == "1" ]]; then
-    rm -rf "${handoff_dir}"
-  fi
   mkdir -p "${checkpoint_dir}" "${state_dir}"
-  mkdir -p "${handoff_dir}"
 
   export MASTER_ADDR
   export MASTER_PORT="${case_port}"
-  export ELASTIC_RUN_ID="${recovery_run_id}"
   export MOEGAMBIT_HOT_SWAP="${hot_swap}"
   export MOEGAMBIT_ZERO2="${zero2}"
   export MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE="${hot_swap}"
   export MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT=0
-  export MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY="$(
-    if [[ "${hot_swap}" == "1" ]]; then
-      printf '%s' "${INPROCESS_RECOVERY}"
-    else
-      printf '0'
-    fi
-  )"
-  export MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF="$(
-    if [[ "${hot_swap}" == "1" && "${INPROCESS_RECOVERY}" != "1" ]]; then
-      printf '1'
-    else
-      printf '0'
-    fi
-  )"
-  export MOEGAMBIT_RECOVERY_HANDOFF_DIR="${handoff_dir}"
-  export MOEGAMBIT_RECOVERY_HANDOFF_TIMEOUT="${MOEGAMBIT_RECOVERY_HANDOFF_TIMEOUT:-180}"
+  export MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY="${hot_swap}"
   export MOEGAMBIT_ZERO2_REPLICA_SCOPE="$(
     if [[ "${hot_swap}" == "1" ]]; then
       printf 'non_expert'
@@ -422,16 +379,10 @@ run_case() {
   export MOEGAMBIT_HOT_SPARE_COORDINATOR_PORT="${coordinator_port}"
   export MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR="${checkpoint_dir}"
   export MOEGAMBIT_DEEPSPEED_CHECKPOINT_INTERVAL="${SAVE_INTERVAL}"
-  export MOEGAMBIT_DEEPSPEED_MIN_NODES="${TRAINING_NNODES}"
-  export MOEGAMBIT_DEEPSPEED_MAX_NODES="${TRAINING_NNODES}"
-  export MOEGAMBIT_DEEPSPEED_EXTERNAL_ELASTIC="${hot_swap}"
+  export MOEGAMBIT_DEEPSPEED_EXTERNAL_COORDINATOR="${hot_swap}"
   export MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY="$(
     if [[ "${hot_swap}" == "1" ]]; then
-      if [[ "${INPROCESS_RECOVERY}" == "1" ]]; then
-        printf 'rank_in_process_hybrid'
-      else
-        printf 'mixed_version_survivor_handoff'
-      fi
+      printf 'rank_in_process_hybrid'
     else
       printf 'disabled'
     fi
@@ -446,7 +397,6 @@ run_case() {
 "hybrid_restore=${MOEGAMBIT_DEEPSPEED_HYBRID_RESTORE} "\
 "inprocess_recovery=${MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY} "\
 "recovery_strategy=${MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY} "\
-"survivor_handoff=${MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF} "\
 "optimizer_peer_replica=${hot_swap} replica_scope=${MOEGAMBIT_ZERO2_REPLICA_SCOPE} "\
 "replica_failure_domain=${MOEGAMBIT_REPLICA_FAILURE_DOMAIN_SIZE} "\
 "resident_standby=${MOEGAMBIT_STANDBY_RESIDENT} "\
@@ -457,7 +407,6 @@ run_case() {
 "recovery_comm_warmup=${MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP} "\
 "group_barrier_timeout=${MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT}s "\
 "force_preempt=${MOEGAMBIT_RECOVERY_FORCE_PREEMPT} "\
-"handoff_dir=${MOEGAMBIT_RECOVERY_HANDOFF_DIR} "\
 "spare=${SPARE_NODE_RANK} coordinator=${HOT_SPARE_ADDR}:${coordinator_port} "\
 "recovery_timeout=${HOT_SPARE_RECOVERY_TIMEOUT}s"
   local launch_node_rank="${NODE_RANK}"
@@ -524,9 +473,7 @@ run_case() {
       --startup-timeout "${HOT_SPARE_STARTUP_TIMEOUT}" \
       --state-path "${state_dir}/hot_spare_coordinator.json"
     )
-    if [[ "${INPROCESS_RECOVERY}" == "1" ]]; then
-      supervised_command+=(--rank-hot-swap)
-    fi
+    supervised_command+=(--rank-hot-swap)
     local advertise_addr="${MOEGAMBIT_HOT_SPARE_ADVERTISE_ADDR:-}"
     if [[ -z "${advertise_addr}" ]] && (( NODE_RANK == 0 )); then
       advertise_addr="${MASTER_ADDR}"

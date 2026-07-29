@@ -5,12 +5,138 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 from dataclasses import dataclass
 from typing import Any, Iterable
 
 
 class DeepSpeedHybridRestoreError(RuntimeError):
     pass
+
+
+def _capture_rng_state() -> dict[str, Any]:
+    import torch
+
+    state: dict[str, Any] = {
+        "python": random.getstate(),
+        "torch_cpu": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["torch_cuda"] = torch.cuda.get_rng_state(
+            torch.cuda.current_device()
+        )
+    try:
+        import numpy
+
+        state["numpy"] = numpy.random.get_state()
+    except ImportError:
+        pass
+    return state
+
+
+def _apply_rng_state(state: dict[str, Any]) -> None:
+    import torch
+
+    if "python" in state:
+        random.setstate(state["python"])
+    if "torch_cpu" in state:
+        torch.set_rng_state(state["torch_cpu"])
+    if torch.cuda.is_available() and "torch_cuda" in state:
+        torch.cuda.set_rng_state(
+            state["torch_cuda"], torch.cuda.current_device()
+        )
+    if "numpy" in state:
+        try:
+            import numpy
+
+            numpy.random.set_state(state["numpy"])
+        except ImportError:
+            pass
+
+
+def _capture_engine_state(engine: Any) -> dict[str, Any]:
+    scheduler = getattr(engine, "lr_scheduler", None)
+    scheduler_state = (
+        scheduler.state_dict()
+        if scheduler is not None and hasattr(scheduler, "state_dict")
+        else None
+    )
+    zero_optimizer = getattr(engine, "optimizer", None)
+    base_optimizer = getattr(zero_optimizer, "optimizer", None)
+    param_groups = []
+    if base_optimizer is not None:
+        for group in base_optimizer.param_groups:
+            param_groups.append(
+                {
+                    key: value
+                    for key, value in group.items()
+                    if key != "params"
+                }
+            )
+    return {
+        "global_steps": int(getattr(engine, "global_steps", -1)),
+        "global_samples": int(getattr(engine, "global_samples", 0)),
+        "skipped_steps": int(getattr(engine, "skipped_steps", 0)),
+        "engine_runtime": {
+            name: getattr(engine, name)
+            for name in (
+                "micro_steps",
+                "gas_boundary_ctr",
+                "_is_gradient_accumulation_boundary",
+                "_force_grad_boundary",
+            )
+            if hasattr(engine, name)
+        },
+        "scheduler": scheduler_state,
+        "optimizer_param_groups": param_groups,
+        "optimizer_runtime": {
+            name: getattr(zero_optimizer, name)
+            for name in (
+                "dynamic_loss_scale",
+                "overflow",
+                "clip_grad",
+                "loss_scaler",
+            )
+            if zero_optimizer is not None
+            and hasattr(zero_optimizer, name)
+        },
+    }
+
+
+def _apply_engine_state(engine: Any, state: dict[str, Any]) -> None:
+    engine.global_steps = int(state["global_steps"])
+    if hasattr(engine, "global_samples"):
+        engine.global_samples = int(state.get("global_samples", 0))
+    if hasattr(engine, "skipped_steps"):
+        engine.skipped_steps = int(state.get("skipped_steps", 0))
+    for name, value in state.get("engine_runtime", {}).items():
+        if hasattr(engine, name):
+            setattr(engine, name, value)
+    zero_optimizer = getattr(engine, "optimizer", None)
+    base_optimizer = getattr(zero_optimizer, "optimizer", None)
+    saved_groups = state.get("optimizer_param_groups", [])
+    if base_optimizer is not None and saved_groups:
+        if len(base_optimizer.param_groups) != len(saved_groups):
+            raise DeepSpeedHybridRestoreError(
+                "optimizer param-group count changed during recovery: "
+                f"current={len(base_optimizer.param_groups)} "
+                f"peer={len(saved_groups)}"
+            )
+        for current, saved in zip(
+            base_optimizer.param_groups, saved_groups
+        ):
+            current.update(saved)
+    for name, value in state.get("optimizer_runtime", {}).items():
+        if zero_optimizer is not None and hasattr(zero_optimizer, name):
+            setattr(zero_optimizer, name, value)
+    scheduler = getattr(engine, "lr_scheduler", None)
+    scheduler_state = state.get("scheduler")
+    if (
+        scheduler is not None
+        and scheduler_state is not None
+        and hasattr(scheduler, "load_state_dict")
+    ):
+        scheduler.load_state_dict(scheduler_state)
 
 
 @dataclass(frozen=True)
@@ -63,11 +189,11 @@ def _complete_restore_phase(
     *,
     metadata: dict[str, Any],
 ) -> None:
-    import torch.distributed as dist
-
     if not _inprocess_recovery_active():
-        dist.barrier()
-        return
+        raise DeepSpeedHybridRestoreError(
+            "peer restore is valid only inside an active in-process "
+            "recovery epoch"
+        )
     from moegambit_deepspeed.inprocess_recovery import (
         wait_for_inprocess_recovery_gate,
     )
@@ -76,11 +202,11 @@ def _complete_restore_phase(
 
 
 def _new_restore_group(ranks: list[int]):
-    if _inprocess_recovery_active():
-        from deepspeed import comm as dist
-
-        return dist.new_group(ranks=ranks)
-    import torch.distributed as dist
+    if not _inprocess_recovery_active():
+        raise DeepSpeedHybridRestoreError(
+            "restore process groups are recovery-only"
+        )
+    from deepspeed import comm as dist
 
     return dist.new_group(ranks=ranks)
 
@@ -317,32 +443,6 @@ def validate_checkpoint_base_steps(
     return checkpoint_step
 
 
-def validate_mixed_version_steps(
-    checkpoint_steps: Iterable[int],
-    survivor_steps: Iterable[int],
-    *,
-    failure_step: int,
-) -> int:
-    """Validate checkpoint experts and current-step survivor state."""
-    checkpoint_step = validate_checkpoint_base_steps(
-        checkpoint_steps, failure_step=failure_step
-    )
-    survivor_values = tuple(int(step) for step in survivor_steps)
-    if not survivor_values:
-        raise DeepSpeedHybridRestoreError(
-            "mixed-version recovery has no survivor handoff"
-        )
-    invalid = sorted(
-        {step for step in survivor_values if step != int(failure_step)}
-    )
-    if invalid:
-        raise DeepSpeedHybridRestoreError(
-            "survivor handoff is not at the failure safe step: "
-            f"expected={failure_step} actual={invalid}"
-        )
-    return checkpoint_step
-
-
 def _validate_peer_header(
     header: dict[str, Any],
     *,
@@ -421,13 +521,8 @@ def restore_non_expert_model_from_peer(
             "manifest": manifest,
         }
         if rank == plan.source_rank:
-            from moegambit_deepspeed.survivor_handoff import (
-                capture_engine_state,
-                capture_rng_state,
-            )
-
-            header["engine_state"] = capture_engine_state(engine)
-            header["rng_state"] = capture_rng_state()
+            header["engine_state"] = _capture_engine_state(engine)
+            header["rng_state"] = _capture_rng_state()
         object_list = [header if rank == plan.source_rank else None]
         dist.broadcast_object_list(
             object_list, src=plan.source_rank, group=pair_group
@@ -455,11 +550,6 @@ def restore_non_expert_model_from_peer(
         if torch.cuda.is_available():
             torch.cuda.current_stream().synchronize()
         if rank == plan.replacement_rank:
-            from moegambit_deepspeed.survivor_handoff import (
-                apply_engine_state,
-                apply_rng_state,
-            )
-
             engine_state = peer_header.get("engine_state")
             rng_state = peer_header.get("rng_state")
             if not isinstance(engine_state, dict):
@@ -470,8 +560,8 @@ def restore_non_expert_model_from_peer(
                 raise DeepSpeedHybridRestoreError(
                     f"peer restore group {ordinal} omitted RNG state"
                 )
-            apply_engine_state(engine, engine_state)
-            apply_rng_state(rng_state)
+            _apply_engine_state(engine, engine_state)
+            _apply_rng_state(rng_state)
         local_roles.append(
             "source" if rank == plan.source_rank else "replacement"
         )
@@ -495,7 +585,7 @@ def restore_non_expert_model_from_peer(
         "copied_bytes": copied_bytes,
         "expert_source": "checkpoint",
         "non_expert_source": "live_dp_peer",
-        "peer_state_origin": "survivor_handoff",
+        "peer_state_origin": "resident_live_peer",
         "two_phase": False,
     }
 
@@ -582,7 +672,7 @@ def restore_non_expert_optimizer_from_peer(
     engine: Any,
     optimizer_replica: Any,
     *,
-    survivor_payload: dict[str, Any] | None,
+    peer_optimizer_state: dict[str, Any] | None,
     replacement_ranks: Iterable[int],
     expected_step: int,
 ) -> dict[str, Any]:
@@ -591,35 +681,17 @@ def restore_non_expert_optimizer_from_peer(
     import torch.distributed as dist
 
     replacement_set = {int(rank) for rank in replacement_ranks}
-    if _inprocess_recovery_active():
-        group_manifest = derive_inprocess_optimizer_group_manifest(
-            engine,
-            optimizer_replica,
-            replacement_set,
-            rank=dist.get_rank(),
-            world_size=dist.get_world_size(),
+    if not _inprocess_recovery_active():
+        raise DeepSpeedHybridRestoreError(
+            "optimizer peer restore is recovery-only"
         )
-    else:
-        local_groups = dict(optimizer_replica.group_ranks)
-        gathered_groups: list[dict[str, list[int]] | None] = [
-            None
-        ] * dist.get_world_size()
-        dist.all_gather_object(gathered_groups, local_groups)
-        group_manifest = {}
-        for rank_groups in gathered_groups:
-            if not rank_groups:
-                continue
-            for namespace, ranks in rank_groups.items():
-                normalized = [int(item) for item in ranks]
-                previous = group_manifest.setdefault(
-                    namespace, normalized
-                )
-                if previous != normalized:
-                    raise DeepSpeedHybridRestoreError(
-                        "optimizer replica group manifest is inconsistent: "
-                        f"namespace={namespace} first={previous} "
-                        f"other={normalized}"
-                    )
+    group_manifest = derive_inprocess_optimizer_group_manifest(
+        engine,
+        optimizer_replica,
+        replacement_set,
+        rank=dist.get_rank(),
+        world_size=dist.get_world_size(),
+    )
     plans = build_optimizer_peer_restore_plans(
         group_manifest, replacement_set
     )
@@ -639,12 +711,11 @@ def restore_non_expert_optimizer_from_peer(
         header: dict[str, Any] | None = None
         snapshots: dict[str, Any] = {}
         if rank == plan.source_rank:
-            if survivor_payload is None:
+            if peer_optimizer_state is None:
                 raise DeepSpeedHybridRestoreError(
-                    f"source rank {rank} has no survivor handoff"
+                    f"source rank {rank} has no resident optimizer replica"
                 )
-            peer_snapshots = survivor_payload.get("peer_optimizer", {})
-            if plan.namespace not in peer_snapshots:
+            if plan.namespace not in peer_optimizer_state:
                 raise DeepSpeedHybridRestoreError(
                     "source peer does not hold the failed optimizer shard: "
                     f"source={plan.source_rank} "
@@ -652,7 +723,7 @@ def restore_non_expert_optimizer_from_peer(
                     f"namespace={plan.namespace}"
                 )
             snapshots = {
-                plan.namespace: peer_snapshots[plan.namespace]
+                plan.namespace: peer_optimizer_state[plan.namespace]
             }
             entries = []
             for namespace, snapshot in snapshots.items():
@@ -662,7 +733,7 @@ def restore_non_expert_optimizer_from_peer(
                     or int(snapshot.step) != int(expected_step)
                 ):
                     raise DeepSpeedHybridRestoreError(
-                        "optimizer handoff provenance mismatch: "
+                        "optimizer replica provenance mismatch: "
                         f"namespace={namespace} owner={snapshot.owner_rank} "
                         f"holder={snapshot.holder_rank} step={snapshot.step}"
                     )
@@ -854,6 +925,6 @@ def restore_non_expert_optimizer_from_peer(
         "copied_tensors": copied_tensors,
         "copied_scalars": copied_scalars,
         "copied_bytes": copied_bytes,
-        "optimizer_source": "survivor_peer_replica",
+        "optimizer_source": "resident_peer_replica",
         "restore_scope": "non_expert",
     }
