@@ -416,9 +416,20 @@ class HotSpareCoordinator:
                 self.epoch,
                 self.abort_reason,
             )
+            transient_message = message.kind in {
+                "heartbeat",
+                "poll",
+                "rank_recovery_phase",
+                "rank_recovery_ready",
+            }
+            recovery_ready = (
+                message.kind == "rank_recovery_ready"
+                and len(self.recovery_ready_ranks) == self.world_size
+            )
             if (
-                message.kind not in {"heartbeat", "poll"}
-                or durable_state_changed
+                durable_state_changed
+                or not transient_message
+                or recovery_ready
             ):
                 self._persist()
             command = self._command_for(physical_node)

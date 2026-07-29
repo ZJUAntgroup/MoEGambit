@@ -1395,12 +1395,14 @@ def test_multinode_script_dry_run_builds_real_commands(tmp_path):
     assert "survivor_handoff=0" in result.stdout
     assert "rank_in_process_hybrid" in result.stdout
     assert "--rank-hot-swap" in result.stdout
-    assert "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF" in (
+    launcher = (
         ROOT / "test_deepspeed_hotspare_replace.sh"
     ).read_text(encoding="utf-8")
-    assert "LOCAL_WORLD_SIZE" in (
-        ROOT / "test_deepspeed_hotspare_replace.sh"
-    ).read_text(encoding="utf-8")
+    assert "MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF" in launcher
+    assert "LOCAL_WORLD_SIZE" in launcher
+    assert '"rank_in_process_hybrid"' in launcher
+    assert '"resident_cuda"' in launcher
+    assert 'contract["survivor_processes_restarted"] == 0' in launcher
 
 
 def test_duplicate_spare_launcher_cannot_delete_active_case(tmp_path):
@@ -1782,6 +1784,71 @@ def test_hot_spare_coordinator_does_not_persist_heartbeat_or_poll(
     request("poll", 0, epoch=0)
 
     assert persisted == []
+
+
+def test_rank_recovery_persists_only_final_ready_state(
+    tmp_path, monkeypatch
+):
+    from moegambit.runtime.hot_spare import HotSpareCoordinator
+    from moegambit.runtime.protocol import WireMessage
+
+    coordinator = HotSpareCoordinator(
+        run_id="rank-persist",
+        training_nodes=1,
+        spare_physical_node=1,
+        base_master_port=24000,
+        local_world_size=2,
+        rank_hot_swap=True,
+        state_path=tmp_path / "state.json",
+    )
+
+    def request(kind, physical_node, **payload):
+        return coordinator.handle(
+            WireMessage(
+                kind,
+                {
+                    "run_id": "rank-persist",
+                    "physical_node": physical_node,
+                    **payload,
+                },
+            )
+        ).payload
+
+    request("register", 0, role="active", advertise_addr="10.0.0.1")
+    request("register", 1, role="standby", advertise_addr="10.0.0.2")
+    request("worker_ready", 0, epoch=0, logical_node=0)
+    request(
+        "rank_failure",
+        0,
+        epoch=0,
+        logical_node=0,
+        rank=1,
+        global_step=17,
+    )
+
+    persisted = []
+    monkeypatch.setattr(
+        coordinator, "_persist", lambda: persisted.append(True)
+    )
+    request(
+        "rank_recovery_phase",
+        0,
+        epoch=1,
+        rank=0,
+        phase="checkpoint_restore_start",
+    )
+    request(
+        "rank_recovery_phase",
+        1,
+        epoch=1,
+        rank=1,
+        phase="checkpoint_restore_start",
+    )
+    request("rank_recovery_ready", 0, epoch=1, rank=0)
+    assert persisted == []
+
+    request("rank_recovery_ready", 1, epoch=1, rank=1)
+    assert persisted == [True]
 
 
 def test_hot_spare_coordinator_fails_closed_without_second_spare():

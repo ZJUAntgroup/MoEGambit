@@ -54,7 +54,7 @@ HANDOFF_ROOT_BASE="${MOEGAMBIT_RECOVERY_HANDOFF_DIR:-/tmp/moegambit-deepspeed-ha
 
 MODEL_CONFIG="${MODEL_CONFIG:-${SCRIPT_DIR}/tokenizer}"
 DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
-RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/87hotspare/deepspeed_real}"
+RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/88hotspare/deepspeed_real}"
 RUN_ROOT="${RUN_ROOT_BASE%/}/${RUN_ID}"
 HOSTFILE="${DEEPSPEED_HOSTFILE:-/tmp/moegambit-deepspeed-hosts-${MASTER_PORT}}"
 
@@ -259,7 +259,7 @@ validate_case() {
   "${PYTHON_BIN}" - \
     "${completion}" "${state_dir}/fault_injected.json" \
     "${expect_fault}" "${expect_zero2}" "${TRAIN_ITERS}" \
-    "${FAULT_INJECT_STEP}" <<'PY'
+    "${FAULT_INJECT_STEP}" "${INPROCESS_RECOVERY}" <<'PY'
 import json
 import pathlib
 import sys
@@ -270,6 +270,7 @@ expect_fault = sys.argv[3] == "1"
 expect_zero2 = sys.argv[4] == "1"
 train_iters = int(sys.argv[5])
 fault_step = int(sys.argv[6])
+inprocess_recovery = sys.argv[7] == "1"
 state = json.loads(completion.read_text(encoding="utf-8"))
 
 assert state["global_step"] == train_iters, state
@@ -277,12 +278,24 @@ if expect_fault:
     assert fault_marker.is_file(), "fault marker was not written"
     assert state["restart_count"] >= 1, state
     contract = state.get("recovery_contract")
-    assert contract, "mixed-version recovery contract is missing"
-    assert contract["mode"] == "mixed_version", contract
+    assert contract, "recovery contract is missing"
+    expected_mode = (
+        "rank_in_process_hybrid"
+        if inprocess_recovery
+        else "mixed_version"
+    )
+    assert contract["mode"] == expected_mode, contract
     assert contract["resume_step"] == fault_step, contract
     assert contract["rollback_steps"] == 0, contract
     assert contract["checkpoint_step"] < fault_step, contract
-    assert contract["survivor_state"] == "current_step_handoff", contract
+    expected_survivor_state = (
+        "resident_cuda"
+        if inprocess_recovery
+        else "current_step_handoff"
+    )
+    assert contract["survivor_state"] == expected_survivor_state, contract
+    if inprocess_recovery:
+        assert contract["survivor_processes_restarted"] == 0, contract
     assert contract["replacement_non_expert_model"] == "current_step_peer", contract
     assert contract["replacement_non_expert_optimizer"] == "current_step_peer_replica", contract
     assert contract["replacement_expert_model"] == "checkpoint", contract
