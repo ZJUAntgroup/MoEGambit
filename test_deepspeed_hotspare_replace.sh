@@ -51,7 +51,7 @@ PACKED_EXPERT_CACHE="${MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE:-1}"
 
 MODEL_CONFIG="${MODEL_CONFIG:-${SCRIPT_DIR}/tokenizer}"
 DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
-RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/88hotspare/deepspeed_real}"
+RUN_ROOT_BASE="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/89hotspare/deepspeed_real}"
 RUN_ROOT="${RUN_ROOT_BASE%/}/${RUN_ID}"
 HOSTFILE="${DEEPSPEED_HOSTFILE:-/tmp/moegambit-deepspeed-hosts-${MASTER_PORT}}"
 
