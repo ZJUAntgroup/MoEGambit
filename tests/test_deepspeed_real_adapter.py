@@ -15,6 +15,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "deepspeed_adapter"))
 
 
@@ -50,7 +51,7 @@ def test_resident_and_gpu_build_optimizations_are_recovery_scoped():
     ).read_text(encoding="utf-8")
     hot_spare = (
         ROOT
-        / "deepspeed_adapter"
+        / "src"
         / "moegambit"
         / "runtime"
         / "hot_spare.py"
@@ -1433,6 +1434,7 @@ def test_local_adapter_discovers_bsr_vendored_deepspeed():
     python_paths = prepared.environment["PYTHONPATH"].split(os.pathsep)
 
     assert str(ROOT / "deepspeed_adapter") in python_paths
+    assert str(ROOT / "src") in python_paths
     assert str(ROOT / "DeepSpeed") in python_paths
     assert prepared.environment["MOEGAMBIT_DEEPSPEED_ROOT"] == str(
         ROOT / "DeepSpeed"
@@ -1482,7 +1484,7 @@ def test_deepspeed_adapter_selects_rank_inprocess_hot_swap():
 def test_zero2_replica_slot_count_is_configurable():
     manager = (
         ROOT
-        / "deepspeed_adapter"
+        / "src"
         / "moegambit"
         / "runtime"
         / "zero2_replica.py"
@@ -2610,6 +2612,7 @@ def main(_argv):
     environment["PYTHONPATH"] = os.pathsep.join(
         [
             str(fake_modules),
+            str(ROOT / "src"),
             str(ROOT / "deepspeed_adapter"),
             environment.get("PYTHONPATH", ""),
         ]
@@ -3193,6 +3196,7 @@ time.sleep(0.2)
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(
         [
+            str(ROOT / "src"),
             str(ROOT / "deepspeed_adapter"),
             env.get("PYTHONPATH", ""),
         ]

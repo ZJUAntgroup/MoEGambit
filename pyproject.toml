@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moegambit"
+version = "0.1.0.dev0"
+description = "Framework-agnostic elastic recovery runtime for distributed training"
+readme = "docs/design/RUNTIME_NON_DEEPSPEED_DEVELOPMENT_PLAN.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [{ name = "MoEGambit authors" }]
+keywords = ["distributed-training", "fault-tolerance", "moe", "elastic", "megatron"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.scripts]
+moegambit-launch = "moegambit.cli.launch:main"
+moegambit-watch = "moegambit.cli.watch:main"
+moegambit-watcher = "moegambit.cli.watcher:main"
+moegambit-doctor = "moegambit.cli.doctor:main"
+
+[project.entry-points."moegambit.engine_adapters"]
+megatron = "moegambit.adapters.megatron.engine:MegatronEngineAdapter"
+
+[project.optional-dependencies]
+torch = ["torch>=2.0"]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+license-files = ["LICENSE", "LEGAL.md"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["moegambit*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

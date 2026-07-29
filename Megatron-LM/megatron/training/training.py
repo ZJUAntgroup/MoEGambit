@@ -90,10 +90,7 @@ from megatron.training.checkpointing import load_checkpoint
 from megatron.training.checkpointing import save_checkpoint
 from megatron.training.checkpointing import checkpoint_exists
 from megatron.training.elastic_client import (
-    elastic_client_start,
     elastic_client_update_step,
-    elastic_check_pause,
-    elastic_do_rebuild,
     elastic_align_resume_state,
     elastic_expert_sidecar_available,
     elastic_on_nccl_error,
@@ -103,12 +100,19 @@ from megatron.training.elastic_client import (
     elastic_post_rebuild_iteration_barrier,
     elastic_trace_post_rebuild_phase,
     elastic_clear_post_rebuild_trace,
-    elastic_commit_post_rebuild_iteration,
     elastic_sanitize_recovery_env_for_startup,
-    elastic_zero2_initialize,
-    elastic_zero2_wait_before_optimizer_step,
-    elastic_zero2_schedule_after_optimizer_step,
     is_rebuild_mode,
+)
+from moegambit.adapters.megatron.integration import (
+    after_optimizer_step as moegambit_runtime_after_optimizer_step,
+    before_optimizer_step as moegambit_runtime_before_optimizer_step,
+    bootstrap_control_plane as moegambit_runtime_bootstrap,
+    commit_iteration as moegambit_runtime_commit_iteration,
+    finalize_replacement as moegambit_runtime_finalize_replacement,
+    get_runtime as get_moegambit_runtime,
+    initialize_runtime as initialize_moegambit_runtime,
+    iteration_boundary as moegambit_runtime_iteration_boundary,
+    on_distributed_error as moegambit_runtime_on_distributed_error,
 )
 from megatron.core.full_cuda_graph import FullCudaGraphWrapper
 from megatron.core.transformer.cuda_graphs import TECudaGraphHelper
@@ -765,7 +769,7 @@ def pretrain(
 
     # =========================================================================
     # Start elastic client (heartbeat to watcher on spare node)
-    elastic_client_start()
+    moegambit_runtime_bootstrap()
 
     # Elastic rebuild mode: replacement node loads model weights from the
     # checkpoint so EP-local experts come from their own shard, then receives
@@ -854,11 +858,8 @@ def pretrain(
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type, checkpointing_context=checkpointing_context
     )
-    elastic_zero2_initialize(
-        model,
-        optimizer,
-        initial_step=int(args.iteration),
-        start_transport=not _elastic_rebuild,
+    initialize_moegambit_runtime(
+        model, optimizer, opt_param_scheduler, args=args
     )
 
     timers('model-and-optimizer-setup').stop(barrier=not _elastic_rebuild)
@@ -899,7 +900,9 @@ def pretrain(
         elastic_report_recovery_phase("model_optimizer_ready")
         args.no_load_optim = _elastic_saved_no_load_optim
         args.no_load_rng = _elastic_saved_no_load_rng
-        elastic_replacement_sync_params(model, optimizer, opt_param_scheduler)
+        moegambit_runtime_finalize_replacement(
+            model, optimizer, opt_param_scheduler
+        )
         logger.warning("[elastic] REBUILD MODE: param sync complete, joining training loop")
 
     # Data stuff.
@@ -1564,7 +1567,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
     )
     # PHOENIX invariant I3: the pre-update optimizer state must be committed
     # on its DP-ring neighbor before optimizer.step() mutates that state.
-    elastic_zero2_wait_before_optimizer_step(args.curr_iteration)
+    moegambit_runtime_before_optimizer_step(args.curr_iteration)
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()
@@ -1603,7 +1606,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
     if update_successful:
         increment = get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
         opt_param_scheduler.step(increment=increment)
-        elastic_zero2_schedule_after_optimizer_step(args.curr_iteration + 1)
+        moegambit_runtime_after_optimizer_step(args.curr_iteration, committed=True)
         skipped_iter = 0
         elastic_client_update_step(
             args.curr_iteration,
@@ -1614,7 +1617,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
         # Loss-scale skips still advance the outer training iteration.  The
         # optimizer bytes are unchanged, but the recoverable version tag must
         # advance with the safe-point iteration.
-        elastic_zero2_schedule_after_optimizer_step(args.curr_iteration + 1)
+        moegambit_runtime_after_optimizer_step(args.curr_iteration, committed=False)
         skipped_iter = 1
         elastic_client_update_step(
             args.curr_iteration,
@@ -2629,18 +2632,13 @@ def train(
 
         # Elastic hot-spare: check if watcher requested a pause for group rebuild.
         # This is the safe point — all ranks are synchronized here.
-        elastic_client_update_step(
-            iteration,
-            phase="iteration_safe_point",
-            step_tag=iteration,
-        )
         elastic_trace_post_rebuild_phase("iteration_safe_point_start", iteration)
-        if elastic_check_pause():
+        elastic_resume_iteration = moegambit_runtime_iteration_boundary(iteration)
+        if elastic_resume_iteration != iteration:
             logger.warning(
                 "[elastic] Iteration %d: pause requested, entering rebuild...",
                 iteration,
             )
-            elastic_resume_iteration = elastic_do_rebuild(model, optimizer, opt_param_scheduler)
             if elastic_resume_iteration is not None and elastic_resume_iteration >= 0:
                 iteration = elastic_resume_iteration
                 args.curr_iteration = iteration
@@ -2736,18 +2734,17 @@ def train(
 
                 # Notify elastic watcher about the NCCL error (non-blocking,
                 # best-effort).  This triggers the pause/rebuild flow.
-                elastic_on_nccl_error(_moegambit_exc)
-
-                # If elastic recovery is active (pause signal already received),
-                # skip MOEGAMBIT logic and go directly to rebuild.  The process group
-                # is corrupted — any further NCCL calls (even in MOEGAMBIT) would hang.
-                if elastic_check_pause():
+                # The runtime owns failure classification and the destructive
+                # recovery sequence.  Megatron retains only the training-loop
+                # decision about whether it is safe to continue this iteration.
+                if moegambit_runtime_on_distributed_error(_moegambit_exc):
                     logger.warning(
                         "[elastic] NCCL error caught + pause signal present. "
                         "Skipping MOEGAMBIT logic, entering rebuild immediately."
                     )
-                    elastic_resume_iteration = elastic_do_rebuild(
-                        model, optimizer, opt_param_scheduler
+                    _runtime = get_moegambit_runtime()
+                    elastic_resume_iteration = (
+                        _runtime.resume_step if _runtime is not None else iteration
                     )
                     if elastic_resume_iteration is not None and elastic_resume_iteration >= 0:
                         iteration = elastic_resume_iteration
@@ -3057,7 +3054,7 @@ def train(
             train_data_iterator,
         )
         elastic_trace_post_rebuild_phase("checkpoint_exit_done", args.curr_iteration)
-        elastic_commit_post_rebuild_iteration(args.curr_iteration)
+        moegambit_runtime_commit_iteration(args.curr_iteration)
         if should_exit:
             break
 

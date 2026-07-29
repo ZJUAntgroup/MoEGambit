@@ -5,7 +5,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 
 MODULE_PATH = (

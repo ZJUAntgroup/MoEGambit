@@ -791,4 +791,16 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--moegambit-runtime" in sys.argv:
+        runtime_argv = [
+            value for value in sys.argv[1:] if value != "--moegambit-runtime"
+        ]
+        try:
+            from moegambit.cli.launch import main as runtime_main
+        except ModuleNotFoundError:
+            # Repository checkout compatibility before the package is
+            # installed.  The canonical package remains the sole source root.
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+            from moegambit.cli.launch import main as runtime_main
+        raise SystemExit(runtime_main(runtime_argv))
     main()

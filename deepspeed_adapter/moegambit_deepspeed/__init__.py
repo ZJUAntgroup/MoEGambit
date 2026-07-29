@@ -56,6 +56,7 @@ class DeepSpeedAdapter:
         if vendored is not None:
             _prepend_path(environment, vendored)
             _prepend_path(environment, adapter_root)
+            _prepend_path(environment, repository / "src")
             environment["MOEGAMBIT_DEEPSPEED_ROOT"] = str(vendored)
 
         strategy = "disabled"

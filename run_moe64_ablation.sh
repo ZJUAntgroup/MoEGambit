@@ -28,7 +28,7 @@ set -x
 # Keep ablation logs parseable. Use ABLATION_NCCL_DEBUG=INFO only when
 # debugging NCCL bring-up.
 export NCCL_DEBUG="${ABLATION_NCCL_DEBUG:-WARN}"
-export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
+export PYTHONPATH="${PYTHONPATH:-}:./src:./Megatron-LM"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 export CUDA_DEVICE_MAX_CONNECTIONS="${CUDA_DEVICE_MAX_CONNECTIONS:-1}"

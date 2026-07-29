@@ -14,7 +14,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export PYTHONPATH="${PYTHONPATH:-}:./Megatron-LM"
+export PYTHONPATH="${PYTHONPATH:-}:./src:./Megatron-LM"
 
 if [ "${ELASTIC_STANDBY_MODE:-0}" = "1" ]; then
   ASSIGNMENT_FILE="${ELASTIC_SPARE_ASSIGNMENT_FILE:-/tmp/elastic_faults/spare_assignment.json}"

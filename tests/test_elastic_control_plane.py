@@ -214,10 +214,11 @@ def test_peer_endpoint_prefers_advertised_host_over_connection_source():
 def test_recovery_peer_publishers_include_a_routable_host():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
     tree = ast.parse(source)
@@ -249,9 +250,10 @@ def test_recovery_peer_publishers_include_a_routable_host():
 def test_megatron_peer_sync_uses_one_manifest_and_raw_pinned_pipeline():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
+        / "src"
+        / "moegambit"
+        / "adapters"
         / "megatron"
-        / "training"
         / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
@@ -295,7 +297,12 @@ def test_megatron_peer_sync_uses_one_manifest_and_raw_pinned_pipeline():
 def test_expert_sidecar_is_atomic_prefetched_and_has_full_checkpoint_fallback():
     root = Path(__file__).parents[1]
     elastic_source = (
-        root / "Megatron-LM" / "megatron" / "training" / "elastic_client.py"
+        root
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "megatron"
+        / "elastic_client.py"
     ).read_text()
     checkpoint_source = (
         root / "Megatron-LM" / "megatron" / "training" / "checkpointing.py"
@@ -361,7 +368,7 @@ def test_post_rebuild_communicators_follow_the_real_training_order():
         (root / "run_spare_single_rank.sh").read_text(),
         (root / "elastic_watcher.py").read_text(),
         (root / "Megatron-LM/megatron/training/training.py").read_text(),
-        (root / "Megatron-LM/megatron/training/elastic_client.py").read_text(),
+        (root / "src/moegambit/adapters/megatron/elastic_client.py").read_text(),
         (
             root
             / "Megatron-LM/megatron/core/transformer/moe/token_dispatcher.py"
@@ -655,10 +662,11 @@ def test_future_prearmed_phase_is_the_only_future_epoch_message_accepted():
 def test_prearmed_assignment_refreshes_only_dynamic_recovery_metadata():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     tree = ast.parse(elastic_client_path.read_text())
     refresh_node = next(
@@ -785,10 +793,11 @@ def test_selective_rebuild_detaches_and_restores_healthy_c10d_group():
 def test_selective_group_retention_precedes_world_teardown():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
     tree = ast.parse(source)
@@ -921,10 +930,11 @@ def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
 def test_zero2_quiesce_aligns_all_ranks_before_transport_close():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
     tree = ast.parse(source)
@@ -947,10 +957,11 @@ def test_zero2_quiesce_aligns_all_ranks_before_transport_close():
 def test_rebuild_binds_recovery_epoch_before_zero2_quiesce():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
     tree = ast.parse(source)
@@ -970,10 +981,11 @@ def test_rebuild_binds_recovery_epoch_before_zero2_quiesce():
 def test_optimizer_rebind_classifies_non_distributed_dense_and_expert_groups():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     tree = ast.parse(elastic_client_path.read_text())
     classifier_node = next(
@@ -1144,7 +1156,7 @@ def test_recovery_contract_is_committed_at_train_loop_boundary():
         "should_exit = checkpoint_and_decide_exit(", callbacks_call
     )
     recovery_commit = train_source.index(
-        "elastic_commit_post_rebuild_iteration(args.curr_iteration)", checkpoint_call
+        "moegambit_runtime_commit_iteration(args.curr_iteration)", checkpoint_call
     )
     assert (
         training_log_call
@@ -1166,10 +1178,11 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     )
     elastic_client_path = (
         root
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     rerun_source = rerun_path.read_text()
     rerun_tree = ast.parse(rerun_source)
@@ -1257,10 +1270,11 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
 def test_post_rebuild_commit_uses_one_barrier_after_first_recovered_iteration():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
     tree = ast.parse(source)
@@ -1302,10 +1316,11 @@ def test_post_rebuild_commit_uses_one_barrier_after_first_recovered_iteration():
 def test_disabled_rebuild_warmup_skips_the_global_control_barrier():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
     tree = ast.parse(source)
@@ -1364,10 +1379,11 @@ def test_moe_first_collective_fail_fast_is_one_shot_per_recovery_step():
 def test_post_rebuild_detail_trace_uses_node_representatives():
     elastic_client_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "training"
-        / "elastic_client.py"
+        / "src"
+            / "moegambit"
+            / "adapters"
+            / "megatron"
+            / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
     tree = ast.parse(source)

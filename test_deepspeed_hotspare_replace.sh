@@ -19,6 +19,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 WORKLOAD="${SCRIPT_DIR}/deepspeed_qwen3_moe_pretrain.py"
 DEEPSPEED_ROOT="${SCRIPT_DIR}/DeepSpeed"
 ADAPTER_ROOT="${SCRIPT_DIR}/deepspeed_adapter"
+RUNTIME_ROOT="${SCRIPT_DIR}/src"
 
 TEST_MODE="${TEST_MODE:-hot_swap}"
 TRAINING_NNODES="${TRAINING_NNODES:-8}"
@@ -145,6 +146,7 @@ fi
 
 [[ -f "${WORKLOAD}" ]] || fail "missing workload: ${WORKLOAD}"
 [[ -d "${DEEPSPEED_ROOT}/deepspeed" ]] || fail "missing DeepSpeed source: ${DEEPSPEED_ROOT}"
+[[ -d "${RUNTIME_ROOT}/moegambit" ]] || fail "missing MoEGambit runtime: ${RUNTIME_ROOT}"
 [[ -d "${ADAPTER_ROOT}/moegambit_deepspeed" ]] || fail "missing DeepSpeed adapter: ${ADAPTER_ROOT}"
 [[ -f "${MODEL_CONFIG}/config.json" ]] || fail "missing Qwen config: ${MODEL_CONFIG}/config.json"
 if [[ "${DRY_RUN}" != "1" ]]; then
@@ -162,7 +164,7 @@ fi
 export PYTHONUNBUFFERED=1
 export PYTHONFAULTHANDLER=1
 export LOCAL_WORLD_SIZE="${NPROC_PER_NODE}"
-export PYTHONPATH="${ADAPTER_ROOT}:${DEEPSPEED_ROOT}:${SCRIPT_DIR}/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${RUNTIME_ROOT}:${ADAPTER_ROOT}:${DEEPSPEED_ROOT}:${SCRIPT_DIR}/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}}"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
