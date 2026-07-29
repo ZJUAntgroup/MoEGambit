@@ -176,7 +176,6 @@ def test_recovery_warmup_keeps_distinct_groups_with_same_membership(
     class Engine:
         data_parallel_group = dense
         seq_data_parallel_group = dense
-        seq_parallel_group = None
         optimizer = Optimizer()
         expert_parallel_group = {"ep": expert}
         expert_data_parallel_group = {}

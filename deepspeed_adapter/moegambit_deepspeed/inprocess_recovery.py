@@ -134,28 +134,32 @@ def _local_group_manifest(engine: Any) -> dict[str, Any]:
     optimizer = engine.optimizer
     tied_comms = getattr(module, "tied_comms", {})
     return {
-        "data_parallel": _group_ranks(engine.data_parallel_group),
+        "data_parallel": _group_ranks(
+            getattr(engine, "data_parallel_group", None)
+        ),
         "sequence_data_parallel": _group_ranks(
-            engine.seq_data_parallel_group
+            getattr(engine, "seq_data_parallel_group", None)
         ),
         "sequence_parallel": _group_ranks(
             getattr(engine, "seq_parallel_group", None)
         ),
         "expert_parallel": _group_dict_ranks(
-            engine.expert_parallel_group
+            getattr(engine, "expert_parallel_group", {})
         ),
         "expert_data_parallel": _group_dict_ranks(
-            engine.expert_data_parallel_group
+            getattr(engine, "expert_data_parallel_group", {})
         ),
         "model_parallel": _group_ranks(
             getattr(optimizer, "model_parallel_group", None)
         ),
         "optimizer_data_parallel": _group_ranks(
-            optimizer.dp_process_group
+            getattr(optimizer, "dp_process_group", None)
         ),
         "optimizer_real_data_parallel": [
             _group_ranks(group)
-            for group in optimizer.real_dp_process_group
+            for group in getattr(
+                optimizer, "real_dp_process_group", ()
+            )
         ],
         "pipeline": (
             _group_ranks(grid.get_pipe_parallel_group())
@@ -221,12 +225,24 @@ def _local_recovery_warmup_groups(
             )
         entry["names"].add(name)
 
-    add("engine.data_parallel", engine.data_parallel_group)
-    add("engine.sequence_data_parallel", engine.seq_data_parallel_group)
-    add("engine.sequence_parallel", engine.seq_parallel_group)
+    add(
+        "engine.data_parallel",
+        getattr(engine, "data_parallel_group", None),
+    )
+    add(
+        "engine.sequence_data_parallel",
+        getattr(engine, "seq_data_parallel_group", None),
+    )
+    add(
+        "engine.sequence_parallel",
+        getattr(engine, "seq_parallel_group", None),
+    )
 
     optimizer = engine.optimizer
-    add("optimizer.data_parallel", optimizer.dp_process_group)
+    add(
+        "optimizer.data_parallel",
+        getattr(optimizer, "dp_process_group", None),
+    )
     add(
         "optimizer.model_parallel",
         getattr(optimizer, "model_parallel_group", None),
@@ -237,8 +253,14 @@ def _local_recovery_warmup_groups(
         add(f"optimizer.real_data_parallel.{index}", group)
 
     for family, values in (
-        ("expert_parallel", engine.expert_parallel_group),
-        ("expert_data_parallel", engine.expert_data_parallel_group),
+        (
+            "expert_parallel",
+            getattr(engine, "expert_parallel_group", {}),
+        ),
+        (
+            "expert_data_parallel",
+            getattr(engine, "expert_data_parallel_group", {}),
+        ),
     ):
         if isinstance(values, Mapping):
             for name, group in sorted(values.items()):
