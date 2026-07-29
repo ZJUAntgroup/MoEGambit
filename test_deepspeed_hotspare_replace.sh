@@ -189,6 +189,7 @@ export MOEGAMBIT_STANDBY_READY_TIMEOUT="${MOEGAMBIT_STANDBY_READY_TIMEOUT:-10}"
 export MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD="${MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD:-1}"
 export MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD="${MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD:-1}"
 export MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT="${MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT:-300}"
+export MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP="${MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP:-1}"
 if [[ "${INPROCESS_RECOVERY}" == "1" ]]; then
   export MOEGAMBIT_RECOVERY_FORCE_PREEMPT=0
 else
@@ -303,9 +304,15 @@ if expect_fault:
 else:
     assert state["restart_count"] == 0, state
 
-if expect_zero2:
+expect_optimizer_replica = (
+    expect_fault
+    and state["recovery_contract"][
+        "replacement_non_expert_optimizer"
+    ] == "current_step_peer_replica"
+)
+if expect_zero2 or expect_optimizer_replica:
     replicas = state.get("zero2_replication")
-    assert replicas, "ZeRO-2 replication summary is missing"
+    assert replicas, "optimizer replication summary is missing"
     for namespace, replica in replicas.items():
         assert replica["local_replicated_step"] >= train_iters, (
             namespace,
@@ -447,6 +454,7 @@ run_case() {
 "packed_cache=${MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE} "\
 "recovery_gpu_build=${MOEGAMBIT_RECOVERY_GPU_MODEL_BUILD} "\
 "ordered_group_rebuild=${MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD} "\
+"recovery_comm_warmup=${MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP} "\
 "group_barrier_timeout=${MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT}s "\
 "force_preempt=${MOEGAMBIT_RECOVERY_FORCE_PREEMPT} "\
 "handoff_dir=${MOEGAMBIT_RECOVERY_HANDOFF_DIR} "\

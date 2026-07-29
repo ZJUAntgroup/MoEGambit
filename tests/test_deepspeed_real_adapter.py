@@ -90,6 +90,177 @@ def test_ordered_deepspeed_group_rebuild_is_recovery_scoped():
     assert "MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD" in launcher
 
 
+def test_recovery_communicator_warmup_is_recovery_scoped():
+    recovery = (
+        ROOT
+        / "deepspeed_adapter"
+        / "moegambit_deepspeed"
+        / "inprocess_recovery.py"
+    ).read_text(encoding="utf-8")
+    launcher = (
+        ROOT / "test_deepspeed_hotspare_replace.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP" in recovery
+    assert "def warm_recovery_communicators(" in recovery
+    assert "communicator_warmup_start" in recovery
+    assert "communicator_warmup_done" in recovery
+    assert "_warm_pipeline_p2p" in recovery
+    assert "MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP" in launcher
+    assert "expect_optimizer_replica" in launcher
+    assert '"optimizer replication summary is missing"' in launcher
+
+
+def test_recovery_warmup_manifest_requires_every_group_member():
+    from moegambit_deepspeed.inprocess_recovery import (
+        DeepSpeedInProcessRecoveryError,
+        _global_recovery_warmup_manifest,
+    )
+
+    class FakeDist:
+        def __init__(self, manifests):
+            self.manifests = manifests
+
+        def get_world_size(self):
+            return len(self.manifests)
+
+        def all_gather_object(self, output, _local):
+            output[:] = self.manifests
+
+    valid = [
+        [{"name": "pipeline", "ranks": [0, 1], "aliases": []}],
+        [
+            {"name": "pipeline", "ranks": [0, 1], "aliases": []},
+            {"name": "data", "ranks": [1, 2], "aliases": []},
+        ],
+        [{"name": "data", "ranks": [1, 2], "aliases": []}],
+    ]
+    assert _global_recovery_warmup_manifest(
+        FakeDist(valid), {}
+    ) == [("data", (1, 2)), ("pipeline", (0, 1))]
+
+    missing_member = [
+        [{"name": "pipeline", "ranks": [0, 1], "aliases": []}],
+        [],
+        [],
+    ]
+    with pytest.raises(
+        DeepSpeedInProcessRecoveryError,
+        match="not visible to every member",
+    ):
+        _global_recovery_warmup_manifest(
+            FakeDist(missing_member), {}
+        )
+
+
+def test_recovery_warmup_keeps_distinct_groups_with_same_membership(
+    monkeypatch,
+):
+    from moegambit_deepspeed import inprocess_recovery
+
+    class Group:
+        def __init__(self, ranks):
+            self.ranks = ranks
+
+    dense = Group([0, 1])
+    expert = Group([0, 1])
+
+    class Optimizer:
+        dp_process_group = dense
+        model_parallel_group = None
+        real_dp_process_group = [dense, expert]
+
+    class Module:
+        tied_comms = {}
+
+    class Engine:
+        data_parallel_group = dense
+        seq_data_parallel_group = dense
+        seq_parallel_group = None
+        optimizer = Optimizer()
+        expert_parallel_group = {"ep": expert}
+        expert_data_parallel_group = {}
+        module = Module()
+        grid = None
+        _autoep_folding_group_handles = None
+
+    monkeypatch.setattr(
+        inprocess_recovery,
+        "_group_ranks",
+        lambda group: list(group.ranks),
+    )
+    groups = inprocess_recovery._local_recovery_warmup_groups(
+        Engine()
+    )
+
+    assert len(groups) == 2
+    assert {descriptor[1] for descriptor in groups} == {(0, 1)}
+    assert {entry["group"] for entry in groups.values()} == {
+        dense,
+        expert,
+    }
+
+
+def test_recovery_pipeline_warmup_uses_full_bidirectional_matchings():
+    from moegambit_deepspeed.inprocess_recovery import (
+        _warm_pipeline_p2p,
+    )
+
+    class FakeGrid:
+        pipe_parallel_size = 8
+
+        def __init__(self, stage):
+            self.stage = stage
+
+        def get_stage_id(self):
+            return self.stage
+
+        def stage_to_global(self, stage):
+            return stage
+
+    class FakeEngine:
+        def __init__(self, stage):
+            self.grid = FakeGrid(stage)
+
+    class FakeDist:
+        def __init__(self):
+            self.operations = []
+
+        def send(self, _token, dst):
+            self.operations.append(("send", dst))
+
+        def recv(self, _token, src):
+            self.operations.append(("recv", src))
+
+        def all_reduce(self, _token):
+            self.operations.append(("sync", None))
+
+    per_stage = []
+    for stage in range(8):
+        dist = FakeDist()
+        assert _warm_pipeline_p2p(
+            dist, FakeEngine(stage), object()
+        ) == 4
+        assert [kind for kind, _ in dist.operations] == [
+            "send" if stage % 2 == 0 else "recv",
+            "sync",
+            "recv" if stage % 2 == 0 else "send",
+            "sync",
+            "send" if stage in {0, 1, 3, 5} else "recv",
+            "sync",
+            "recv" if stage in {0, 1, 3, 5} else "send",
+            "sync",
+        ]
+        per_stage.append(dist.operations)
+
+    for stage, peer in ((0, 1), (2, 3), (4, 5), (6, 7)):
+        assert per_stage[stage][0] == ("send", peer)
+        assert per_stage[peer][0] == ("recv", stage)
+    for stage, peer in ((0, 7), (1, 2), (3, 4), (5, 6)):
+        assert per_stage[stage][4] == ("send", peer)
+        assert per_stage[peer][4] == ("recv", stage)
+
+
 def test_watcher_ordinal_barrier_retries_transient_connect_failure(
     monkeypatch,
 ):

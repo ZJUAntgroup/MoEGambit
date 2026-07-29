@@ -184,6 +184,249 @@ def _local_group_manifest(engine: Any) -> dict[str, Any]:
     }
 
 
+def _recovery_communicator_warmup_enabled() -> bool:
+    return os.environ.get(
+        "MOEGAMBIT_DEEPSPEED_RECOVERY_COMM_WARMUP", "1"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _local_recovery_warmup_groups(
+    engine: Any,
+) -> dict[tuple[str, tuple[int, ...]], dict[str, Any]]:
+    """Collect the distinct local groups used by the first training step."""
+    groups_by_handle: dict[int, dict[str, Any]] = {}
+
+    def add(name: str, group: Any) -> None:
+        if group is None:
+            return
+        ranks = _group_ranks(group)
+        if ranks is None or len(ranks) <= 1:
+            return
+        handle_key = id(group)
+        entry = groups_by_handle.setdefault(
+            handle_key,
+            {
+                "group": group,
+                "names": set(),
+                "ranks": tuple(int(rank) for rank in ranks),
+            },
+        )
+        if (
+            entry["group"] is not group
+            or entry["ranks"] != tuple(int(rank) for rank in ranks)
+        ):
+            raise DeepSpeedInProcessRecoveryError(
+                "local process-group identity changed while building the "
+                f"warmup manifest: existing={entry} new={name}"
+            )
+        entry["names"].add(name)
+
+    add("engine.data_parallel", engine.data_parallel_group)
+    add("engine.sequence_data_parallel", engine.seq_data_parallel_group)
+    add("engine.sequence_parallel", engine.seq_parallel_group)
+
+    optimizer = engine.optimizer
+    add("optimizer.data_parallel", optimizer.dp_process_group)
+    add(
+        "optimizer.model_parallel",
+        getattr(optimizer, "model_parallel_group", None),
+    )
+    for index, group in enumerate(
+        getattr(optimizer, "real_dp_process_group", ())
+    ):
+        add(f"optimizer.real_data_parallel.{index}", group)
+
+    for family, values in (
+        ("expert_parallel", engine.expert_parallel_group),
+        ("expert_data_parallel", engine.expert_data_parallel_group),
+    ):
+        if isinstance(values, Mapping):
+            for name, group in sorted(values.items()):
+                add(f"{family}.{name}", group)
+
+    grid = getattr(engine, "grid", None)
+    if grid is not None:
+        for name, getter_name in (
+            ("pipeline", "get_pipe_parallel_group"),
+            ("pipeline_data_parallel", "get_data_parallel_group"),
+            ("pipeline_model_parallel", "get_model_parallel_group"),
+            ("pipeline_slice_parallel", "get_slice_parallel_group"),
+        ):
+            getter = getattr(grid, getter_name, None)
+            if callable(getter):
+                add(name, getter())
+
+    tied_comms = getattr(engine.module, "tied_comms", {})
+    if isinstance(tied_comms, Mapping):
+        for name, value in sorted(tied_comms.items()):
+            if isinstance(value, Mapping):
+                add(f"tied.{name}", value.get("group"))
+
+    folding = getattr(engine, "_autoep_folding_group_handles", None)
+    if folding is not None:
+        for name in ("tp_group", "dense_dp_group", "ep_group", "edp_group"):
+            add(f"folding.{name}", getattr(folding, name, None))
+
+    groups: dict[tuple[str, tuple[int, ...]], dict[str, Any]] = {}
+    for entry in groups_by_handle.values():
+        canonical_name = sorted(entry["names"])[0]
+        descriptor = (canonical_name, entry["ranks"])
+        if descriptor in groups:
+            raise DeepSpeedInProcessRecoveryError(
+                "communicator warmup has duplicate semantic descriptors: "
+                f"{descriptor}"
+            )
+        groups[descriptor] = entry
+    return groups
+
+
+def _global_recovery_warmup_manifest(
+    dist: Any,
+    local_groups: Mapping[
+        tuple[str, tuple[int, ...]], Mapping[str, Any]
+    ],
+) -> list[tuple[str, tuple[int, ...]]]:
+    """Agree on a deterministic warmup order before issuing collectives."""
+    world_size = int(dist.get_world_size())
+    local_manifest = [
+        {
+            "name": name,
+            "ranks": list(ranks),
+            "aliases": sorted(entry["names"]),
+        }
+        for (name, ranks), entry in sorted(local_groups.items())
+    ]
+    gathered: list[list[dict[str, Any]] | None] = [None] * world_size
+    dist.all_gather_object(gathered, local_manifest)
+
+    parsed: list[set[tuple[str, tuple[int, ...]]]] = []
+    union: set[tuple[str, tuple[int, ...]]] = set()
+    for reporter, manifest in enumerate(gathered):
+        if not isinstance(manifest, list):
+            raise DeepSpeedInProcessRecoveryError(
+                "communicator warmup manifest is missing for "
+                f"rank {reporter}: {manifest!r}"
+            )
+        local_descriptors: set[tuple[str, tuple[int, ...]]] = set()
+        for item in manifest:
+            try:
+                name = str(item["name"])
+                ranks = tuple(int(value) for value in item["ranks"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DeepSpeedInProcessRecoveryError(
+                    "invalid communicator warmup descriptor "
+                    f"from rank {reporter}: {item!r}"
+                ) from exc
+            if (
+                not name
+                or len(ranks) <= 1
+                or len(set(ranks)) != len(ranks)
+                or any(rank < 0 or rank >= world_size for rank in ranks)
+            ):
+                raise DeepSpeedInProcessRecoveryError(
+                    "invalid communicator warmup group "
+                    f"from rank {reporter}: name={name!r} ranks={ranks}"
+                )
+            descriptor = (name, ranks)
+            local_descriptors.add(descriptor)
+            union.add(descriptor)
+        parsed.append(local_descriptors)
+
+    for descriptor in union:
+        _, ranks = descriptor
+        missing = [
+            rank for rank in ranks if descriptor not in parsed[rank]
+        ]
+        if missing:
+            raise DeepSpeedInProcessRecoveryError(
+                "communicator warmup group is not visible to every member: "
+                f"group={descriptor} missing={missing}"
+            )
+    return sorted(
+        union,
+        key=lambda descriptor: (
+            descriptor[0],
+            len(descriptor[1]),
+            descriptor[1],
+        ),
+    )
+
+
+def _warm_pipeline_p2p(dist: Any, engine: Any, token: Any) -> int:
+    """Eagerly connect both directions of every adjacent pipeline edge."""
+    grid = getattr(engine, "grid", None)
+    if grid is None or int(grid.pipe_parallel_size) <= 1:
+        return 0
+
+    stage = int(grid.get_stage_id())
+    stages = int(grid.pipe_parallel_size)
+    if stages % 2:
+        return 0
+    operations = 0
+    for parity in (0, 1):
+        if parity == 0:
+            peer_stage = stage + 1 if stage % 2 == 0 else stage - 1
+        elif stage == 0:
+            peer_stage = stages - 1
+        elif stage == stages - 1:
+            peer_stage = 0
+        elif stage % 2:
+            peer_stage = stage + 1
+        else:
+            peer_stage = stage - 1
+        peer = int(grid.stage_to_global(peer_stage))
+        for forward in (True, False):
+            send = (stage < peer_stage) == forward
+            if send:
+                dist.send(token, dst=peer)
+            else:
+                dist.recv(token, src=peer)
+            operations += 1
+            dist.all_reduce(token)
+    return operations
+
+
+def warm_recovery_communicators(
+    engine: Any,
+    phase_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Initialize only communicators used by the first post-recovery step."""
+    if not _recovery_communicator_warmup_enabled():
+        return {"enabled": False, "groups": 0, "p2p_operations": 0}
+
+    import torch
+    import torch.distributed as dist
+
+    if phase_callback is not None:
+        phase_callback("communicator_warmup_start")
+    local_groups = _local_recovery_warmup_groups(engine)
+    manifest = _global_recovery_warmup_manifest(dist, local_groups)
+    rank = int(dist.get_rank())
+    token = torch.ones(1, dtype=torch.int32, device=engine.device)
+
+    for descriptor in manifest:
+        _, ranks = descriptor
+        if rank in ranks:
+            dist.all_reduce(
+                token,
+                group=local_groups[descriptor]["group"],
+            )
+        # Non-members wait here so overlapping groups can never initialize in
+        # a different order on different ranks.
+        dist.all_reduce(token)
+
+    p2p_operations = _warm_pipeline_p2p(dist, engine, token)
+    torch.cuda.synchronize(engine.device)
+    if phase_callback is not None:
+        phase_callback("communicator_warmup_done")
+    return {
+        "enabled": True,
+        "groups": len(manifest),
+        "local_groups": len(local_groups),
+        "p2p_operations": p2p_operations,
+    }
+
+
 def _require_rank_command(
     command: Mapping[str, Any], rank: int, world_size: int
 ) -> tuple[int, int, str, int]:
@@ -570,6 +813,10 @@ def rebuild_engine_process_groups(
     report("global_group_manifest_start")
     _validate_manifest(engine, failed_rank, epoch)
     report("global_group_manifest_done")
+    warmup_summary = warm_recovery_communicators(
+        engine,
+        phase_callback=phase_callback,
+    )
     return {
         "rank": rank,
         "failed_rank": failed_rank,
@@ -584,6 +831,7 @@ def rebuild_engine_process_groups(
         "model_parameters_preserved": True,
         "optimizer_parameters_preserved": True,
         "group_membership_preserved": True,
+        "communicator_warmup": warmup_summary,
     }
 
 
@@ -601,3 +849,7 @@ def validate_replacement_process_groups(
     _validate_manifest(engine, failed_rank, epoch)
     if phase_callback is not None:
         phase_callback("global_group_manifest_done")
+    warm_recovery_communicators(
+        engine,
+        phase_callback=phase_callback,
+    )
