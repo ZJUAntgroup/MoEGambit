@@ -40,3 +40,15 @@ def test_framework_neutral_package_has_one_source_root():
     ]
 
     assert package_roots == [ROOT / "src" / "moegambit" / "__init__.py"]
+
+
+def test_root_elastic_entrypoints_are_adapter_dispatchers():
+    launcher = (ROOT / "elastic_launcher.py").read_text(encoding="utf-8")
+    watcher = (ROOT / "elastic_watcher.py").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "moegambit.cli.elastic_compat" in launcher
+    assert "moegambit.cli.elastic_compat" in watcher
+    assert "--adapter deepspeed" in readme
+    assert "compat_launcher.py" not in launcher
+    assert "run_spare_single_rank.sh" not in watcher

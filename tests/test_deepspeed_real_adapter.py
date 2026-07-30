@@ -1546,7 +1546,7 @@ def test_multinode_script_dry_run_builds_real_commands(tmp_path):
     assert "--zero-stage 1" in result.stdout
     assert "--pipeline-parallel-size 1" in result.stdout
     assert "--zero-stage 2" in result.stdout
-    assert "moegambit.runtime.hot_spare" in result.stdout
+    assert "elastic_launcher.py --adapter deepspeed" in result.stdout
     assert "mixed_version_survivor_handoff" not in result.stderr
     assert "--spare-node 8" in result.stdout
     assert "--node_rank \\{logical_node\\}" in result.stdout

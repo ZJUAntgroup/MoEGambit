@@ -459,13 +459,13 @@ run_case() {
   )
   local -a supervised_command=("${launch_command[@]}")
   if [[ "${hot_swap}" == "1" ]]; then
-    local supervisor_mode="agent"
+    local supervisor_entry="${SCRIPT_DIR}/elastic_launcher.py"
     if (( NODE_RANK == SPARE_NODE_RANK )); then
-      supervisor_mode="coordinator-agent"
+      supervisor_entry="${SCRIPT_DIR}/elastic_watcher.py"
     fi
     supervised_command=(
-      "${PYTHON_BIN}" -u -m moegambit.runtime.hot_spare \
-      --mode "${supervisor_mode}" \
+      "${PYTHON_BIN}" -u "${supervisor_entry}" \
+      --adapter deepspeed \
       --coordinator-host "${HOT_SPARE_ADDR}" \
       --coordinator-port "${coordinator_port}" \
       --run-id "${recovery_run_id}" \
@@ -489,7 +489,7 @@ run_case() {
     if [[ -n "${advertise_addr}" ]]; then
       supervised_command+=(--advertise-addr "${advertise_addr}")
     fi
-    if [[ "${supervisor_mode}" == "coordinator-agent" ]]; then
+    if (( NODE_RANK == SPARE_NODE_RANK )); then
       supervised_command+=(--listen-host "0.0.0.0")
     fi
     supervised_command+=(-- "${launch_command[@]}")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 from typing import Sequence
 
 from moegambit.interfaces import (
@@ -36,7 +37,7 @@ class DeepSpeedEngineAdapter:
     capabilities = AdapterCapabilities(
         hot_swap=True,
         zero2=True,
-        watcher_required=False,
+        watcher_required=True,
     )
 
     def probe(self, command: Sequence[str]) -> bool:
@@ -129,8 +130,15 @@ class DeepSpeedEngineAdapter:
         )
 
     def watcher_command(self, features, arguments: Sequence[str]):
-        del features, arguments
-        return None
+        del features
+        return (
+            sys.executable,
+            "-m",
+            "moegambit.runtime.hot_spare",
+            "--mode",
+            "coordinator-agent",
+            *tuple(arguments),
+        )
 
 
 from .integration import attach_engine

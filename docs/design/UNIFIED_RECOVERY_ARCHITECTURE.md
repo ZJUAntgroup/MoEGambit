@@ -68,6 +68,9 @@ fail closed，并进入 checkpoint relaunch 或 abort，不允许继续不确定
 
 - `megatron.training.elastic_client` 和 Megatron MoE 旧模块保留 forwarding shim；
 - DeepSpeed 原生目录从 `moegambit.adapters.deepspeed` 接入 engine hook；
+- 根目录 `elastic_launcher.py` 和 `elastic_watcher.py` 仅按 `--adapter` 分发；
+- Megatron 旧实现位于 `adapters/megatron/compat_launcher.py` 和
+  `compat_watcher.py`，DeepSpeed 同名入口转发到通用 `runtime.hot_spare`；
 - `moegambit.runtime.hot_spare`、`distributed`、`zero2_replica` 等已验证模块名
   保留，但实现只存在于根包；
 - `moegambit.runtime.config` 仅转发根 `moegambit.config`，防止再次出现两份配置；

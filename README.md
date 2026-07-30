@@ -37,8 +37,8 @@ training.
 │   ├── megatron/run_hot_spare.sh
 │   ├── deepspeed/run_hot_spare.sh
 │   └── generic_ddp/
-├── elastic_launcher.py        # Megatron compatibility launcher
-├── elastic_watcher.py         # Megatron compatibility watcher
+├── elastic_launcher.py        # adapter-aware compatibility launcher
+├── elastic_watcher.py         # adapter-aware compatibility watcher
 ├── run_spare_single_rank.sh   # prearmed Megatron replacement worker
 ├── deepspeed_qwen3_moe_pretrain.py
 ├── test_hotspare_replace.sh
@@ -178,6 +178,8 @@ This installs the common runtime and these commands:
 - `moegambit-watch`
 - `moegambit-watcher`
 - `moegambit-doctor`
+- `moegambit-elastic-launcher`
+- `moegambit-elastic-watcher`
 
 ### 4. Install framework dependencies
 
@@ -391,6 +393,47 @@ fault-replacement flow.
 
 ## Runtime CLI
 
+### Compatibility launcher and watcher
+
+The historical root entry points now dispatch by adapter. Omitting
+`--adapter` preserves the original Megatron behavior:
+
+```bash
+python elastic_launcher.py --adapter megatron \
+  --nproc-per-node 8 --nnodes 8 --node-rank "${NODE_RANK}" \
+  --master-addr "${MASTER_ADDR}" --master-port 20117 \
+  -- python Megatron-LM/pretrain_gpt.py ...
+
+python elastic_watcher.py --adapter megatron \
+  --port 20200 --training-nnodes 8 --nproc-per-node 8 \
+  --master-addr "${MASTER_ADDR}" --master-port 20117
+```
+
+For DeepSpeed, the launcher represents an active hot-spare agent and the
+watcher represents the coordinator plus resident spare agent:
+
+```bash
+# Active nodes 0-7
+python elastic_launcher.py --adapter deepspeed \
+  --coordinator-host "${SPARE_ADDR}" --coordinator-port 20221 \
+  --run-id ds-run-001 --training-nodes 8 --spare-node 8 \
+  --physical-node "${NODE_RANK}" --local-world-size 8 \
+  --base-master-port 20121 --rank-hot-swap \
+  -- python -m deepspeed.launcher.runner ...
+
+# Spare node 8
+python elastic_watcher.py --adapter deepspeed \
+  --coordinator-host "${SPARE_ADDR}" --coordinator-port 20221 \
+  --listen-host 0.0.0.0 --run-id ds-run-001 \
+  --training-nodes 8 --spare-node 8 --physical-node 8 \
+  --local-world-size 8 --base-master-port 20121 --rank-hot-swap \
+  -- python -m deepspeed.launcher.runner ...
+```
+
+The DeepSpeed example constructs these commands automatically. The installed
+`moegambit-elastic-launcher` and `moegambit-elastic-watcher` commands are
+equivalent to the two root scripts.
+
 Prepare a DeepSpeed launch without executing it:
 
 ```bash
@@ -411,9 +454,9 @@ moegambit-watcher \
   --port 20200
 ```
 
-The real Megatron and DeepSpeed scripts use compatibility coordinators because
-their already validated recovery sequences include framework-specific
-safe-point and resident-worker behavior.
+Both frameworks now share the root command names and common hot-spare runtime.
+Their adapters still own framework-specific safe-point, process-group rebuild,
+and state-restore behavior.
 
 ## Success criteria
 
