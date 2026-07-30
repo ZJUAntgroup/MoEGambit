@@ -207,7 +207,9 @@ def initialize(
     if not isinstance(config, dict):
         config = load_ds_config(config)
     if _moegambit_enabled():
-        from moegambit_deepspeed.config import prepare_deepspeed_config
+        from moegambit.adapters.deepspeed.config import (
+            prepare_deepspeed_config,
+        )
 
         config = prepare_deepspeed_config(config)
 
@@ -276,7 +278,7 @@ def initialize(
     zero.partition_parameters.restore_init_context()
 
     if _moegambit_enabled():
-        from moegambit_deepspeed.integration import attach_engine
+        from moegambit.adapters.deepspeed.integration import attach_engine
 
         attach_engine(engine)
 

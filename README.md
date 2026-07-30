@@ -25,12 +25,12 @@ training.
 │   ├── core/                  # framework-free recovery decisions and events
 │   ├── runtime/               # orchestration, hot spare, watcher client, wire protocol
 │   ├── interfaces/            # EngineAdapter launch protocol
-│   ├── adapters/megatron/     # Megatron-specific state and topology access
+│   ├── adapters/
+│   │   ├── megatron/          # Megatron state, topology, and launch integration
+│   │   └── deepspeed/         # DeepSpeed engine, ZeRO, group, and checkpoint integration
 │   ├── control/               # authenticated control plane and frozen recovery plans
 │   ├── distributed/           # topology models and c10d compatibility
 │   └── replication/           # optimizer memory replication
-├── deepspeed_adapter/
-│   └── moegambit_deepspeed/   # DeepSpeed engine, ZeRO, group, and checkpoint logic
 ├── Megatron-LM/               # Megatron Core 0.15.3 source with integration hooks
 ├── DeepSpeed/                 # DeepSpeed 0.19.3 source with integration hooks
 ├── examples/
@@ -52,7 +52,7 @@ framework hook -> framework adapter -> moegambit interfaces/runtime/core
 ```
 
 Framework-independent code must not be added back into `Megatron-LM/`,
-`DeepSpeed/`, or `deepspeed_adapter/moegambit_deepspeed/`.
+`DeepSpeed/`, or either framework adapter.
 
 ## Supported recovery modes
 
@@ -199,7 +199,7 @@ Repository scripts also set the source paths explicitly, so local DeepSpeed
 and Megatron modifications take precedence over an unrelated site-package:
 
 ```bash
-export PYTHONPATH="$PWD/src:$PWD/deepspeed_adapter:$PWD/DeepSpeed:$PWD/Megatron-LM${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$PWD/src:$PWD/DeepSpeed:$PWD/Megatron-LM${PYTHONPATH:+:$PYTHONPATH}"
 ```
 
 ### 5. Verify the installation
@@ -207,11 +207,11 @@ export PYTHONPATH="$PWD/src:$PWD/deepspeed_adapter:$PWD/DeepSpeed:$PWD/Megatron-
 ```bash
 python - <<'PY'
 import moegambit
-import moegambit_deepspeed
+import moegambit.adapters.deepspeed
 from moegambit.runtime.discovery import discover_adapters
 
 print(moegambit.__file__)
-print(moegambit_deepspeed.__file__)
+print(moegambit.adapters.deepspeed.__file__)
 print(sorted(discover_adapters()))
 PY
 
@@ -219,8 +219,8 @@ moegambit-doctor
 python -m pytest tests -q
 ```
 
-`moegambit` must resolve from `src/moegambit`; there must not be another
-top-level `moegambit` package under a framework adapter.
+Both adapters must resolve below the installed `moegambit.adapters` package;
+neither adapter requires a separate source root.
 
 ## Dataset, tokenizer, and storage
 
@@ -483,7 +483,7 @@ bash -n \
   test_hotspare_replace.sh \
   test_deepspeed_hotspare_replace.sh
 
-python -m compileall -q src deepspeed_adapter
+python -m compileall -q src
 python -m pytest tests -q
 git diff --check
 ```

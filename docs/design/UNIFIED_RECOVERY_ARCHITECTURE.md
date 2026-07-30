@@ -18,14 +18,12 @@ src/moegambit/
 ├── interfaces/            # EngineAdapter 启动协议
 ├── adapters/
 │   ├── megatron/          # Megatron 对象、训练循环和 MoE 语义
+│   ├── deepspeed/         # DeepSpeed engine/group/ZeRO/checkpoint 语义
 │   └── generic_ddp.py
 ├── distributed/           # 通用 topology model 和 c10d compatibility
 ├── replication/           # 通用 optimizer memory replication
 ├── control/               # 认证控制面和 frozen recovery plan
 └── cli/                   # launch、watch、watcher、doctor
-
-deepspeed_adapter/
-└── moegambit_deepspeed/   # 仅 DeepSpeed engine/group/ZeRO/checkpoint 语义
 ```
 
 静态依赖只能向内：
@@ -69,11 +67,11 @@ fail closed，并进入 checkpoint relaunch 或 abort，不允许继续不确定
 ## 5. 兼容边界
 
 - `megatron.training.elastic_client` 和 Megatron MoE 旧模块保留 forwarding shim；
-- DeepSpeed 原生目录继续从 `moegambit_deepspeed` 接入 engine hook；
+- DeepSpeed 原生目录从 `moegambit.adapters.deepspeed` 接入 engine hook；
 - `moegambit.runtime.hot_spare`、`distributed`、`zero2_replica` 等已验证模块名
   保留，但实现只存在于根包；
 - `moegambit.runtime.config` 仅转发根 `moegambit.config`，防止再次出现两份配置；
-- 仓库运行时 `PYTHONPATH` 顺序固定为 `src`、框架插件、框架源码。
+- 仓库运行时 `PYTHONPATH` 顺序固定为 `src`、框架源码。
 
 ## 6. CLI
 

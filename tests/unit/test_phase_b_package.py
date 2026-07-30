@@ -61,20 +61,31 @@ assert not any(
     assert result.returncode == 0, result.stderr
 
 
-def test_core_and_deepspeed_plugin_share_one_package_root():
-    plugin_root = SRC_ROOT.parent / "deepspeed_adapter"
+def test_core_and_deepspeed_adapter_share_one_package_root():
     environment = os.environ.copy()
-    environment["PYTHONPATH"] = os.pathsep.join(
-        [str(SRC_ROOT), str(plugin_root)]
-    )
+    environment["PYTHONPATH"] = str(SRC_ROOT)
     code = """
 from pathlib import Path
 import moegambit
-import moegambit_deepspeed
+import moegambit.adapters.deepspeed
+from moegambit.adapters.deepspeed.engine import DeepSpeedEngineAdapter
+from moegambit.adapters.megatron.engine import MegatronEngineAdapter
 assert Path(moegambit.__file__).resolve().parent == Path(
     r'%s'
 ).resolve()
-assert moegambit_deepspeed.DeepSpeedAdapter.name == 'deepspeed'
+assert moegambit.adapters.deepspeed.DeepSpeedAdapter.name == 'deepspeed'
+assert (
+    moegambit.adapters.deepspeed.DeepSpeedEngineAdapter.name
+    == 'deepspeed'
+)
+assert (
+    Path(DeepSpeedEngineAdapter.__module__.replace('.', '/')).parts[-2]
+    == 'deepspeed'
+)
+assert (
+    Path(MegatronEngineAdapter.__module__.replace('.', '/')).parts[-2]
+    == 'megatron'
+)
 """ % (SRC_ROOT / "moegambit")
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -86,6 +97,7 @@ assert moegambit_deepspeed.DeepSpeedAdapter.name == 'deepspeed'
     )
 
     assert result.returncode == 0, result.stderr
+    assert not (REPOSITORY_ROOT / "deepspeed_adapter").exists()
 
 
 def test_runtime_config_reads_new_names_and_control_identity():

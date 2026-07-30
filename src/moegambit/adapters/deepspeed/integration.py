@@ -147,7 +147,7 @@ class DeepSpeedRecoveryRuntime:
             self.settings.zero2 or self.settings.hybrid_restore
         )
         if needs_optimizer_replica:
-            from moegambit_deepspeed.zero2 import DeepSpeedZero2Replica
+            from .zero2 import DeepSpeedZero2Replica
 
             if (
                 self.settings.inprocess_recovery
@@ -171,7 +171,7 @@ class DeepSpeedRecoveryRuntime:
             self.settings.inprocess_recovery
             and self.settings.inprocess_replacement
         ):
-            from moegambit_deepspeed.inprocess_recovery import (
+            from .inprocess_recovery import (
                 validate_replacement_process_groups,
             )
 
@@ -192,16 +192,16 @@ class DeepSpeedRecoveryRuntime:
 
     def _restore_inprocess_hybrid(self) -> None:
         """Restore only the replacement while survivors retain live state."""
-        from moegambit_deepspeed.checkpoint_commit import (
+        from .checkpoint_commit import (
             checkpoint_step_from_tag,
             resolve_committed_checkpoint,
         )
-        from moegambit_deepspeed.hybrid_restore import (
+        from .hybrid_restore import (
             restore_non_expert_model_from_peer,
             restore_non_expert_optimizer_from_peer,
             validate_checkpoint_base_steps,
         )
-        from moegambit_deepspeed.inprocess_recovery import (
+        from .inprocess_recovery import (
             wait_for_inprocess_recovery_gate,
         )
         import torch.distributed as dist
@@ -485,7 +485,7 @@ class DeepSpeedRecoveryRuntime:
                 epoch=recovery_epoch,
                 phase="process_group_rebuild_start",
             )
-            from moegambit_deepspeed.inprocess_recovery import (
+            from .inprocess_recovery import (
                 rebuild_engine_process_groups,
             )
 
@@ -499,7 +499,7 @@ class DeepSpeedRecoveryRuntime:
 
             old_zero2.close()
             self._peer_optimizer_state = None
-            from moegambit_deepspeed.zero2 import DeepSpeedZero2Replica
+            from .zero2 import DeepSpeedZero2Replica
 
             self.zero2 = DeepSpeedZero2Replica(
                 self.engine, timeout=self.settings.replica_timeout
@@ -591,7 +591,7 @@ class DeepSpeedRecoveryRuntime:
                 },
                 save_latest=False,
             )
-            from moegambit_deepspeed.checkpoint_commit import (
+            from .checkpoint_commit import (
                 publish_checkpoint,
             )
 

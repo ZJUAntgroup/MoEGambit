@@ -194,7 +194,7 @@ def _complete_restore_phase(
             "peer restore is valid only inside an active in-process "
             "recovery epoch"
         )
-    from moegambit_deepspeed.inprocess_recovery import (
+    from .inprocess_recovery import (
         wait_for_inprocess_recovery_gate,
     )
 

@@ -31,7 +31,7 @@ def _enabled(environment: dict[str, str], name: str) -> bool:
     }
 
 
-class DeepSpeedAdapter:
+class DeepSpeedEngineAdapter:
     name = "deepspeed"
     capabilities = AdapterCapabilities(
         hot_swap=True,
@@ -46,8 +46,7 @@ class DeepSpeedAdapter:
     def prepare_launch(self, request: LaunchRequest) -> PreparedLaunch:
         command = tuple(request.command)
         environment = dict(request.environment)
-        repository = Path(__file__).resolve().parents[2]
-        adapter_root = Path(__file__).resolve().parents[1]
+        repository = Path(__file__).resolve().parents[4]
         candidates = (
             repository / "DeepSpeed",
             repository / "src" / "DeepSpeed",
@@ -55,7 +54,6 @@ class DeepSpeedAdapter:
         vendored = next((path for path in candidates if path.is_dir()), None)
         if vendored is not None:
             _prepend_path(environment, vendored)
-            _prepend_path(environment, adapter_root)
             _prepend_path(environment, repository / "src")
             environment["MOEGAMBIT_DEEPSPEED_ROOT"] = str(vendored)
 
@@ -135,6 +133,13 @@ class DeepSpeedAdapter:
         return None
 
 
-from moegambit_deepspeed.integration import attach_engine
+from .integration import attach_engine
 
-__all__ = ["DeepSpeedAdapter", "attach_engine"]
+# Compatibility for callers that used the pre-unification class name.
+DeepSpeedAdapter = DeepSpeedEngineAdapter
+
+__all__ = [
+    "DeepSpeedAdapter",
+    "DeepSpeedEngineAdapter",
+    "attach_engine",
+]

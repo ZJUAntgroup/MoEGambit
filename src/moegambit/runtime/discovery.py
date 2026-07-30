@@ -12,7 +12,9 @@ from moegambit.interfaces import EngineAdapter
 ENTRY_POINT_GROUP = "moegambit.engine_adapters"
 _BUILTINS: Mapping[str, str] = {
     "megatron": "moegambit.adapters.megatron.engine:MegatronEngineAdapter",
-    "deepspeed": "moegambit_deepspeed:DeepSpeedAdapter",
+    "deepspeed": (
+        "moegambit.adapters.deepspeed.engine:DeepSpeedEngineAdapter"
+    ),
 }
 
 

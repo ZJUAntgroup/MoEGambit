@@ -16,7 +16,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "deepspeed_adapter"))
 
 
 def test_real_workload_contains_both_supported_topologies():
@@ -75,8 +74,10 @@ def test_ordered_deepspeed_group_rebuild_is_recovery_scoped():
     ).read_text(encoding="utf-8")
     recovery = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "inprocess_recovery.py"
     ).read_text(encoding="utf-8")
 
@@ -94,8 +95,10 @@ def test_ordered_deepspeed_group_rebuild_is_recovery_scoped():
 def test_recovery_communicator_warmup_is_recovery_scoped():
     recovery = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "inprocess_recovery.py"
     ).read_text(encoding="utf-8")
     launcher = (
@@ -113,7 +116,7 @@ def test_recovery_communicator_warmup_is_recovery_scoped():
 
 
 def test_recovery_warmup_manifest_requires_every_group_member():
-    from moegambit_deepspeed.inprocess_recovery import (
+    from moegambit.adapters.deepspeed.inprocess_recovery import (
         DeepSpeedInProcessRecoveryError,
         _global_recovery_warmup_manifest,
     )
@@ -157,7 +160,7 @@ def test_recovery_warmup_manifest_requires_every_group_member():
 def test_recovery_warmup_keeps_distinct_groups_with_same_membership(
     monkeypatch,
 ):
-    from moegambit_deepspeed import inprocess_recovery
+    from moegambit.adapters.deepspeed import inprocess_recovery
 
     class Group:
         def __init__(self, ranks):
@@ -202,7 +205,7 @@ def test_recovery_warmup_keeps_distinct_groups_with_same_membership(
 
 
 def test_recovery_pipeline_warmup_uses_full_bidirectional_matchings():
-    from moegambit_deepspeed.inprocess_recovery import (
+    from moegambit.adapters.deepspeed.inprocess_recovery import (
         _warm_pipeline_p2p,
     )
 
@@ -610,8 +613,10 @@ def test_deepspeed_rank_log_directory_creation_is_idempotent():
 def test_runtime_hooks_common_optimizer_boundary():
     source = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "integration.py"
     ).read_text(encoding="utf-8")
 
@@ -621,7 +626,7 @@ def test_runtime_hooks_common_optimizer_boundary():
 
 
 def test_hot_swap_rejects_legacy_torchelastic_strategy(monkeypatch):
-    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+    from moegambit.adapters.deepspeed.integration import DeepSpeedRuntimeSettings
 
     monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
     monkeypatch.setenv(
@@ -636,7 +641,7 @@ def test_hot_swap_rejects_legacy_torchelastic_strategy(monkeypatch):
 
 
 def test_hot_swap_selects_only_rank_inprocess_hybrid(monkeypatch):
-    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+    from moegambit.adapters.deepspeed.integration import DeepSpeedRuntimeSettings
 
     monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
     monkeypatch.setenv(
@@ -658,7 +663,7 @@ def test_hot_swap_selects_only_rank_inprocess_hybrid(monkeypatch):
 
 
 def test_removed_file_handoff_switch_fails_closed(monkeypatch):
-    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+    from moegambit.adapters.deepspeed.integration import DeepSpeedRuntimeSettings
 
     monkeypatch.setenv("MOEGAMBIT_HOT_SWAP", "1")
     monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_CHECKPOINT_DIR", "/tmp/ckpt")
@@ -670,7 +675,7 @@ def test_removed_file_handoff_switch_fails_closed(monkeypatch):
 
 
 def test_recovery_flags_cannot_pollute_normal_start(monkeypatch):
-    from moegambit_deepspeed.integration import DeepSpeedRuntimeSettings
+    from moegambit.adapters.deepspeed.integration import DeepSpeedRuntimeSettings
 
     monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT", "1")
     monkeypatch.setenv("MOEGAMBIT_DEEPSPEED_SURVIVOR_HANDOFF", "1")
@@ -689,7 +694,7 @@ def test_recovery_flags_cannot_pollute_normal_start(monkeypatch):
 
 
 def test_rank_recovery_command_requires_complete_world_mapping():
-    from moegambit_deepspeed.inprocess_recovery import (
+    from moegambit.adapters.deepspeed.inprocess_recovery import (
         DeepSpeedInProcessRecoveryError,
         _require_rank_command,
     )
@@ -737,8 +742,10 @@ def test_inprocess_replacement_does_not_repeat_initial_world_barrier():
 def test_inprocess_pipeline_rebuild_resets_p2p_metadata_protocol():
     recovery = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "inprocess_recovery.py"
     ).read_text(encoding="utf-8")
 
@@ -777,8 +784,10 @@ def test_inprocess_replacement_skips_unmatched_pipeline_probe():
 def test_inprocess_recovery_control_path_avoids_full_world_collectives():
     integration = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "integration.py"
     ).read_text(encoding="utf-8")
     start = integration.index(
@@ -797,7 +806,7 @@ def test_inprocess_recovery_control_path_avoids_full_world_collectives():
 
 
 def test_inprocess_optimizer_manifest_is_derived_from_topology():
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         derive_inprocess_optimizer_group_manifest,
     )
 
@@ -838,7 +847,7 @@ def test_inprocess_optimizer_manifest_is_derived_from_topology():
 
 
 def test_rank_inprocess_checkpoint_tag_requires_explicit_step():
-    from moegambit_deepspeed.checkpoint_commit import (
+    from moegambit.adapters.deepspeed.checkpoint_commit import (
         checkpoint_step_from_tag,
     )
 
@@ -848,7 +857,7 @@ def test_rank_inprocess_checkpoint_tag_requires_explicit_step():
 
 
 def test_inprocess_optimizer_rebind_reuses_initialized_moe_layout():
-    from moegambit_deepspeed.inprocess_recovery import (
+    from moegambit.adapters.deepspeed.inprocess_recovery import (
         _rebind_optimizer_process_groups,
     )
 
@@ -909,8 +918,10 @@ def test_inprocess_optimizer_rebind_reuses_initialized_moe_layout():
     assert folding_calls == [folding_spec]
     recovery = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "inprocess_recovery.py"
     ).read_text(encoding="utf-8")
     assert "optimizer._configure_moe_settings()" not in recovery
@@ -919,14 +930,18 @@ def test_inprocess_optimizer_rebind_reuses_initialized_moe_layout():
 def test_hybrid_restore_loads_checkpoint_before_live_peer_overrides():
     integration = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "integration.py"
     ).read_text(encoding="utf-8")
     hybrid = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "hybrid_restore.py"
     ).read_text(encoding="utf-8")
 
@@ -951,8 +966,10 @@ def test_hybrid_restore_loads_checkpoint_before_live_peer_overrides():
 def test_optimizer_peer_restore_stages_nccl_payloads_on_engine_device():
     hybrid = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "hybrid_restore.py"
     ).read_text(encoding="utf-8")
 
@@ -965,8 +982,8 @@ def test_optimizer_peer_restore_stages_nccl_payloads_on_engine_device():
 def test_runtime_checkpoint_hook_runs_for_common_model_step(
     tmp_path, monkeypatch
 ):
-    from moegambit_deepspeed import checkpoint_commit
-    from moegambit_deepspeed.integration import (
+    from moegambit.adapters.deepspeed import checkpoint_commit
+    from moegambit.adapters.deepspeed.integration import (
         DeepSpeedRecoveryRuntime,
         DeepSpeedRuntimeSettings,
     )
@@ -1024,7 +1041,7 @@ def test_runtime_checkpoint_hook_runs_for_common_model_step(
 
 
 def test_checkpoint_manifest_requires_every_dense_pipeline_shard(tmp_path):
-    from moegambit_deepspeed.checkpoint_commit import (
+    from moegambit.adapters.deepspeed.checkpoint_commit import (
         build_checkpoint_manifest,
     )
 
@@ -1049,7 +1066,7 @@ def test_checkpoint_manifest_requires_every_dense_pipeline_shard(tmp_path):
 
 
 def test_checkpoint_selection_falls_back_to_previous_complete_tag(tmp_path):
-    from moegambit_deepspeed.checkpoint_commit import (
+    from moegambit.adapters.deepspeed.checkpoint_commit import (
         MANIFEST_NAME,
         build_checkpoint_manifest,
         resolve_committed_checkpoint,
@@ -1086,7 +1103,7 @@ def test_checkpoint_selection_falls_back_to_previous_complete_tag(tmp_path):
 def test_checkpoint_manifest_covers_packed_expert_shards(
     tmp_path, monkeypatch
 ):
-    from moegambit_deepspeed import checkpoint_commit
+    from moegambit.adapters.deepspeed import checkpoint_commit
 
     class FakeEngine:
         mp_world_size = 1
@@ -1134,7 +1151,7 @@ def test_checkpoint_manifest_covers_packed_expert_shards(
 
 
 def test_hybrid_restore_classifies_autoep_experts_without_name_heuristics():
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         is_expert_parameter,
         non_expert_model_tensors,
     )
@@ -1203,7 +1220,7 @@ class _FakeTopology:
 
 
 def test_hybrid_restore_requires_a_live_dp_peer_outside_replacement_node():
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
         build_peer_restore_plans,
     )
@@ -1221,7 +1238,7 @@ def test_hybrid_restore_requires_a_live_dp_peer_outside_replacement_node():
 
 
 def test_hybrid_restore_data_major_layout_selects_same_stage_donor():
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         build_peer_restore_plans,
     )
 
@@ -1244,7 +1261,7 @@ def test_optimizer_replica_ring_places_node_failure_copy_off_node():
     from moegambit.runtime.replica_placement import (
         failure_domain_ring_order,
     )
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         build_optimizer_peer_restore_plans,
     )
 
@@ -1281,7 +1298,7 @@ def test_optimizer_replica_ring_rejects_same_node_only_group():
 
 
 def test_optimizer_restore_rejects_backup_on_failed_node():
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
         build_optimizer_peer_restore_plans,
     )
@@ -1298,7 +1315,7 @@ def test_optimizer_restore_rejects_backup_on_failed_node():
 def test_optimizer_restore_rejects_tensor_manifest_drift():
     import hashlib
 
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
         OptimizerPeerRestorePlan,
         _validate_optimizer_peer_entry,
@@ -1349,7 +1366,7 @@ def test_optimizer_restore_rejects_tensor_manifest_drift():
 
 
 def test_hybrid_restore_rejects_a_stale_peer_version():
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
         PeerRestorePlan,
         _validate_peer_header,
@@ -1392,7 +1409,7 @@ def test_fault_injection_holds_survivors_at_committed_step():
 
 
 def test_hybrid_restore_rejects_mixed_checkpoint_base_versions():
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
         validate_checkpoint_base_steps,
     )
@@ -1407,7 +1424,7 @@ def test_hybrid_restore_rejects_mixed_checkpoint_base_versions():
 
 
 def test_hybrid_restore_rejects_checkpoint_newer_than_failure():
-    from moegambit_deepspeed.hybrid_restore import (
+    from moegambit.adapters.deepspeed.hybrid_restore import (
         DeepSpeedHybridRestoreError,
         validate_checkpoint_base_steps,
     )
@@ -1422,7 +1439,7 @@ def test_hybrid_restore_rejects_checkpoint_newer_than_failure():
 def test_local_adapter_discovers_bsr_vendored_deepspeed():
     from moegambit.core.contracts import FeatureSwitches
     from moegambit.interfaces import LaunchRequest
-    from moegambit_deepspeed import DeepSpeedAdapter
+    from moegambit.adapters.deepspeed import DeepSpeedAdapter
 
     prepared = DeepSpeedAdapter().prepare_launch(
         LaunchRequest(
@@ -1433,7 +1450,6 @@ def test_local_adapter_discovers_bsr_vendored_deepspeed():
     )
     python_paths = prepared.environment["PYTHONPATH"].split(os.pathsep)
 
-    assert str(ROOT / "deepspeed_adapter") in python_paths
     assert str(ROOT / "src") in python_paths
     assert str(ROOT / "DeepSpeed") in python_paths
     assert prepared.environment["MOEGAMBIT_DEEPSPEED_ROOT"] == str(
@@ -1444,7 +1460,7 @@ def test_local_adapter_discovers_bsr_vendored_deepspeed():
 def test_deepspeed_adapter_selects_rank_inprocess_hot_swap():
     from moegambit.core.contracts import FeatureSwitches
     from moegambit.interfaces import LaunchRequest
-    from moegambit_deepspeed import DeepSpeedAdapter
+    from moegambit.adapters.deepspeed import DeepSpeedAdapter
 
     prepared = DeepSpeedAdapter().prepare_launch(
         LaunchRequest(
@@ -1491,8 +1507,10 @@ def test_zero2_replica_slot_count_is_configurable():
     ).read_text(encoding="utf-8")
     adapter = (
         ROOT
-        / "deepspeed_adapter"
-        / "moegambit_deepspeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
         / "zero2.py"
     ).read_text(encoding="utf-8")
 
@@ -2613,7 +2631,6 @@ def main(_argv):
         [
             str(fake_modules),
             str(ROOT / "src"),
-            str(ROOT / "deepspeed_adapter"),
             environment.get("PYTHONPATH", ""),
         ]
     )
@@ -3197,7 +3214,6 @@ time.sleep(0.2)
     env["PYTHONPATH"] = os.pathsep.join(
         [
             str(ROOT / "src"),
-            str(ROOT / "deepspeed_adapter"),
             env.get("PYTHONPATH", ""),
         ]
     )

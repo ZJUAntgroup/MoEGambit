@@ -27,6 +27,7 @@ moegambit-doctor = "moegambit.cli.doctor:main"
 
 [project.entry-points."moegambit.engine_adapters"]
 megatron = "moegambit.adapters.megatron.engine:MegatronEngineAdapter"
+deepspeed = "moegambit.adapters.deepspeed.engine:DeepSpeedEngineAdapter"
 
 [project.optional-dependencies]
 torch = ["torch>=2.0"]

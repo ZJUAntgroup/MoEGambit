@@ -13,8 +13,7 @@ as establishing provenance for generated and cached research material.
 
 | Path | Composition | Governing notice |
 |---|---|---|
-| `src/moegambit/` | Framework-neutral MoEGambit Python package | Apache-2.0; root `LICENSE` |
-| `deepspeed_adapter/`, project launchers, tests, scripts and MoEGambit documentation | Project integration code, unless a file states otherwise | Apache-2.0; root `LICENSE` |
+| `src/moegambit/`, project launchers, tests, scripts and MoEGambit documentation | Framework-neutral runtime and framework integration code | Apache-2.0; root `LICENSE` |
 | `DeepSpeed/` | Microsoft DeepSpeed source tree with repository-local modifications | `DeepSpeed/LICENSE` and file-level notices |
 | `DeepSpeed/deepspeed/inference/v2/kernels/cutlass_ops/` | Bundled kernel component | Its nested `LICENSE` and file-level notices |
 | `Megatron-LM/` | NVIDIA Megatron-LM source tree with repository-local modifications and bundled third-party code | `Megatron-LM/LICENSE` and file-level notices |

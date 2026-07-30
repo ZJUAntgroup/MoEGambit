@@ -307,7 +307,7 @@ class DeepSpeedZero2Replica:
             and generation > 0
         )
         if inprocess_recovery:
-            from moegambit_deepspeed.inprocess_recovery import (
+            from .inprocess_recovery import (
                 wait_for_inprocess_recovery_gate,
             )
 
