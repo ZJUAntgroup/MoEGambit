@@ -13,6 +13,9 @@ transactional recovery for Megatron-LM and DeepSpeed.
 [![Megatron Core](https://img.shields.io/badge/Megatron_Core-0.15.3-76B900?style=flat-square)](Megatron-LM)
 [![DeepSpeed](https://img.shields.io/badge/DeepSpeed-0.19.3-00539C?style=flat-square)](DeepSpeed)
 
+[![English](https://img.shields.io/badge/🇺🇸_English-1a1a2e?style=for-the-badge)](README.md)
+[![简体中文](https://img.shields.io/badge/🇨🇳_简体中文-1a1a2e?style=for-the-badge)](README-zh.md)
+
 [Overview](#overview) · [Quick Start](#quick-start) ·
 [Architecture](#architecture) · [Examples](#multi-node-examples) ·
 [Recovery Contract](#recovery-contract) · [Paper Results](#paper-results)
