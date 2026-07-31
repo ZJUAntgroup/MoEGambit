@@ -93,17 +93,29 @@ python -m pip install torch --index-url <PYTORCH_CUDA_WHEEL_INDEX>
 python -m pip install -e '.[dev]'
 ```
 
-Install the framework required by the workload:
+Install the framework required by the workload. The packages below are the
+required set for the supplied Megatron and DeepSpeed Qwen3-MoE examples:
 
 ```bash
 # Megatron-LM
-python -m pip install -e ./Megatron-LM
+python -m pip install \
+  'numpy<2.0.0' 'packaging>=24.2' \
+  pybind11 Cython sentencepiece tiktoken
 python -m pip install 'transformer-engine[pytorch]'
+python -m pip install -e ./Megatron-LM
 
 # DeepSpeed
 python -m pip install -r deepspeed_requirements.txt
+python -m pip install --upgrade 'transformers>=5.0.0,<6'
 python -m pip install -e ./DeepSpeed
 ```
+
+`deepspeed_requirements.txt` installs `accelerate`, `einops`, `hjson`,
+`msgpack`, `ninja`, `numpy`, `packaging`, `psutil`, `py-cpuinfo`, `pydantic`,
+`tqdm`, and `transformers`. The explicit upgrade is intentional:
+`deepspeed_qwen3_moe_pretrain.py` and the DeepSpeed launch preflight require
+`transformers>=5.0.0`. An environment that still contains
+`transformers==4.45.0` will be rejected before the distributed job starts.
 
 The repository scripts explicitly prefer the bundled framework sources:
 
@@ -411,14 +423,83 @@ multi-node GPU environment before drawing performance conclusions.
 
 - Linux x86_64;
 - Python 3.10+;
-- NVIDIA GPUs and a compatible CUDA-enabled PyTorch 2.x build;
+- NVIDIA GPUs and a compatible CUDA-enabled PyTorch build;
 - NCCL available on active and spare nodes;
 - Transformer Engine for the supplied Megatron configuration;
 - `transformers>=5.0.0,<6` for the Qwen3-MoE DeepSpeed workload;
 - shared or identically mounted datasets and checkpoints;
 - enough host memory for optimizer replicas and prefetched expert state.
 
-The project deliberately does not pin a CUDA-specific PyTorch wheel.
+Required dependency sets:
+
+| Component | Required dependencies |
+| --- | --- |
+| MoEGambit runtime | Python `>=3.10`; PyTorch with `torch.distributed`; NCCL for GPU jobs |
+| Megatron-LM 0.15.3 | `torch>=2.6.0`, `numpy<2.0.0`, `packaging>=24.2`, Transformer Engine; `pybind11` and a C++17 compiler for the optional dataset helper |
+| Supplied Megatron workload | `sentencepiece`, `tiktoken`, a Hugging Face-compatible tokenizer directory, and CUDA/NCCL |
+| DeepSpeed 0.19.3 | `torch>=2.0.0`, `einops`, `hjson`, `msgpack`, `ninja`, `numpy`, `packaging>=20.0`, `psutil`, `py-cpuinfo`, `pydantic>=2.0.0`, `tqdm` |
+| Supplied DeepSpeed Qwen3-MoE workload | `transformers>=5.0.0,<6`, `accelerate`, CUDA/NCCL, and the local `./DeepSpeed` installation |
+| Development checks | `pytest>=7.0` |
+
+### Validated software stack
+
+The provided environment snapshot corresponds to the following cluster stack:
+
+| Package/runtime | Validated version |
+| --- | --- |
+| PyTorch | `2.6.0+cu126` |
+| CUDA runtime | `12.6.77` |
+| NCCL | `2.21.5` |
+| NumPy | `1.26.4` |
+| Transformer Engine | `2.4.0.dev0+3b411e79` |
+| Triton | `3.2.0` |
+| Accelerate | `1.10.1` |
+| Einops | `0.8.1` |
+| HJSON / msgpack | `3.1.0` / `1.1.0` |
+| Ninja / pybind11 / Cython | `1.11.1.4` / `2.11.1` / `3.0.12` |
+| Packaging / psutil / py-cpuinfo | `24.2` / `7.0.0` / `9.0.0` |
+| Pydantic / tqdm | `2.10.3` / `4.67.1` |
+| sentencepiece / tiktoken | `0.2.1` / `0.7.0` |
+
+The snapshot was captured before the framework upgrade and contains
+`transformers==4.45.0` and `deepspeed==0.16.2`. Those two versions are **not**
+the target runtime for this repository. Upgrade Transformers to
+`>=5.0.0,<6`, then install the bundled `./DeepSpeed` source so that
+`deepspeed.__version__` resolves to `0.19.3`.
+
+`flash_attn`, `grouped_gemm`, `megablocks`, `torchvision`, and `torchaudio`
+appear in the source environment but are not mandatory for the supplied
+recovery scripts. Install them only when the selected model or kernel path
+requires them.
+
+The project deliberately does not pin a universal CUDA-specific PyTorch wheel;
+use the CUDA 12.6 build above to reproduce the supplied environment, or install
+a mutually compatible PyTorch/CUDA/NCCL stack for another cluster.
+
+Verify the effective environment after all editable installs:
+
+```bash
+python - <<'PY'
+from packaging.version import Version
+import deepspeed
+import numpy
+import torch
+import transformers
+
+assert Version(torch.__version__.split("+", 1)[0]) >= Version("2.6.0")
+assert Version(transformers.__version__) >= Version("5.0.0")
+assert Version(transformers.__version__) < Version("6")
+assert Version(deepspeed.__version__) >= Version("0.19.3")
+assert Version(numpy.__version__) < Version("2.0.0")
+assert torch.cuda.is_available()
+assert torch.distributed.is_available()
+print(
+    f"torch={torch.__version__} cuda={torch.version.cuda} "
+    f"deepspeed={deepspeed.__version__} "
+    f"transformers={transformers.__version__} numpy={numpy.__version__}"
+)
+PY
+```
 
 ### Validated paths
 

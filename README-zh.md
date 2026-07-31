@@ -85,17 +85,29 @@ python -m pip install torch --index-url <PYTORCH_CUDA_WHEEL_INDEX>
 python -m pip install -e '.[dev]'
 ```
 
-根据训练任务安装所需框架：
+根据训练任务安装所需框架。下面列出的是仓库内 Megatron 与 DeepSpeed
+Qwen3-MoE 示例的必要依赖：
 
 ```bash
 # Megatron-LM
-python -m pip install -e ./Megatron-LM
+python -m pip install \
+  'numpy<2.0.0' 'packaging>=24.2' \
+  pybind11 Cython sentencepiece tiktoken
 python -m pip install 'transformer-engine[pytorch]'
+python -m pip install -e ./Megatron-LM
 
 # DeepSpeed
 python -m pip install -r deepspeed_requirements.txt
+python -m pip install --upgrade 'transformers>=5.0.0,<6'
 python -m pip install -e ./DeepSpeed
 ```
+
+`deepspeed_requirements.txt` 会安装 `accelerate`、`einops`、`hjson`、
+`msgpack`、`ninja`、`numpy`、`packaging`、`psutil`、`py-cpuinfo`、
+`pydantic`、`tqdm` 和 `transformers`。上面的显式升级不能省略：
+`deepspeed_qwen3_moe_pretrain.py` 与 DeepSpeed 启动前检查均要求
+`transformers>=5.0.0`。如果环境中仍是 `transformers==4.45.0`，
+分布式作业会在启动前被拒绝。
 
 仓库中的脚本会显式优先加载项目内置的框架源码：
 
@@ -398,14 +410,80 @@ torchrun --standalone --nproc-per-node=2 \
 
 - Linux x86_64；
 - Python 3.10+；
-- NVIDIA GPU，以及兼容的 CUDA 版 PyTorch 2.x；
+- NVIDIA GPU，以及兼容的 CUDA 版 PyTorch；
 - active 与 spare 节点均可使用 NCCL；
 - Megatron 示例需要 Transformer Engine；
 - Qwen3-MoE DeepSpeed workload 需要 `transformers>=5.0.0,<6`；
 - 所有节点共享数据集和 checkpoint，或使用完全相同的挂载路径；
 - 主机内存足以容纳 optimizer replica 和预取 expert state。
 
-项目不会固定 CUDA 相关的 PyTorch wheel。
+必要依赖集合：
+
+| 组件 | 必要依赖 |
+| --- | --- |
+| MoEGambit runtime | Python `>=3.10`；带 `torch.distributed` 的 PyTorch；GPU 作业需要 NCCL |
+| Megatron-LM 0.15.3 | `torch>=2.6.0`、`numpy<2.0.0`、`packaging>=24.2`、Transformer Engine；编译可选 dataset helper 时需要 `pybind11` 和 C++17 编译器 |
+| 仓库内 Megatron workload | `sentencepiece`、`tiktoken`、Hugging Face 兼容 tokenizer 目录以及 CUDA/NCCL |
+| DeepSpeed 0.19.3 | `torch>=2.0.0`、`einops`、`hjson`、`msgpack`、`ninja`、`numpy`、`packaging>=20.0`、`psutil`、`py-cpuinfo`、`pydantic>=2.0.0`、`tqdm` |
+| 仓库内 DeepSpeed Qwen3-MoE workload | `transformers>=5.0.0,<6`、`accelerate`、CUDA/NCCL，以及本地 `./DeepSpeed` 安装 |
+| 开发检查 | `pytest>=7.0` |
+
+### 已验证软件栈
+
+你提供的环境快照对应以下集群软件栈：
+
+| 软件包/runtime | 已验证版本 |
+| --- | --- |
+| PyTorch | `2.6.0+cu126` |
+| CUDA runtime | `12.6.77` |
+| NCCL | `2.21.5` |
+| NumPy | `1.26.4` |
+| Transformer Engine | `2.4.0.dev0+3b411e79` |
+| Triton | `3.2.0` |
+| Accelerate | `1.10.1` |
+| Einops | `0.8.1` |
+| HJSON / msgpack | `3.1.0` / `1.1.0` |
+| Ninja / pybind11 / Cython | `1.11.1.4` / `2.11.1` / `3.0.12` |
+| Packaging / psutil / py-cpuinfo | `24.2` / `7.0.0` / `9.0.0` |
+| Pydantic / tqdm | `2.10.3` / `4.67.1` |
+| sentencepiece / tiktoken | `0.2.1` / `0.7.0` |
+
+该快照采集于框架升级之前，其中包含 `transformers==4.45.0` 和
+`deepspeed==0.16.2`。这两个版本**不是**本仓库的目标运行版本。必须先将
+Transformers 升级到 `>=5.0.0,<6`，再安装仓库中的 `./DeepSpeed` 源码，
+确保 `deepspeed.__version__` 最终为 `0.19.3`。
+
+环境快照中的 `flash_attn`、`grouped_gemm`、`megablocks`、`torchvision`
+和 `torchaudio` 不是当前恢复脚本的强制依赖。仅当所选模型或 kernel 路径
+需要它们时再安装。
+
+项目不会固定一套适用于所有集群的 CUDA PyTorch wheel。复现上述环境时使用
+CUDA 12.6 对应构建；在其他集群上则应安装彼此兼容的 PyTorch、CUDA 与 NCCL。
+
+完成所有 editable install 后，验证最终生效的环境：
+
+```bash
+python - <<'PY'
+from packaging.version import Version
+import deepspeed
+import numpy
+import torch
+import transformers
+
+assert Version(torch.__version__.split("+", 1)[0]) >= Version("2.6.0")
+assert Version(transformers.__version__) >= Version("5.0.0")
+assert Version(transformers.__version__) < Version("6")
+assert Version(deepspeed.__version__) >= Version("0.19.3")
+assert Version(numpy.__version__) < Version("2.0.0")
+assert torch.cuda.is_available()
+assert torch.distributed.is_available()
+print(
+    f"torch={torch.__version__} cuda={torch.version.cuda} "
+    f"deepspeed={deepspeed.__version__} "
+    f"transformers={transformers.__version__} numpy={numpy.__version__}"
+)
+PY
+```
 
 ### 已验证路径
 
