@@ -1,10 +1,10 @@
 <div align="center">
 
 <div style="margin: 20px 0;">
-  <img src="docs/assets/moegambit-logo.svg"
-       width="120"
-       height="120"
-       alt="MoEGambit 国际象棋骑士图标">
+  <img src="docs/assets/chess2dgreendg-raopenclipart.svg"
+       width="150"
+       height="150"
+       alt="MoEGambit 国际象棋棋盘与棋子图标">
 </div>
 
 # MoEGambit

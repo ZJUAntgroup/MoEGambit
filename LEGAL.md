@@ -18,6 +18,7 @@ as establishing provenance for generated and cached research material.
 | `DeepSpeed/deepspeed/inference/v2/kernels/cutlass_ops/` | Bundled kernel component | Its nested `LICENSE` and file-level notices |
 | `Megatron-LM/` | NVIDIA Megatron-LM source tree with repository-local modifications and bundled third-party code | `Megatron-LM/LICENSE` and file-level notices |
 | `moegambit-artifact/` | Packaged research artifact with its own bundled Megatron-LM copy | `moegambit-artifact/LICENSE`, `moegambit-artifact/NOTICE.md`, and nested notices |
+| `docs/assets/chess2dgreendg-raopenclipart.svg` | User-provided Openclipart chessboard artwork | CC0/public domain under the Openclipart licensing policy; retain the source filename for provenance |
 | Logs, figures, PDFs, datasets, cached evaluation repositories and generated experiment outputs | Research inputs and outputs with mixed or unverified provenance | Not automatically covered by the root license; review before redistribution |
 
 ## 2. Installable MoEGambit package
