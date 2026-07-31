@@ -32,7 +32,7 @@ Experiment scenarios
 
 Usage (unit test / mock mode)::
 
-    from megatron.core.transformer.moe.moegambit_experiment import (
+    from moegambit.adapters.megatron.moe.moegambit_experiment import (
         ExperimentOrchestrator,
         ExperimentScenario,
     )
@@ -490,7 +490,7 @@ class ExperimentOrchestrator:
         report: ExperimentReport,
     ) -> None:
         """Internal: execute the scenario steps."""
-        from megatron.core.transformer.moe.recovery_controller import (
+        from moegambit.adapters.megatron.moe.recovery_controller import (
             RecoveryController,
             RecoveryPhase,
         )
@@ -562,7 +562,7 @@ class ExperimentOrchestrator:
 
         # Set up gap-aware policy if needed
         if plan.checkpoint_iteration >= 0:
-            from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+            from moegambit.adapters.megatron.moe.gap_aware_recovery_policy import (
                 GapAwareRecoveryPolicyManager,
             )
             policy_mgr = GapAwareRecoveryPolicyManager(

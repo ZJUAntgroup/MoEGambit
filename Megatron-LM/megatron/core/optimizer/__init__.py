@@ -1,10 +1,10 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 import logging
-import os
 import warnings
 from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
+from moegambit.adapters.megatron.hooks import megatron_hooks
 from torch.optim import SGD as CPUSGD
 from torch.optim import AdamW as CPUAdam
 
@@ -146,7 +146,7 @@ def _get_param_groups(
     # so we need to align the param groups across ranks, otherwise we may have
     # runtime error when loading the checkpoint or numerical error when resuming training.
     params_key = list(params_map.keys())
-    if os.environ.get("ELASTIC_REBUILD_MODE") != "1":
+    if megatron_hooks.allow_world_collectives():
         gathered_params_key = [None for _ in range(torch.distributed.get_world_size())]
         torch.distributed.all_gather_object(gathered_params_key, params_key)
         for keys in gathered_params_key:

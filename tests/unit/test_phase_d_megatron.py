@@ -1,6 +1,8 @@
 import ast
+import argparse
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).parents[2]
@@ -55,44 +57,162 @@ def test_latest_elastic_and_moe_sources_live_in_adapter_package():
     assert "def moegambit_pipeline_on_failure(" in integration
 
 
-def test_legacy_paths_are_module_aliases_to_single_source_of_truth():
-    elastic_shim = (MEGATRON / "megatron/training/elastic_client.py").read_text()
-    integration_shim = (
+def test_adapter_does_not_import_deleted_megatron_recovery_modules():
+    offenders = []
+    for path in (SRC / "moegambit/adapters/megatron").rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if node.module == "megatron.core.transformer.moe" or node.module.startswith(
+                "megatron.core.transformer.moe."
+            ):
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}:{node.module}")
+            if node.module in {
+                "megatron.training.elastic_client",
+                "megatron.training.zero2_memory_checkpoint",
+            }:
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}:{node.module}")
+    assert offenders == []
+
+
+def test_megatron_recovery_cli_is_registered_by_adapter():
+    from moegambit.adapters.megatron.native_hooks import MegatronNativeHooks
+
+    parser = argparse.ArgumentParser()
+    group = parser.add_argument_group("moe")
+    MegatronNativeHooks().add_moe_arguments(group)
+    args = parser.parse_args(
+        [
+            "--moe-moegambit-enable",
+            "--moe-moegambit-group-rebuild",
+            "--moe-moegambit-hot-spare-pool",
+            "--moe-moegambit-num-hot-spares",
+            "8",
+            "--moe-moegambit-recovery-policy-type",
+            "rank_exposure_guarded_hybrid",
+        ]
+    )
+    assert args.moe_moegambit_enable
+    assert args.moe_moegambit_group_rebuild
+    assert args.moe_moegambit_hot_spare_pool
+    assert args.moe_moegambit_num_hot_spares == 8
+    assert args.moe_moegambit_recovery_policy_type == "rank_exposure_guarded_hybrid"
+
+
+def test_megatron_tree_contains_hooks_but_no_recovery_modules():
+    hooks = (SRC / "moegambit/adapters/megatron/hooks.py").read_text()
+    training = (MEGATRON / "megatron/training/training.py").read_text()
+    assert "from moegambit.adapters.megatron.hooks import" in training
+    assert "Stable hook surface imported by patched Megatron source files" in hooks
+    assert not (MEGATRON / "megatron/training/elastic_client.py").exists()
+    assert not (
         MEGATRON / "megatron/core/transformer/moe/moegambit_integration.py"
-    ).read_text()
-    recovery_shim = (
+    ).exists()
+    assert not (
         MEGATRON / "megatron/core/transformer/moe/recovery_controller.py"
+    ).exists()
+
+
+def test_megatron_source_imports_only_the_public_hook_facade():
+    offenders = []
+    for path in (MEGATRON / "megatron").rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if node.module.startswith("moegambit.") and (
+                node.module != "moegambit.adapters.megatron.hooks"
+            ):
+                offenders.append(
+                    f"{path.relative_to(ROOT)}:{node.lineno}:{node.module}"
+                )
+    assert offenders == []
+
+
+def test_megatron_patch_imports_only_the_single_hook_object():
+    offenders = []
+    for path in (MEGATRON / "megatron").rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module != "moegambit.adapters.megatron.hooks":
+                continue
+            imported = [alias.name for alias in node.names]
+            if imported != ["megatron_hooks"]:
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}:{imported}")
+    assert offenders == []
+
+    transformer_config = (
+        MEGATRON / "megatron/core/transformer/transformer_config.py"
     ).read_text()
-    assert "sys.modules[__name__] = _implementation" in elastic_shim
-    assert "sys.modules[__name__] = _implementation" in integration_shim
-    assert 'install_alias(__name__, "recovery_controller")' in recovery_shim
+    assert "moe_moegambit_" not in transformer_config
 
 
 def test_training_loop_uses_stable_runtime_lifecycle_facade():
     source = (MEGATRON / "megatron/training/training.py").read_text()
     required_calls = (
-        "moegambit_runtime_bootstrap()",
-        "initialize_moegambit_runtime(",
-        "moegambit_runtime_finalize_replacement(",
-        "moegambit_runtime_iteration_boundary(iteration)",
-        "moegambit_runtime_before_optimizer_step(args.curr_iteration)",
-        "moegambit_runtime_after_optimizer_step(args.curr_iteration, committed=True)",
-        "moegambit_runtime_after_optimizer_step(args.curr_iteration, committed=False)",
-        "moegambit_runtime_on_distributed_error(_moegambit_exc)",
-        "moegambit_runtime_commit_iteration(args.curr_iteration)",
+        "megatron_hooks.prepare_pretrain(args)",
+        "megatron_hooks.complete_model_setup(",
+        "megatron_hooks.iteration_safe_point(",
+        "megatron_hooks.before_optimizer_step(args.curr_iteration)",
+        "megatron_hooks.after_optimizer_step(args.curr_iteration, committed=True)",
+        "megatron_hooks.after_optimizer_step(args.curr_iteration, committed=False)",
+        "megatron_hooks.handle_train_step_error(",
+        "megatron_hooks.commit_iteration(args.curr_iteration)",
     )
     for call in required_calls:
         assert call in source
 
+    imports = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "moegambit.adapters.megatron.hooks"
+    ]
+    assert len(imports) == 1
+    assert [alias.name for alias in imports[0].names] == ["megatron_hooks"]
 
-def test_every_migrated_moe_module_has_a_legacy_alias():
+
+def test_megatron_refuses_bookkeeping_rollback_after_optimizer_mutation(
+    monkeypatch,
+):
+    from moegambit.adapters.megatron import integration
+    from moegambit.adapters.megatron.native_hooks import MegatronNativeHooks
+    from moegambit.core.step_transaction import StepPhase, StepTransaction
+
+    fallback_calls = []
+
+    class Runtime:
+        def fail_closed(self, exc, *, reason, evidence):
+            fallback_calls.append((exc, reason, evidence))
+            return True
+
+    monkeypatch.setattr(integration, "get_runtime", lambda: Runtime())
+    hooks = MegatronNativeHooks()
+    hooks._step_transaction = StepTransaction(4)
+    hooks._step_transaction.mark_optimizer_snapshot(4)
+    hooks._step_transaction.begin_step(4)
+    hooks._step_transaction.enter(StepPhase.OPTIMIZER_DURING)
+
+    disposition = hooks.handle_train_step_error(
+        RuntimeError("NCCL peer failure during optimizer"),
+        args=SimpleNamespace(moe_moegambit_enable=True),
+        iteration=4,
+    )
+
+    assert not disposition.handled
+    assert fallback_calls[0][1] == "unsafe_megatron_step_replay"
+    assert fallback_calls[0][2]["optimizer_dirty"] is True
+
+
+def test_migrated_moe_modules_do_not_leak_back_into_megatron():
     implementation_root = SRC / "moegambit/adapters/megatron/moe"
-    legacy_root = MEGATRON / "megatron/core/transformer/moe"
+    megatron_moe_root = MEGATRON / "megatron/core/transformer/moe"
     leaves = {
         path.stem for path in implementation_root.glob("*.py") if path.name != "__init__.py"
     }
     assert leaves
     for leaf in leaves:
-        shim = legacy_root / f"{leaf}.py"
-        assert shim.exists(), leaf
-        assert f'install_alias(__name__, "{leaf}")' in shim.read_text()
+        assert not (megatron_moe_root / f"{leaf}.py").exists(), leaf

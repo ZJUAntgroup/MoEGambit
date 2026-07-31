@@ -84,7 +84,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from megatron.core.transformer.moe.async_recovery_worker import (
+    from moegambit.adapters.megatron.moe.async_recovery_worker import (
         AsyncRecoveryWorker,
     )
 
@@ -585,7 +585,7 @@ def restore_expert_weights(
     # --- Phase 2: Health manager transitions ---
     if health_managers is None:
         try:
-            from megatron.core.transformer.moe.expert_health_manager import (
+            from moegambit.adapters.megatron.moe.expert_health_manager import (
                 _MANAGER_REGISTRY,
             )
             health_managers = _MANAGER_REGISTRY
@@ -613,7 +613,7 @@ def restore_expert_weights(
     # --- Phase 3: Update expert directory ---
     if directory is None:
         try:
-            from megatron.core.transformer.moe.expert_directory import (
+            from moegambit.adapters.megatron.moe.expert_directory import (
                 get_active_expert_directory,
             )
             directory = get_active_expert_directory()
@@ -755,12 +755,12 @@ class StaleExpertRestoreCoordinator:
             List of request_id strings for tracking.
         """
         if worker is None:
-            from megatron.core.transformer.moe.async_recovery_worker import (
+            from moegambit.adapters.megatron.moe.async_recovery_worker import (
                 get_async_recovery_worker,
             )
             worker = get_async_recovery_worker()
 
-        from megatron.core.transformer.moe.async_recovery_worker import (
+        from moegambit.adapters.megatron.moe.async_recovery_worker import (
             AsyncLoadRequest,
         )
 

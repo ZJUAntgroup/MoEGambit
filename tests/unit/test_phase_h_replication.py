@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
 import socket
 import subprocess
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -132,3 +134,55 @@ def test_replication_package_import_does_not_require_or_import_torch():
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_legacy_runtime_replica_path_exports_the_canonical_implementation():
+    from moegambit.replication import (
+        Zero2MemoryReplicaManager,
+        capture_optimizer_snapshot as canonical_capture,
+    )
+    from moegambit.runtime.zero2_replica import (
+        Zero2MemoryReplicaManager as CompatibilityManager,
+        capture_optimizer_snapshot as compatibility_capture,
+    )
+
+    assert CompatibilityManager is Zero2MemoryReplicaManager
+    assert compatibility_capture is canonical_capture
+    parameters = inspect.signature(Zero2MemoryReplicaManager).parameters
+    assert parameters["buffer_slots"].default == 2
+    assert hasattr(Zero2MemoryReplicaManager, "wait_until_peer_committed")
+
+
+def test_canonical_replica_manager_preserves_deepspeed_slot_contract(
+    monkeypatch,
+):
+    from moegambit.replication import optimizer_memory
+
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(is_available=lambda: False)
+    )
+    monkeypatch.setattr(optimizer_memory, "_require_torch", lambda: fake_torch)
+    manager = optimizer_memory.Zero2MemoryReplicaManager(
+        rank=0,
+        tensor_refs_fn=lambda: [],
+        scalar_refs_fn=lambda: [],
+        publish_endpoint_fn=lambda *_args: True,
+        wait_endpoint_fn=lambda *_args: None,
+        buffer_slots=1,
+    )
+
+    assert manager.buffer_slots == 1
+    assert len(manager._slots) == 1
+    assert len(manager._peer_slots) == 1
+    manager._peer_committed_step = 4
+    manager.wait_until_peer_committed(4, timeout=0.01)
+
+    with pytest.raises(ValueError, match="buffer_slots"):
+        optimizer_memory.Zero2MemoryReplicaManager(
+            rank=0,
+            tensor_refs_fn=lambda: [],
+            scalar_refs_fn=lambda: [],
+            publish_endpoint_fn=lambda *_args: True,
+            wait_endpoint_fn=lambda *_args: None,
+            buffer_slots=3,
+        )

@@ -58,7 +58,7 @@ This mapping is encoded in:
 
 Typical usage::
 
-    from megatron.core.transformer.moe.dispatch_topology_refresh import (
+    from moegambit.adapters.megatron.moe.dispatch_topology_refresh import (
         refresh_dispatch_topology,
         get_active_expert_host,
         is_rank_active_for_dispatch,
@@ -482,7 +482,7 @@ class DispatchTopologyManager:
         # Check replacement registry — if this rank is a replacement,
         # it must be INTEGRATED to be active
         try:
-            from megatron.core.transformer.moe.replacement_registry import (
+            from moegambit.adapters.megatron.moe.replacement_registry import (
                 get_replacement_registry,
                 ReplacementState,
             )
@@ -643,7 +643,7 @@ class DispatchTopologyManager:
     def _get_directory(self) -> Optional[Any]:
         """Get the global ActiveExpertDirectory, or None."""
         try:
-            from megatron.core.transformer.moe.expert_directory import (
+            from moegambit.adapters.megatron.moe.expert_directory import (
                 get_active_expert_directory,
             )
             return get_active_expert_directory()
@@ -653,7 +653,7 @@ class DispatchTopologyManager:
     def _get_quarantined_ranks(self) -> FrozenSet[int]:
         """Get the set of quarantined ranks from the quarantine registry."""
         try:
-            from megatron.core.transformer.moe.rank_quarantine import (
+            from moegambit.adapters.megatron.moe.rank_quarantine import (
                 get_rank_quarantine_registry,
             )
             reg = get_rank_quarantine_registry()
@@ -670,7 +670,7 @@ class DispatchTopologyManager:
     ) -> None:
         """Refresh the ActiveExpertDirectory."""
         try:
-            from megatron.core.transformer.moe.expert_directory import (
+            from moegambit.adapters.megatron.moe.expert_directory import (
                 get_active_expert_directory,
             )
             directory = get_active_expert_directory()
@@ -696,7 +696,7 @@ class DispatchTopologyManager:
     ) -> None:
         """Update the ReplacementRegistry after topology refresh."""
         try:
-            from megatron.core.transformer.moe.replacement_registry import (
+            from moegambit.adapters.megatron.moe.replacement_registry import (
                 get_replacement_registry,
                 ReplacementState,
             )

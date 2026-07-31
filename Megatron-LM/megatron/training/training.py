@@ -56,64 +56,10 @@ from megatron.core.utils import (
     StragglerDetector,
 )
 from megatron.core.fp8_utils import correct_amax_history_if_needed
-from megatron.core.transformer.moe.moegambit_integration import (
-    maybe_initialize_moegambit_moe,
-    moegambit_before_iteration,
-    moegambit_after_iteration,
-    moegambit_is_current_iteration_invalid,
-    moegambit_report_hard_failure,
-    moegambit_snapshot_iteration,
-    moegambit_rollback_iteration,
-    moegambit_is_replay_pending,
-    moegambit_complete_replay,
-    moegambit_advance_iteration,
-    moegambit_exceeded_max_replays,
-    moegambit_should_commit_optimizer,
-    moegambit_mark_optimizer_committed,
-    moegambit_mark_optimizer_skipped,
-    moegambit_announce_replacement_ready,
-    moegambit_is_waiting_for_replacement,
-    moegambit_has_pending_replacements,
-    moegambit_query_replacement_status,
-    moegambit_is_reintegration_pending,
-    moegambit_get_reintegration_summary,
-    moegambit_pipeline_begin_iteration,
-    moegambit_pipeline_on_failure,
-    moegambit_pipeline_initiate_rollback,
-    moegambit_pipeline_is_in_rollback,
-    moegambit_pipeline_complete_replay,
-    moegambit_is_checkpoint_restart_requested,
-    moegambit_clear_checkpoint_restart,
-    moegambit_get_checkpoint_restart_decision,
-)
+from moegambit.adapters.megatron.hooks import megatron_hooks
 from megatron.training.checkpointing import load_checkpoint
 from megatron.training.checkpointing import save_checkpoint
 from megatron.training.checkpointing import checkpoint_exists
-from megatron.training.elastic_client import (
-    elastic_client_update_step,
-    elastic_align_resume_state,
-    elastic_expert_sidecar_available,
-    elastic_on_nccl_error,
-    elastic_replacement_sync_params,
-    elastic_restore_expert_sidecar,
-    elastic_report_recovery_phase,
-    elastic_post_rebuild_iteration_barrier,
-    elastic_trace_post_rebuild_phase,
-    elastic_clear_post_rebuild_trace,
-    elastic_sanitize_recovery_env_for_startup,
-    is_rebuild_mode,
-)
-from moegambit.adapters.megatron.integration import (
-    after_optimizer_step as moegambit_runtime_after_optimizer_step,
-    before_optimizer_step as moegambit_runtime_before_optimizer_step,
-    bootstrap_control_plane as moegambit_runtime_bootstrap,
-    commit_iteration as moegambit_runtime_commit_iteration,
-    finalize_replacement as moegambit_runtime_finalize_replacement,
-    get_runtime as get_moegambit_runtime,
-    initialize_runtime as initialize_moegambit_runtime,
-    iteration_boundary as moegambit_runtime_iteration_boundary,
-    on_distributed_error as moegambit_runtime_on_distributed_error,
-)
 from megatron.core.full_cuda_graph import FullCudaGraphWrapper
 from megatron.core.transformer.cuda_graphs import TECudaGraphHelper
 from megatron.core.transformer.module import Float16Module
@@ -149,73 +95,6 @@ from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
 
 
-# ============================================================
-# Lightweight crash injection for checkpoint-restart baseline
-# ============================================================
-# Controlled by environment variables:
-#   CRASH_AT_STEP       — first step to crash (default: disabled / -1)
-#   CRASH_INTERVAL      — interval between crashes (0 = single crash)
-#   CRASH_RANK          — which rank to crash (-1 = random rank per crash, seeded)
-#   CRASH_SEED          — random seed for reproducible fault rank sequence (default: 42)
-_CRASH_INJECT_NEXT_STEP: int = int(os.environ.get('CRASH_AT_STEP', '-1'))
-_CRASH_INJECT_INTERVAL: int = int(os.environ.get('CRASH_INTERVAL', '0'))
-_CRASH_INJECT_RANK: int = int(os.environ.get('CRASH_RANK', '0'))
-_CRASH_INJECT_SEED: int = int(os.environ.get('CRASH_SEED', '42'))
-_CRASH_INJECT_COUNT: int = 0
-
-import random as _crash_random
-_CRASH_RNG = _crash_random.Random(_CRASH_INJECT_SEED)
-
-
-def _maybe_crash_inject(step: int) -> None:
-    """Crash the process at the configured step for checkpoint-restart baseline.
-
-    This provides a simple, MOEGAMBIT-independent fault injection mechanism.
-    When triggered, the process exits with code 1, causing the outer
-    retry loop to restart training from the latest checkpoint.
-
-    When CRASH_RANK=-1, a random rank is selected for each crash using
-    a seeded RNG (CRASH_SEED), so the fault sequence is reproducible
-    across runs and matches the MOEGAMBIT script's fault pattern.
-    """
-    global _CRASH_INJECT_NEXT_STEP, _CRASH_INJECT_COUNT
-
-    if _CRASH_INJECT_NEXT_STEP < 0:
-        return  # disabled
-
-    if step < _CRASH_INJECT_NEXT_STEP:
-        return
-
-    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
-
-    # Determine which rank should crash this time
-    if _CRASH_INJECT_RANK < 0:
-        # Random rank mode: pick from [0, world_size) using seeded RNG.
-        # Uses choice() (not randint) to match MOEGAMBIT's fault_rng.choice(ep_group_ranks)
-        # — both produce identical sequences when the candidate list is [0..N-1].
-        target_rank = _CRASH_RNG.choice(range(world_size))
-    else:
-        target_rank = _CRASH_INJECT_RANK
-
-    _CRASH_INJECT_COUNT += 1
-    print(
-        f"[CRASH INJECT #{_CRASH_INJECT_COUNT}] target_rank={target_rank}, "
-        f"my_rank={rank}, step={step} — "
-        f"{'I am the victim, exiting!' if rank == target_rank else 'I am not the victim, but will exit due to NCCL timeout.'}",
-        flush=True,
-    )
-
-    # Schedule next crash (must happen before exit so the state is
-    # consistent if this were ever made non-fatal)
-    if _CRASH_INJECT_INTERVAL > 0:
-        _CRASH_INJECT_NEXT_STEP = step + _CRASH_INJECT_INTERVAL
-    else:
-        _CRASH_INJECT_NEXT_STEP = -1  # disable after single crash
-
-    # Force exit — all ranks crash, outer retry loop restarts from checkpoint
-    import sys
-    sys.exit(1)
 from megatron.core.parallel_state import (
     destroy_global_memory_buffer,
     destroy_model_parallel,
@@ -276,7 +155,7 @@ def destroy_global_state():
 
 def print_datetime(string):
     """Note that this call will sync across all ranks."""
-    if not is_rebuild_mode():
+    if not megatron_hooks.is_rebuild_mode():
         torch.distributed.barrier()
     time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print_rank_0(f'[{string}] datetime: {time_str} ')
@@ -284,25 +163,7 @@ def print_datetime(string):
 
 def _elastic_apply_resume_state(args, opt_param_scheduler=None):
     """Seed replacement workers with the safe-point iteration selected by the watcher."""
-    if not is_rebuild_mode():
-        return
-
-    resume_iteration = int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
-    if resume_iteration < 0:
-        return
-
-    resume_iteration = elastic_align_resume_state(args, opt_param_scheduler, resume_iteration)
-    if resume_iteration is None or resume_iteration < 0:
-        return
-    args.num_floating_point_operations_so_far = getattr(
-        args, 'num_floating_point_operations_so_far', 0
-    )
-    logger.warning(
-        "[elastic] REBUILD MODE: resuming replacement at iteration %d "
-        "(consumed_train_samples=%d)",
-        args.iteration,
-        args.consumed_train_samples,
-    )
+    megatron_hooks.align_resume_state(args, opt_param_scheduler)
 
 
 def num_floating_point_operations(args, batch_size):
@@ -743,8 +604,7 @@ def pretrain(
 
     args = get_args()
     timers = get_timers()
-    _elastic_rebuild = is_rebuild_mode()
-    elastic_sanitize_recovery_env_for_startup()
+    recovery_startup = megatron_hooks.prepare_pretrain(args)
 
     if args.log_progress:
         append_to_progress_log("Starting job")
@@ -762,49 +622,10 @@ def pretrain(
     # This will be closer to what scheduler will see (outside of
     # image ... launches.
     global _TRAIN_START_TIME
-    if not _elastic_rebuild:
+    if not recovery_startup.rebuild:
         start_time_tensor = torch.tensor([_TRAIN_START_TIME], dtype=torch.double, device='cuda')
         torch.distributed.all_reduce(start_time_tensor, op=torch.distributed.ReduceOp.MIN)
         _TRAIN_START_TIME = start_time_tensor.item()
-
-    # =========================================================================
-    # Start elastic client (heartbeat to watcher on spare node)
-    moegambit_runtime_bootstrap()
-
-    # Elastic rebuild mode: replacement node loads model weights from the
-    # checkpoint so EP-local experts come from their own shard, then receives
-    # dense/non-expert params and optimizer state from a live DP peer after
-    # model setup. The regular optimizer checkpoint loader can issue
-    # world-size collectives, so it must not run before the replacement is
-    # ready and survivors have entered the rebuild protocol.
-    _elastic_saved_load = None
-    _elastic_saved_no_load_optim = None
-    _elastic_saved_no_load_rng = None
-    _elastic_use_expert_sidecar = False
-    if _elastic_rebuild:
-        _elastic_saved_load = args.load
-        _elastic_saved_no_load_optim = args.no_load_optim
-        _elastic_saved_no_load_rng = args.no_load_rng
-        args.no_load_optim = True
-        args.no_load_rng = True
-        _elastic_use_expert_sidecar = elastic_expert_sidecar_available()
-        if _elastic_use_expert_sidecar:
-            # Build the replacement model/optimizer without deserializing the
-            # complete checkpoint. The packed expert shard is applied after
-            # construction; dense state then comes from the live DP peer.
-            args.load = None
-        args.enable_gloo_process_groups = False
-        args.moe_moegambit_weights_first_recovery = False
-        args.moe_moegambit_async_recovery = False
-        logger.warning(
-            "[elastic] REBUILD MODE: expert_restore=%s; "
-            "dense/non-expert state will be overwritten from a DP peer",
-            (
-                "packed_rank_sidecar"
-                if _elastic_use_expert_sidecar
-                else "full_checkpoint_fallback"
-            ),
-        )
 
     app_metrics = {}
     app_metrics['app_start_time'] = round(_TRAIN_START_TIME * 1000.0)
@@ -854,61 +675,30 @@ def pretrain(
         checkpointing_context = {}
 
     # Model, optimizer, and learning rate.
-    timers('model-and-optimizer-setup', log_level=0).start(barrier=not _elastic_rebuild)
+    timers('model-and-optimizer-setup', log_level=0).start(
+        barrier=not recovery_startup.rebuild
+    )
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type, checkpointing_context=checkpointing_context
     )
-    initialize_moegambit_runtime(
-        model, optimizer, opt_param_scheduler, args=args
+    megatron_hooks.complete_model_setup(
+        recovery_startup,
+        args=args,
+        model=model,
+        optimizer=optimizer,
+        scheduler=opt_param_scheduler,
+        load_checkpoint=load_checkpoint,
+        checkpointing_context=checkpointing_context,
     )
 
-    timers('model-and-optimizer-setup').stop(barrier=not _elastic_rebuild)
+    timers('model-and-optimizer-setup').stop(barrier=not recovery_startup.rebuild)
     print_datetime('after model, optimizer, and learning rate ' 'scheduler are built')
     config = get_model_config(model[0])
-
-    # Elastic rebuild mode: replacement node receives params from DP peer
-    if _elastic_rebuild:
-        args.load = _elastic_saved_load
-        if _elastic_use_expert_sidecar:
-            try:
-                sidecar_summary = elastic_restore_expert_sidecar(model, optimizer)
-                elastic_report_recovery_phase(
-                    "checkpoint_loaded",
-                    checkpoint_source="expert_packed_sidecar",
-                    expert_sidecar=sidecar_summary,
-                )
-            except Exception:
-                logger.exception(
-                    "[elastic] packed expert sidecar restore failed; "
-                    "loading the authoritative full checkpoint"
-                )
-                args.no_load_optim = True
-                args.no_load_rng = True
-                (
-                    args.iteration,
-                    args.num_floating_point_operations_so_far,
-                ) = load_checkpoint(
-                    model,
-                    optimizer,
-                    opt_param_scheduler,
-                    checkpointing_context=checkpointing_context,
-                )
-                elastic_report_recovery_phase(
-                    "checkpoint_loaded",
-                    checkpoint_source="full_checkpoint_after_sidecar_fallback",
-                )
-        elastic_report_recovery_phase("model_optimizer_ready")
-        args.no_load_optim = _elastic_saved_no_load_optim
-        args.no_load_rng = _elastic_saved_no_load_rng
-        moegambit_runtime_finalize_replacement(
-            model, optimizer, opt_param_scheduler
-        )
-        logger.warning("[elastic] REBUILD MODE: param sync complete, joining training loop")
 
     # Data stuff.
     app_metrics['app_build_dataiters_start_time'] = one_logger_utils.get_timestamp_in_ms()
     timers('train/valid/test-data-iterators-setup', log_level=0).start(
-        barrier=not _elastic_rebuild
+        barrier=not recovery_startup.rebuild
     )
     if args.virtual_pipeline_model_parallel_size is not None:
         train_data_iterator = []
@@ -933,8 +723,7 @@ def pretrain(
             build_train_valid_test_data_iterators(train_valid_test_dataset_provider)
         )
     timers('train/valid/test-data-iterators-setup').stop()
-    if _elastic_rebuild:
-        elastic_report_recovery_phase("data_ready")
+    megatron_hooks.data_ready()
     print_datetime('after dataloaders are built')
     app_metrics['app_build_dataiters_finish_time'] = one_logger_utils.get_timestamp_in_ms()
 
@@ -952,7 +741,7 @@ def pretrain(
 
     # Print setup timing.
     print_rank_0('done with setup ...')
-    if not _elastic_rebuild:
+    if not recovery_startup.rebuild:
         timers.log(
             ['model-and-optimizer-setup', 'train/valid/test-data-iterators-setup'],
             barrier=True,
@@ -1047,13 +836,15 @@ def pretrain(
     if wandb_writer:
         wandb_writer.finish()
 
-    elastic_client_update_step(iteration, phase="async_checkpoint_finalize", step_tag=iteration)
+    megatron_hooks.update_step(
+        iteration, phase="async_checkpoint_finalize", step_tag=iteration
+    )
     ft_integration.on_checkpointing_start()
     try:
         maybe_finalize_async_save(blocking=True, terminate=True)
     finally:
         ft_integration.on_checkpointing_end(is_async_finalization=True)
-        elastic_client_update_step(
+        megatron_hooks.update_step(
             iteration,
             phase="async_checkpoint_finalize_done",
             step_tag=iteration,
@@ -1418,7 +1209,9 @@ def setup_model_and_optimizer(
         one_logger and one_logger.log_metrics(
             {'load_checkpoint_start_time': one_logger_utils.get_timestamp_in_ms()}
         )
-        timers('load-checkpoint', log_level=0).start(barrier=not is_rebuild_mode())
+        timers('load-checkpoint', log_level=0).start(
+            barrier=not megatron_hooks.is_rebuild_mode()
+        )
 
         args.iteration, args.num_floating_point_operations_so_far = load_checkpoint(
             model,
@@ -1429,10 +1222,12 @@ def setup_model_and_optimizer(
             and getattr(args, "use_torch_fsdp2", False)
             and args.ckpt_format == "torch_dist",
         )
-        if is_rebuild_mode():
-            elastic_report_recovery_phase("checkpoint_loaded")
-        timers('load-checkpoint').stop(barrier=not is_rebuild_mode())
-        if not is_rebuild_mode():
+        if megatron_hooks.is_rebuild_mode():
+            megatron_hooks.report_phase("checkpoint_loaded")
+        timers('load-checkpoint').stop(
+            barrier=not megatron_hooks.is_rebuild_mode()
+        )
+        if not megatron_hooks.is_rebuild_mode():
             timers.log(['load-checkpoint'])
         one_logger and one_logger.log_metrics(
             {
@@ -1496,12 +1291,12 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
 
     rerun_state_machine = get_rerun_state_machine()
     while rerun_state_machine.should_run_forward_backward(data_iterator):
-        elastic_client_update_step(
+        megatron_hooks.update_step(
             args.curr_iteration,
             phase="forward_backward",
             step_tag=args.curr_iteration,
         )
-        elastic_trace_post_rebuild_phase("forward_backward_start", args.curr_iteration)
+        megatron_hooks.trace("forward_backward_start", args.curr_iteration)
         # Set grad to zero.
         for model_chunk in model:
             model_chunk.zero_grad_buffer()
@@ -1535,10 +1330,10 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             forward_only=False,
             adjust_tensor_shapes_fn=adjust_tensor_shapes_fn,
         )
-        elastic_trace_post_rebuild_phase("forward_backward_done", args.curr_iteration)
+        megatron_hooks.trace("forward_backward_done", args.curr_iteration)
     should_checkpoint, should_exit, exit_code = rerun_state_machine.should_checkpoint_and_exit()
     if should_exit:
-        elastic_clear_post_rebuild_trace()
+        megatron_hooks.clear_trace()
         return {}, True, should_checkpoint, should_exit, exit_code, None, None
 
     # Empty unused memory.
@@ -1551,42 +1346,34 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
         unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
 
     # Update parameters.
-    # MOEGAMBIT-MoE: check commit guard before optimizer.step().
-    # If the iteration was invalidated (e.g. by a hard failure detected
-    # during forward/backward), skip the optimizer step entirely to
-    # prevent partial parameter updates.
-    if not moegambit_should_commit_optimizer():
-        moegambit_mark_optimizer_skipped(reason="iteration_invalidated")
-        elastic_trace_post_rebuild_phase("optimizer_skipped", args.curr_iteration)
-        elastic_clear_post_rebuild_trace()
+    if not megatron_hooks.optimizer_may_commit():
+        megatron_hooks.trace("optimizer_skipped", args.curr_iteration)
+        megatron_hooks.clear_trace()
         return {}, 1, should_checkpoint, should_exit, exit_code, None, None
 
-    elastic_client_update_step(args.curr_iteration, phase="optimizer_step", step_tag=-1)
-    elastic_trace_post_rebuild_phase(
+    megatron_hooks.update_step(args.curr_iteration, phase="optimizer_step", step_tag=-1)
+    megatron_hooks.trace(
         "optimizer_step_start", args.curr_iteration, optimizer=optimizer
     )
     # PHOENIX invariant I3: the pre-update optimizer state must be committed
     # on its DP-ring neighbor before optimizer.step() mutates that state.
-    moegambit_runtime_before_optimizer_step(args.curr_iteration)
+    megatron_hooks.before_optimizer_step(args.curr_iteration)
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()
-    elastic_trace_post_rebuild_phase("optimizer_step_done", args.curr_iteration)
+    megatron_hooks.trace("optimizer_step_done", args.curr_iteration)
     if update_successful:
-        elastic_client_update_step(
+        megatron_hooks.update_step(
             args.curr_iteration,
             phase="optimizer_local_done",
             step_tag=args.curr_iteration + 1,
         )
     else:
-        elastic_client_update_step(
+        megatron_hooks.update_step(
             args.curr_iteration,
             phase="optimizer_skipped",
             step_tag=args.curr_iteration,
         )
-
-    # MOEGAMBIT-MoE: mark optimizer as committed after successful step.
-    moegambit_mark_optimizer_committed()
 
     # when freezing sub-models we may have a mixture of successful and unsucessful ranks,
     # so we must gather across mp ranks
@@ -1596,6 +1383,9 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
     grad_norm = reduce_max_stat_across_model_parallel_group(grad_norm)
     if args.log_num_zeros_in_grad:
         num_zeros_in_grad = reduce_max_stat_across_model_parallel_group(num_zeros_in_grad)
+    megatron_hooks.mark_optimizer_committed(
+        args.curr_iteration, committed=update_successful
+    )
 
     # Vision momentum.
     if args.vision_pretraining and args.vision_pretraining_type == "dino":
@@ -1606,9 +1396,9 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
     if update_successful:
         increment = get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
         opt_param_scheduler.step(increment=increment)
-        moegambit_runtime_after_optimizer_step(args.curr_iteration, committed=True)
+        megatron_hooks.after_optimizer_step(args.curr_iteration, committed=True)
         skipped_iter = 0
-        elastic_client_update_step(
+        megatron_hooks.update_step(
             args.curr_iteration,
             phase="step_complete",
             step_tag=args.curr_iteration + 1,
@@ -1617,15 +1407,15 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
         # Loss-scale skips still advance the outer training iteration.  The
         # optimizer bytes are unchanged, but the recoverable version tag must
         # advance with the safe-point iteration.
-        moegambit_runtime_after_optimizer_step(args.curr_iteration, committed=False)
+        megatron_hooks.after_optimizer_step(args.curr_iteration, committed=False)
         skipped_iter = 1
-        elastic_client_update_step(
+        megatron_hooks.update_step(
             args.curr_iteration,
             phase="optimizer_skipped",
             step_tag=args.curr_iteration,
         )
-        elastic_trace_post_rebuild_phase("optimizer_skipped", args.curr_iteration)
-        elastic_clear_post_rebuild_trace()
+        megatron_hooks.trace("optimizer_skipped", args.curr_iteration)
+        megatron_hooks.clear_trace()
 
     # Empty unused memory.
     if args.empty_unused_memory_level >= 2:
@@ -1662,7 +1452,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
                 loss_reduced[key] = val
             else:
                 raise ValueError(f"Invalid value shape: {val[0].shape} for key {key}")
-        elastic_trace_post_rebuild_phase("train_step_finalize_done", args.curr_iteration)
+        megatron_hooks.trace("train_step_finalize_done", args.curr_iteration)
         return (
             loss_reduced,
             skipped_iter,
@@ -1672,7 +1462,7 @@ def train_step(forward_step_func, data_iterator, model, optimizer, opt_param_sch
             grad_norm,
             num_zeros_in_grad,
         )
-    elastic_trace_post_rebuild_phase("train_step_finalize_done", args.curr_iteration)
+    megatron_hooks.trace("train_step_finalize_done", args.curr_iteration)
     return {}, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad
 
 
@@ -2046,7 +1836,7 @@ def save_checkpoint_and_time(
     one_logger_utils.track_e2e_metrics()
     if should_disable_forward_pre_hook(args):
         disable_forward_pre_hook(model)
-    elastic_client_update_step(iteration, phase="checkpoint", step_tag=iteration)
+    megatron_hooks.update_step(iteration, phase="checkpoint", step_tag=iteration)
     try:
         save_checkpoint(
             iteration,
@@ -2059,8 +1849,17 @@ def save_checkpoint_and_time(
             train_data_iterator=train_data_iterator,
             preprocess_common_state_dict_fn=preprocess_common_state_dict,
         )
+    except BaseException as checkpoint_error:
+        megatron_hooks.update_step(
+            iteration, phase="checkpoint_failed", step_tag=iteration
+        )
+        megatron_hooks.checkpoint_failed(iteration, checkpoint_error)
+        raise
+    else:
+        megatron_hooks.update_step(
+            iteration, phase="checkpoint_done", step_tag=iteration
+        )
     finally:
-        elastic_client_update_step(iteration, phase="checkpoint_done", step_tag=iteration)
         if should_disable_forward_pre_hook(args):
             enable_forward_pre_hook(model)
     if args.fp8:
@@ -2371,7 +2170,7 @@ def train(
     )
 
     num_floating_point_operations_so_far = args.num_floating_point_operations_so_far
-    _elastic_rebuild = is_rebuild_mode()
+    _elastic_rebuild = megatron_hooks.is_rebuild_mode()
 
     # Setup some training config params.
     config.grad_scale_func = optimizer.scale_loss
@@ -2401,7 +2200,7 @@ def train(
     timers('interval-time', log_level=0).start(barrier=not _elastic_rebuild)
     print_datetime('before the start of training step')
     if _elastic_rebuild:
-        elastic_report_recovery_phase("train_loop_entered")
+        megatron_hooks.report_phase("train_loop_entered")
     report_memory_flag = True
     pre_hook_enabled = False
     should_exit = False
@@ -2514,17 +2313,11 @@ def train(
             optimizers=[optimizer],
         )
 
-    # Run training iterations till done.
-    # MOEGAMBIT-MoE: initialize fault-tolerant MoE system if enabled.
-    maybe_initialize_moegambit_moe(model, args, optimizer=optimizer, opt_param_scheduler=opt_param_scheduler)
+    megatron_hooks.initialize_training(model, args, optimizer, opt_param_scheduler)
 
     buffered_rollouts = None
     while iteration < args.train_iters:
-        # A recovery epoch is certified only after a second, consecutive train
-        # step. This call is a no-op during normal training and on the first
-        # recovered step, whose pending state is created later by rebuild.
-        elastic_post_rebuild_iteration_barrier(iteration)
-        elastic_trace_post_rebuild_phase("iteration_prologue_start", iteration)
+        megatron_hooks.iteration_prologue(iteration)
         if args.profile and torch.distributed.get_rank() in args.profile_ranks:
             if args.use_pytorch_profiler:
                 prof.step()
@@ -2532,7 +2325,7 @@ def train(
                 torch.cuda.cudart().cudaProfilerStart()
                 torch.autograd.profiler.emit_nvtx(record_shapes=True).__enter__()
 
-        elastic_client_update_step(
+        megatron_hooks.update_step(
             iteration,
             phase="async_checkpoint_finalize",
             step_tag=iteration,
@@ -2542,7 +2335,7 @@ def train(
             maybe_finalize_async_save(blocking=False)
         finally:
             ft_integration.on_checkpointing_end(is_async_finalization=True)
-            elastic_client_update_step(
+            megatron_hooks.update_step(
                 iteration,
                 phase="async_checkpoint_finalize_done",
                 step_tag=iteration,
@@ -2588,7 +2381,7 @@ def train(
                     )
         num_microbatches = get_num_microbatches()
         update_num_microbatches(args.consumed_train_samples, consistency_check=True, verbose=True)
-        elastic_trace_post_rebuild_phase("iteration_prologue_done", iteration)
+        megatron_hooks.trace("iteration_prologue_done", iteration)
 
         # Capture CUDA Graphs.
         if (
@@ -2627,81 +2420,19 @@ def train(
                 )
                 buffered_rollouts = train_data_iterator
 
-        # Crash injection for checkpoint-restart baseline (MOEGAMBIT-independent).
-        _maybe_crash_inject(iteration)
-
-        # Elastic hot-spare: check if watcher requested a pause for group rebuild.
-        # This is the safe point — all ranks are synchronized here.
-        elastic_trace_post_rebuild_phase("iteration_safe_point_start", iteration)
-        elastic_resume_iteration = moegambit_runtime_iteration_boundary(iteration)
-        if elastic_resume_iteration != iteration:
-            logger.warning(
-                "[elastic] Iteration %d: pause requested, entering rebuild...",
-                iteration,
-            )
-            if elastic_resume_iteration is not None and elastic_resume_iteration >= 0:
-                iteration = elastic_resume_iteration
-                args.curr_iteration = iteration
-            logger.warning("[elastic] Rebuild complete, resuming at iteration %d", iteration)
-        elastic_trace_post_rebuild_phase("iteration_safe_point_done", iteration)
-
-        # MOEGAMBIT-MoE: safe-point hook (before forward pass).
-        elastic_trace_post_rebuild_phase("moegambit_before_iteration_start", iteration)
-        moegambit_before_iteration(iteration)
-        elastic_trace_post_rebuild_phase("moegambit_before_iteration_done", iteration)
-        elastic_post_rebuild_iteration_barrier(iteration)
-
-        # MOEGAMBIT-MoE: if a checkpoint restart was executed during safe-point
-        # repair, the failed rank's weights have been restored from the
-        # latest checkpoint.  The iteration counter is NOT rolled back —
-        # only the failed rank (minority) lost progress; the majority of
-        # ranks have up-to-date weights.  The restored experts are marked
-        # STALE_RUNNABLE and will converge through continued training.
-        #
-        # NOTE: load_checkpoint() has side effects — it overwrites
-        # consumed_train_samples and lr scheduler state with checkpoint
-        # values.  The checkpoint_restart_fn saves and restores these
-        # around the load_checkpoint() call so they are preserved.
-        if moegambit_is_checkpoint_restart_requested():
-            _moegambit_decision = moegambit_get_checkpoint_restart_decision()
-            _moegambit_ckpt_iter = (
-                _moegambit_decision.latest_checkpoint_step
-                if _moegambit_decision is not None and _moegambit_decision.latest_checkpoint_step >= 0
-                else -1
-            )
-            logger.warning(
-                "MOEGAMBIT-MoE: checkpoint restart completed at iteration %d "
-                "(ckpt_iter=%d, gap=%d). Experts restored with stale "
-                "weights — training continues from current iteration.",
-                iteration, _moegambit_ckpt_iter,
-                iteration - _moegambit_ckpt_iter if _moegambit_ckpt_iter >= 0 else -1,
-            )
-            moegambit_clear_checkpoint_restart()
-
-        # MOEGAMBIT-MoE: snapshot iteration boundary state for rollback/replay.
-        # This captures consumed_train_samples, iteration, and FP ops
-        # BEFORE train_step, so we can restore them if the iteration fails.
-        moegambit_snapshot_iteration(
-            iteration=iteration,
-            consumed_train_samples=args.consumed_train_samples,
-            consumed_valid_samples=getattr(args, 'consumed_valid_samples', 0),
-            num_floating_point_operations_so_far=num_floating_point_operations_so_far,
+        megatron_hooks.maybe_inject_checkpoint_restart_crash(
+            iteration, torch_module=torch
         )
 
-        # MOEGAMBIT-MoE: begin pipeline iteration tracking for PP>1.
-        _moegambit_pp_size = mpu.get_pipeline_model_parallel_world_size()
-        if _moegambit_pp_size > 1:
-            moegambit_pipeline_begin_iteration(
-                step=iteration,
-                pp_rank=mpu.get_pipeline_model_parallel_rank(),
-                pp_size=_moegambit_pp_size,
-                num_microbatches=get_num_microbatches(),
-            )
+        iteration = megatron_hooks.iteration_safe_point(
+            iteration,
+            args=args,
+            num_floating_point_operations=num_floating_point_operations_so_far,
+            num_microbatches=get_num_microbatches(),
+        )
 
         ft_integration.on_training_step_start()
 
-        # MOEGAMBIT-MoE: wrap train_step to catch hard failures (NCCL errors, etc.)
-        _moegambit_hard_failure_caught = False
         try:
             (
                 loss_dict,
@@ -2714,182 +2445,36 @@ def train(
             ) = train_step(
                 forward_step_func, train_data_iterator, model, optimizer, opt_param_scheduler, config, forward_backward_func
             )
-        except RuntimeError as _moegambit_exc:
-            # Check if this is a communication failure that MOEGAMBIT can handle.
-            # NCCL errors typically manifest as RuntimeError with specific messages.
-            _moegambit_exc_msg = str(_moegambit_exc).lower()
-            _moegambit_is_comm_error = any(kw in _moegambit_exc_msg for kw in (
-                'nccl', 'ncclsystemerror', 'ncclremoteerror',
-                'ncclinternalerror', 'unhandled system error',
-                'connection reset', 'broken pipe', 'timed out',
-                'peer failure', 'remote process exited',
-            ))
-            if _moegambit_is_comm_error and getattr(args, 'moe_moegambit_enable', False):
-                import traceback
-                logger.error(
-                    "MOEGAMBIT-MoE: caught communication error in train_step at "
-                    "iteration %d: %s\n%s",
-                    iteration, _moegambit_exc, traceback.format_exc(),
-                )
-
-                # Notify elastic watcher about the NCCL error (non-blocking,
-                # best-effort).  This triggers the pause/rebuild flow.
-                # The runtime owns failure classification and the destructive
-                # recovery sequence.  Megatron retains only the training-loop
-                # decision about whether it is safe to continue this iteration.
-                if moegambit_runtime_on_distributed_error(_moegambit_exc):
-                    logger.warning(
-                        "[elastic] NCCL error caught + pause signal present. "
-                        "Skipping MOEGAMBIT logic, entering rebuild immediately."
-                    )
-                    _runtime = get_moegambit_runtime()
-                    elastic_resume_iteration = (
-                        _runtime.resume_step if _runtime is not None else iteration
-                    )
-                    if elastic_resume_iteration is not None and elastic_resume_iteration >= 0:
-                        iteration = elastic_resume_iteration
-                        args.curr_iteration = iteration
-                    logger.warning("[elastic] Rebuild complete after NCCL error recovery.")
-                    # Reset iteration state and continue training
-                    _moegambit_hard_failure_caught = False
-                    loss_dict = {}
-                    skipped_iter = 1
-                    should_checkpoint = False
-                    should_exit = False
-                    exit_code = 0
-                    grad_norm = None
-                    num_zeros_in_grad = None
-                    continue
-
-                # Report the failure — this triggers quarantine + invalidation.
-                # We use rank -1 as a placeholder; in a real deployment the
-                # failed rank would be identified from the exception or via
-                # a Gloo probe.  The detector is idempotent.
-                moegambit_report_hard_failure(
-                    failed_rank=-1,
-                    reason=str(_moegambit_exc),
-                    step=iteration,
-                    mid_iteration=True,
-                    exception=_moegambit_exc,
-                )
-                # PP>1: report pipeline-specific failure for coordinated rollback
-                if _moegambit_pp_size > 1:
-                    moegambit_pipeline_on_failure(
-                        failed_stage=mpu.get_pipeline_model_parallel_rank(),
-                        failed_rank=torch.distributed.get_rank(),
-                        step=iteration,
-                        reason=str(_moegambit_exc),
-                        nccl_healthy=False,
-                    )
-                _moegambit_hard_failure_caught = True
-                # Set default values so the loop can continue to the
-                # invalidation check below.
-                loss_dict = {}
-                skipped_iter = 1
-                should_checkpoint = False
-                should_exit = False
-                exit_code = 0
-                grad_norm = None
-                num_zeros_in_grad = None
-            else:
-                raise  # Re-raise non-communication errors
+        except RuntimeError as recovery_error:
+            disposition = megatron_hooks.handle_train_step_error(
+                recovery_error, args=args, iteration=iteration
+            )
+            if not disposition.handled:
+                raise
+            if disposition.resume_iteration is not None:
+                iteration = disposition.resume_iteration
+                args.curr_iteration = iteration
+                continue
+            loss_dict = {}
+            skipped_iter = 1
+            should_checkpoint = False
+            should_exit = False
+            exit_code = 0
+            grad_norm = None
+            num_zeros_in_grad = None
 
         ft_integration.on_training_step_end()
-
-        # MOEGAMBIT-MoE: check if the current iteration was invalidated by a
-        # hard failure (either caught above or reported by another path).
-        if moegambit_is_current_iteration_invalid():
-            logger.warning(
-                "MOEGAMBIT-MoE: iteration %d INVALIDATED — rolling back and "
-                "preparing for replay.",
-                iteration,
-            )
-            # Rollback: restore consumed_train_samples, rewind data iterator
-            _moegambit_fp_ops_ref = [num_floating_point_operations_so_far]
-            moegambit_rollback_iteration(
-                args=args,
-                data_iterators=train_data_iterator,
-                num_fp_ops_ref=_moegambit_fp_ops_ref,
-            )
-            num_floating_point_operations_so_far = _moegambit_fp_ops_ref[0]
-
-            # PP>1: initiate pipeline-safe rollback (sync all stages,
-            # clear grad buffers, drain any in-flight P2P ops)
-            if _moegambit_pp_size > 1:
-                def _pp_clear_grad():
-                    for model_chunk in model:
-                        model_chunk.zero_grad_buffer()
-                    optimizer.zero_grad()
-
-                _pp_rollback_result = moegambit_pipeline_initiate_rollback(
-                    clear_grad_fn=_pp_clear_grad,
-                )
-                if _pp_rollback_result is not None:
-                    logger.warning(
-                        "MOEGAMBIT-MoE: PP>1 pipeline rollback at iteration %d — "
-                        "sync=%s, grad_cleared=%s, nccl_reset=%s",
-                        iteration,
-                        _pp_rollback_result.all_stages_synced,
-                        _pp_rollback_result.grad_buffers_cleared,
-                        _pp_rollback_result.nccl_communicator_reset,
-                    )
-
-            # Check if we've exceeded max replay attempts
-            if moegambit_exceeded_max_replays():
-                logger.error(
-                    "MOEGAMBIT-MoE: iteration %d exceeded max replay attempts. "
-                    "Falling back to waiting for replacement at next safe point.",
-                    iteration,
-                )
-
-            # Log replacement status for observability.
-            # The actual safe-point repair (group rebuild, param sync, etc.)
-            # is triggered by moegambit_before_iteration() at the top of the next
-            # loop iteration — replacement ranks must NOT participate in
-            # normal training collectives until then.
-            if moegambit_is_waiting_for_replacement():
-                logger.warning(
-                    "MOEGAMBIT-MoE: iteration %d — system is waiting for "
-                    "replacement rank integration at next safe point.",
-                    iteration,
-                )
-            elif moegambit_has_pending_replacements():
-                logger.warning(
-                    "MOEGAMBIT-MoE: iteration %d — pending replacement(s) exist "
-                    "but recovery controller has not yet reached "
-                    "SAFE_POINT_REPAIR phase.",
-                    iteration,
-                )
-
-            # Log reintegration barrier status
-            if moegambit_is_reintegration_pending():
-                _reint_summary = moegambit_get_reintegration_summary()
-                logger.warning(
-                    "MOEGAMBIT-MoE: iteration %d — reintegration pending: %s",
-                    iteration,
-                    _reint_summary,
-                )
-
-            # Post-step hook still runs (to archive the invalidation record)
-            moegambit_after_iteration(iteration)
-            # Do NOT increment iteration or consumed_train_samples.
-            # The next loop iteration will call moegambit_before_iteration which
-            # clears the invalidation flag and may execute safe-point repair.
+        disposition = megatron_hooks.finish_train_step(
+            iteration,
+            args=args,
+            data_iterators=train_data_iterator,
+            model=model,
+            optimizer=optimizer,
+            num_floating_point_operations=num_floating_point_operations_so_far,
+        )
+        num_floating_point_operations_so_far = disposition.floating_point_operations
+        if disposition.continue_loop:
             continue
-
-        # MOEGAMBIT-MoE: if this was a successful replay, complete it.
-        if moegambit_is_replay_pending():
-            logger.warning(
-                "MOEGAMBIT-MoE: iteration %d replay SUCCEEDED.",
-                iteration,
-            )
-            moegambit_complete_replay(train_data_iterator)
-            # PP>1: complete pipeline replay tracking
-            if _moegambit_pp_size > 1:
-                moegambit_pipeline_complete_replay(success=True)
-
-        # MOEGAMBIT-MoE: post-step hook (after optimizer.step()).
-        moegambit_after_iteration(iteration)
         if should_checkpoint:
             save_checkpoint_and_time(
                 iteration,
@@ -2975,7 +2560,7 @@ def train(
                 decoupled_learning_rate = param_group['lr']
             else:
                 learning_rate = param_group['lr']
-        elastic_trace_post_rebuild_phase("training_log_start", args.curr_iteration)
+        megatron_hooks.trace("training_log_start", args.curr_iteration)
         report_memory_flag = training_log(
             loss_dict,
             total_loss_dict,
@@ -2989,7 +2574,7 @@ def train(
             params_norm,
             num_zeros_in_grad,
         )
-        elastic_trace_post_rebuild_phase("training_log_done", args.curr_iteration)
+        megatron_hooks.trace("training_log_done", args.curr_iteration)
 
         # Evaluation.
         if args.eval_interval and iteration % args.eval_interval == 0 and args.do_valid:
@@ -3031,7 +2616,7 @@ def train(
 
         # Miscellaneous post-training-step functions (e.g., FT heartbeats, GC).
         # Some of these only happen at specific iterations.
-        elastic_trace_post_rebuild_phase("post_step_callbacks_start", args.curr_iteration)
+        megatron_hooks.trace("post_step_callbacks_start", args.curr_iteration)
         post_training_step_callbacks(
             model,
             optimizer,
@@ -3040,10 +2625,10 @@ def train(
             prof,
             num_floating_point_operations_since_last_log_event,
         )
-        elastic_trace_post_rebuild_phase("post_step_callbacks_done", args.curr_iteration)
+        megatron_hooks.trace("post_step_callbacks_done", args.curr_iteration)
 
         # Checkpoint and decide whether to exit.
-        elastic_trace_post_rebuild_phase("checkpoint_exit_start", args.curr_iteration)
+        megatron_hooks.trace("checkpoint_exit_start", args.curr_iteration)
         should_exit = checkpoint_and_decide_exit(
             model,
             optimizer,
@@ -3053,8 +2638,8 @@ def train(
             checkpointing_context,
             train_data_iterator,
         )
-        elastic_trace_post_rebuild_phase("checkpoint_exit_done", args.curr_iteration)
-        moegambit_runtime_commit_iteration(args.curr_iteration)
+        megatron_hooks.trace("checkpoint_exit_done", args.curr_iteration)
+        megatron_hooks.commit_iteration(args.curr_iteration)
         if should_exit:
             break
 
@@ -3069,7 +2654,9 @@ def train(
     if pre_hook_enabled:
         disable_forward_pre_hook(model)
 
-    elastic_client_update_step(iteration, phase="async_checkpoint_finalize", step_tag=iteration)
+    megatron_hooks.update_step(
+        iteration, phase="async_checkpoint_finalize", step_tag=iteration
+    )
     ft_integration.on_checkpointing_start()
     try:
         # This will finalize all unfinalized async request and terminate
@@ -3077,7 +2664,7 @@ def train(
         maybe_finalize_async_save(blocking=True, terminate=True)
     finally:
         ft_integration.on_checkpointing_end(is_async_finalization=True)
-        elastic_client_update_step(
+        megatron_hooks.update_step(
             iteration,
             phase="async_checkpoint_finalize_done",
             step_tag=iteration,
@@ -3393,7 +2980,7 @@ def build_train_valid_test_data_loaders(build_train_valid_test_datasets_provider
     """Build pretraining data loaders."""
 
     args = get_args()
-    _elastic_rebuild = is_rebuild_mode()
+    _elastic_rebuild = megatron_hooks.is_rebuild_mode()
 
     (train_dataloader, valid_dataloaders, test_dataloader) = (None, None, None)
 

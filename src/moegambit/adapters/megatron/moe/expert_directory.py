@@ -42,7 +42,7 @@ Checkpoint interface boundary
 
 Typical usage::
 
-    from megatron.core.transformer.moe.expert_directory import (
+    from moegambit.adapters.megatron.moe.expert_directory import (
         ActiveExpertDirectory,
         RecoveryManifest,
     )
@@ -72,7 +72,10 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from moegambit.runtime.checkpoint_commit import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -553,8 +556,7 @@ class RecoveryManifest:
         os.makedirs(target_dir, exist_ok=True)
         path = os.path.join(target_dir, MANIFEST_FILENAME)
 
-        with open(path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2, sort_keys=False)
+        atomic_write_json(Path(path), self.to_dict())
 
         logger.info(
             "RecoveryManifest: saved %d entries to %s (step=%d)",

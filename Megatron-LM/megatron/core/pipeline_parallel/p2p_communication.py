@@ -1,7 +1,6 @@
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
 
-import os
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -9,6 +8,7 @@ import torch.distributed as dist
 
 from megatron.core.model_parallel_config import ModelParallelConfig
 from megatron.core.utils import nvtx_decorator
+from moegambit.adapters.megatron.hooks import megatron_hooks
 
 # Types
 Shape = Union[List[int], torch.Size]
@@ -162,49 +162,6 @@ class P2PCommunicator:
             if config.virtual_pipeline_model_parallel_size is not None
             else None
         )
-
-    def _elastic_trace_p2p_once(
-        self,
-        phase: str,
-        *,
-        tensor_send_next,
-        tensor_send_prev,
-        recv_prev: bool,
-        recv_next: bool,
-    ) -> None:
-        """Report the first stabilization P2P call without changing its ordering."""
-        try:
-            from megatron.training.elastic_client import (
-                elastic_is_post_rebuild_trace_active,
-                elastic_report_recovery_phase,
-            )
-
-            if (
-                os.environ.get("ELASTIC_RECOVERY_STATE")
-                != "post_rebuild_stabilization_trace"
-                or not elastic_is_post_rebuild_trace_active()
-            ):
-                return
-            token = os.environ.get("ELASTIC_POST_REBUILD_TRACE_TOKEN", "rebuild")
-            key = (token, phase)
-            seen = getattr(self, "_elastic_p2p_trace", set())
-            if key in seen:
-                return
-            seen.add(key)
-            self._elastic_p2p_trace = seen
-            elastic_report_recovery_phase(
-                phase,
-                p2p_send_prev=tensor_send_prev is not None,
-                p2p_recv_prev=bool(recv_prev),
-                p2p_send_next=tensor_send_next is not None,
-                p2p_recv_next=bool(recv_next),
-                p2p_prev_rank=self.prev_rank,
-                p2p_next_rank=self.next_rank,
-                p2p_group_name=str(getattr(self.pp_group, "group_name", "unavailable")),
-            )
-        except Exception:
-            # Diagnostics must never alter the real pipeline communication path.
-            return
 
     def _communicate_shapes(self, tensor_send_next, tensor_send_prev, recv_prev, recv_next):
         """Communicate tensor shapes between stages. Used to communicate
@@ -417,7 +374,8 @@ class P2PCommunicator:
         if tensor_recv_next_func is not None:
             tensor_recv_next = tensor_recv_next_func()
 
-        self._elastic_trace_p2p_once(
+        megatron_hooks.trace_pipeline_p2p(
+            self,
             "pipeline_p2p_start",
             tensor_send_next=tensor_send_next,
             tensor_send_prev=tensor_send_prev,
@@ -448,7 +406,8 @@ class P2PCommunicator:
             # User should assert that we have a modern enough PyTorch to not need this
             torch.cuda.synchronize()
 
-        self._elastic_trace_p2p_once(
+        megatron_hooks.trace_pipeline_p2p(
+            self,
             "pipeline_p2p_returned",
             tensor_send_next=tensor_send_next,
             tensor_send_prev=tensor_send_prev,

@@ -392,7 +392,7 @@ class AsyncRecoveryWorker:
         # Update health masks
         if health_mask_updates:
             try:
-                from megatron.core.transformer.moe.expert_health import (
+                from moegambit.adapters.megatron.moe.expert_health import (
                     get_expert_health_mask,
                 )
                 for layer_id, expert_indices in health_mask_updates:

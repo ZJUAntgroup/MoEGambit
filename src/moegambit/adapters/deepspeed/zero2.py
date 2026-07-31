@@ -9,13 +9,12 @@ import socket
 from datetime import timedelta
 from typing import Any
 
-from moegambit.runtime.zero2_replica import (
+from moegambit.replication import (
     OptimizerMemorySnapshot,
     OptimizerScalarRef,
     OptimizerTensorRef,
     Zero2MemoryReplicaManager,
     apply_optimizer_snapshot,
-    capture_optimizer_snapshot,
 )
 from moegambit.runtime.replica_placement import (
     failure_domain_ring_order,

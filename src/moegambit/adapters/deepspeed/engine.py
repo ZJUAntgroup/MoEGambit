@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import sys
 from typing import Sequence
@@ -12,15 +11,7 @@ from moegambit.interfaces import (
     LaunchRequest,
     PreparedLaunch,
 )
-
-
-def _prepend_path(environment: dict[str, str], path: Path) -> None:
-    current = environment.get("PYTHONPATH", "")
-    values = [item for item in current.split(os.pathsep) if item]
-    path_text = str(path)
-    if path_text in values:
-        values.remove(path_text)
-    environment["PYTHONPATH"] = os.pathsep.join([path_text, *values])
+from moegambit.runtime.launch_environment import prepend_python_path
 
 
 def _enabled(environment: dict[str, str], name: str) -> bool:
@@ -54,8 +45,8 @@ class DeepSpeedEngineAdapter:
         )
         vendored = next((path for path in candidates if path.is_dir()), None)
         if vendored is not None:
-            _prepend_path(environment, vendored)
-            _prepend_path(environment, repository / "src")
+            prepend_python_path(environment, vendored)
+            prepend_python_path(environment, repository / "src")
             environment["MOEGAMBIT_DEEPSPEED_ROOT"] = str(vendored)
 
         strategy = "disabled"

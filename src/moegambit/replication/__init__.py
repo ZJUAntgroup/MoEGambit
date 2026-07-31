@@ -9,6 +9,7 @@ from .optimizer_memory import (
     Zero2MemoryReplicaManager,
     apply_optimizer_snapshot,
     backup_holder_for_owner,
+    capture_optimizer_snapshot,
     memory_replica_sources,
     ring_neighbors,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "Zero2MemoryReplicaManager",
     "apply_optimizer_snapshot",
     "backup_holder_for_owner",
+    "capture_optimizer_snapshot",
     "memory_replica_sources",
     "ring_neighbors",
 ]

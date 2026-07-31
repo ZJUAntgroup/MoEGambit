@@ -1,6 +1,6 @@
 # MoEGambit DeepSpeed Baseline
 
-This directory is based on the official
+The bundled `DeepSpeed/` directory is based on the official
 [`deepspeedai/DeepSpeed`](https://github.com/deepspeedai/DeepSpeed) repository:
 
 - Tag: `v0.19.3`
@@ -10,13 +10,14 @@ This directory is based on the official
 MoEGambit keeps the upstream runtime and build sources required to install
 DeepSpeed. Large upstream blogs, generated documentation, CI metadata,
 examples, and the full upstream test corpus are omitted from this repository.
-The runtime integration patch in `deepspeed/__init__.py` is deliberately
-limited to configuration validation and an optional
-post-engine-construction hook. Both are inactive when the MoEGambit feature
-switches are off. `setup.py` and `deepspeed/git_version_info.py` also pin the
-snapshot's upstream commit instead of inheriting metadata from the enclosing
-MoEGambit repository. `deepspeed/launcher/runner.py` forwards MoEGambit
-feature and recovery variables to remote workers alongside `PYTHONPATH`.
+The runtime integration patch is limited to calls through
+`moegambit.adapters.deepspeed.hooks`. Recovery coordination, ordered process
+group creation, packed expert checkpoints, and launcher recovery decisions
+live in the installable MoEGambit package. `setup.py` and
+`deepspeed/git_version_info.py` pin the snapshot's upstream commit instead of
+inheriting metadata from the enclosing repository. The DeepSpeed launcher
+forwards MoEGambit feature and recovery variables to remote workers alongside
+`PYTHONPATH`.
 
 `deepspeed/runtime/pipe/engine.py` contains one compatibility correction for
 the v0.19.3 torch-style backward hooks. Non-final pipeline stages use one

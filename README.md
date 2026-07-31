@@ -8,8 +8,8 @@ workers, and checkpoint fallback for both Megatron-LM and DeepSpeed.
 This repository contains:
 
 - one installable `moegambit` runtime under `src/`;
-- a Megatron adapter and compatibility hooks;
-- a DeepSpeed adapter and compatibility hooks;
+- a Megatron adapter with minimal framework hooks;
+- a DeepSpeed adapter with minimal framework hooks;
 - Generic DDP as a framework-neutral reference implementation;
 - real nine-node validation scripts for Megatron and DeepSpeed.
 
@@ -54,6 +54,13 @@ framework hook -> framework adapter -> moegambit interfaces/runtime/core
 Framework-independent code must not be added back into `Megatron-LM/`,
 `DeepSpeed/`, or either framework adapter.
 
+Megatron integration has one public import contract:
+`from moegambit.adapters.megatron.hooks import megatron_hooks`. Megatron only
+publishes framework lifecycle events and objects through that singleton.
+Recovery configuration, failure classification, rollback/replay policy,
+process-group rebuild state, and post-rebuild diagnostics live under
+`src/moegambit/adapters/megatron/`.
+
 ## Supported recovery modes
 
 ### Megatron
@@ -82,6 +89,32 @@ node, PP=8, EP=8, and TP=1.
 
 DeepSpeed `PipelineEngine` does not support ZeRO-2/3, so the validation does
 not claim support for PP=8 plus ZeRO-2.
+
+### Failure boundary semantics
+
+Megatron and DeepSpeed use the same framework-neutral step transaction model.
+The runtime distinguishes the last committed optimizer version from the
+currently executing iteration:
+
+| Failure phase | Required recovery |
+| --- | --- |
+| forward, backward, optimizer-before | discard gradients, rewind data, replay from the last committed step |
+| optimizer-during | restore model and optimizer state from the previous committed replica before replay |
+| optimizer-after, replica not committed | checkpoint relaunch; bookkeeping-only rollback is forbidden |
+| committed step | resume from that committed optimizer version |
+| checkpoint before/while publishing its commit record | ignore the incomplete checkpoint and retain the committed training step |
+| checkpoint after commit record | the new checkpoint is eligible for restart |
+
+An optimizer step is not advertised as a safe point until its host-memory peer
+replica has acknowledged the same version. If a framework adapter cannot prove
+the restore required by `optimizer-during`, it fails closed and requests
+checkpoint relaunch or aborts. It never rewinds only the iteration counter
+after parameters may have changed.
+
+DeepSpeed's supplied SIGKILL validation injects failure only at a committed
+safe point. Unexpected failures in forward, backward, and optimizer are still
+classified by phase, but arbitrary mid-collective recovery remains dependent
+on the launcher and coordinator obtaining a valid committed failure step.
 
 ## Environment requirements
 

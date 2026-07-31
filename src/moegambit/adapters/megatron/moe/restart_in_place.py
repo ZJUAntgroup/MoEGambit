@@ -203,7 +203,7 @@ def invalidate_dense_params_only(model, optimizer=None, classification=None):
     import torch
 
     if classification is None:
-        from megatron.core.transformer.moe.dense_param_sync import (
+        from moegambit.adapters.megatron.moe.dense_param_sync import (
             classify_model_parameters,
         )
         classification = classify_model_parameters(model)
@@ -247,7 +247,7 @@ def invalidate_expert_params_only(model, optimizer=None, classification=None):
     import torch
 
     if classification is None:
-        from megatron.core.transformer.moe.dense_param_sync import (
+        from moegambit.adapters.megatron.moe.dense_param_sync import (
             classify_model_parameters,
         )
         classification = classify_model_parameters(model)
@@ -321,7 +321,7 @@ def verify_recovery(
     import torch
 
     if classification is None:
-        from megatron.core.transformer.moe.dense_param_sync import (
+        from moegambit.adapters.megatron.moe.dense_param_sync import (
             classify_model_parameters,
         )
         classification = classify_model_parameters(model)
@@ -540,7 +540,7 @@ class RestartInPlaceCoordinator:
         self._fault_step = step
 
         # Classify parameters
-        from megatron.core.transformer.moe.dense_param_sync import (
+        from moegambit.adapters.megatron.moe.dense_param_sync import (
             classify_model_parameters,
         )
         self._classification = classify_model_parameters(model)
@@ -605,7 +605,7 @@ class RestartInPlaceCoordinator:
             The recovery path name: "CHECKPOINT_RESTART" or "HYBRID_RECOVERY".
         """
         if self._classification is None:
-            from megatron.core.transformer.moe.dense_param_sync import (
+            from moegambit.adapters.megatron.moe.dense_param_sync import (
                 classify_model_parameters,
             )
             self._classification = classify_model_parameters(model)

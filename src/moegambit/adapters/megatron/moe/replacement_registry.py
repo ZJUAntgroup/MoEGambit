@@ -51,7 +51,7 @@ Design principles
 
 Typical usage::
 
-    from megatron.core.transformer.moe.replacement_registry import (
+    from moegambit.adapters.megatron.moe.replacement_registry import (
         announce_replacement,
         announce_replacement_ready,
         query_replacement_status,

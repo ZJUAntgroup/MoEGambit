@@ -2,12 +2,12 @@
 
 import logging
 import math
-import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Iterable, List, Optional, Type, Union
 
 import numpy
 import torch
+from moegambit.adapters.megatron.hooks import megatron_hooks
 
 from megatron.core.datasets.blended_dataset import BlendedDataset
 from megatron.core.datasets.blended_megatron_dataset_config import BlendedMegatronDatasetConfig
@@ -24,10 +24,6 @@ TopLevelDataset = Union[BlendedDataset, MidLevelDataset]
 DistributedDataset = Union[
     TopLevelDataset, MidLevelDataset, LowLevelDataset, torch.utils.data.Dataset
 ]
-
-
-def _elastic_rebuild_mode() -> bool:
-    return os.environ.get("ELASTIC_REBUILD_MODE") == "1"
 
 
 class BlendedMegatronDatasetBuilder(object):
@@ -368,7 +364,7 @@ class BlendedMegatronDatasetBuilder(object):
         num_dataset_builder_threads = self.config.num_dataset_builder_threads
 
         if torch.distributed.is_initialized():
-            if _elastic_rebuild_mode():
+            if megatron_hooks.is_rebuild_mode():
                 _threading_helper(
                     megatron_datasets,
                     num_dataset_builder_threads,
@@ -436,7 +432,11 @@ class BlendedMegatronDatasetBuilder(object):
         # short-cut if we are not building on this rank
         if torch.distributed.is_initialized() and not self.is_built_on_rank():
             for i in range(len(Split)):
-                if split[i] is not None and synchronize_ranks and not _elastic_rebuild_mode():
+                if (
+                    split[i] is not None
+                    and synchronize_ranks
+                    and not megatron_hooks.is_rebuild_mode()
+                ):
                     torch.distributed.barrier()
             return [None] * len(Split)
 
@@ -511,7 +511,7 @@ class BlendedMegatronDatasetBuilder(object):
 
             dataset = None
 
-            if _elastic_rebuild_mode():
+            if megatron_hooks.is_rebuild_mode():
                 if is_built_on_rank():
                     dataset = cls(*args)
                 return dataset

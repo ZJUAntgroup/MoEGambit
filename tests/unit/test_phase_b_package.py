@@ -18,6 +18,7 @@ import moegambit  # noqa: E402
 from moegambit.capabilities import AdapterCapabilities  # noqa: E402
 from moegambit.config import FallbackMode, RuntimeConfig  # noqa: E402
 from moegambit.errors import MoEGambitError  # noqa: E402
+from moegambit.runtime.launch_environment import prepend_python_path  # noqa: E402
 
 
 def test_public_package_exports_phase_b_contracts_lazily():
@@ -171,6 +172,22 @@ def test_explicit_python_overrides_have_highest_priority():
     assert overridden.enabled
     assert overridden.framework == "megatron"
     assert not config.enabled
+
+
+def test_framework_launchers_share_idempotent_pythonpath_projection(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    environment = {"PYTHONPATH": os.pathsep.join([str(first), "existing"])}
+
+    prepend_python_path(environment, first)
+    prepend_python_path(environment, second)
+    prepend_python_path(environment, second)
+
+    assert environment["PYTHONPATH"].split(os.pathsep) == [
+        str(second),
+        str(first),
+        "existing",
+    ]
 
 
 def test_capability_digest_is_stable_and_sensitive():

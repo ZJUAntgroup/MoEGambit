@@ -20,7 +20,7 @@ from megatron.core.transformer.moe.moe_utils import (
     topk_routing_with_score_function,
     z_loss_func,
 )
-from megatron.core.transformer.moe.preferential_routing import get_all_preferential_routing_managers
+from moegambit.adapters.megatron.hooks import megatron_hooks
 from megatron.core.transformer.transformer_config import TransformerConfig
 
 
@@ -488,17 +488,6 @@ class TopKRouter(Router):
         if self.routing_type == "sinkhorn":
             probs, routing_map = self.sinkhorn_load_balancing(logits)
         else:
-            # MOEGAMBIT-MoE: obtain recovery_bias for preferential routing
-            recovery_bias = None
-            if (
-                self.config.moe_moegambit_preferential_routing
-                and self.layer_number is not None
-            ):
-                _managers = get_all_preferential_routing_managers()
-                _mgr = _managers.get(self.layer_number)
-                if _mgr is not None and _mgr.has_active_sessions():
-                    recovery_bias = _mgr.get_bias_tensor(logits.device)
-
             probs, routing_map = topk_routing_with_score_function(
                 logits,
                 self.topk,
@@ -507,9 +496,12 @@ class TopKRouter(Router):
                 group_topk=self.config.moe_router_group_topk,
                 scaling_factor=self.config.moe_router_topk_scaling_factor,
                 score_function=self.score_function,
-                expert_bias=self.expert_bias,
+                expert_bias=megatron_hooks.routing_expert_bias(
+                    self.expert_bias,
+                    layer_number=self.layer_number,
+                    device=logits.device,
+                ),
                 fused=self.config.moe_router_fusion,
-                recovery_bias=recovery_bias,
             )
 
         # Apply token dropping to probs and routing_map.

@@ -215,8 +215,9 @@ class PipelineModule(nn.Module):
         self.to(get_accelerator().device_name(self.local_rank))
 
         self.tied_comms = self._index_tied_modules()
-        defer_tied_sync = os.environ.get("MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT",
-                                         "0").strip().lower() in {"1", "true", "yes", "on"}
+        from moegambit.adapters.deepspeed.hooks import is_inprocess_replacement
+
+        defer_tied_sync = is_inprocess_replacement()
         if not defer_tied_sync:
             self._synchronize_tied_weights()
 
@@ -675,9 +676,9 @@ class PipelineModule(nn.Module):
             #         f'RANK={self.global_rank} Loaded layer={idx+self._local_start} file={load_path}'
             #     )
 
-        inprocess_replacement = os.environ.get(
-            "MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT", "0"
-        ).strip().lower() in {"1", "true", "yes", "on"}
+        from moegambit.adapters.deepspeed.hooks import is_inprocess_replacement
+
+        inprocess_replacement = is_inprocess_replacement()
         if not inprocess_replacement:
             self._synchronize_tied_weights()
 

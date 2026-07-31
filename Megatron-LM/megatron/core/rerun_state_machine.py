@@ -249,45 +249,6 @@ class RerunStateMachine:
 
         return self.mode
 
-    def reset_after_external_recovery(self, current_iteration: int) -> dict[str, Any]:
-        """Discard per-step rerun state after an external rank replacement.
-
-        A hot replacement restores checkpoint state while surviving ranks keep
-        their in-memory state. Carrying either side's transient rerun state into
-        the resumed step can make some ranks enter the world all-reduce at the
-        end of a rerun while their peers start a new forward pass.
-        """
-        previous_state = self.state
-        previous_iteration = self.current_iteration
-
-        self.state = RerunState.NOT_RUNNING_YET
-        self.current_iteration = int(current_iteration)
-        self.first_iteration_complete = self.current_iteration > 0
-        self.rerun_requested = False
-        self.checkpoint_requested = False
-        self.restart_again_requested = False
-        self.continue_requested = False
-        self.validation_counts = defaultdict(int)
-        self.failed_validation_call = None
-        self.initial_result = None
-        self.suspicious_node = None
-        self.suspicious_device = None
-        self.saved_state = None
-        self.data_iterator_checkpoints = None
-        self.saved_results = {}
-        self.large_value_counts = {}
-        self.max_values = {}
-        self.error_injector.injected_error_type = None
-
-        return {
-            "mode": self.mode.value,
-            "previous_state": previous_state.value,
-            "previous_iteration": previous_iteration,
-            "state": self.state.value,
-            "current_iteration": self.current_iteration,
-            "first_iteration_complete": self.first_iteration_complete,
-        }
-
     def should_run_forward_backward(self, data_iterator: DataIteratorArgType) -> bool:
         """Method instructing whether to (re)run the forward-backward pass.
 

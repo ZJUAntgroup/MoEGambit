@@ -9,19 +9,19 @@ import time
 from pathlib import Path
 from typing import Any
 
+from moegambit.runtime.checkpoint_commit import (
+    CHECKPOINT_COMMIT_NAME,
+    atomic_write_json,
+    atomic_write_text,
+)
 
-MANIFEST_NAME = ".moegambit-complete.json"
+
+MANIFEST_NAME = CHECKPOINT_COMMIT_NAME
 _STEP_TAG = re.compile(r"^global_step(\d+)$")
 _PACKED_EXPERT_ENV = "DEEPSPEED_MOEGAMBIT_PACKED_EXPERT_CHECKPOINT"
 _PACKED_EXPERT_PATTERN = (
     "layer_*_ep_rank_*_mp_rank_*_packed_expert_states.pt"
 )
-
-
-def _atomic_write_text(path: Path, value: str) -> None:
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(value, encoding="utf-8")
-    os.replace(temporary, path)
 
 
 def _dense_shards(tag_dir: Path, zero3: bool) -> list[Path]:
@@ -123,11 +123,8 @@ def publish_checkpoint(
         try:
             manifest = build_checkpoint_manifest(engine, checkpoint_dir, tag)
             tag_dir = checkpoint_dir / tag
-            _atomic_write_text(
-                tag_dir / MANIFEST_NAME,
-                json.dumps(manifest, sort_keys=True) + "\n",
-            )
-            _atomic_write_text(checkpoint_dir / "latest", f"{tag}\n")
+            atomic_write_json(tag_dir / MANIFEST_NAME, manifest)
+            atomic_write_text(checkpoint_dir / "latest", f"{tag}\n")
         except Exception as exc:
             outcome[0] = f"{type(exc).__name__}: {exc}"
     dist.broadcast_object_list(outcome, src=0)

@@ -88,7 +88,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKIN
 
 if TYPE_CHECKING:
     import torch
-    from megatron.core.transformer.moe.async_recovery_worker import (
+    from moegambit.adapters.megatron.moe.async_recovery_worker import (
         AsyncRecoveryWorker,
     )
 
@@ -402,7 +402,7 @@ class DeferredOptimizerLoader:
 
             # --- Async path ---
             if async_worker is not None:
-                from megatron.core.transformer.moe.async_recovery_worker import (
+                from moegambit.adapters.megatron.moe.async_recovery_worker import (
                     AsyncLoadRequest,
                 )
                 async_req = AsyncLoadRequest(

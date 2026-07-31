@@ -529,7 +529,6 @@ def topk_routing_with_score_function(
     score_function: str = "softmax",
     expert_bias: Optional[torch.Tensor] = None,
     fused: bool = False,
-    recovery_bias: Optional[torch.Tensor] = None,
 ):
     """Compute the routing probabilities and map for top-k selection with score function.
     Args:
@@ -541,11 +540,6 @@ def topk_routing_with_score_function(
         scaling_factor (float): Scaling factor of routing score in top-k selection.
         score_function (str): The score function to use. Can be either "softmax" or "sigmoid".
         expert_bias (torch.Tensor): The bias added to logits for expert routing.
-        recovery_bias (torch.Tensor, optional): Additive bias of shape ``[num_experts]``
-            for recovered experts (MOEGAMBIT-MoE preferential routing).  When provided,
-            it is added on top of ``expert_bias`` (if any) in the sigmoid branch
-            before top-k selection.  The bias is typically small and time-decayed.
-            Defaults to None (no recovery preference).
     Returns:
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             - routing_probs (torch.Tensor): A tensor of shape [num_tokens, num_experts] containing
@@ -595,15 +589,8 @@ def topk_routing_with_score_function(
             probs = torch.softmax(scores, dim=-1, dtype=torch.float32).type_as(logits)
     elif score_function == "sigmoid":
         scores = torch.sigmoid(logits.float()).type_as(logits)
-        if expert_bias is not None or recovery_bias is not None:
-            # Combine expert_bias (DeepSeek-V3 load-balance) and recovery_bias
-            # (MOEGAMBIT-MoE preferential routing) into a single additive offset.
-            effective_bias = torch.zeros_like(scores[0])  # [num_experts]
-            if expert_bias is not None:
-                effective_bias = effective_bias + expert_bias
-            if recovery_bias is not None:
-                effective_bias = effective_bias + recovery_bias
-            scores_for_routing = scores + effective_bias
+        if expert_bias is not None:
+            scores_for_routing = scores + expert_bias
             _, top_indices = compute_topk(scores_for_routing, topk, num_groups, group_topk)
             scores = torch.gather(scores, dim=1, index=top_indices).type_as(logits)
         else:

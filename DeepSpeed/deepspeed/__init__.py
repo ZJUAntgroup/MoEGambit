@@ -81,19 +81,6 @@ __git_branch__ = git_branch
 dist = None
 
 
-def _moegambit_enabled() -> bool:
-    true_values = {"1", "true", "yes", "on"}
-    return any(
-        os.environ.get(name, "").strip().lower() in true_values
-        for name in (
-            "MOEGAMBIT_HOT_SWAP",
-            "MOEGAMBIT_ZERO2",
-            "DEEPSPEED_MOEGAMBIT_HOT_SWAP",
-            "DEEPSPEED_MOEGAMBIT_ZERO2",
-        )
-    )
-
-
 def set_optimizer_flags(config_class: DeepSpeedConfig, model: torch.nn.Module) -> None:
     if config_class.optimizer_name == MUON_OPTIMIZER:
         for name, p in model.named_parameters():
@@ -206,8 +193,10 @@ def initialize(
 
     if not isinstance(config, dict):
         config = load_ds_config(config)
-    if _moegambit_enabled():
-        from moegambit.adapters.deepspeed.config import (
+    from moegambit.adapters.deepspeed.hooks import is_enabled
+
+    if is_enabled():
+        from moegambit.adapters.deepspeed.hooks import (
             prepare_deepspeed_config,
         )
 
@@ -277,8 +266,8 @@ def initialize(
     # Restore zero.Init context if necessary
     zero.partition_parameters.restore_init_context()
 
-    if _moegambit_enabled():
-        from moegambit.adapters.deepspeed.integration import attach_engine
+    if is_enabled():
+        from moegambit.adapters.deepspeed.hooks import attach_engine
 
         attach_engine(engine)
 

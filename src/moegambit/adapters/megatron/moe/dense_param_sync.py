@@ -84,7 +84,7 @@ Integration with MOEGAMBIT-MoE stack
 
 Typical usage::
 
-    from megatron.core.transformer.moe.dense_param_sync import (
+    from moegambit.adapters.megatron.moe.dense_param_sync import (
         classify_model_parameters,
         pull_dense_params_from_peer,
         select_healthy_dp_peer,

@@ -37,7 +37,7 @@ Training torchrun world size is NOT affected (remains 64 GPUs for 8 nodes).
 
 Usage::
 
-    from megatron.core.transformer.moe.hot_spare_pool import (
+    from moegambit.adapters.megatron.moe.hot_spare_pool import (
         get_hot_spare_pool,
         initialize_hot_spare_pool,
     )

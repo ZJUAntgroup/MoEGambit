@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from moegambit.core.step_transaction import (
+    FailureDecision,
+    StepPhase,
+    StepTransaction,
+)
 from moegambit.runtime.config import env_bool
 
 
@@ -141,6 +146,9 @@ class DeepSpeedRecoveryRuntime:
         self._peer_optimizer_state: dict[str, Any] | None = None
         self.recovery_contract: dict[str, Any] | None = None
         self.current_recovery_epoch = settings.recovery_epoch
+        initial_step = int(getattr(engine, "global_steps", 0))
+        self.step_transaction = StepTransaction(initial_step)
+        self.last_failure_decision: FailureDecision | None = None
 
     def start(self) -> "DeepSpeedRecoveryRuntime":
         needs_optimizer_replica = (
@@ -181,7 +189,17 @@ class DeepSpeedRecoveryRuntime:
             )
             self._restore_inprocess_hybrid()
         if self.zero2 is not None:
-            self.zero2.start(int(getattr(self.engine, "global_steps", 0)))
+            initial_step = int(getattr(self.engine, "global_steps", 0))
+            self.zero2.start(initial_step)
+            self.zero2.wait_until_replicated(initial_step)
+            self.step_transaction.mark_optimizer_snapshot(initial_step)
+        self.step_transaction.begin_step(
+            int(getattr(self.engine, "global_steps", 0))
+        )
+        if self.zero2 is not None:
+            self.step_transaction.mark_step_safe(
+                int(getattr(self.engine, "global_steps", 0))
+            )
         if (
             self.settings.inprocess_recovery
             and self.settings.inprocess_replacement
@@ -550,15 +568,32 @@ class DeepSpeedRecoveryRuntime:
                 break
             try:
                 before = int(getattr(runtime.engine, "global_steps", 0))
+                if runtime.step_transaction.committed_step != before:
+                    runtime.step_transaction = StepTransaction(before)
+                    if runtime.zero2 is not None:
+                        runtime.step_transaction.mark_optimizer_snapshot(before)
+                runtime.step_transaction.begin_step(before)
+                runtime.step_transaction.enter(StepPhase.OPTIMIZER_BEFORE)
                 if runtime.zero2 is not None:
                     runtime.zero2.before_step(before)
+                    runtime.step_transaction.mark_optimizer_snapshot(before)
+                runtime.step_transaction.enter(StepPhase.OPTIMIZER_DURING)
                 result = runtime._original_take_model_step(*args, **kwargs)
                 after = int(getattr(runtime.engine, "global_steps", before))
                 if after > before:
+                    runtime.step_transaction.mark_optimizer_applied(after)
                     if runtime.zero2 is not None:
                         runtime.zero2.after_step(after)
+                        runtime.zero2.wait_until_replicated(after)
+                        runtime.step_transaction.mark_optimizer_snapshot(after)
+                        runtime.step_transaction.mark_step_safe(after)
                     runtime._maybe_checkpoint(after)
+                else:
+                    runtime.step_transaction.mark_optimizer_noop()
                 return result
+            except BaseException as exc:
+                runtime._record_training_failure(exc)
+                raise
             finally:
                 runtime._step_lock.release()
 
@@ -578,6 +613,7 @@ class DeepSpeedRecoveryRuntime:
         ):
             return
         self._checkpoint_in_progress = True
+        self.step_transaction.begin_checkpoint(step)
         try:
             tag = f"global_step{step}"
             self.engine.save_checkpoint(
@@ -595,13 +631,59 @@ class DeepSpeedRecoveryRuntime:
                 publish_checkpoint,
             )
 
+            self.step_transaction.begin_checkpoint_commit(step)
             publish_checkpoint(
                 self.engine,
                 self.settings.checkpoint_dir,
                 tag,
             )
+            self.step_transaction.mark_checkpoint_committed(step)
+        except BaseException as exc:
+            self._record_training_failure(exc)
+            raise
         finally:
             self._checkpoint_in_progress = False
+
+    def record_training_phase(self, phase: StepPhase | str) -> None:
+        """Record forward/backward boundaries exposed by a workload wrapper."""
+
+        self.step_transaction.enter(phase)
+
+    def _record_training_failure(
+        self, exc: BaseException
+    ) -> FailureDecision:
+        decision = self.step_transaction.decide_failure()
+        if self.last_failure_decision is not None and id(exc) == getattr(
+            self, "_last_failure_id", None
+        ):
+            return self.last_failure_decision
+        self._last_failure_id = id(exc)
+        self.last_failure_decision = decision
+        logger.error(
+            "DeepSpeed training failure phase=%s action=%s resume_step=%d: %s",
+            decision.phase.value,
+            decision.action.value,
+            decision.resume_step,
+            exc,
+        )
+        try:
+            self._report_rank_event(
+                "rank_recovery_phase",
+                epoch=self.current_recovery_epoch,
+                phase="training_failure_classified",
+                training_phase=decision.phase.value,
+                failure_action=decision.action.value,
+                safe_step=decision.resume_step,
+                optimizer_dirty=decision.optimizer_dirty,
+            )
+        except Exception:
+            logger.exception("could not report DeepSpeed failure phase")
+        return decision
+
+    def record_training_failure(
+        self, exc: BaseException
+    ) -> FailureDecision:
+        return self._record_training_failure(exc)
 
     def close(self) -> None:
         self.engine._take_model_step = self._original_take_model_step

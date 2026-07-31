@@ -467,13 +467,9 @@ def finalize_model_grads(
     if config.moe_router_enable_expert_bias:
         _update_router_expert_bias(model, config)
 
-    # MOEGAMBIT-MoE: advance preferential routing bias decay
-    if config.moe_moegambit_preferential_routing:
-        from megatron.core.transformer.moe.preferential_routing import (
-            get_all_preferential_routing_managers,
-        )
-        for mgr in get_all_preferential_routing_managers().values():
-            mgr.step_all()
+    from moegambit.adapters.megatron.hooks import megatron_hooks
+
+    megatron_hooks.after_grad_finalize()
 
     reset_model_temporary_tensors(config, model)
 

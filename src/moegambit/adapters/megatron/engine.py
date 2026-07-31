@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import sys
 from typing import Sequence
@@ -12,15 +11,7 @@ from ...interfaces import (
     LaunchRequest,
     PreparedLaunch,
 )
-
-
-def _prepend_path(environment: dict[str, str], path: Path) -> None:
-    current = environment.get("PYTHONPATH", "")
-    values = [item for item in current.split(os.pathsep) if item]
-    path_text = str(path)
-    if path_text in values:
-        values.remove(path_text)
-    environment["PYTHONPATH"] = os.pathsep.join([path_text, *values])
+from ...runtime.launch_environment import prepend_python_path
 
 
 class MegatronEngineAdapter:
@@ -41,8 +32,8 @@ class MegatronEngineAdapter:
     def prepare_launch(self, request: LaunchRequest) -> PreparedLaunch:
         environment = dict(request.environment)
         repository = Path(__file__).resolve().parents[4]
-        _prepend_path(environment, repository / "Megatron-LM")
-        _prepend_path(environment, repository / "src")
+        prepend_python_path(environment, repository / "Megatron-LM")
+        prepend_python_path(environment, repository / "src")
         environment.update(
             {
                 "MOEGAMBIT_MEGATRON_ADAPTER": "1",

@@ -673,7 +673,7 @@ def prepare_standby(
     torch.cuda.synchronize(local_rank)
     packed_prefetcher = None
     if _env_enabled("MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE"):
-        from deepspeed.checkpoint.packed_moe import (
+        from moegambit.adapters.deepspeed.hooks import (
             PackedExpertPrefetcher,
             packed_expert_checkpoint_enabled,
         )

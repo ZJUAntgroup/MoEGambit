@@ -20,7 +20,7 @@ collective.  If a node is dead, a global collective hangs forever.  We use
 file-based signaling between local ranks on the same node.
 
 Usage in training code:
-    from megatron.training.elastic_client import (
+    from moegambit.adapters.megatron.elastic_client import (
         elastic_client_start,
         elastic_check_pause,
         elastic_do_rebuild,
@@ -2525,7 +2525,7 @@ def _elastic_rebind_model_process_groups(model, optimizer=None):
     if not dist.is_available() or not dist.is_initialized():
         return
 
-    from megatron.core.transformer.moe.group_rebuild import (
+    from moegambit.adapters.megatron.moe.group_rebuild import (
         MOE_DISPATCHER_REBIND_MAP,
         MOE_EXPERTS_REBIND_MAP,
         MOE_LAYER_REBIND_MAP,
@@ -2803,7 +2803,9 @@ def _elastic_reset_rerun_state_machine(resume_iteration: int):
         )
 
     machine = get_rerun_state_machine()
-    summary = machine.reset_after_external_recovery(resume_iteration)
+    from .native_hooks import megatron_hooks
+
+    summary = megatron_hooks.reset_rerun_state(machine, resume_iteration)
     elastic_report_recovery_phase("rerun_state_reset", rerun_state=summary)
     if dist.is_available() and dist.is_initialized():
         rank = dist.get_rank()

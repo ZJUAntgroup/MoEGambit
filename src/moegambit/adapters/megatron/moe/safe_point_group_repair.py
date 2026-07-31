@@ -567,7 +567,7 @@ class SafePointGroupRepairer:
         Uses the plan's EP group ranks as the base, and replaces
         failed_rank with replacement_rank.
         """
-        from megatron.core.transformer.moe.group_rebuild import (
+        from moegambit.adapters.megatron.moe.group_rebuild import (
             GroupRebuildCoordinator,
         )
 
@@ -847,7 +847,7 @@ class SafePointGroupRepairer:
         Returns:
             Number of module attributes rebound.
         """
-        from megatron.core.transformer.moe.group_rebuild import (
+        from moegambit.adapters.megatron.moe.group_rebuild import (
             rebind_moe_module_groups,
             rebind_dispatcher_derived_values,
             MOE_DISPATCHER_REBIND_MAP,
@@ -897,7 +897,7 @@ class SafePointGroupRepairer:
         coordinator: Any,
     ) -> int:
         """Rebind group references in a single model chunk."""
-        from megatron.core.transformer.moe.group_rebuild import (
+        from moegambit.adapters.megatron.moe.group_rebuild import (
             rebind_moe_module_groups,
             rebind_dispatcher_derived_values,
             MOE_DISPATCHER_REBIND_MAP,
@@ -1021,7 +1021,7 @@ class SafePointGroupRepairer:
         Returns:
             Number of pipeline-related items repaired.
         """
-        from megatron.core.transformer.moe import pipeline_stage_repair as psr_mod
+        from . import pipeline_stage_repair as psr_mod
 
         repairer = psr_mod.get_pipeline_stage_repairer()
 

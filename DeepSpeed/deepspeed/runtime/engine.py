@@ -91,14 +91,16 @@ from deepspeed.checkpoint.autoep_zero3_metadata import (
     is_autoep_zero3_partitioned_entry,
     validate_autoep_zero3_partitioned_metadata,
 )
-from deepspeed.checkpoint.packed_moe import (
+from moegambit.adapters.deepspeed.hooks import (
     PACKED_EXPERT_FORMAT,
     PACKED_EXPERT_FORMAT_VERSION,
     build_packed_expert_state,
+    is_inprocess_replacement,
     packed_expert_checkpoint_enabled,
     packed_expert_checkpoint_name,
     packed_expert_tensor_bytes,
     take_cached_packed_expert,
+    track_training_phase,
     validate_packed_expert_state,
 )
 from deepspeed.checkpoint.utils import clone_tensors_for_torch_save
@@ -1767,8 +1769,7 @@ class DeepSpeedEngine(Module):
             summary += "***********************************************"
             logger.info(summary)
 
-        inprocess_replacement = os.environ.get("MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT",
-                                               "0").strip().lower() in {"1", "true", "yes", "on"}
+        inprocess_replacement = is_inprocess_replacement()
         if not (self.amp_enabled() or is_zero_init_model or inprocess_replacement):
             self._broadcast_model()
 
@@ -2700,6 +2701,7 @@ class DeepSpeedEngine(Module):
             see_memory_usage("Engine after forward", force=self.memory_breakdown())
 
     @instrument_w_nvtx
+    @track_training_phase("forward")
     def forward(self, *inputs, **kwargs):
         r"""Execute forward propagation
         Arguments:
@@ -3091,6 +3093,7 @@ class DeepSpeedEngine(Module):
         return scaled_loss
 
     @instrument_w_nvtx
+    @track_training_phase("backward")
     def backward(self, loss, retain_graph=False, scale_wrt_gas=True):
         r"""Execute backward pass on the loss
         Arguments:

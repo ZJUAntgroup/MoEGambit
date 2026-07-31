@@ -412,8 +412,10 @@ class MegatronOptimizerAdapter:
     def after_step(self, step: int, committed: bool) -> None:
         next_step = int(step) + 1
         _client().elastic_zero2_schedule_after_optimizer_step(next_step)
-        if committed:
-            self._context.current_step = next_step
+        # A framework-visible step boundary is recoverable only after the peer
+        # holder has acknowledged the corresponding optimizer version.
+        _client().elastic_zero2_wait_before_optimizer_step(next_step)
+        self._context.current_step = next_step
 
     def rebind(self, topology: TopologySpec) -> None:
         del topology

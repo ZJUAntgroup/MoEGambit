@@ -15,7 +15,7 @@ Megatron's training loop.  It handles:
 
 Usage in training.py::
 
-    from megatron.core.transformer.moe.moegambit_integration import (
+    from moegambit.adapters.megatron.moe_integration import (
         maybe_initialize_moegambit_moe,
         moegambit_before_iteration,
         moegambit_after_iteration,
@@ -39,6 +39,7 @@ import re
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -227,7 +228,7 @@ def _maybe_clear_failed_rank_tensors(cfg: Dict[str, Any], failed_rank: int, step
         return
 
     try:
-        from megatron.core.transformer.moe.restart_in_place import (
+        from moegambit.adapters.megatron.moe.restart_in_place import (
             invalidate_rank_tensors,
             zero_rank_tensors,
         )
@@ -470,15 +471,15 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
     logger.warning("[%s] MOEGAMBIT-MoE: initializing on rank %d ...", _ts(), rank)
 
     # ---- 1. Import all MOEGAMBIT-MoE modules ----
-    from megatron.core.transformer.moe import expert_directory
-    from megatron.core.transformer.moe import replacement_registry
-    from megatron.core.transformer.moe import group_rebuild
-    from megatron.core.transformer.moe import dispatch_topology_refresh
-    from megatron.core.transformer.moe import dense_param_sync
-    from megatron.core.transformer.moe import stale_expert_restore
-    from megatron.core.transformer.moe import recovery_controller as rc_mod
-    from megatron.core.transformer.moe import deferred_optimizer_load
-    from megatron.core.transformer.moe import reintegration_barrier
+    from .moe import expert_directory
+    from .moe import replacement_registry
+    from .moe import group_rebuild
+    from .moe import dispatch_topology_refresh
+    from .moe import dense_param_sync
+    from .moe import stale_expert_restore
+    from .moe import recovery_controller as rc_mod
+    from .moe import deferred_optimizer_load
+    from .moe import reintegration_barrier
 
     # ---- 2. Gather parallel topology info ----
     from megatron.core import parallel_state as mpu
@@ -554,7 +555,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
 
     # Two-phase recovery coordinator
     if getattr(args, 'moe_moegambit_weights_first_recovery', True):
-        from megatron.core.transformer.moe import two_phase_recovery as tp_mod
+        from .moe import two_phase_recovery as tp_mod
         defer_opt = getattr(args, 'moe_moegambit_defer_optimizer_load', True)
         tp_mod.get_two_phase_recovery_coordinator(defer_optimizer=defer_opt)
         logger.warning(
@@ -588,7 +589,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
 
         # Wire gap-aware recovery policy to recovery controller
         if getattr(args, 'moe_moegambit_gap_aware_recovery', False):
-            from megatron.core.transformer.moe import gap_aware_recovery_policy as garp_mod
+            from .moe import gap_aware_recovery_policy as garp_mod
 
             gap_threshold = getattr(args, 'moe_moegambit_gap_threshold', 100)
             policy_type = getattr(args, 'moe_moegambit_recovery_policy_type', 'threshold')
@@ -630,8 +631,8 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
             )
 
     # ---- 4b. Initialize HardFailureDetector and IterationInvalidator ----
-    from megatron.core.transformer.moe import hard_failure_detector as hfd_mod
-    from megatron.core.transformer.moe import iteration_invalidator as inv_mod
+    from .moe import hard_failure_detector as hfd_mod
+    from .moe import iteration_invalidator as inv_mod
 
     detector = hfd_mod.get_hard_failure_detector()
     invalidator = inv_mod.get_iteration_invalidator()
@@ -653,14 +654,14 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
     logger.warning("MOEGAMBIT-MoE: hard failure detector and iteration invalidator initialized")
 
     # ---- 4c. Initialize RollbackReplayManager ----
-    from megatron.core.transformer.moe import iteration_rollback as rb_mod
+    from .moe import iteration_rollback as rb_mod
 
     rollback_mgr = rb_mod.get_rollback_replay_manager()
     _ROLLBACK_REPLAY_MANAGER = rollback_mgr
     logger.warning("MOEGAMBIT-MoE: rollback/replay manager initialized")
 
     # ---- 4d. Initialize OptimizerCommitGuard ----
-    from megatron.core.transformer.moe import optimizer_commit_guard as ocg_mod
+    from .moe import optimizer_commit_guard as ocg_mod
 
     commit_guard = ocg_mod.get_optimizer_commit_guard()
     # Wire the invalidation check
@@ -672,7 +673,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
     logger.warning("MOEGAMBIT-MoE: optimizer commit guard initialized")
 
     # ---- 4e. Initialize PipelineRollbackCoordinator ----
-    from megatron.core.transformer.moe import pipeline_rollback as pr_mod
+    from .moe import pipeline_rollback as pr_mod
 
     pp_coord = pr_mod.get_pipeline_rollback_coordinator()
     _PIPELINE_ROLLBACK_COORDINATOR = pp_coord
@@ -683,7 +684,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
 
     if getattr(args, 'moe_moegambit_async_recovery', True):
         # Default to enabled — async recovery reduces training stalls
-        from megatron.core.transformer.moe import async_recovery_worker as arw_mod
+        from .moe import async_recovery_worker as arw_mod
 
         max_workers = getattr(args, 'moe_moegambit_async_recovery_workers', 2)
         _ASYNC_RECOVERY_WORKER = arw_mod.get_async_recovery_worker(
@@ -785,7 +786,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
 
         # ---- 5b. Wire restart-in-place tensor invalidation callback ----
         if _RECOVERY_CONTROLLER is not None:
-            from megatron.core.transformer.moe.restart_in_place import (
+            from moegambit.adapters.megatron.moe.restart_in_place import (
                 invalidate_rank_tensors,
                 zero_rank_tensors,
             )
@@ -832,7 +833,7 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
     if getattr(args, 'moe_moegambit_hot_spare_pool', False):
         num_hot_spares = getattr(args, 'moe_moegambit_num_hot_spares', 0)
         if num_hot_spares > 0:
-            from megatron.core.transformer.moe import hot_spare_pool as hsp_mod
+            from .moe import hot_spare_pool as hsp_mod
 
             # Spare ranks are daemon processes; we assign them logical IDs
             # starting from world_size (e.g. 64, 65, ..., 71 for 8 spares).
@@ -1302,7 +1303,7 @@ def moegambit_query_replacement_status(failed_rank: int) -> str:
     'INTEGRATED', or 'UNKNOWN'.
     """
     try:
-        from megatron.core.transformer.moe import replacement_registry as rep_mod
+        from .moe import replacement_registry as rep_mod
         status = rep_mod.query_replacement_status(failed_rank)
         return status.name
     except Exception:
@@ -1316,7 +1317,7 @@ def moegambit_has_pending_replacements() -> bool:
     while waiting for a safe-point repair.
     """
     try:
-        from megatron.core.transformer.moe import replacement_registry as rep_mod
+        from .moe import replacement_registry as rep_mod
         reg = rep_mod.get_replacement_registry()
         return reg.num_pending > 0 or reg.num_ready > 0
     except Exception:
@@ -1330,7 +1331,7 @@ def moegambit_is_waiting_for_replacement() -> bool:
     """
     if not _MOEGAMBIT_INITIALIZED or _RECOVERY_CONTROLLER is None:
         return False
-    from megatron.core.transformer.moe.recovery_controller import RecoveryPhase
+    from moegambit.adapters.megatron.moe.recovery_controller import RecoveryPhase
     phase = _RECOVERY_CONTROLLER.phase
     return phase in (
         RecoveryPhase.PENDING_GROUP_REPAIR,
@@ -1342,7 +1343,7 @@ def moegambit_is_waiting_for_replacement() -> bool:
 def moegambit_get_replacement_registry():
     """Get the global ReplacementRegistry (or None if not initialized)."""
     try:
-        from megatron.core.transformer.moe import replacement_registry as rep_mod
+        from .moe import replacement_registry as rep_mod
         return rep_mod.get_replacement_registry()
     except Exception:
         return None
@@ -1355,7 +1356,7 @@ def moegambit_get_replacement_registry():
 def moegambit_get_dense_param_coordinator():
     """Get the global DenseParamRecoveryCoordinator (or None)."""
     try:
-        from megatron.core.transformer.moe import dense_param_sync as ds_mod
+        from .moe import dense_param_sync as ds_mod
         return ds_mod.get_dense_param_recovery_coordinator()
     except Exception:
         return None
@@ -1367,7 +1368,7 @@ def moegambit_classify_model_parameters(model=None):
     Returns a ParamClassification object, or None if classification fails.
     """
     try:
-        from megatron.core.transformer.moe import dense_param_sync as ds_mod
+        from .moe import dense_param_sync as ds_mod
         if model is None:
             return None
         target = model[0] if isinstance(model, (list, tuple)) else model
@@ -1391,7 +1392,7 @@ def moegambit_get_last_dense_sync_result():
 def moegambit_get_stale_expert_restore_coordinator():
     """Get the global StaleExpertRestoreCoordinator (or None)."""
     try:
-        from megatron.core.transformer.moe import stale_expert_restore as ser_mod
+        from .moe import stale_expert_restore as ser_mod
         return ser_mod.get_stale_expert_restore_coordinator()
     except Exception:
         return None
@@ -1400,7 +1401,7 @@ def moegambit_get_stale_expert_restore_coordinator():
 def moegambit_get_optimizer_update_barrier():
     """Get the global OptimizerUpdateBarrier (or None)."""
     try:
-        from megatron.core.transformer.moe import stale_expert_restore as ser_mod
+        from .moe import stale_expert_restore as ser_mod
         return ser_mod.get_optimizer_update_barrier()
     except Exception:
         return None
@@ -1473,7 +1474,7 @@ def moegambit_get_optimizer_barrier_summary() -> Optional[Dict[str, Any]]:
 def moegambit_get_safe_point_group_repairer():
     """Get the global SafePointGroupRepairer (or None)."""
     try:
-        from megatron.core.transformer.moe import safe_point_group_repair as spr_mod
+        from .moe import safe_point_group_repair as spr_mod
         return spr_mod.get_safe_point_group_repairer()
     except Exception:
         return None
@@ -1482,7 +1483,7 @@ def moegambit_get_safe_point_group_repairer():
 def moegambit_get_group_rebuild_coordinator():
     """Get the global GroupRebuildCoordinator (or None)."""
     try:
-        from megatron.core.transformer.moe import group_rebuild as gb_mod
+        from .moe import group_rebuild as gb_mod
         return gb_mod.get_group_rebuild_coordinator()
     except Exception:
         return None
@@ -1495,7 +1496,7 @@ def moegambit_has_pending_group_repair() -> bool:
     while waiting for a safe-point repair.
     """
     try:
-        from megatron.core.transformer.moe import group_rebuild as gb_mod
+        from .moe import group_rebuild as gb_mod
         return gb_mod.has_pending_group_repair()
     except Exception:
         return False
@@ -1508,7 +1509,7 @@ def moegambit_get_group_rebuild_state() -> str:
     or 'UNKNOWN'.
     """
     try:
-        from megatron.core.transformer.moe import group_rebuild as gb_mod
+        from .moe import group_rebuild as gb_mod
         coord = gb_mod.get_group_rebuild_coordinator()
         return coord.state.name
     except Exception:
@@ -1538,7 +1539,7 @@ def moegambit_get_repair_summary() -> Optional[Dict[str, Any]]:
 def moegambit_get_active_expert_directory():
     """Get the global ActiveExpertDirectory (or None)."""
     try:
-        from megatron.core.transformer.moe import expert_directory as ed_mod
+        from .moe import expert_directory as ed_mod
         return ed_mod.get_active_expert_directory()
     except Exception:
         return None
@@ -1612,7 +1613,7 @@ def moegambit_sync_directory_from_health_managers() -> int:
 def moegambit_get_dispatch_topology_manager():
     """Get the global DispatchTopologyManager (or None)."""
     try:
-        from megatron.core.transformer.moe import dispatch_topology_refresh as topo_mod
+        from .moe import dispatch_topology_refresh as topo_mod
         return topo_mod.get_dispatch_topology_manager()
     except Exception:
         return None
@@ -1699,7 +1700,7 @@ def moegambit_check_router_dispatcher_consistency() -> List[str]:
 def moegambit_get_reintegration_barrier():
     """Get the global ReintegrationBarrier (or None)."""
     try:
-        from megatron.core.transformer.moe import reintegration_barrier as rb_mod
+        from .moe import reintegration_barrier as rb_mod
         return rb_mod.get_reintegration_barrier()
     except Exception:
         return None
@@ -1891,7 +1892,7 @@ def moegambit_pipeline_get_summary() -> Optional[Dict[str, Any]]:
 def moegambit_get_pipeline_stage_repairer():
     """Get the global PipelineStageRepairer (or None)."""
     try:
-        from megatron.core.transformer.moe import pipeline_stage_repair as psr_mod
+        from .moe import pipeline_stage_repair as psr_mod
         return psr_mod.get_pipeline_stage_repairer()
     except Exception:
         return None
@@ -2031,7 +2032,7 @@ def moegambit_execute_stage_safe_recovery(
         )
         return None
 
-    from megatron.core.transformer.moe.stage_safe_recovery import (
+    from moegambit.adapters.megatron.moe.stage_safe_recovery import (
         get_stage_safe_recovery_protocol,
     )
 
@@ -2169,7 +2170,7 @@ def moegambit_execute_stage_safe_recovery(
 def moegambit_get_stage_safe_recovery_summary() -> Optional[Dict[str, Any]]:
     """Get the stage-safe recovery protocol summary."""
     try:
-        from megatron.core.transformer.moe.stage_safe_recovery import (
+        from moegambit.adapters.megatron.moe.stage_safe_recovery import (
             get_stage_safe_recovery_protocol,
         )
         return get_stage_safe_recovery_protocol().summary()
@@ -2227,10 +2228,10 @@ def _wire_recovery_callbacks(
 ) -> None:
     """Wire RecoveryController callbacks to real MOEGAMBIT-MoE module singletons."""
 
-    from megatron.core.transformer.moe import replacement_registry as rep_mod
-    from megatron.core.transformer.moe import group_rebuild as gb_mod
-    from megatron.core.transformer.moe import dispatch_topology_refresh as topo_mod
-    from megatron.core.transformer.moe import dense_param_sync as ds_mod
+    from .moe import replacement_registry as rep_mod
+    from .moe import group_rebuild as gb_mod
+    from .moe import dispatch_topology_refresh as topo_mod
+    from .moe import dense_param_sync as ds_mod
 
     def replacement_announce_fn(*, failed_rank, replacement_rank, step=-1):
         """Announce a replacement rank."""
@@ -2259,7 +2260,7 @@ def _wire_recovery_callbacks(
             # This handles the restart-in-place fast path where
             # on_replacement_ready() advances the controller phase but
             # does not call announce_replacement_ready() on the registry.
-            from megatron.core.transformer.moe.replacement_registry import (
+            from moegambit.adapters.megatron.moe.replacement_registry import (
                 ReplacementState,
                 query_replacement_status,
             )
@@ -2303,7 +2304,7 @@ def _wire_recovery_callbacks(
         identity inheritance is not possible), this function raises an
         exception to prevent training from continuing with broken groups.
         """
-        from megatron.core.transformer.moe import safe_point_group_repair as spr_mod
+        from .moe import safe_point_group_repair as spr_mod
 
         try:
             coord = gb_mod.get_group_rebuild_coordinator()
@@ -2663,8 +2664,8 @@ def _wire_recovery_callbacks(
         If no manifest is found, falls back to marking experts as
         STALE_RUNNABLE without loading weights (dry-run mode).
         """
-        from megatron.core.transformer.moe import stale_expert_restore as ser_mod
-        from megatron.core.transformer.moe import expert_directory as ed_mod
+        from .moe import stale_expert_restore as ser_mod
+        from .moe import expert_directory as ed_mod
 
         try:
             _require_old_param_restore = _env_flag(
@@ -2707,7 +2708,7 @@ def _wire_recovery_callbacks(
 
             if _weights_first:
                 try:
-                    from megatron.core.transformer.moe.two_phase_recovery import (
+                    from moegambit.adapters.megatron.moe.two_phase_recovery import (
                         get_two_phase_recovery_coordinator,
                     )
                     _two_phase_coord = get_two_phase_recovery_coordinator()
@@ -2816,7 +2817,7 @@ def _wire_recovery_callbacks(
             # entry's checkpoint_dir to its last-fresh PEC round directory.
             # No-op when MOEGAMBIT_MOC_PEC_EMULATE != 1. See moc_pec_emulation.py.
             try:
-                from megatron.core.transformer.moe import moc_pec_emulation as _moc_pec
+                from .moe import moc_pec_emulation as _moc_pec
                 if _moc_pec.is_enabled() and checkpoint_dir:
                     _moc_pec.apply_pec_to_plan(plan, checkpoint_dir)
             except Exception as _moc_exc:
@@ -2962,7 +2963,7 @@ def _wire_recovery_callbacks(
 
                 if _pref_routing and result.num_restored > 0:
                     try:
-                        from megatron.core.transformer.moe.preferential_routing import (
+                        from moegambit.adapters.megatron.moe.preferential_routing import (
                             get_preferential_routing_manager,
                         )
                         _pr_window = 100
@@ -3024,7 +3025,7 @@ def _wire_recovery_callbacks(
 
                 if _expert_opt_restore and _defer_opt_load and result.num_restored > 0:
                     try:
-                        from megatron.core.transformer.moe.deferred_optimizer_load import (
+                        from moegambit.adapters.megatron.moe.deferred_optimizer_load import (
                             get_deferred_optimizer_loader,
                         )
                         opt_loader = get_deferred_optimizer_loader()
@@ -3089,7 +3090,7 @@ def _wire_recovery_callbacks(
                     # of weights-first/deferred optimizer loading.
                     t_opt_sync_start = time.time()
                     try:
-                        from megatron.core.transformer.moe.deferred_optimizer_load import (
+                        from moegambit.adapters.megatron.moe.deferred_optimizer_load import (
                             get_deferred_optimizer_loader,
                         )
                         opt_loader = get_deferred_optimizer_loader()
@@ -3152,7 +3153,7 @@ def _wire_recovery_callbacks(
                 # Run the same convergence steps as checkpoint_restart_fn
                 # to ensure directory / health / dispatch consistency.
                 try:
-                    from megatron.core.transformer.moe.unified_reintegration import (
+                    from moegambit.adapters.megatron.moe.unified_reintegration import (
                         get_post_recovery_convergence,
                         RecoveryPath,
                     )
@@ -3193,7 +3194,7 @@ def _wire_recovery_callbacks(
             # Fallback: at minimum mark experts as STALE_RUNNABLE
             try:
                 if expert_ids:
-                    from megatron.core.transformer.moe.recovery_controller import get_recovery_controller
+                    from moegambit.adapters.megatron.moe.recovery_controller import get_recovery_controller
                     _ctrl = get_recovery_controller()
                     _ctrl._expert_tracker.mark_stale_runnable(expert_ids, step=step)
                     logger.warning(
@@ -3215,7 +3216,7 @@ def _wire_recovery_callbacks(
         Delegates to the PipelineStageRepairer singleton.
         """
         try:
-            from megatron.core.transformer.moe import pipeline_stage_repair as psr_mod
+            from .moe import pipeline_stage_repair as psr_mod
 
             repairer = psr_mod.get_pipeline_stage_repairer()
 
@@ -3459,7 +3460,7 @@ def _wire_recovery_callbacks(
 
             if expert_ids:
                 try:
-                    from megatron.core.transformer.moe.recovery_controller import (
+                    from moegambit.adapters.megatron.moe.recovery_controller import (
                         get_recovery_controller,
                     )
                     ctrl = get_recovery_controller()
@@ -3490,7 +3491,7 @@ def _wire_recovery_callbacks(
             )
 
             try:
-                from megatron.core.transformer.moe.unified_reintegration import (
+                from moegambit.adapters.megatron.moe.unified_reintegration import (
                     get_post_recovery_convergence,
                     RecoveryPath,
                 )
@@ -3566,7 +3567,7 @@ def _wire_recovery_callbacks(
         the optimizer step is skipped even if the iteration invalidation
         flag hasn't propagated yet.
         """
-        from megatron.core.transformer.moe.optimizer_commit_guard import (
+        from moegambit.adapters.megatron.moe.optimizer_commit_guard import (
             get_optimizer_commit_guard,
         )
         commit_guard = get_optimizer_commit_guard()
@@ -3603,7 +3604,7 @@ def _wire_recovery_callbacks(
         dispatch-topology views are consistent after either recovery path.
         """
         try:
-            from megatron.core.transformer.moe.unified_reintegration import (
+            from moegambit.adapters.megatron.moe.unified_reintegration import (
                 get_post_recovery_convergence,
             )
             # Obtain config from the model (TransformerConfig)
@@ -3616,7 +3617,7 @@ def _wire_recovery_callbacks(
             # verification-only pass.
             issues = []
             try:
-                from megatron.core.transformer.moe.dispatch_topology_refresh import (
+                from moegambit.adapters.megatron.moe.dispatch_topology_refresh import (
                     get_dispatch_topology_manager,
                 )
                 topo_mgr = get_dispatch_topology_manager()
@@ -4242,7 +4243,7 @@ def _maybe_poll_deferred_optimizer(step: int) -> None:
     OPTIMIZER_PENDING → FULLY_RECOVERED on finalization.
     """
     try:
-        from megatron.core.transformer.moe.deferred_optimizer_load import (
+        from moegambit.adapters.megatron.moe.deferred_optimizer_load import (
             get_deferred_optimizer_loader,
         )
         loader = get_deferred_optimizer_loader()
@@ -4250,7 +4251,7 @@ def _maybe_poll_deferred_optimizer(step: int) -> None:
         if not loader.has_pending() and loader.num_loaded == 0:
             return
 
-        from megatron.core.transformer.moe.stale_expert_restore import (
+        from moegambit.adapters.megatron.moe.stale_expert_restore import (
             get_optimizer_update_barrier,
         )
 
@@ -4294,7 +4295,7 @@ def _maybe_poll_deferred_optimizer(step: int) -> None:
         # --- Two-phase: OPTIMIZER_PENDING → FULLY_RECOVERED ---
         if num_finalized > 0:
             try:
-                from megatron.core.transformer.moe.two_phase_recovery import (
+                from moegambit.adapters.megatron.moe.two_phase_recovery import (
                     get_two_phase_recovery_coordinator,
                     TwoPhaseState,
                 )
@@ -4305,7 +4306,7 @@ def _maybe_poll_deferred_optimizer(step: int) -> None:
                 if pending:
                     # Check which of the pending experts have been finalized
                     # in the deferred loader
-                    from megatron.core.transformer.moe.deferred_optimizer_load import (
+                    from moegambit.adapters.megatron.moe.deferred_optimizer_load import (
                         OptimizerLoadState,
                     )
                     finalized_keys = []
@@ -4361,7 +4362,7 @@ def _poll_async_recovery(step: int) -> None:
     barrier = None
 
     try:
-        from megatron.core.transformer.moe.stale_expert_restore import (
+        from moegambit.adapters.megatron.moe.stale_expert_restore import (
             get_optimizer_update_barrier,
         )
         barrier = get_optimizer_update_barrier()
@@ -4400,7 +4401,7 @@ def _wire_async_recovery_callbacks(
     - ``async_expert_restore_fn``: submits expert loads to the async worker
     - ``poll_async_recovery_fn``: polls for completed loads
     """
-    from megatron.core.transformer.moe import stale_expert_restore as ser_mod
+    from .moe import stale_expert_restore as ser_mod
 
     def async_expert_restore_fn(
         *, failed_rank, replacement_rank, step=-1, expert_ids=None,
@@ -4447,7 +4448,7 @@ def _wire_async_recovery_callbacks(
         # MoC-System (PEC) emulation hook (async path). See moc_pec_emulation.py.
         # No-op when MOEGAMBIT_MOC_PEC_EMULATE != 1.
         try:
-            from megatron.core.transformer.moe import moc_pec_emulation as _moc_pec
+            from .moe import moc_pec_emulation as _moc_pec
             if _moc_pec.is_enabled() and checkpoint_dir:
                 _moc_pec.apply_pec_to_plan(plan, checkpoint_dir)
         except Exception as _moc_exc:
@@ -4498,7 +4499,7 @@ def _wire_async_recovery_callbacks(
 
         # Mark experts as STALE_RUNNABLE in health managers
         try:
-            from megatron.core.transformer.moe.recovery_controller import get_recovery_controller
+            from moegambit.adapters.megatron.moe.recovery_controller import get_recovery_controller
             ctrl = get_recovery_controller()
             ctrl._expert_tracker.mark_stale_runnable(expert_ids, step=step)
         except Exception as e:
@@ -4548,16 +4549,29 @@ def _find_latest_checkpoint_dir() -> Optional[str]:
         if save_dir is None:
             return None
 
-        from megatron.core.transformer.moe.expert_directory import (
+        from moegambit.adapters.megatron.moe.expert_directory import (
             RecoveryManifest,
         )
+        from moegambit.runtime.checkpoint_commit import load_checkpoint_commit
 
         # Look for iter_XXXXXXX directories with manifests
         best_dir = None
         best_step = -1
-        # Fallback: best iter_XXXXXXX without manifest
+        # Legacy checkpoints without a MoEGambit commit record are considered
+        # only when Megatron's tracker names that exact iteration.
         fallback_dir = None
         fallback_step = -1
+        tracker_step = -1
+        try:
+            from megatron.training.checkpointing import (
+                get_checkpoint_tracker_filename,
+            )
+
+            tracker_path = get_checkpoint_tracker_filename(save_dir)
+            with open(tracker_path, "r", encoding="utf-8") as tracker:
+                tracker_step = int(tracker.read().strip())
+        except Exception:
+            tracker_step = -1
 
         if os.path.isdir(save_dir):
             for entry in os.listdir(save_dir):
@@ -4570,13 +4584,24 @@ def _find_latest_checkpoint_dir() -> Optional[str]:
                     except (ValueError, IndexError):
                         continue
                     if RecoveryManifest.exists(candidate):
-                        if step > best_step:
-                            best_step = step
-                            best_dir = candidate
-                    else:
-                        if step > fallback_step:
-                            fallback_step = step
-                            fallback_dir = candidate
+                        try:
+                            load_checkpoint_commit(
+                                Path(candidate),
+                                framework="megatron",
+                                step=step,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "MOEGAMBIT-MoE: ignoring uncommitted checkpoint %s",
+                                candidate,
+                            )
+                        else:
+                            if step > best_step:
+                                best_step = step
+                                best_dir = candidate
+                    elif step == tracker_step:
+                        fallback_step = step
+                        fallback_dir = candidate
 
         # NOTE: moegambit_save_manifest() writes into iter_XXXXXXX/moegambit_manifest.json
         # (inside the iteration subdirectory).  Do NOT check save_dir itself
@@ -4617,27 +4642,13 @@ def _get_latest_checkpoint_iteration() -> int:
         The checkpoint iteration, or -1 if no checkpoint is found.
     """
     try:
-        from megatron.training.global_vars import get_args
-        args = get_args()
-        save_dir = getattr(args, 'save', None) or getattr(args, 'load', None)
-        if save_dir is None:
+        checkpoint_dir = _find_latest_checkpoint_dir()
+        if checkpoint_dir is None:
             return -1
-
-        best_step = -1
-
-        if os.path.isdir(save_dir):
-            for entry in os.listdir(save_dir):
-                if entry.startswith('iter_'):
-                    candidate = os.path.join(save_dir, entry)
-                    if os.path.isdir(candidate):
-                        try:
-                            step = int(entry.split('_')[1])
-                            if step > best_step:
-                                best_step = step
-                        except (ValueError, IndexError):
-                            pass
-
-        return best_step
+        name = os.path.basename(os.path.normpath(checkpoint_dir))
+        if not name.startswith("iter_"):
+            return -1
+        return int(name.split("_", 1)[1])
 
     except Exception as e:
         logger.warning(
@@ -5426,7 +5437,7 @@ def moegambit_save_manifest(save_dir: str, iteration: int) -> None:
         return
 
     try:
-        from megatron.core.transformer.moe import expert_directory as ed_mod
+        from .moe import expert_directory as ed_mod
 
         metadata: Dict[str, Any] = {
             'iteration': iteration,
@@ -5466,6 +5477,17 @@ def moegambit_save_manifest(save_dir: str, iteration: int) -> None:
             )
 
         manifest_path = manifest.save(iter_dir)
+        from moegambit.runtime.checkpoint_commit import publish_checkpoint_commit
+
+        publish_checkpoint_commit(
+            Path(iter_dir),
+            framework="megatron",
+            step=iteration,
+            metadata={
+                "manifest": os.path.basename(manifest_path),
+                "entries": len(manifest.entries),
+            },
+        )
         logger.info(
             "MOEGAMBIT-MoE: manifest saved to %s (%d entries)",
             manifest_path, len(manifest.entries),
@@ -5475,13 +5497,16 @@ def moegambit_save_manifest(save_dir: str, iteration: int) -> None:
         # K_pec experts MoC-System would have written this round. No-op when
         # MOEGAMBIT_MOC_PEC_EMULATE != 1; never raises (failures are logged only).
         try:
-            from megatron.core.transformer.moe import moc_pec_emulation as _moc_pec
+            from .moe import moc_pec_emulation as _moc_pec
             _moc_pec.write_pec_metadata(iter_dir, iteration)
         except Exception as _moc_exc:
             logger.warning("MoC-PEC emulation: write_pec_metadata skipped: %s", _moc_exc)
 
     except Exception as e:
         logger.error("MOEGAMBIT-MoE: failed to save manifest: %s", e)
+        raise RuntimeError(
+            f"failed to commit MoEGambit checkpoint manifest for iteration {iteration}"
+        ) from e
 
 
 def moegambit_post_load_checkpoint(state_dict: dict) -> None:

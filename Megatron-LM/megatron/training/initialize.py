@@ -7,7 +7,6 @@ import random
 import time
 import warnings
 from datetime import timedelta
-from inspect import signature
 
 import numpy as np
 import torch
@@ -32,62 +31,9 @@ from megatron.training.async_utils import init_persistent_async_worker
 from megatron.training.checkpointing import load_args_from_checkpoint
 from megatron.training.global_vars import set_global_variables
 from megatron.training.yaml_arguments import validate_yaml
+from moegambit.adapters.megatron.hooks import megatron_hooks
 
 logger = logging.getLogger(__name__)
-
-
-def _is_elastic_rebuild_mode():
-    """Replacement workers must not enter cold-start global collectives."""
-    return os.environ.get("ELASTIC_REBUILD_MODE") == "1"
-
-
-def _elastic_report_phase_safely(phase, **extra):
-    if not _is_elastic_rebuild_mode():
-        return
-    try:
-        from megatron.training.elastic_client import elastic_report_recovery_phase
-
-        elastic_report_recovery_phase(phase, **extra)
-    except Exception as exc:
-        logger.warning("[elastic] failed to report recovery phase %s: %s", phase, exc)
-
-
-def _elastic_wait_phase_count_or_raise(phase, world_size, timeout):
-    if not _is_elastic_rebuild_mode():
-        return
-    try:
-        from megatron.training.elastic_client import elastic_wait_for_recovery_phase_count
-    except Exception as exc:
-        raise RuntimeError(f"[elastic] failed to import watcher phase wait for {phase}") from exc
-
-    if not elastic_wait_for_recovery_phase_count(phase, world_size, timeout):
-        raise RuntimeError(
-            f"[elastic] Not all {world_size} ranks reached {phase} within {timeout}s"
-        )
-
-
-def _elastic_phase_timeout_seconds(args=None, default_seconds=300.0):
-    """Control-plane waits must outlive NCCL subgroup creation timeouts."""
-    env_value = os.environ.get(
-        "ELASTIC_PHASE_TIMEOUT_SECONDS",
-        os.environ.get("ELASTIC_REBUILD_PHASE_TIMEOUT"),
-    )
-    if env_value:
-        return float(env_value)
-
-    timeout_minutes = None
-    if args is not None:
-        timeout_minutes = getattr(args, "distributed_timeout_minutes", None)
-    if timeout_minutes is None:
-        timeout_minutes = os.environ.get("DISTRIBUTED_TIMEOUT_MINUTES")
-
-    try:
-        group_timeout = float(timeout_minutes) * 60.0
-    except (TypeError, ValueError):
-        group_timeout = 0.0
-
-    margin = float(os.environ.get("ELASTIC_PHASE_TIMEOUT_MARGIN_SECONDS", "120"))
-    return max(float(default_seconds), group_timeout + margin)
 
 
 def initialize_megatron(
@@ -210,15 +156,7 @@ def initialize_megatron(
         # Megatron's MPU is the master. Complete initialization right away.
         finish_mpu_init()
 
-        if _is_elastic_rebuild_mode():
-            from megatron.training.elastic_client import elastic_report_recovery_phase
-
-            logger.warning(
-                "[elastic] REBUILD MODE: skipping cold-start init barriers "
-                "after model-parallel setup"
-            )
-            _compile_dependencies(skip_distributed_barriers=True)
-            elastic_report_recovery_phase("cold_start_deps_ready")
+        if megatron_hooks.complete_replacement_dependencies(_compile_dependencies):
             return None
 
         # Autoresume.
@@ -397,15 +335,6 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
 
         if args.rank == 0:
             print("> initializing torch distributed ...", flush=True)
-        if _is_elastic_rebuild_mode():
-            from megatron.training.elastic_client import (
-                elastic_configure_recovery_nccl_transport,
-                elastic_create_rebuild_store,
-                elastic_prearm_standby_cuda_runtime,
-                elastic_refresh_prearmed_standby_assignment,
-            )
-
-            elastic_configure_recovery_nccl_transport()
         # Manually set the device ids.
         if device_count > 0:
             torch.cuda.set_device(args.local_rank)
@@ -413,92 +342,26 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
         else:
             device_id = None
 
-        standby_runtime = {"enabled": False}
-        if _is_elastic_rebuild_mode() and device_id is not None:
-            standby_runtime = elastic_prearm_standby_cuda_runtime(device_id)
-
         # Set to non-default stream for cudagraph capturing.
         if args.cuda_graph_impl == "transformer_engine":
             torch.cuda.set_stream(torch.cuda.Stream())
 
-        # Call the init process
-        init_process_group_kwargs = {
-            'backend': args.distributed_backend,
-            'store': store,
-            'world_size': args.world_size,
-            'rank': args.rank,
-            'timeout': timedelta(minutes=args.distributed_timeout_minutes),
-        }
-        if _is_elastic_rebuild_mode():
-            # Replacement workers enter through Megatron's normal initialization
-            # path, while survivors enter through elastic_do_rebuild().  Use
-            # the same rebuild knob here so both sides keep default NCCL PG
-            # initialization lazy unless explicitly enabled for diagnostics.
-            use_init_pg_device_id = (
-                os.environ.get(
-                    "ELASTIC_REBUILD_INIT_PG_DEVICE_ID",
-                    os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "0"),
-                )
-                == "1"
-            )
-        else:
-            use_init_pg_device_id = os.environ.get("ELASTIC_INIT_PG_DEVICE_ID", "0") == "1"
-        if device_id is not None and args.distributed_backend == "nccl" and use_init_pg_device_id:
-            try:
-                if "device_id" in signature(torch.distributed.init_process_group).parameters:
-                    init_process_group_kwargs["device_id"] = device_id
-            except (TypeError, ValueError):
-                pass
-
-        _elastic_report_phase_safely(
-            "init_pg_start",
-            master_addr=os.environ.get("MASTER_ADDR"),
-            master_port=os.environ.get("MASTER_PORT"),
-            world_size=args.world_size,
-            pg_device_id_enabled=use_init_pg_device_id,
-            pg_device_id=str(device_id) if device_id is not None else None,
-            store_connect_pending=_is_elastic_rebuild_mode() and store is None,
-            standby_prearmed=os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1",
-            standby_runtime=standby_runtime,
+        init_process_group_kwargs = megatron_hooks.prepare_process_group_init(
+            args=args,
+            device_id=device_id,
+            store=store,
+            init_kwargs={
+                'backend': args.distributed_backend,
+                'store': store,
+                'world_size': args.world_size,
+                'rank': args.rank,
+                'timeout': timedelta(minutes=args.distributed_timeout_minutes),
+            },
+            torch_module=torch,
         )
-        standby_activation = None
-        if os.environ.get("ELASTIC_PREARMED_STANDBY", "0") == "1":
-            # Do not open TCPStore while the future recovery endpoint is still
-            # absent. A long-lived client otherwise enters TCPStore's retry
-            # backoff and can miss the server by tens of seconds when the
-            # failure is finally injected. The assignment file is the exact
-            # recovery-epoch activation gate for this already-warm process.
-            standby_activation = elastic_refresh_prearmed_standby_assignment()
-            _elastic_report_phase_safely("standby_activated", **standby_activation)
-        if _is_elastic_rebuild_mode() and store is None:
-            # This must happen after init_pg_start.  The watcher uses that phase
-            # to release survivors, and survivor rank zero owns the TCPStore
-            # server.  Connecting before the phase report creates a circular
-            # wait: replacement waits for rank zero while rank zero waits for
-            # the watcher to observe replacement readiness.
-            rebuild_timeout_minutes = int(
-                os.environ.get(
-                    "ELASTIC_REBUILD_TIMEOUT_MINUTES",
-                    str(args.distributed_timeout_minutes),
-                )
-            )
-            store = elastic_create_rebuild_store(
-                os.environ["MASTER_ADDR"],
-                os.environ["MASTER_PORT"],
-                args.world_size,
-                args.rank,
-                timedelta(minutes=rebuild_timeout_minutes),
-            )
-            init_process_group_kwargs["store"] = store
-            _elastic_report_phase_safely(
-                "rebuild_store_ready",
-                master_addr=os.environ.get("MASTER_ADDR"),
-                master_port=os.environ.get("MASTER_PORT"),
-                store_type=type(store).__name__,
-            )
         torch.distributed.init_process_group(**init_process_group_kwargs)
         inprocess_restart.maybe_force_nccl_backend_init(device_id)
-        _elastic_report_phase_safely("pg_ready")
+        megatron_hooks.process_group_ready()
 
     # Set the tensor model-parallel, pipeline model-parallel, and
     # data-parallel communicators.
@@ -506,20 +369,7 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
         if mpu.model_parallel_is_initialized():
             print("model parallel is already initialized")
         else:
-            _elastic_report_phase_safely("mpu_init_start")
-            if _is_elastic_rebuild_mode():
-                phase_timeout = _elastic_phase_timeout_seconds(args)
-                _elastic_wait_phase_count_or_raise(
-                    "mpu_init_start", args.world_size, phase_timeout
-                )
-            old_trace_mpu_groups = os.environ.get("ELASTIC_TRACE_MPU_GROUPS")
-            if _is_elastic_rebuild_mode() and old_trace_mpu_groups is None:
-                os.environ["ELASTIC_TRACE_MPU_GROUPS"] = "1"
-            try:
-                if _is_elastic_rebuild_mode() and hasattr(
-                    mpu, "reset_elastic_mpu_group_ordinal"
-                ):
-                    mpu.reset_elastic_mpu_group_ordinal()
+            with megatron_hooks.model_parallel_initialization(args, mpu):
                 mpu.initialize_model_parallel(
                     args.tensor_model_parallel_size,
                     args.pipeline_model_parallel_size,
@@ -536,21 +386,12 @@ def _initialize_distributed(get_embedding_ranks, get_position_embedding_ranks, s
                     order='tp-cp-ep-dp-pp' if not args.use_tp_pp_dp_mapping else 'tp-cp-ep-pp-dp',
                     get_embedding_ranks=get_embedding_ranks,
                     get_position_embedding_ranks=get_position_embedding_ranks,
-                    create_gloo_process_groups=(
-                        False if _is_elastic_rebuild_mode() else args.enable_gloo_process_groups
+                    create_gloo_process_groups=megatron_hooks.create_gloo_process_groups(
+                        args.enable_gloo_process_groups
                     ),
                     high_priority_stream_groups=args.high_priority_stream_groups,
                     sharp_enabled_group=args.sharp_enabled_group,
                 )
-                if hasattr(mpu, "finalize_elastic_selective_group_rebuild"):
-                    mpu.finalize_elastic_selective_group_rebuild()
-            finally:
-                if _is_elastic_rebuild_mode() and old_trace_mpu_groups is None:
-                    os.environ.pop("ELASTIC_TRACE_MPU_GROUPS", None)
-            _elastic_report_phase_safely("mpu_init_done")
-            _elastic_report_phase_safely("mpu_ready")
-            if _is_elastic_rebuild_mode():
-                _elastic_wait_phase_count_or_raise("mpu_ready", args.world_size, phase_timeout)
             if args.rank == 0:
                 print(
                     f"> initialized tensor model parallel with size "

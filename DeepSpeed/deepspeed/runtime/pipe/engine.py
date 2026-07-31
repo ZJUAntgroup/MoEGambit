@@ -15,6 +15,7 @@ from deepspeed import comm as dist
 from deepspeed.utils import logger
 from deepspeed.utils.timer import ThroughputTimer
 from deepspeed.runtime.bf16_optimizer import BF16_Optimizer
+from moegambit.adapters.deepspeed.hooks import track_training_phase
 
 from ..engine import DeepSpeedEngine, MEMORY_OPT_ALLREDUCE_SIZE
 from deepspeed.utils.timer import FORWARD_MICRO_TIMER, FORWARD_GLOBAL_TIMER, BACKWARD_MICRO_TIMER, \
@@ -157,8 +158,9 @@ class PipelineEngine(DeepSpeedEngine):
                     tied_params += sum(p.numel() for p in d['module'].parameters())
             unique_params -= tied_params
         params_tensor = torch.LongTensor(data=[num_params, unique_params]).to(self.device)
-        inprocess_replacement = os.environ.get("MOEGAMBIT_DEEPSPEED_INPROCESS_REPLACEMENT",
-                                               "0").strip().lower() in {"1", "true", "yes", "on"}
+        from moegambit.adapters.deepspeed.hooks import is_inprocess_replacement
+
+        inprocess_replacement = is_inprocess_replacement()
         if not inprocess_replacement:
             dist.all_reduce(params_tensor, group=self.grid.get_model_parallel_group())
         params_tensor = params_tensor.tolist()
@@ -347,6 +349,7 @@ class PipelineEngine(DeepSpeedEngine):
         self.pipe_partition_grad_meta_cache = None
         self.grad_partition_grad_layer_meta_cache = None
 
+    @track_training_phase("forward_backward")
     def train_batch(self, data_iter=None):
         """Progress the pipeline to train the next batch of data. The engine will ingest
         ``self.train_batch_size()`` total samples collectively across all workers.

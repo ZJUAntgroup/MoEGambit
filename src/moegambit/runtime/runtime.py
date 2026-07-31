@@ -252,6 +252,30 @@ class RecoveryRuntime:
         self._resume_step = result.resume_step
         return True
 
+    def fail_closed(
+        self,
+        exc: BaseException,
+        *,
+        reason: str,
+        evidence: Optional[Mapping[str, object]] = None,
+    ) -> bool:
+        """Reject in-process continuation and request checkpoint relaunch.
+
+        Adapters call this when their phase tracker proves that framework state
+        may already be partially mutated.  Such a failure must not enter the
+        ordinary iteration replay path, even when the underlying exception is
+        otherwise classified as recoverable.
+        """
+
+        if not self._enabled:
+            return False
+        self.epochs.fail(reason)
+        return self._request_fallback(
+            reason,
+            exc,
+            evidence=evidence,
+        )
+
     def execute_assignment(
         self,
         assignment: RecoveryAssignment,

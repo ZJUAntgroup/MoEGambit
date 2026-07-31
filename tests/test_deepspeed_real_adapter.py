@@ -18,6 +18,38 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 
+def test_deepspeed_source_imports_only_the_public_hook_facade():
+    offenders = []
+    source_root = ROOT / "DeepSpeed" / "deepspeed"
+    for path in source_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if node.module.startswith("moegambit.") and (
+                node.module != "moegambit.adapters.deepspeed.hooks"
+            ):
+                offenders.append(
+                    f"{path.relative_to(ROOT)}:{node.lineno}:{node.module}"
+                )
+    assert offenders == []
+
+
+def test_deepspeed_tree_contains_hooks_but_no_recovery_modules():
+    source_root = ROOT / "DeepSpeed" / "deepspeed"
+    hooks = (
+        ROOT
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
+        / "hooks.py"
+    ).read_text(encoding="utf-8")
+    assert "Stable hook surface imported by patched DeepSpeed" in hooks
+    assert not (source_root / "checkpoint" / "packed_moe.py").exists()
+    assert not (ROOT / "DeepSpeed" / "MOEGAMBIT_UPSTREAM.md").exists()
+
+
 def test_real_workload_contains_both_supported_topologies():
     path = ROOT / "deepspeed_qwen3_moe_pretrain.py"
     source = path.read_text(encoding="utf-8")
@@ -69,6 +101,14 @@ def test_ordered_deepspeed_group_rebuild_is_recovery_scoped():
     comm = (
         ROOT / "DeepSpeed" / "deepspeed" / "comm" / "comm.py"
     ).read_text(encoding="utf-8")
+    group_creation = (
+        ROOT
+        / "src"
+        / "moegambit"
+        / "adapters"
+        / "deepspeed"
+        / "group_creation.py"
+    ).read_text(encoding="utf-8")
     launcher = (
         ROOT / "test_deepspeed_hotspare_replace.sh"
     ).read_text(encoding="utf-8")
@@ -81,12 +121,13 @@ def test_ordered_deepspeed_group_rebuild_is_recovery_scoped():
         / "inprocess_recovery.py"
     ).read_text(encoding="utf-8")
 
-    assert "MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD" in comm
-    assert "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY" in comm
-    assert 'os.environ.get("MOEGAMBIT_RECOVERY_EPOCH")' in comm
-    assert "return epoch > 0" in comm
-    assert 'barrier.wait("start"' in comm
-    assert 'barrier.wait("done"' in comm
+    assert "from moegambit.adapters.deepspeed.hooks import ordered_new_group" in comm
+    assert "MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD" in group_creation
+    assert "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY" in group_creation
+    assert 'os.environ.get("MOEGAMBIT_RECOVERY_EPOCH")' in group_creation
+    assert "return epoch > 0" in group_creation
+    assert '_GROUP_BARRIER.wait("start"' in group_creation
+    assert '_GROUP_BARRIER.wait("done"' in group_creation
     assert "default_pg_retired" in recovery
     assert "default_pg_initialized" in recovery
     assert "MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD" in launcher
@@ -467,9 +508,10 @@ def test_packed_expert_prefetch_hands_state_to_loader(tmp_path, monkeypatch):
 
     path = (
         ROOT
-        / "DeepSpeed"
+        / "src"
+        / "moegambit"
+        / "adapters"
         / "deepspeed"
-        / "checkpoint"
         / "packed_moe.py"
     )
     spec = importlib.util.spec_from_file_location(
@@ -1040,6 +1082,116 @@ def test_runtime_checkpoint_hook_runs_for_common_model_step(
     runtime.close()
 
 
+def test_optimizer_boundary_waits_for_replica_before_exposing_safe_step(
+    tmp_path,
+):
+    from moegambit.adapters.deepspeed.integration import (
+        DeepSpeedRecoveryRuntime,
+        DeepSpeedRuntimeSettings,
+    )
+    from moegambit.core.step_transaction import StepPhase
+
+    calls = []
+
+    class FakeEngine:
+        global_steps = 0
+
+        def _take_model_step(self):
+            calls.append("optimizer")
+            self.global_steps += 1
+
+    class FakeZero2:
+        def before_step(self, step):
+            calls.append(("before", step))
+
+        def after_step(self, step):
+            calls.append(("after", step))
+
+        def wait_until_replicated(self, step):
+            calls.append(("replicated", step))
+
+        def close(self):
+            pass
+
+    engine = FakeEngine()
+    runtime = DeepSpeedRecoveryRuntime(
+        engine,
+        DeepSpeedRuntimeSettings(
+            hot_swap=False,
+            zero2=True,
+            checkpoint_dir=tmp_path,
+            checkpoint_interval=0,
+            recovery_epoch=0,
+            replica_timeout=1.0,
+        ),
+    )
+    runtime.zero2 = FakeZero2()
+    runtime.step_transaction.mark_optimizer_snapshot(0)
+    runtime._install_optimizer_step_hook()
+
+    engine._take_model_step()
+
+    assert calls == [
+        ("before", 0),
+        "optimizer",
+        ("after", 1),
+        ("replicated", 1),
+    ]
+    assert runtime.step_transaction.phase is StepPhase.STEP_COMMITTED
+    assert runtime.step_transaction.optimizer_snapshot_step == 1
+
+
+def test_optimizer_partial_failure_is_not_classified_as_plain_replay(
+    tmp_path,
+):
+    from moegambit.adapters.deepspeed.integration import (
+        DeepSpeedRecoveryRuntime,
+        DeepSpeedRuntimeSettings,
+    )
+    from moegambit.core.step_transaction import FailureAction
+
+    class FakeEngine:
+        global_steps = 3
+
+        def _take_model_step(self):
+            raise RuntimeError("optimizer failed after mutation")
+
+    class FakeZero2:
+        def before_step(self, step):
+            pass
+
+        def wait_until_replicated(self, step):
+            pass
+
+        def close(self):
+            pass
+
+    engine = FakeEngine()
+    runtime = DeepSpeedRecoveryRuntime(
+        engine,
+        DeepSpeedRuntimeSettings(
+            hot_swap=False,
+            zero2=True,
+            checkpoint_dir=tmp_path,
+            checkpoint_interval=0,
+            recovery_epoch=0,
+            replica_timeout=1.0,
+        ),
+    )
+    runtime.zero2 = FakeZero2()
+    runtime.step_transaction.mark_optimizer_snapshot(3)
+    runtime._install_optimizer_step_hook()
+
+    with pytest.raises(RuntimeError, match="after mutation"):
+        engine._take_model_step()
+
+    assert (
+        runtime.last_failure_decision.action
+        is FailureAction.RESTORE_AND_REPLAY
+    )
+    assert not runtime.last_failure_decision.permits_bookkeeping_rollback
+
+
 def test_checkpoint_manifest_requires_every_dense_pipeline_shard(tmp_path):
     from moegambit.adapters.deepspeed.checkpoint_commit import (
         build_checkpoint_manifest,
@@ -1502,6 +1654,13 @@ def test_zero2_replica_slot_count_is_configurable():
         ROOT
         / "src"
         / "moegambit"
+        / "replication"
+        / "optimizer_memory.py"
+    ).read_text(encoding="utf-8")
+    compatibility = (
+        ROOT
+        / "src"
+        / "moegambit"
         / "runtime"
         / "zero2_replica.py"
     ).read_text(encoding="utf-8")
@@ -1516,6 +1675,8 @@ def test_zero2_replica_slot_count_is_configurable():
 
     assert "buffer_slots: int = 2" in manager
     assert "range(self.buffer_slots)" in manager
+    assert "from moegambit.replication import" in compatibility
+    assert "from moegambit.replication import" in adapter
     assert "MOEGAMBIT_ZERO2_BUFFER_SLOTS" in adapter
 
 
@@ -3268,7 +3429,7 @@ time.sleep(0.2)
 
 
 def test_vendored_deepspeed_version_is_pinned():
-    metadata = (ROOT / "DeepSpeed" / "MOEGAMBIT_UPSTREAM.md").read_text(
+    metadata = (ROOT / "docs" / "DEEPSPEED_UPSTREAM.md").read_text(
         encoding="utf-8"
     )
     assert "v0.19.3" in metadata

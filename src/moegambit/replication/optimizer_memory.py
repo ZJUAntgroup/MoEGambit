@@ -40,6 +40,7 @@ __all__ = [
     "OptimizerMemoryReplicaManager",
     "apply_optimizer_snapshot",
     "backup_holder_for_owner",
+    "capture_optimizer_snapshot",
     "memory_replica_sources",
     "ring_neighbors",
 ]
@@ -408,6 +409,69 @@ def memory_replica_sources(
     return sources
 
 
+def capture_optimizer_snapshot(
+    *,
+    owner_rank: int,
+    holder_rank: int,
+    step: int,
+    tensor_refs: Iterable[OptimizerTensorRef],
+    scalar_refs: Iterable[OptimizerScalarRef],
+    generation: int = 0,
+) -> OptimizerMemorySnapshot:
+    """Synchronously capture adapter-enumerated optimizer state."""
+
+    torch = _require_torch()
+    refs = list(tensor_refs)
+    scalar_sources = list(scalar_refs)
+    manifest, totals, manifest_hash = _manifest_for_refs(refs)
+    if not manifest:
+        raise RuntimeError("optimizer recovery snapshot has no tensor state")
+
+    buffers = {
+        dtype_name: _allocate_host_tensor(dtype_name, int(numel))
+        for dtype_name, numel in totals.items()
+    }
+    segments = [
+        {
+            "dtype": dtype_name,
+            "numel": int(numel),
+            "byte_count": int(numel)
+            * int(buffers[dtype_name].element_size()),
+        }
+        for dtype_name, numel in sorted(totals.items())
+    ]
+    _validate_segments(segments, FrameLimits())
+    used_cuda = False
+    with torch.no_grad():
+        for ref, item in zip(refs, manifest):
+            destination = buffers[item["dtype"]].narrow(
+                0, int(item["offset"]), int(item["numel"])
+            )
+            non_blocking = bool(
+                ref.tensor.is_cuda and destination.is_pinned()
+            )
+            destination.copy_(
+                ref.tensor.detach().view(-1), non_blocking=non_blocking
+            )
+            used_cuda = used_cuda or bool(ref.tensor.is_cuda)
+    if used_cuda:
+        torch.cuda.current_stream().synchronize()
+
+    return OptimizerMemorySnapshot(
+        owner_rank=int(owner_rank),
+        holder_rank=int(holder_rank),
+        step=int(step),
+        manifest_hash=manifest_hash,
+        manifest=manifest,
+        scalars={
+            ref.identity: ref.state[ref.key] for ref in scalar_sources
+        },
+        segments=segments,
+        buffers=buffers,
+        generation=int(generation),
+    )
+
+
 class Zero2MemoryReplicaManager:
     """Double-buffered D2H/H2H replication for adapter-enumerated state."""
 
@@ -420,6 +484,7 @@ class Zero2MemoryReplicaManager:
         wait_endpoint_fn: Callable[[str, float], Optional[Mapping[str, Any]]],
         timeout: float = 300.0,
         *,
+        buffer_slots: int = 2,
         bind_host: str = "0.0.0.0",
         retry_interval: float = 0.2,
         limits: Optional[FrameLimits] = None,
@@ -428,6 +493,8 @@ class Zero2MemoryReplicaManager:
             raise ValueError("replication rank must be non-negative")
         if timeout <= 0:
             raise ValueError("replication timeout must be positive")
+        if int(buffer_slots) not in (1, 2):
+            raise ValueError("buffer_slots must be 1 or 2")
         if not bind_host:
             raise ValueError("replication bind_host must be non-empty")
         self.rank = int(rank)
@@ -436,6 +503,7 @@ class Zero2MemoryReplicaManager:
         self._publish_endpoint_fn = publish_endpoint_fn
         self._wait_endpoint_fn = wait_endpoint_fn
         self.timeout = float(timeout)
+        self.buffer_slots = int(buffer_slots)
         self.bind_host = str(bind_host)
         self.retry_interval = float(retry_interval)
         self.limits = limits or FrameLimits()
@@ -454,8 +522,10 @@ class Zero2MemoryReplicaManager:
         self._stop = threading.Event()
         self._cv = threading.Condition()
         self._pending_slots: list[int] = []
-        self._slots = [_LocalSlot(), _LocalSlot()]
-        self._peer_slots: list[Optional[OptimizerMemorySnapshot]] = [None, None]
+        self._slots = [_LocalSlot() for _ in range(self.buffer_slots)]
+        self._peer_slots: list[Optional[OptimizerMemorySnapshot]] = [
+            None for _ in range(self.buffer_slots)
+        ]
         self._peer_committed_step = -1
         self._local_replicated_step = -1
         self._failure: Optional[BaseException] = None
@@ -498,7 +568,7 @@ class Zero2MemoryReplicaManager:
         with self._cv:
             self._local_replicated_step = -1
             self._peer_committed_step = -1
-            self._peer_slots = [None, None]
+            self._peer_slots = [None for _ in range(self.buffer_slots)]
 
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -702,6 +772,26 @@ class Zero2MemoryReplicaManager:
                     raise TimeoutError(
                         f"optimizer snapshot step {step} not replicated; "
                         f"latest={self._local_replicated_step}"
+                    )
+                self._cv.wait(min(remaining, 0.5))
+            self._raise_if_failed()
+
+    def wait_until_peer_committed(
+        self, step: int, timeout: Optional[float] = None
+    ) -> None:
+        """Wait until this rank holds a complete peer snapshot for ``step``."""
+
+        deadline = time.monotonic() + (
+            self.timeout if timeout is None else float(timeout)
+        )
+        with self._cv:
+            while self._peer_committed_step < int(step):
+                self._raise_if_failed()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"peer optimizer snapshot step {step} not committed; "
+                        f"latest={self._peer_committed_step}"
                     )
                 self._cv.wait(min(remaining, 0.5))
             self._raise_if_failed()

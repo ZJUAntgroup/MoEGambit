@@ -1509,7 +1509,7 @@ class RecoveryController:
         # full-ckpt-reload recovery semantics (the PEC byte overlay still
         # rewrites which expert shard gets loaded).
         if os.environ.get("MOEGAMBIT_FORCE_CHECKPOINT_RESTART", "0") == "1":
-            from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+            from moegambit.adapters.megatron.moe.gap_aware_recovery_policy import (
                 RecoveryPath,
                 RecoveryDecision,
             )
@@ -1542,7 +1542,7 @@ class RecoveryController:
             # --moe-moegambit-full-peer-recovery flag is set AND EDP > 1 AND
             # expert_peer_sync_fn is registered.  Force FULL_PEER_RECOVERY
             # without requiring the gap-aware policy manager.
-            from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+            from moegambit.adapters.megatron.moe.gap_aware_recovery_policy import (
                 RecoveryPath,
                 RecoveryDecision,
             )
@@ -1575,7 +1575,7 @@ class RecoveryController:
             )
         elif (self._gap_aware_policy_manager is not None
                 and self._gap_aware_policy_manager.enabled):
-            from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+            from moegambit.adapters.megatron.moe.gap_aware_recovery_policy import (
                 RecoveryPath,
             )
             decision = self._gap_aware_policy_manager.evaluate(
@@ -1623,7 +1623,7 @@ class RecoveryController:
                         if isinstance(force_result, dict)
                         else -1
                     )
-                    from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+                    from moegambit.adapters.megatron.moe.gap_aware_recovery_policy import (
                         RecoveryPath,
                         RecoveryDecision,
                     )
@@ -1662,7 +1662,7 @@ class RecoveryController:
         # execution: fallback outcomes are logged separately by execution events.
         if decision is not None:
             try:
-                from megatron.core.transformer.moe.gap_aware_recovery_policy import (
+                from moegambit.adapters.megatron.moe.gap_aware_recovery_policy import (
                     log_recovery_path_chosen_json,
                 )
                 policy_type = (
@@ -2352,7 +2352,7 @@ class RecoveryController:
         )
 
         try:
-            from megatron.core.transformer.moe.rank_exposure_tracker import (
+            from moegambit.adapters.megatron.moe.rank_exposure_tracker import (
                 get_rank_exposure_tracker,
             )
             tracker = get_rank_exposure_tracker()

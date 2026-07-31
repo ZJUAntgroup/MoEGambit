@@ -742,7 +742,7 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
             self._tracker = tracker
         else:
             try:
-                from megatron.core.transformer.moe.rank_exposure_tracker import (
+                from moegambit.adapters.megatron.moe.rank_exposure_tracker import (
                     get_rank_exposure_tracker,
                 )
                 self._tracker = get_rank_exposure_tracker()

@@ -37,6 +37,7 @@ from .async_utils import is_empty_async_queue, schedule_async_save
 from .global_vars import get_args
 from .one_logger_utils import on_save_checkpoint_start, on_save_checkpoint_success
 from .utils import append_to_progress_log, is_last_rank, print_rank_0, unwrap_model
+from moegambit.adapters.megatron.hooks import megatron_hooks
 
 try:
     from megatron.core.distributed.fsdp.src.megatron_fsdp.uneven_dtensor import preprocess_state_dict_for_uneven_dtensor
@@ -61,10 +62,6 @@ _CHECKPOINT_VERSION = None
 
 logger = getLogger(__name__)
 _NON_PERSISTENT_CKPT_SUBDIR = 'non_persistent'
-
-
-def _is_elastic_rebuild_mode():
-    return os.environ.get("ELASTIC_REBUILD_MODE") == "1"
 
 
 def set_checkpoint_version(value):
@@ -287,7 +284,7 @@ def read_metadata(tracker_filename):
         tracker_filename)
 
     # Get the max iteration retrieved across the ranks.
-    if torch.distributed.is_initialized() and not _is_elastic_rebuild_mode():
+    if torch.distributed.is_initialized() and not megatron_hooks.is_rebuild_mode():
         iters_cuda = torch.tensor([iteration], dtype=torch.long, device='cuda')
         torch.distributed.all_reduce(iters_cuda, op=torch.distributed.ReduceOp.MAX)
         max_iter = iters_cuda[0].item()
@@ -516,15 +513,7 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
 
         state_dict['num_floating_point_operations_so_far'] = num_floating_point_operations_so_far
 
-        # MOEGAMBIT-MoE: inject recovery metadata into checkpoint state_dict
-        try:
-            from megatron.core.transformer.moe.moegambit_integration import (
-                moegambit_is_initialized, moegambit_pre_save_checkpoint,
-            )
-            if moegambit_is_initialized():
-                state_dict = moegambit_pre_save_checkpoint(iteration, state_dict)
-        except ImportError:
-            pass
+        state_dict = megatron_hooks.checkpoint_pre_save(iteration, state_dict)
         if ckpt_type == CheckpointType.GLOBAL and ckpt_format == "torch_dist":
             if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
                 # TODO Handle non-empty directories (e.g., after a crash during saving).
@@ -612,30 +601,14 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
                 ensure_directory_exists(checkpoint_name)
                 torch.save(state_dict, checkpoint_name)
 
-    if (
-        ckpt_type == CheckpointType.LEGACY
-        and os.environ.get("ELASTIC_EXPERT_SIDECAR", "0").lower()
-        in ("1", "true", "yes", "on")
-    ):
-        try:
-            from megatron.training.elastic_client import (
-                elastic_save_expert_sidecar,
-            )
-
-            elastic_save_expert_sidecar(
-                save_dir,
-                iteration,
-                model,
-                optimizer,
-                num_floating_point_operations_so_far,
-            )
-        except Exception:
-            # The ordinary checkpoint remains authoritative. A sidecar failure
-            # must never turn a healthy training checkpoint into a job failure.
-            logger.exception(
-                "Failed to save elastic expert recovery sidecar; "
-                "replacement will use the full checkpoint fallback"
-            )
+    if ckpt_type == CheckpointType.LEGACY:
+        megatron_hooks.checkpoint_save_expert_sidecar(
+            save_dir,
+            iteration,
+            model,
+            optimizer,
+            num_floating_point_operations_so_far,
+        )
     start_misc = time()
     if ckpt_type != CheckpointType.LOCAL:
         if not args.async_save:
@@ -731,6 +704,9 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
             wandb_finalize_fn()
 
     if args.async_save:
+        async_save_request.add_finalize_fn(
+            lambda: megatron_hooks.checkpoint_post_save(save_dir, iteration)
+        )
         schedule_async_save(async_save_request)
         print_rank_0('  scheduled an async checkpoint save at iteration {:7d} to {}' \
                      .format(iteration, save_dir))
@@ -739,15 +715,8 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
 
-    # MOEGAMBIT-MoE: save manifest sidecar file (rank 0 only)
-    try:
-        from megatron.core.transformer.moe.moegambit_integration import (
-            moegambit_is_initialized, moegambit_save_manifest,
-        )
-        if moegambit_is_initialized():
-            moegambit_save_manifest(save_dir, iteration)
-    except ImportError:
-        pass
+    if not args.async_save:
+        megatron_hooks.checkpoint_post_save(save_dir, iteration)
 
     end_misc = time()
     logger.debug(f"rank: {rank}, takes {end_misc - start_misc} to finalize ckpt save ")
@@ -1691,7 +1660,7 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
             raise e
     else:
         if (
-            _is_elastic_rebuild_mode()
+            megatron_hooks.is_rebuild_mode()
             and not release
             and not args.finetune
             and optimizer is not None
@@ -1768,7 +1737,7 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
     # Some utilities want to load a checkpoint without distributed being initialized
     if (
         torch.distributed.is_initialized()
-        and os.environ.get("ELASTIC_REBUILD_MODE") != "1"
+        and megatron_hooks.allow_world_collectives()
     ):
         torch.distributed.barrier()
 
@@ -1789,15 +1758,7 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
         is_local_chkpt = (ckpt_type == CheckpointType.LOCAL)
         ft_integration.on_checkpoint_loaded(is_local_chkpt=is_local_chkpt)
 
-    # MOEGAMBIT-MoE: process recovery metadata from loaded checkpoint
-    try:
-        from megatron.core.transformer.moe.moegambit_integration import (
-            moegambit_is_initialized, moegambit_post_load_checkpoint,
-        )
-        if moegambit_is_initialized() and state_dict is not None:
-            moegambit_post_load_checkpoint(state_dict)
-    except ImportError:
-        pass
+    megatron_hooks.checkpoint_post_load(state_dict)
 
     return iteration, num_floating_point_operations_so_far
 

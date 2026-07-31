@@ -312,7 +312,7 @@ class PostRecoveryConvergence:
                 return count if isinstance(count, int) else len(expert_ids)
 
             # Default: use the recovery controller's expert tracker
-            from megatron.core.transformer.moe.recovery_controller import get_recovery_controller
+            from moegambit.adapters.megatron.moe.recovery_controller import get_recovery_controller
             ctrl = get_recovery_controller()
             ctrl._expert_tracker.mark_stale_runnable(expert_ids, step=step)
             return len(expert_ids)
@@ -334,7 +334,7 @@ class PostRecoveryConvergence:
                 return issues if isinstance(issues, list) else []
 
             # Default: use dispatch topology manager
-            from megatron.core.transformer.moe.dispatch_topology_refresh import (
+            from moegambit.adapters.megatron.moe.dispatch_topology_refresh import (
                 get_dispatch_topology_manager,
             )
             mgr = get_dispatch_topology_manager()
@@ -368,7 +368,7 @@ class PostRecoveryConvergence:
                 return count if isinstance(count, int) else len(restored_experts)
 
             # Default: use the preferential routing manager
-            from megatron.core.transformer.moe.preferential_routing import (
+            from moegambit.adapters.megatron.moe.preferential_routing import (
                 get_preferential_routing_manager,
             )
             _window = _get_flag(config, 'moe_moegambit_preferential_routing_window', 100)
@@ -406,7 +406,7 @@ class PostRecoveryConvergence:
                 return count if isinstance(count, int) else len(restored_experts)
 
             # Default: use the deferred optimizer loader
-            from megatron.core.transformer.moe.deferred_optimizer_load import (
+            from moegambit.adapters.megatron.moe.deferred_optimizer_load import (
                 get_deferred_optimizer_loader,
             )
             loader = get_deferred_optimizer_loader()
@@ -437,7 +437,7 @@ class PostRecoveryConvergence:
                 return bool(driven)
 
             # Default: use the two-phase recovery coordinator
-            from megatron.core.transformer.moe.two_phase_recovery import (
+            from moegambit.adapters.megatron.moe.two_phase_recovery import (
                 get_two_phase_recovery_coordinator,
             )
             coord = get_two_phase_recovery_coordinator()

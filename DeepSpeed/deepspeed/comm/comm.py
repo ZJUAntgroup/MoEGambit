@@ -45,12 +45,6 @@ from datetime import timedelta
 # Current deepspeed.comm backend (cdb) global object for simple access by client code
 cdb = None
 
-# Recovery-only process-group ordering state. Normal startup never enters this
-# path, and a new recovery epoch resets the local ordinal to zero.
-_moegambit_group_epoch = None
-_moegambit_group_ordinal = 0
-_moegambit_group_barrier = None
-
 # Create global timer for ops
 timers = timer.SynchronizedWallClockTimer()
 timer_summary = {}
@@ -189,74 +183,13 @@ def destroy_process_group(group: Optional[Any] = None) -> None:
     return cdb.destroy_process_group(group=group)
 
 
-def _moegambit_ordered_group_creation_enabled():
-    value = os.environ.get("MOEGAMBIT_DEEPSPEED_ORDERED_GROUP_REBUILD", "0")
-    if value.strip().lower() not in {"1", "true", "yes", "on"}:
-        return False
-    inprocess = os.environ.get(
-        "MOEGAMBIT_DEEPSPEED_INPROCESS_RECOVERY", "0"
-    )
-    if inprocess.strip().lower() not in {"1", "true", "yes", "on"}:
-        return False
-    epoch_value = os.environ.get("MOEGAMBIT_RECOVERY_EPOCH")
-    if epoch_value is None:
-        return False
-    try:
-        epoch = int(epoch_value)
-    except ValueError as exc:
-        raise RuntimeError("invalid MoEGambit recovery epoch") from exc
-    return epoch > 0
-
-
-def _moegambit_ordered_group_context(ranks):
-    global _moegambit_group_epoch
-    global _moegambit_group_ordinal
-    global _moegambit_group_barrier
-
-    from moegambit.runtime.distributed import GroupSpec, WatcherOrdinalBarrier
-
-    epoch = int(os.environ["MOEGAMBIT_RECOVERY_EPOCH"])
-    rank = int(cdb.get_rank())
-    world_size = int(cdb.get_world_size())
-    if _moegambit_group_epoch != epoch:
-        timeout = float(
-            os.environ.get(
-                "MOEGAMBIT_DEEPSPEED_GROUP_BARRIER_TIMEOUT", "300"
-            )
-        )
-        _moegambit_group_epoch = epoch
-        _moegambit_group_ordinal = 0
-        _moegambit_group_barrier = (
-            WatcherOrdinalBarrier.from_environment(
-                rank,
-                world_size,
-                timeout_seconds=timeout,
-            )
-        )
-    rank_tuple = tuple(int(item) for item in ranks)
-    group = GroupSpec(
-        ordinal=_moegambit_group_ordinal,
-        name=f"deepspeed_group_{_moegambit_group_ordinal:04d}",
-        ranks=rank_tuple,
-        backend="nccl",
-    )
-    return group, _moegambit_group_barrier
-
-
 def new_group(ranks):
-    global _moegambit_group_ordinal
     global cdb
     assert cdb is not None and cdb.is_initialized(
     ), 'DeepSpeed backend not set, please initialize it using init_process_group()'
-    if not _moegambit_ordered_group_creation_enabled():
-        return cdb.new_group(ranks)
+    from moegambit.adapters.deepspeed.hooks import ordered_new_group
 
-    group_spec, barrier = _moegambit_ordered_group_context(ranks)
-    barrier.wait("start", group_spec, group_spec.fingerprint)
-    group = cdb.new_group(list(group_spec.ranks))
-    barrier.wait("done", group_spec, group_spec.fingerprint)
-    _moegambit_group_ordinal += 1
-    return group
+    return ordered_new_group(cdb, ranks)
 
 
 def is_available() -> bool:

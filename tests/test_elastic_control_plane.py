@@ -307,8 +307,8 @@ def test_expert_sidecar_is_atomic_prefetched_and_has_full_checkpoint_fallback():
     checkpoint_source = (
         root / "Megatron-LM" / "megatron" / "training" / "checkpointing.py"
     ).read_text()
-    training_source = (
-        root / "Megatron-LM" / "megatron" / "training" / "training.py"
+    native_hooks_source = (
+        root / "src" / "moegambit" / "adapters" / "megatron" / "native_hooks.py"
     ).read_text()
     launch_script = (root / "test_hotspare_replace.sh").read_text()
 
@@ -317,8 +317,9 @@ def test_expert_sidecar_is_atomic_prefetched_and_has_full_checkpoint_fallback():
     assert "_atomic_json_dump(manifest, manifest_name)" in elastic_source
     assert "payload_sha256" in elastic_source
     assert "now + 5.0" in elastic_source
-    assert "elastic_save_expert_sidecar(" in checkpoint_source
-    assert "full_checkpoint_after_sidecar_fallback" in training_source
+    assert "megatron_hooks.checkpoint_save_expert_sidecar(" in checkpoint_source
+    assert "elastic_save_expert_sidecar(" in native_hooks_source
+    assert "full_checkpoint_after_sidecar_fallback" in native_hooks_source
     assert 'ELASTIC_EXPERT_SIDECAR:-1' in launch_script
 
 
@@ -727,24 +728,9 @@ def test_prearmed_assignment_refreshes_only_dynamic_recovery_metadata():
 
 
 def test_selective_rebuild_detaches_and_restores_healthy_c10d_group():
-    parallel_state_path = (
-        Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "core"
-        / "parallel_state.py"
+    from moegambit.adapters.megatron.parallel_state_hooks import (
+        MegatronParallelStateHooks,
     )
-    tree = ast.parse(parallel_state_path.read_text())
-    function_names = {
-        "_elastic_snapshot_registered_group",
-        "_elastic_detach_registered_group",
-        "_elastic_restore_registered_group",
-    }
-    functions = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name in function_names
-    ]
 
     group = object()
 
@@ -771,18 +757,14 @@ def test_selective_rebuild_detaches_and_restores_healthy_c10d_group():
     class _Torch:
         distributed = _Distributed
 
-    namespace = {"torch": _Torch}
-    module = ast.Module(body=functions, type_ignores=[])
-    exec(compile(module, str(parallel_state_path), "exec"), namespace)
-
-    snapshot = namespace["_elastic_snapshot_registered_group"](group)
-    namespace["_elastic_detach_registered_group"](snapshot)
+    snapshot = MegatronParallelStateHooks._snapshot_registered_group(_Torch, group)
+    MegatronParallelStateHooks._detach_registered_group(_Torch, snapshot)
     assert group not in _World.pg_map
     assert group not in _World.pg_names
     assert group not in _World.tags_to_pg.get("ptd:7", [])
 
-    restored = namespace["_elastic_restore_registered_group"](
-        snapshot, "elastic_retained_1_0"
+    restored = MegatronParallelStateHooks._restore_registered_group(
+        _Torch, snapshot, "elastic_retained_1_0"
     )
     assert restored is group
     assert _World.pg_map[group] == ("nccl", "store")
@@ -794,10 +776,10 @@ def test_selective_group_retention_precedes_world_teardown():
     elastic_client_path = (
         Path(__file__).parents[1]
         / "src"
-            / "moegambit"
-            / "adapters"
-            / "megatron"
-            / "elastic_client.py"
+        / "moegambit"
+        / "adapters"
+        / "megatron"
+        / "elastic_client.py"
     )
     source = elastic_client_path.read_text()
     tree = ast.parse(source)
@@ -807,71 +789,62 @@ def test_selective_group_retention_precedes_world_teardown():
         if isinstance(node, ast.FunctionDef) and node.name == "elastic_do_rebuild"
     )
     rebuild_source = ast.get_source_segment(source, rebuild_node)
-    retain = rebuild_source.index("prepare_elastic_selective_group_rebuild(")
-    teardown = rebuild_source.index("_elastic_destroy_process_group_generation(")
-    assert retain < teardown
+    assert rebuild_source.index("prepare_elastic_selective_group_rebuild(") < (
+        rebuild_source.index("_elastic_destroy_process_group_generation(")
+    )
 
-    parallel_state_source = (
+    hook_source = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
+        / "src"
+        / "moegambit"
+        / "adapters"
         / "megatron"
-        / "core"
-        / "parallel_state.py"
+        / "parallel_state_hooks.py"
     ).read_text()
-    parallel_state_tree = ast.parse(parallel_state_source)
+    hook_tree = ast.parse(hook_source)
+    hook_class = next(
+        node
+        for node in hook_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "MegatronParallelStateHooks"
+    )
     create_group_node = next(
         node
-        for node in parallel_state_tree.body
+        for node in hook_class.body
         if isinstance(node, ast.FunctionDef) and node.name == "create_group"
     )
-    create_group_source = ast.get_source_segment(
-        parallel_state_source, create_group_node
+    create_group_source = ast.get_source_segment(hook_source, create_group_node)
+    assert create_group_source.index("if reuse:") < create_group_source.index(
+        "torch_module.distributed.new_group(**kwargs)"
     )
-    reuse_branch = create_group_source.index("if reuse_group:")
-    new_group = create_group_source.index("torch.distributed.new_group(**kwargs)")
-    assert reuse_branch < new_group
 
 
 def test_selective_finalize_keeps_auxiliary_group_in_next_manifest():
-    parallel_state_path = (
-        Path(__file__).parents[1]
-        / "Megatron-LM"
-        / "megatron"
-        / "core"
-        / "parallel_state.py"
+    from moegambit.adapters.megatron.parallel_state_hooks import (
+        MegatronParallelStateHooks,
     )
-    tree = ast.parse(parallel_state_path.read_text())
-    finalize = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "finalize_elastic_selective_group_rebuild"
-    )
+
     signature = ("AUX", (0, 2), "nccl", False)
     group = object()
-    namespace = {
-        "os": os,
-        "logger": type("_Logger", (), {"warning": lambda *args, **kwargs: None})(),
-        "_ELASTIC_MPU_GROUP_SPECS": [],
-        "_ELASTIC_RETAINED_MPU_GROUPS": {signature: [{"group": group}]},
-        "_ELASTIC_SELECTIVE_REBUILD_ACTIVE": True,
-        "_ELASTIC_SELECTIVE_REBUILD_RANK": 1,
-        "_ELASTIC_SELECTIVE_REBUILD_STATS": {
-            "retained": 1,
-            "reused": 0,
-            "rebuilt": 0,
-            "skipped_nonmember": 0,
-        },
-        "_global_process_group_list": [None],
-        "_elastic_restore_registered_group": lambda snapshot, alias: snapshot["group"],
+    hooks = MegatronParallelStateHooks()
+    hooks.retained_groups = {signature: [{"group": group}]}
+    hooks.selective_rebuild_active = True
+    hooks.selective_rebuild_rank = 1
+    hooks.stats = {
+        "retained": 1,
+        "reused": 0,
+        "rebuilt": 0,
+        "skipped_nonmember": 0,
     }
-    module = ast.Module(body=[finalize], type_ignores=[])
-    exec(compile(module, str(parallel_state_path), "exec"), namespace)
-
-    result = namespace["finalize_elastic_selective_group_rebuild"]()
+    hooks._restore_registered_group = (
+        lambda torch_module, snapshot, alias: snapshot["group"]
+    )
+    tracked = []
+    result = hooks.finalize_selective_rebuild(
+        torch_module=object(), track_group=tracked.append
+    )
 
     assert result["reused"] == 1
-    assert namespace["_ELASTIC_MPU_GROUP_SPECS"] == [
+    assert hooks.group_specs == [
         {
             "signature": signature,
             "ranks": (0, 2),
@@ -881,50 +854,55 @@ def test_selective_finalize_keeps_auxiliary_group_in_next_manifest():
             "group": group,
         }
     ]
-
-
+    assert tracked == [group]
 def test_replacement_reports_ready_before_blocking_rebuild_store_connect():
-    initialize_path = (
+    hook_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
+        / "src"
+        / "moegambit"
+        / "adapters"
         / "megatron"
-        / "training"
-        / "initialize.py"
+        / "native_hooks.py"
     )
-    tree = ast.parse(initialize_path.read_text())
-    initialize_distributed = next(
+    tree = ast.parse(hook_path.read_text())
+    hook_class = next(
         node
         for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_initialize_distributed"
+        if isinstance(node, ast.ClassDef) and node.name == "MegatronNativeHooks"
+    )
+    prepare = next(
+        node
+        for node in hook_class.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "prepare_process_group_init"
     )
 
-    init_pg_start_line = None
-    standby_activation_line = None
-    rebuild_store_line = None
-    for node in ast.walk(initialize_distributed):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+    calls = {}
+    for node in ast.walk(prepare):
+        if not isinstance(node, ast.Call):
             continue
-        if (
-            node.func.id == "_elastic_report_phase_safely"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and node.args[0].value == "init_pg_start"
-        ):
-            init_pg_start_line = node.lineno
-        elif node.func.id == "elastic_create_rebuild_store":
-            rebuild_store_line = node.lineno
-        elif node.func.id == "elastic_refresh_prearmed_standby_assignment":
-            standby_activation_line = node.lineno
+        name = (
+            node.func.attr
+            if isinstance(node.func, ast.Attribute)
+            else node.func.id
+            if isinstance(node.func, ast.Name)
+            else ""
+        )
+        if name == "report_phase" and node.args and isinstance(node.args[0], ast.Constant):
+            calls[node.args[0].value] = node.lineno
+        elif name in {
+            "elastic_create_rebuild_store",
+            "elastic_refresh_prearmed_standby_assignment",
+        }:
+            calls[name] = node.lineno
 
     assert _PHASE_ORDER["zero2_memory_quiesce_ready"] < _PHASE_ORDER["init_pg_start"]
     assert _PHASE_ORDER["init_pg_start"] < _PHASE_ORDER["standby_activated"]
     assert _PHASE_ORDER["standby_activated"] < _PHASE_ORDER["rebuild_store_ready"]
-    assert _PHASE_ORDER["init_pg_start"] < _PHASE_ORDER["rebuild_store_ready"]
     assert _PHASE_ORDER["rebuild_store_ready"] < _PHASE_ORDER["pg_ready"]
-    assert init_pg_start_line is not None
-    assert standby_activation_line is not None
-    assert rebuild_store_line is not None
-    assert init_pg_start_line < standby_activation_line < rebuild_store_line
+    assert calls["init_pg_start"] < calls[
+        "elastic_refresh_prearmed_standby_assignment"
+    ] < calls["elastic_create_rebuild_store"]
 
 
 def test_zero2_quiesce_aligns_all_ranks_before_transport_close():
@@ -1156,7 +1134,7 @@ def test_recovery_contract_is_committed_at_train_loop_boundary():
         "should_exit = checkpoint_and_decide_exit(", callbacks_call
     )
     recovery_commit = train_source.index(
-        "moegambit_runtime_commit_iteration(args.curr_iteration)", checkpoint_call
+        "megatron_hooks.commit_iteration(args.curr_iteration)", checkpoint_call
     )
     assert (
         training_log_call
@@ -1171,10 +1149,11 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     root = Path(__file__).parents[1]
     rerun_path = (
         root
-        / "Megatron-LM"
+        / "src"
+        / "moegambit"
+        / "adapters"
         / "megatron"
-        / "core"
-        / "rerun_state_machine.py"
+        / "native_hooks.py"
     )
     elastic_client_path = (
         root
@@ -1189,20 +1168,20 @@ def test_external_recovery_resets_megatron_rerun_state_on_every_rank():
     rerun_class = next(
         node
         for node in rerun_tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "RerunStateMachine"
+        if isinstance(node, ast.ClassDef) and node.name == "MegatronNativeHooks"
     )
     reset_node = next(
         node
         for node in rerun_class.body
         if isinstance(node, ast.FunctionDef)
-        and node.name == "reset_after_external_recovery"
+        and node.name == "reset_rerun_state"
     )
     reset_source = ast.get_source_segment(rerun_source, reset_node)
-    assert "self.state = RerunState.NOT_RUNNING_YET" in reset_source
-    assert "self.current_iteration = int(current_iteration)" in reset_source
-    assert "self.rerun_requested = False" in reset_source
-    assert "self.data_iterator_checkpoints = None" in reset_source
-    assert '"first_iteration_complete": self.first_iteration_complete' in reset_source
+    assert "machine.state = type(machine.state).NOT_RUNNING_YET" in reset_source
+    assert "machine.current_iteration = int(current_iteration)" in reset_source
+    assert "machine.rerun_requested = False" in reset_source
+    assert "machine.data_iterator_checkpoints = None" in reset_source
+    assert '"first_iteration_complete": machine.first_iteration_complete' in reset_source
 
     elastic_source = elastic_client_path.read_text()
     elastic_tree = ast.parse(elastic_source)
@@ -1343,19 +1322,19 @@ def test_disabled_rebuild_warmup_skips_the_global_control_barrier():
 def test_moe_first_collective_fail_fast_is_one_shot_per_recovery_step():
     dispatcher_path = (
         Path(__file__).parents[1]
-        / "Megatron-LM"
+        / "src"
+        / "moegambit"
+        / "adapters"
         / "megatron"
-        / "core"
-        / "transformer"
-        / "moe"
-        / "token_dispatcher.py"
+        / "token_dispatch_hooks.py"
     )
     source = dispatcher_path.read_text()
     tree = ast.parse(source)
     dispatcher = next(
         node
         for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "MoETokenDispatcher"
+        if isinstance(node, ast.ClassDef)
+        and node.name == "TokenDispatcherRecoveryHooks"
     )
     gather_node = next(
         node
@@ -1406,8 +1385,28 @@ def test_post_rebuild_detail_trace_uses_node_representatives():
 
 
 def test_pipeline_p2p_diagnostics_are_recovery_gated_and_non_blocking():
+    root = Path(__file__).parents[1]
+    hook_path = (
+        root / "src/moegambit/adapters/megatron/native_hooks.py"
+    )
+    hook_source = hook_path.read_text()
+    hook_tree = ast.parse(hook_source)
+    hook_class = next(
+        node
+        for node in hook_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "MegatronNativeHooks"
+    )
+    trace_node = next(
+        node
+        for node in hook_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "trace_pipeline_p2p"
+    )
+    trace_source = ast.get_source_segment(hook_source, trace_node)
+    assert "elastic_is_post_rebuild_trace_active()" in trace_source
+    assert "elastic_wait_for" not in trace_source
+
     p2p_path = (
-        Path(__file__).parents[1]
+        root
         / "Megatron-LM"
         / "megatron"
         / "core"
@@ -1421,21 +1420,12 @@ def test_pipeline_p2p_diagnostics_are_recovery_gated_and_non_blocking():
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == "P2PCommunicator"
     )
-    trace_node = next(
-        node
-        for node in communicator.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_elastic_trace_p2p_once"
-    )
     communicate_node = next(
         node
         for node in communicator.body
         if isinstance(node, ast.FunctionDef) and node.name == "_communicate"
     )
-    trace_source = ast.get_source_segment(source, trace_node)
     communicate_source = ast.get_source_segment(source, communicate_node)
-
-    assert "elastic_is_post_rebuild_trace_active()" in trace_source
-    assert "elastic_wait_for" not in trace_source
     start_trace = communicate_source.index('"pipeline_p2p_start"')
     p2p_call = communicate_source.index("p2p_reqs = p2p_func(")
     returned_trace = communicate_source.index('"pipeline_p2p_returned"', p2p_call)
