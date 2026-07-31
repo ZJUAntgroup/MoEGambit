@@ -1,10 +1,11 @@
 <div align="center">
 
 <div style="margin: 20px 0;">
-  <img src="docs/assets/chess2dgreendg-raopenclipart.svg"
-       width="150"
-       height="150"
-       alt="MoEGambit chessboard and chess pieces logo">
+  <a href="docs/assets/moegambit-chess.png">
+    <img src="docs/assets/moegambit-chess.png"
+         width="420"
+         alt="MoEGambit chessboard">
+  </a>
 </div>
 
 # MoEGambit
