@@ -20,9 +20,13 @@ transactional recovery for Megatron-LM and DeepSpeed.
 [Architecture](#architecture) · [Examples](#multi-node-examples) ·
 [Recovery Contract](#recovery-contract) · [Paper Results](#paper-results)
 
-<img src="docs/assets/moegambit-runtime-architecture.png"
-     alt="MoEGambit recovery architecture"
-     width="100%">
+<a href="docs/assets/moegambit-runtime-architecture.png">
+  <img src="docs/assets/moegambit-runtime-architecture.png"
+       alt="MoEGambit recovery architecture"
+       width="100%">
+</a>
+
+<sub>Click the figure to open the full-resolution image.</sub>
 
 </div>
 
@@ -394,22 +398,27 @@ gap. These figures use the paper's latency scope and should not be interpreted
 as stronger end-to-end guarantees for other clusters.
 
 <div align="center">
-  <img src="docs/assets/scalability.png"
-       alt="Recovery latency at 64 and 128 GPUs"
-       width="68%">
+  <a href="docs/assets/scalability.png">
+    <img src="docs/assets/scalability.png"
+         alt="Recovery latency at 64 and 128 GPUs"
+         width="68%">
+  </a>
   <p><em>Recovery latency at 64 and 128 GPUs. Path P is peer state; Path C is
-  checkpoint expert state.</em></p>
+  checkpoint expert state. Click the figure to view it at full resolution.</em></p>
 </div>
 
 <details>
 <summary><strong>Training-loss comparison under injected faults</strong></summary>
 <br>
 <div align="center">
-  <img src="docs/assets/training-loss.png"
-       alt="Training loss under injected faults"
-       width="92%">
+  <a href="docs/assets/training-loss.png">
+    <img src="docs/assets/training-loss.png"
+         alt="Training loss under injected faults"
+         width="92%">
+  </a>
   <p><em>Loss trajectories for checkpoint restart, MoC-System, and
-  MoEGambit. The dotted vertical markers denote injected faults.</em></p>
+  MoEGambit. The dotted vertical markers denote injected faults. Click the
+  figure to view it at full resolution.</em></p>
 </div>
 </details>
 

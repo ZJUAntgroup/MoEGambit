@@ -19,9 +19,13 @@
 [系统架构](#系统架构) · [运行示例](#多机运行示例) ·
 [恢复契约](#恢复契约) · [论文结果](#论文结果)
 
-<img src="docs/assets/moegambit-runtime-architecture.png"
-     alt="MoEGambit 恢复架构"
-     width="100%">
+<a href="docs/assets/moegambit-runtime-architecture.png">
+  <img src="docs/assets/moegambit-runtime-architecture.png"
+       alt="MoEGambit 恢复架构"
+       width="100%">
+</a>
+
+<sub>点击图片可查看原始分辨率大图。</sub>
 
 </div>
 
@@ -381,22 +385,26 @@ torchrun --standalone --nproc-per-node=2 \
 更强的端到端保证。
 
 <div align="center">
-  <img src="docs/assets/scalability.png"
-       alt="64 和 128 GPU 上的恢复延迟"
-       width="68%">
+  <a href="docs/assets/scalability.png">
+    <img src="docs/assets/scalability.png"
+         alt="64 和 128 GPU 上的恢复延迟"
+         width="68%">
+  </a>
   <p><em>64 和 128 GPU 上的恢复延迟。Path P 表示 peer state，
-  Path C 表示 checkpoint expert state。</em></p>
+  Path C 表示 checkpoint expert state。点击图片可查看原始分辨率大图。</em></p>
 </div>
 
 <details>
 <summary><strong>注入故障后的训练 loss 对比</strong></summary>
 <br>
 <div align="center">
-  <img src="docs/assets/training-loss.png"
-       alt="注入故障后的训练 loss"
-       width="92%">
+  <a href="docs/assets/training-loss.png">
+    <img src="docs/assets/training-loss.png"
+         alt="注入故障后的训练 loss"
+         width="92%">
+  </a>
   <p><em>Checkpoint restart、MoC-System 与 MoEGambit 的 loss 曲线。
-  竖向虚线表示注入的故障。</em></p>
+  竖向虚线表示注入的故障。点击图片可查看原始分辨率大图。</em></p>
 </div>
 </details>
 
