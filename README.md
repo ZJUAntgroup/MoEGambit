@@ -1,265 +1,426 @@
+<div align="center">
+
 # MoEGambit
 
-MoEGambit is a framework-neutral recovery runtime for distributed MoE
-training. It provides coordinated rank replacement, deterministic process-group
-rebuild, version-aware parameter and optimizer restoration, resident hot-spare
-workers, and checkpoint fallback for both Megatron-LM and DeepSpeed.
+### Contract-Based Hybrid Recovery for Mixture-of-Experts Training
 
-This repository contains:
+Framework-neutral hot rank replacement, version-aware state restoration, and
+transactional recovery for Megatron-LM and DeepSpeed.
 
-- one installable `moegambit` runtime under `src/`;
-- a Megatron adapter with minimal framework hooks;
-- a DeepSpeed adapter with minimal framework hooks;
-- Generic DDP as a framework-neutral reference implementation;
-- real nine-node validation scripts for Megatron and DeepSpeed.
+[![GitHub Stars](https://img.shields.io/github/stars/ZJUAntgroup/MoEGambit?style=flat-square&logo=github)](https://github.com/ZJUAntgroup/MoEGambit/stargazers)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/python-%E2%89%A53.10-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![Megatron Core](https://img.shields.io/badge/Megatron_Core-0.15.3-76B900?style=flat-square)](Megatron-LM)
+[![DeepSpeed](https://img.shields.io/badge/DeepSpeed-0.19.3-00539C?style=flat-square)](DeepSpeed)
 
-The implementation is experimental. Test recovery on the exact target
-PyTorch, CUDA, NCCL, network, and topology before using it for production
-training.
+[Overview](#overview) · [Quick Start](#quick-start) ·
+[Architecture](#architecture) · [Examples](#multi-node-examples) ·
+[Recovery Contract](#recovery-contract) · [Paper Results](#paper-results)
 
-## Repository layout
+<img src="docs/assets/moegambit-runtime-architecture.png"
+     alt="MoEGambit recovery architecture"
+     width="100%">
 
-```text
-.
-├── src/moegambit/
-│   ├── core/                  # framework-free recovery decisions and events
-│   ├── runtime/               # orchestration, hot spare, watcher client, wire protocol
-│   ├── interfaces/            # EngineAdapter launch protocol
-│   ├── adapters/
-│   │   ├── megatron/          # Megatron state, topology, and launch integration
-│   │   └── deepspeed/         # DeepSpeed engine, ZeRO, group, and checkpoint integration
-│   ├── control/               # authenticated control plane and frozen recovery plans
-│   ├── distributed/           # topology models and c10d compatibility
-│   └── replication/           # optimizer memory replication
-├── Megatron-LM/               # Megatron Core 0.15.3 source with integration hooks
-├── DeepSpeed/                 # DeepSpeed 0.19.3 source with integration hooks
-├── examples/
-│   ├── megatron/run_hot_spare.sh
-│   ├── deepspeed/run_hot_spare.sh
-│   └── generic_ddp/
-├── elastic_launcher.py        # adapter-aware compatibility launcher
-├── elastic_watcher.py         # adapter-aware compatibility watcher
-├── run_spare_single_rank.sh   # prearmed Megatron replacement worker
-├── deepspeed_qwen3_moe_pretrain.py
-├── test_hotspare_replace.sh
-└── test_deepspeed_hotspare_replace.sh
-```
+</div>
 
-The dependency direction is:
+## Overview
 
-```text
-framework hook -> framework adapter -> moegambit interfaces/runtime/core
-```
+MoEGambit is the implementation accompanying
+**“MoEGambit: Contract-Based Hybrid Recovery for Mixture-of-Experts
+Training.”** It keeps the distributed training job alive after a fail-stop
+rank failure, activates a resident replacement worker, rebuilds communication
+groups in a deterministic order, and restores state from the safest available
+source.
 
-Framework-independent code must not be added back into `Megatron-LM/`,
-`DeepSpeed/`, or either framework adapter.
+The key idea is hybrid recovery:
 
-Megatron integration has one public import contract:
-`from moegambit.adapters.megatron.hooks import megatron_hooks`. Megatron only
-publishes framework lifecycle events and objects through that singleton.
-Recovery configuration, failure classification, rollback/replay policy,
-process-group rebuild state, and post-rebuild diagnostics live under
-`src/moegambit/adapters/megatron/`.
+- replicated non-expert state is pulled from a healthy peer at the current
+  committed version;
+- rank-local expert state is restored from a checkpoint when no live expert
+  replica exists;
+- optimizer state can be restored from acknowledged host-memory replicas;
+- unsafe or unprovable recovery paths fail closed to checkpoint relaunch.
 
-## Supported recovery modes
+MoEGambit separates recovery policy and orchestration from framework-specific
+code. Megatron-LM and DeepSpeed retain only lifecycle hooks; their adapters
+translate framework objects into one common recovery contract.
 
-### Megatron
+> [!IMPORTANT]
+> MoEGambit is experimental research software. CPU tests validate contracts and
+> state machines, but production use requires validation on the exact PyTorch,
+> CUDA, NCCL, network, storage, and parallel topology of the target cluster.
 
-- fixed logical world size with one failed rank moved to a spare node;
-- resident survivor processes and CUDA state;
-- deterministic Megatron TP/PP/EP/DP process-group rebuild;
-- current-step peer transfer for non-expert state;
-- checkpoint or prefetched sidecar restore for expert state;
-- optional distributed-optimizer host-memory replication;
-- fail-closed fallback when topology or state versions disagree.
+## Highlights
 
-The supplied validation shape uses 8 active nodes plus 1 spare node, 8 GPUs per
-node, PP=8, EP=8, and TP=1.
+- **One recovery runtime:** common controller, watcher protocol, policy,
+  process-group orchestration, observability, and CLI under `src/moegambit/`.
+- **Two framework adapters:** Megatron-LM and DeepSpeed use the same adapter
+  boundary and the same launcher/watcher entry points.
+- **Resident hot spares:** survivors keep their Python and CUDA processes while
+  a spare assumes the failed logical rank.
+- **Version-aware restoration:** model, optimizer, scheduler, RNG, data cursor,
+  and checkpoint records are admitted only when their versions are compatible.
+- **Phase-aware transactions:** failures in forward, backward, optimizer, and
+  checkpoint publication have explicit replay or fallback semantics.
+- **Bounded hybrid repair:** the paper R2 policy admits stale-expert recovery
+  only while projected expert staleness density remains within its configured
+  budget.
+- **Fail-closed behavior:** MoEGambit never rewinds only an iteration counter
+  after parameters may already have changed.
 
-### DeepSpeed
+## Quick Start
 
-`TEST_MODE` selects one of the supported validations:
+### Install
 
-| Mode | Topology | Recovery behavior |
-| --- | --- | --- |
-| `hot_swap` | PP=8, EP=8, ZeRO-1 | one failed rank is replaced on node 8 |
-| `zero2` | PP=1, EP=8, ZeRO-2 | optimizer shards are replicated through D2H/TCP |
-| `combined` | PP=1, EP=8, ZeRO-2 | rank replacement plus optimizer replication |
-| `all` | sequential | runs `hot_swap`, then `zero2` |
-
-DeepSpeed `PipelineEngine` does not support ZeRO-2/3, so the validation does
-not claim support for PP=8 plus ZeRO-2.
-
-### Failure boundary semantics
-
-Megatron and DeepSpeed use the same framework-neutral step transaction model.
-The runtime distinguishes the last committed optimizer version from the
-currently executing iteration:
-
-| Failure phase | Required recovery |
-| --- | --- |
-| forward, backward, optimizer-before | discard gradients, rewind data, replay from the last committed step |
-| optimizer-during | restore model and optimizer state from the previous committed replica before replay |
-| optimizer-after, replica not committed | checkpoint relaunch; bookkeeping-only rollback is forbidden |
-| committed step | resume from that committed optimizer version |
-| checkpoint before/while publishing its commit record | ignore the incomplete checkpoint and retain the committed training step |
-| checkpoint after commit record | the new checkpoint is eligible for restart |
-
-An optimizer step is not advertised as a safe point until its host-memory peer
-replica has acknowledged the same version. If a framework adapter cannot prove
-the restore required by `optimizer-during`, it fails closed and requests
-checkpoint relaunch or aborts. It never rewinds only the iteration counter
-after parameters may have changed.
-
-DeepSpeed's supplied SIGKILL validation injects failure only at a committed
-safe point. Unexpected failures in forward, backward, and optimizer are still
-classified by phase, but arbitrary mid-collective recovery remains dependent
-on the launcher and coordinator obtaining a valid committed failure step.
-
-## Environment requirements
-
-### Operating system and hardware
-
-- Linux x86_64;
-- NVIDIA GPUs with a CUDA-capable PyTorch build;
-- NCCL available on every training and spare node;
-- homogeneous GPU count per node for the supplied scripts;
-- one network interface reachable by every active and spare node;
-- shared or identically mounted dataset and checkpoint paths;
-- enough host memory for optimizer replicas and prefetched expert state.
-
-The supplied real validation defaults to:
-
-- 9 physical nodes;
-- nodes 0-7: 8 active GPUs each;
-- node 8: 8 resident spare workers;
-- 64 logical training ranks;
-- failure at step 17 after a checkpoint at step 10.
-
-### Software
-
-- Python 3.10 or newer;
-- CUDA driver and toolkit compatible with the selected PyTorch wheel;
-- PyTorch 2.x with `torch.distributed`;
-- NCCL and, for the Megatron configuration, Transformer Engine;
-- Megatron Core 0.15.3 from this repository;
-- DeepSpeed 0.19.3 from this repository;
-- `transformers>=5.0.0,<6` for the Qwen3-MoE DeepSpeed workload;
-- `pytest>=7` for local tests.
-
-The project intentionally does not pin a CUDA-specific PyTorch wheel. Install
-PyTorch from the index recommended for the cluster's CUDA version.
-
-### Network ports
-
-Allow the selected ports between all participating nodes:
-
-| Purpose | Default |
-| --- | ---: |
-| Megatron rendezvous | `20117` |
-| Megatron watcher | `20200` |
-| DeepSpeed rendezvous | `20121` |
-| DeepSpeed hot-spare coordinator | `MASTER_PORT + 100` |
-| optimizer replicas | configured by the runtime, normally starting at `20300` |
-
-Do not advertise `127.0.0.1` for a multi-node run. `MASTER_ADDR`,
-`ELASTIC_WATCHER_ADDR`, and any explicit advertise address must be reachable
-from every node.
-
-## Installation
-
-### 1. Create an environment
-
-Run on every node:
+Python 3.10 or newer is required. Install a CUDA-enabled PyTorch build that
+matches the cluster before installing MoEGambit.
 
 ```bash
-cd /path/to/bsr
+git clone https://github.com/ZJUAntgroup/MoEGambit.git
+cd MoEGambit
+
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-```
 
-### 2. Install CUDA PyTorch
-
-Example only; select the command matching the cluster:
-
-```bash
+# Install the PyTorch wheel appropriate for the cluster first.
 python -m pip install torch --index-url <PYTORCH_CUDA_WHEEL_INDEX>
-```
 
-Verify CUDA and distributed support:
-
-```bash
-python - <<'PY'
-import torch
-
-assert torch.cuda.is_available()
-assert torch.distributed.is_available()
-print(torch.__version__, torch.version.cuda, torch.cuda.device_count())
-PY
-```
-
-### 3. Install MoEGambit
-
-```bash
+# Install MoEGambit and its development checks.
 python -m pip install -e '.[dev]'
 ```
 
-This installs the common runtime and these commands:
-
-- `moegambit-launch`
-- `moegambit-watch`
-- `moegambit-watcher`
-- `moegambit-doctor`
-- `moegambit-elastic-launcher`
-- `moegambit-elastic-watcher`
-
-### 4. Install framework dependencies
-
-For Megatron:
+Install the framework required by the workload:
 
 ```bash
+# Megatron-LM
 python -m pip install -e ./Megatron-LM
-python -m pip install transformer-engine[pytorch]
-```
+python -m pip install 'transformer-engine[pytorch]'
 
-For DeepSpeed:
-
-```bash
+# DeepSpeed
 python -m pip install -r deepspeed_requirements.txt
 python -m pip install -e ./DeepSpeed
 ```
 
-Repository scripts also set the source paths explicitly, so local DeepSpeed
-and Megatron modifications take precedence over an unrelated site-package:
+The repository scripts explicitly prefer the bundled framework sources:
 
 ```bash
 export PYTHONPATH="$PWD/src:$PWD/DeepSpeed:$PWD/Megatron-LM${PYTHONPATH:+:$PYTHONPATH}"
 ```
 
-### 5. Verify the installation
+### Verify
 
 ```bash
 python - <<'PY'
+import torch
 import moegambit
 import moegambit.adapters.deepspeed
 from moegambit.runtime.discovery import discover_adapters
 
-print(moegambit.__file__)
-print(moegambit.adapters.deepspeed.__file__)
-print(sorted(discover_adapters()))
+assert torch.cuda.is_available()
+assert torch.distributed.is_available()
+print("torch:", torch.__version__, "cuda:", torch.version.cuda)
+print("moegambit:", moegambit.__file__)
+print("adapters:", sorted(discover_adapters()))
 PY
 
 moegambit-doctor
 python -m pytest tests -q
 ```
 
-Both adapters must resolve below the installed `moegambit.adapters` package;
-neither adapter requires a separate source root.
+The package installs these commands:
 
-## Dataset, tokenizer, and storage
+| Command | Purpose |
+| --- | --- |
+| `moegambit-launch` | build or launch an adapter-selected training command |
+| `moegambit-watch` | common watcher client entry point |
+| `moegambit-watcher` | authenticated framework-neutral coordinator |
+| `moegambit-doctor` | validate the local runtime environment |
+| `moegambit-elastic-launcher` | compatibility launcher for Megatron/DeepSpeed |
+| `moegambit-elastic-watcher` | compatibility watcher for Megatron/DeepSpeed |
 
-The scripts currently retain the validated internal paths:
+## Architecture
+
+```text
+framework hook
+      │
+      ▼
+EngineAdapter (Megatron / DeepSpeed / Generic DDP)
+      │
+      ├── framework lifecycle and state translation
+      ▼
+moegambit runtime + policy + control plane
+      │
+      ├── failure classification and recovery planning
+      ├── spare assignment and topology manifest
+      ├── deterministic process-group rebuild
+      ├── peer / replica / checkpoint state selection
+      └── commit, rollback, fallback, and observability
+```
+
+The dependency direction is strict:
+
+```text
+framework hook -> framework adapter -> moegambit interfaces/runtime/core
+```
+
+Framework-independent code must not be added back into `Megatron-LM/`,
+`DeepSpeed/`, or either framework adapter. Megatron has one public integration
+contract:
+
+```python
+from moegambit.adapters.megatron.hooks import megatron_hooks
+```
+
+Megatron publishes framework events and objects through that singleton.
+Recovery configuration, failure classification, rollback/replay policy,
+process-group rebuild state, and diagnostics live under
+`src/moegambit/adapters/megatron/`.
+
+For the detailed design, see
+[Unified Recovery Architecture](docs/design/UNIFIED_RECOVERY_ARCHITECTURE.md).
+
+### Repository layout
+
+```text
+.
+├── src/moegambit/
+│   ├── core/                  # framework-free contracts and decisions
+│   ├── runtime/               # orchestration, hot spare, watcher client, protocol
+│   ├── interfaces/            # EngineAdapter protocol
+│   ├── adapters/
+│   │   ├── megatron/          # Megatron state/topology integration
+│   │   ├── deepspeed/         # DeepSpeed engine/ZeRO integration
+│   │   └── generic_ddp/       # framework-neutral reference adapter
+│   ├── control/               # authenticated control plane and frozen plans
+│   ├── distributed/           # topology and c10d compatibility
+│   └── replication/           # optimizer host-memory replication
+├── Megatron-LM/               # Megatron Core 0.15.3 + minimal hooks
+├── DeepSpeed/                 # DeepSpeed 0.19.3 + minimal hooks
+├── examples/
+│   ├── megatron/run_hot_spare.sh
+│   ├── deepspeed/run_hot_spare.sh
+│   └── generic_ddp/
+├── elastic_launcher.py        # adapter-aware compatibility launcher
+├── elastic_watcher.py         # adapter-aware compatibility watcher
+├── test_hotspare_replace.sh
+└── test_deepspeed_hotspare_replace.sh
+```
+
+### Adapter support
+
+| Capability | Megatron-LM | DeepSpeed | Generic DDP |
+| --- | :---: | :---: | :---: |
+| Common launcher/watcher dispatch | ✓ | ✓ | reference |
+| Resident rank replacement | ✓ | ✓ | worked example |
+| Deterministic group rebuild | TP/PP/EP/DP | engine groups | DDP |
+| Peer model-state restore | ✓ | ✓ | adapter contract |
+| Host optimizer replication | distributed optimizer | ZeRO-2 | adapter contract |
+| Checkpoint fallback | ✓ | ✓ | ✓ |
+| Phase-aware transaction contract | ✓ | ✓ | ✓ |
+
+## Recovery Contract
+
+For a fail-stop event `<r, t, c>`—failed logical rank `r`, current iteration
+`t`, and last checkpoint `c`—the recovery protocol is:
+
+1. Freeze a recovery plan and increment the recovery epoch.
+2. Mark the failed rank as `RECOVERING`, block optimizer commit, and discard
+   the in-flight iteration.
+3. Assign a physical spare while preserving the failed logical rank.
+4. Rebuild all process groups from one canonical topology manifest.
+5. Select compatible state sources by component and committed version.
+6. Restore weights first; attach optimizer state under an update barrier.
+7. Rewind the data cursor only when replay is required.
+8. Execute one complete post-recovery iteration.
+9. Commit the epoch and transition
+   `RECOVERING → REPAIRED → BARRIER → HEALTHY`.
+
+The R2 hybrid policy admits partial checkpoint restoration only when:
+
+```text
+Phi'(t) = (S(t) + |E_new| × Delta) / (N_expert × W_exp) <= Phi_max
+```
+
+where `Delta = t - c`, `S(t)` is accumulated stale-expert exposure,
+`|E_new|` is the number of newly stale experts, and `W_exp` is the exposure
+window. If the guard fails, the runtime selects a full checkpoint restart.
+
+### Failure boundary semantics
+
+The last committed optimizer version is distinct from the currently executing
+iteration:
+
+| Failure phase | Required recovery |
+| --- | --- |
+| forward, backward, optimizer-before | discard gradients, rewind data, and replay from the last committed step |
+| optimizer-during | restore model and optimizer from the previous committed replica before replay |
+| optimizer-after, replica not committed | checkpoint relaunch; bookkeeping-only rollback is forbidden |
+| committed step | resume from that committed optimizer version |
+| checkpoint before/while publishing commit record | ignore the incomplete checkpoint |
+| checkpoint after commit record | allow the new checkpoint for restart |
+
+An optimizer step is not advertised as safe until its host-memory peer replica
+acknowledges the same version. If the adapter cannot prove the restoration
+required for an optimizer-during failure, recovery aborts or falls back to a
+checkpoint relaunch.
+
+## Multi-node Examples
+
+The supplied validation topology uses nine homogeneous nodes:
+
+- nodes `0-7`: eight active GPUs each;
+- node `8`: eight resident replacement workers;
+- 64 logical ranks;
+- fault injection at step `17`, after a checkpoint at step `10`.
+
+Run the same script on every node and change only `NODE_RANK`. `MASTER_ADDR`
+and `ELASTIC_WATCHER_ADDR` must be routable from every node.
+
+### Megatron-LM
+
+```bash
+# Active nodes: run once with NODE_RANK=0, then 1 ... 7.
+NODE_RANK=0 \
+MASTER_ADDR=<node-0-routable-ip> \
+ELASTIC_WATCHER_ADDR=<node-8-routable-ip> \
+bash examples/megatron/run_hot_spare.sh
+
+# Spare node.
+NODE_RANK=8 \
+MASTER_ADDR=<node-0-routable-ip> \
+ELASTIC_WATCHER_ADDR=<node-8-routable-ip> \
+bash examples/megatron/run_hot_spare.sh
+```
+
+The validated Megatron shape is PP=8, EP=8, TP=1. Common overrides:
+
+```bash
+export FAULT_INJECT_STEP=17
+export FAULT_INJECT_NODE=0
+export FAULT_INJECT_LOCAL_RANK=1
+export TRAIN_ITERS=100
+export SAVE_INTERVAL=10
+export DATA_PATH=/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
+export CKPT_DIR=/mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+```
+
+### DeepSpeed
+
+```bash
+# Active nodes: run once with NODE_RANK=0, then 1 ... 7.
+NODE_RANK=0 \
+MASTER_ADDR=<node-0-routable-ip> \
+ELASTIC_WATCHER_ADDR=<node-8-routable-ip> \
+TEST_MODE=hot_swap \
+bash examples/deepspeed/run_hot_spare.sh
+
+# Spare node.
+NODE_RANK=8 \
+MASTER_ADDR=<node-0-routable-ip> \
+ELASTIC_WATCHER_ADDR=<node-8-routable-ip> \
+TEST_MODE=hot_swap \
+bash examples/deepspeed/run_hot_spare.sh
+```
+
+DeepSpeed validation modes:
+
+| `TEST_MODE` | Topology | Behavior |
+| --- | --- | --- |
+| `hot_swap` | PP=8, EP=8, ZeRO-1 | replace one failed rank on node 8 |
+| `zero2` | PP=1, EP=8, ZeRO-2 | replicate optimizer shards through D2H/TCP |
+| `combined` | PP=1, EP=8, ZeRO-2 | rank replacement plus optimizer replication |
+| `all` | sequential | run `hot_swap`, then `zero2` |
+
+DeepSpeed `PipelineEngine` does not support ZeRO-2/3; this repository therefore
+does not claim PP=8 plus ZeRO-2 support.
+
+### Dry run
+
+Generate commands without starting distributed workers:
+
+```bash
+DRY_RUN=1 NODE_RANK=0 \
+MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
+bash examples/megatron/run_hot_spare.sh
+
+DRY_RUN=1 TEST_MODE=all NODE_RANK=8 \
+MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
+bash examples/deepspeed/run_hot_spare.sh
+```
+
+For multi-NIC hosts:
+
+```bash
+export MOEGAMBIT_HOT_SPARE_ADVERTISE_ADDR=<this-node-routable-ip>
+export MOEGAMBIT_REPLICA_ADVERTISE_ADDR=<this-node-routable-ip>
+```
+
+### Generic DDP
+
+The Generic DDP example shows that the recovery contract is not tied to either
+vendored framework:
+
+```bash
+torchrun --standalone --nproc-per-node=2 \
+  examples/generic_ddp/train_loop.py \
+  --steps 8 \
+  --checkpoint-dir /tmp/moegambit-generic-ddp
+```
+
+See [examples/generic_ddp/README.md](examples/generic_ddp/README.md) for the
+fault-replacement walkthrough.
+
+## Paper Results
+
+The accompanying paper artifact reports **20.6%-55.0% lower raw recovery
+latency** and a **36.9× replay-inclusive speedup** for a 100-iteration replay
+gap. These figures use the paper's latency scope and should not be interpreted
+as stronger end-to-end guarantees for other clusters.
+
+<div align="center">
+  <img src="docs/assets/scalability.png"
+       alt="Recovery latency at 64 and 128 GPUs"
+       width="68%">
+  <p><em>Recovery latency at 64 and 128 GPUs. Path P is peer state; Path C is
+  checkpoint expert state.</em></p>
+</div>
+
+<details>
+<summary><strong>Training-loss comparison under injected faults</strong></summary>
+<br>
+<div align="center">
+  <img src="docs/assets/training-loss.png"
+       alt="Training loss under injected faults"
+       width="92%">
+  <p><em>Loss trajectories for checkpoint restart, MoC-System, and
+  MoEGambit. The dotted vertical markers denote injected faults.</em></p>
+</div>
+</details>
+
+The paper's main setting uses Qwen3-30B-A3B on 64 NVIDIA H20 GPUs; the
+cross-model setting uses DeepSeek-V2-Lite. Reproduce claims on a comparable
+multi-node GPU environment before drawing performance conclusions.
+
+## Environment and Configuration
+
+### Environment requirements
+
+- Linux x86_64;
+- Python 3.10+;
+- NVIDIA GPUs and a compatible CUDA-enabled PyTorch 2.x build;
+- NCCL available on active and spare nodes;
+- Transformer Engine for the supplied Megatron configuration;
+- `transformers>=5.0.0,<6` for the Qwen3-MoE DeepSpeed workload;
+- shared or identically mounted datasets and checkpoints;
+- enough host memory for optimizer replicas and prefetched expert state.
+
+The project deliberately does not pin a CUDA-specific PyTorch wheel.
+
+### Validated paths
+
+The example scripts intentionally retain the cluster paths used during current
+validation:
 
 ```text
 dataset:
@@ -275,161 +436,26 @@ DeepSpeed run root:
   /mnt/ais-c1/dataset/zds/89hotspare/deepspeed_real
 ```
 
-The Megatron mmap dataset requires both:
+Override them with `DATA_PATH`, `TOKENIZER_DIR`, `MODEL_CONFIG`, `CKPT_DIR`,
+`TRAIN_LOG_DIR`, or `RUN_ROOT`. The Megatron mmap dataset requires both
+`${DATA_PATH}.idx` and `${DATA_PATH}.bin`.
 
-```text
-${DATA_PATH}.idx
-${DATA_PATH}.bin
-```
+### Network ports
 
-The default tokenizer/model configuration is `./tokenizer`. Override any path
-with `DATA_PATH`, `TOKENIZER_DIR`, `MODEL_CONFIG`, `CKPT_DIR`,
-`TRAIN_LOG_DIR`, or `RUN_ROOT`.
+| Purpose | Default |
+| --- | ---: |
+| Megatron rendezvous | `20117` |
+| Megatron watcher | `20200` |
+| DeepSpeed rendezvous | `20121` |
+| DeepSpeed hot-spare coordinator | `MASTER_PORT + 100` |
+| optimizer replicas | normally starts at `20300` |
 
-## Megatron launch
-
-Use [examples/megatron/run_hot_spare.sh](examples/megatron/run_hot_spare.sh).
-Run the same command on all nine nodes and change only `NODE_RANK`.
-
-Active node example:
-
-```bash
-cd /path/to/bsr
-source .venv/bin/activate
-
-export NODE_RANK=0
-export MASTER_ADDR=<node-0-routable-ip>
-export ELASTIC_WATCHER_ADDR=<node-8-routable-ip>
-
-bash examples/megatron/run_hot_spare.sh
-```
-
-Repeat on active nodes with `NODE_RANK=1` through `7`.
-
-Spare node:
-
-```bash
-cd /path/to/bsr
-source .venv/bin/activate
-
-export NODE_RANK=8
-export MASTER_ADDR=<node-0-routable-ip>
-export ELASTIC_WATCHER_ADDR=<node-8-routable-ip>
-
-bash examples/megatron/run_hot_spare.sh
-```
-
-Important Megatron overrides:
-
-```bash
-export FAULT_INJECT_STEP=17
-export FAULT_INJECT_NODE=0
-export FAULT_INJECT_LOCAL_RANK=1
-export TRAIN_ITERS=100
-export SAVE_INTERVAL=10
-export DATA_PATH=/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
-export CKPT_DIR=/mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
-```
-
-Dry-run the active and spare commands without starting distributed workers:
-
-```bash
-DRY_RUN=1 NODE_RANK=0 \
-  MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
-  bash examples/megatron/run_hot_spare.sh
-
-DRY_RUN=1 NODE_RANK=8 \
-  MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
-  bash examples/megatron/run_hot_spare.sh
-```
-
-## DeepSpeed launch
-
-Use [examples/deepspeed/run_hot_spare.sh](examples/deepspeed/run_hot_spare.sh).
-Run the same command on all nine nodes and change only `NODE_RANK`.
-
-Active node example:
-
-```bash
-cd /path/to/bsr
-source .venv/bin/activate
-
-export NODE_RANK=0
-export MASTER_ADDR=<node-0-routable-ip>
-export ELASTIC_WATCHER_ADDR=<node-8-routable-ip>
-export TEST_MODE=hot_swap
-
-bash examples/deepspeed/run_hot_spare.sh
-```
-
-Repeat with `NODE_RANK=1` through `7`.
-
-Spare node:
-
-```bash
-cd /path/to/bsr
-source .venv/bin/activate
-
-export NODE_RANK=8
-export MASTER_ADDR=<node-0-routable-ip>
-export ELASTIC_WATCHER_ADDR=<node-8-routable-ip>
-export TEST_MODE=hot_swap
-
-bash examples/deepspeed/run_hot_spare.sh
-```
-
-Run ZeRO-2 replication without a spare activation:
-
-```bash
-TEST_MODE=zero2 bash examples/deepspeed/run_hot_spare.sh
-```
-
-Run rank replacement and ZeRO-2 together:
-
-```bash
-TEST_MODE=combined bash examples/deepspeed/run_hot_spare.sh
-```
-
-Dry-run all generated commands:
-
-```bash
-DRY_RUN=1 TEST_MODE=all NODE_RANK=0 \
-  MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
-  bash examples/deepspeed/run_hot_spare.sh
-
-DRY_RUN=1 TEST_MODE=all NODE_RANK=8 \
-  MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
-  bash examples/deepspeed/run_hot_spare.sh
-```
-
-For multi-NIC hosts, explicitly set:
-
-```bash
-export MOEGAMBIT_HOT_SPARE_ADVERTISE_ADDR=<this-node-routable-ip>
-export MOEGAMBIT_REPLICA_ADVERTISE_ADDR=<this-node-routable-ip>
-```
-
-## Generic DDP example
-
-The Generic DDP example proves that the common recovery contract is not a
-Megatron- or DeepSpeed-specific API:
-
-```bash
-torchrun --standalone --nproc-per-node=2 \
-  examples/generic_ddp/train_loop.py \
-  --steps 8 \
-  --checkpoint-dir /tmp/moegambit-generic-ddp
-```
-
-See [examples/generic_ddp/README.md](examples/generic_ddp/README.md) for the
-fault-replacement flow.
+Do not advertise `127.0.0.1` for multi-node jobs.
 
 ## Runtime CLI
 
-### Compatibility launcher and watcher
-
-The historical root entry points now dispatch by adapter. Omitting
-`--adapter` preserves the original Megatron behavior:
+The root compatibility entry points dispatch by adapter. Omitting `--adapter`
+retains historical Megatron behavior:
 
 ```bash
 python elastic_launcher.py --adapter megatron \
@@ -442,8 +468,8 @@ python elastic_watcher.py --adapter megatron \
   --master-addr "${MASTER_ADDR}" --master-port 20117
 ```
 
-For DeepSpeed, the launcher represents an active hot-spare agent and the
-watcher represents the coordinator plus resident spare agent:
+For DeepSpeed, the launcher runs on active nodes and the watcher runs the
+coordinator plus resident spare agent:
 
 ```bash
 # Active nodes 0-7
@@ -463,94 +489,22 @@ python elastic_watcher.py --adapter deepspeed \
   -- python -m deepspeed.launcher.runner ...
 ```
 
-The DeepSpeed example constructs these commands automatically. The installed
-`moegambit-elastic-launcher` and `moegambit-elastic-watcher` commands are
-equivalent to the two root scripts.
-
-Prepare a DeepSpeed launch without executing it:
-
-```bash
-moegambit-launch \
-  --adapter deepspeed \
-  --zero2 \
-  --dry-run \
-  -- python train.py
-```
-
-Run the authenticated common watcher:
-
-```bash
-moegambit-watcher \
-  --rendezvous-host <rank-0-ip> \
-  --rendezvous-port 20400 \
-  --bind-host <watcher-ip> \
-  --port 20200
-```
-
-Both frameworks now share the root command names and common hot-spare runtime.
-Their adapters still own framework-specific safe-point, process-group rebuild,
-and state-restore behavior.
-
-## Success criteria
+## Validation and Success Criteria
 
 A successful rank replacement must show:
 
-- the fault marker was written at the configured step;
+- a fault marker at the configured step;
 - survivor Python processes were not restarted;
 - the replacement retained the failed logical rank;
-- all process groups rebuilt with the same manifest;
-- `resume_step` equals the failure step;
-- `rollback_steps=0` for the in-process hybrid path;
+- every process group rebuilt from the same manifest;
+- recovery resumed at the contract-selected committed version;
 - the first complete post-recovery iteration committed;
-- final `global_step` equals `TRAIN_ITERS`.
+- the final `global_step` equals `TRAIN_ITERS`.
 
-DeepSpeed additionally writes `completed.json` under the selected run state
-directory and validates optimizer replica versions when ZeRO-2 is enabled.
+DeepSpeed also writes `completed.json` below the selected run-state directory
+and validates optimizer replica versions when ZeRO-2 is enabled.
 
-## Troubleshooting
-
-### Watcher is unreachable
-
-Check routing and firewall rules:
-
-```bash
-nc -vz <watcher-ip> 20200
-nc -vz <rank-0-ip> 20117
-```
-
-Do not use loopback addresses for multi-node runs.
-
-### NCCL aborts before Python handles the failure
-
-The Megatron script sets:
-
-```bash
-TORCH_NCCL_ASYNC_ERROR_HANDLING=0
-TORCH_NCCL_ENABLE_MONITORING=0
-```
-
-These values are recovery-path requirements for the validated environment.
-Revalidate them when changing PyTorch or NCCL.
-
-### Recovery hangs during process-group rebuild
-
-- verify every survivor reached the same safe point;
-- verify all nodes use identical code and environment;
-- verify group creation order and timeout logs;
-- set `NCCL_DEBUG=INFO` and `NCCL_DEBUG_SUBSYS=INIT,NET,ENV`;
-- ensure the replacement advertises a routable IPv4 address.
-
-### Host memory is exhausted
-
-Reduce optimizer replica slots or disable expert prefetch:
-
-```bash
-export MOEGAMBIT_ZERO2_BUFFER_SLOTS=1
-export MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB=64
-export MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE=0
-```
-
-## Development checks
+Development checks:
 
 ```bash
 bash -n \
@@ -564,19 +518,81 @@ python -m pytest tests -q
 git diff --check
 ```
 
-The CPU/local tests validate contracts, control-plane behavior, script
-generation, and supervisor state machines. They do not replace a real
-multi-node CUDA recovery run.
+## Troubleshooting
+
+<details>
+<summary><strong>Watcher is unreachable</strong></summary>
+
+```bash
+nc -vz <watcher-ip> 20200
+nc -vz <rank-0-ip> 20117
+```
+
+Check routing and firewall policy; never use loopback addresses between nodes.
+</details>
+
+<details>
+<summary><strong>NCCL aborts before recovery handles the failure</strong></summary>
+
+The Megatron validation script uses:
+
+```bash
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=0
+export TORCH_NCCL_ENABLE_MONITORING=0
+```
+
+Revalidate these recovery-path settings when changing PyTorch or NCCL.
+</details>
+
+<details>
+<summary><strong>Recovery hangs during group rebuild</strong></summary>
+
+- confirm every survivor reached the same safe point;
+- confirm every node uses identical code and environment;
+- inspect group creation order and timeout logs;
+- set `NCCL_DEBUG=INFO` and `NCCL_DEBUG_SUBSYS=INIT,NET,ENV`;
+- confirm the replacement advertises a routable IPv4 address.
+</details>
+
+<details>
+<summary><strong>Host memory is exhausted</strong></summary>
+
+```bash
+export MOEGAMBIT_ZERO2_BUFFER_SLOTS=1
+export MOEGAMBIT_STANDBY_PREFETCH_MAX_GIB=64
+export MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE=0
+```
+</details>
 
 ## Security
 
-The control plane is intended for a trusted training network. Use a job token,
-restrict watcher ports with firewall rules, and do not expose the watcher to
-the public Internet. See the configuration in `moegambit.config.SecurityConfig`.
+The control plane is designed for a trusted training network. Use a per-job
+token, restrict watcher and replica ports with firewall rules, and never expose
+the watcher directly to the public Internet. See
+`moegambit.config.SecurityConfig`.
 
-## License and third-party code
+## Citation
 
-MoEGambit runtime code is provided under the root [LICENSE](LICENSE). Vendored
-Megatron-LM and DeepSpeed sources retain their original licenses and notices.
-Review [LEGAL.md](LEGAL.md), `Megatron-LM/LICENSE`, and
-`DeepSpeed/LICENSE` before redistribution.
+If you use MoEGambit, please cite the accompanying paper:
+
+```bibtex
+@misc{moegambit,
+  title  = {MoEGambit: Contract-Based Hybrid Recovery for
+            Mixture-of-Experts Training},
+  author = {MoEGambit Authors},
+  year   = {2026},
+  note   = {Software artifact},
+  url    = {https://github.com/ZJUAntgroup/MoEGambit}
+}
+```
+
+Replace the placeholder author and venue fields with the final publication
+metadata before archival citation.
+
+## License
+
+MoEGambit-owned runtime code is licensed under the root
+[Apache License 2.0](LICENSE). Vendored Megatron-LM and DeepSpeed sources retain
+their upstream licenses and notices. Review [LEGAL.md](LEGAL.md),
+[Megatron-LM/LICENSE](Megatron-LM/LICENSE), and
+[DeepSpeed/LICENSE](DeepSpeed/LICENSE) before redistribution.
