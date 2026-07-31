@@ -1,5 +1,12 @@
 <div align="center">
 
+<div style="margin: 20px 0;">
+  <img src="docs/assets/moegambit-logo.svg"
+       width="120"
+       height="120"
+       alt="MoEGambit chess knight logo">
+</div>
+
 # MoEGambit
 
 ### Contract-Based Hybrid Recovery for Mixture-of-Experts Training

@@ -1,5 +1,12 @@
 <div align="center">
 
+<div style="margin: 20px 0;">
+  <img src="docs/assets/moegambit-logo.svg"
+       width="120"
+       height="120"
+       alt="MoEGambit 国际象棋骑士图标">
+</div>
+
 # MoEGambit
 
 ### 面向混合专家训练的契约式混合恢复系统
