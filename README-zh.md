@@ -54,10 +54,6 @@ MoEGambit 能够保持分布式训练作业存活，激活常驻替补 worker，
 MoEGambit 将恢复策略和编排逻辑与训练框架解耦。Megatron-LM 与 DeepSpeed
 内部只保留生命周期 hook；对应 adapter 将框架对象转换到同一套恢复契约。
 
-> [!IMPORTANT]
-> MoEGambit 是实验性研究软件。CPU 测试能够验证契约和状态机，但在生产使用前，
-> 必须使用目标集群实际的 PyTorch、CUDA、NCCL、网络、存储和并行拓扑进行验证。
-
 ## 核心特性
 
 - **一套恢复 runtime：** `src/moegambit/` 中统一实现 controller、watcher

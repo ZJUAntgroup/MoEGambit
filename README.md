@@ -60,11 +60,6 @@ MoEGambit separates recovery policy and orchestration from framework-specific
 code. Megatron-LM and DeepSpeed retain only lifecycle hooks; their adapters
 translate framework objects into one common recovery contract.
 
-> [!IMPORTANT]
-> MoEGambit is experimental research software. CPU tests validate contracts and
-> state machines, but production use requires validation on the exact PyTorch,
-> CUDA, NCCL, network, storage, and parallel topology of the target cluster.
-
 ## Highlights
 
 - **One recovery runtime:** common controller, watcher protocol, policy,
