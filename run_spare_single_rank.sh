@@ -14,9 +14,14 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
+DRY_RUN="${DRY_RUN:-0}"
+DATA_PATH="${DATA_PATH:-/shared/moegambit/data/train_text_document}"
+TOKENIZER_DIR="${TOKENIZER_DIR:-${SCRIPT_DIR}/tokenizer}"
+SAVE_INTERVAL="${SAVE_INTERVAL:-10}"
 export PYTHONPATH="${PYTHONPATH:-}:./src:./Megatron-LM"
 
-if [ "${ELASTIC_STANDBY_MODE:-0}" = "1" ]; then
+if [ "${ELASTIC_STANDBY_MODE:-0}" = "1" ] && [ "${DRY_RUN}" != "1" ]; then
   ASSIGNMENT_FILE="${ELASTIC_SPARE_ASSIGNMENT_FILE:-/tmp/elastic_faults/spare_assignment.json}"
   echo "[spare-rank] Warm standby pid=$$ waiting for assignment: ${ASSIGNMENT_FILE}"
   if [ "${ELASTIC_STANDBY_PRELOAD:-1}" = "1" ]; then
@@ -99,7 +104,7 @@ GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-$((8 * DP_SIZE))}"
 DISTRIBUTED_TIMEOUT_MINUTES="${DISTRIBUTED_TIMEOUT_MINUTES:-10}"
 PHASE_TIMEOUT_DEFAULT=$((DISTRIBUTED_TIMEOUT_MINUTES * 60 + 120))
 
-CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/77hotspare/test_replace_ckpt}"
+CKPT_DIR="${CKPT_DIR:-/shared/moegambit/checkpoints/megatron}"
 TRAIN_ITERS="${TRAIN_ITERS:-100}"
 ELASTIC_REBUILD_TIMEOUT_MINUTES="${ELASTIC_REBUILD_TIMEOUT_MINUTES:-${DISTRIBUTED_TIMEOUT_MINUTES}}"
 export ELASTIC_PHASE_TIMEOUT_SECONDS="${ELASTIC_PHASE_TIMEOUT_SECONDS:-${ELASTIC_REBUILD_PHASE_TIMEOUT:-${PHASE_TIMEOUT_DEFAULT}}}"
@@ -208,7 +213,7 @@ if [ "${ELASTIC_PREARMED_STANDBY:-0}" = "1" ] || \
   LOAD_ARGS=(--load "${CKPT_DIR}")
 fi
 
-exec python3 ./Megatron-LM/pretrain_gpt.py \
+TRAINING_COMMAND=(python3 "${SCRIPT_DIR}/Megatron-LM/pretrain_gpt.py" \
   --use-mcore-models \
   --transformer-impl transformer_engine \
   --tensor-model-parallel-size "${TP_SIZE}" \
@@ -217,9 +222,9 @@ exec python3 ./Megatron-LM/pretrain_gpt.py \
   --sequence-parallel \
   --legacy-tokenizer \
   --tokenizer-type HuggingFaceTokenizer \
-  --tokenizer-model ./tokenizer \
-  --vocab-file "./tokenizer/vocab.json" \
-  --merge-file "./tokenizer/merges.txt" \
+  --tokenizer-model "${TOKENIZER_DIR}" \
+  --vocab-file "${TOKENIZER_DIR}/vocab.json" \
+  --merge-file "${TOKENIZER_DIR}/merges.txt" \
   --num-layers 48 \
   --hidden-size 2048 \
   --ffn-hidden-size 6144 \
@@ -261,14 +266,22 @@ exec python3 ./Megatron-LM/pretrain_gpt.py \
   --moe-token-dispatcher-type alltoall \
   --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
-  "${ZERO2_ARGS[@]}" \
+  ${ZERO2_ARGS[@]+"${ZERO2_ARGS[@]}"} \
   "${MOEGAMBIT_ARGS[@]}" \
-  --data-path "/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document" \
+  --data-path "${DATA_PATH}" \
   --split 100,0,0 \
   --ckpt-format torch \
   --save "${CKPT_DIR}" \
-  --save-interval 10 \
+  --save-interval "${SAVE_INTERVAL}" \
   --eval-interval 1000 \
   --eval-iters 0 \
   --log-interval 1 \
-  "${LOAD_ARGS[@]}"
+  ${LOAD_ARGS[@]+"${LOAD_ARGS[@]}"}
+)
+if [ "${DRY_RUN}" = "1" ]; then
+  printf "[spare-rank] DRY_RUN"
+  printf " %q" "${TRAINING_COMMAND[@]}"
+  printf "\n"
+  exit 0
+fi
+exec "${TRAINING_COMMAND[@]}"

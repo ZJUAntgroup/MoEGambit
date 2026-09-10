@@ -18,6 +18,9 @@ def _extract_adapter(
     index = 0
     while index < len(values):
         value = values[index]
+        if value == "--":
+            forwarded.extend(values[index:])
+            break
         if value == "--adapter":
             if index + 1 >= len(values):
                 raise SystemExit("--adapter requires a value")
@@ -40,12 +43,14 @@ def _extract_adapter(
 
 def launcher_main(arguments: Sequence[str] | None = None) -> int:
     values = list(sys.argv[1:] if arguments is None else arguments)
-    if "--moegambit-runtime" in values:
+    options = values[:values.index("--")] if "--" in values else values
+    if "--moegambit-runtime" in options:
         from .launch import main as runtime_main
 
         return int(
             runtime_main(
-                [value for value in values if value != "--moegambit-runtime"]
+                [value for value in options if value != "--moegambit-runtime"]
+                + values[len(options):]
             )
         )
     adapter, forwarded = _extract_adapter(values)

@@ -109,15 +109,15 @@ def _split_argv(argv: Sequence[str]) -> tuple:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
+    launcher_argv, command = _split_argv(raw_argv)
     engine_options = ("--adapter", "--hot-swap", "--no-hot-swap", "--zero2",
                       "--no-zero2", "--dry-run")
     if any(
         value in engine_options
         or any(value.startswith(option + "=") for option in engine_options)
-        for value in raw_argv
+        for value in launcher_argv
     ):
         return _engine_main(raw_argv)
-    launcher_argv, command = _split_argv(raw_argv)
     parser = build_parser()
     args = parser.parse_args(launcher_argv)
     if not command:

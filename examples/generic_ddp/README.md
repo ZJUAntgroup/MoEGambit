@@ -22,6 +22,22 @@ The script is a conformance harness, not a production launcher. The production
 deployment path uses the watcher and node supervisor to allocate the spare
 process and distribute the same frozen `RecoveryPlan`.
 
+## Ordinary synchronized training
+
+```bash
+torchrun --nnodes=1 --nproc-per-node=2 \
+  --master-addr=127.0.0.1 --master-port=24000 \
+  examples/generic_ddp/train_loop.py --steps 8 \
+  --checkpoint-dir /tmp/moegambit-ddp --checkpoint-interval 2
+```
+
+The loop initializes DDP when launched with rank environment variables, honors
+`--steps`, and reports each rank's final model digest. Only rank 0 writes the
+checkpoint; all ranks wait for successful publication before advertising it.
+Batches are deterministic by seed, logical rank and committed step, so a cold
+resume uses the same input stream. Use `--backend nccl` for CUDA; Gloo/CPU is the
+default. Ordinary training leaves recovery disabled unless `MOEGAMBIT_ENABLED=1`.
+
 ## Watcher and checkpoint relaunch
 
 `train_loop.py` also demonstrates the cold-relaunch contract. It writes a

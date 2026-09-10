@@ -17,3 +17,10 @@ datasets/
 outputs/
 train.jsonl
 __pycache__/
+
+.env
+.env.*
+!.env.example
+.moegambit/
+*.pt
+*.pth

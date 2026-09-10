@@ -1,24 +1,20 @@
-"""Worked example: elastic recovery around a plain PyTorch DDP loop.
+"""Small, deterministic DDP workload with recovery hooks and atomic checkpoints.
 
-This is the DualPipe-style part of the project.  DualPipe does not hide its
-scheduling inside a framework fork; it shows the loop you are expected to
-write.  Same idea here: recovery needs to know where your safe points are, and
-only your training loop knows that.
-
-Run (single process, no recovery -- proves the hooks are inert when disabled)::
-
-    python examples/generic_ddp/train_loop.py
-
-The five hook calls below are the *entire* public integration surface.
+Run with torchrun for synchronized training, or directly for a CPU smoke test.
+The dedicated fault_replacement.py harness exercises real rank replacement.
 """
 
 from __future__ import annotations
 
+import argparse
+import hashlib
+import json
 import os
 import sys
+import tempfile
+from datetime import timedelta
 from pathlib import Path
 
-# Allow running from a source checkout without `pip install -e .`
 _SRC = Path(__file__).resolve().parents[2] / "src"
 if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
@@ -27,131 +23,165 @@ from moegambit.config import RuntimeConfig  # noqa: E402
 from moegambit.runtime.runtime import initialize  # noqa: E402
 
 
-def build_everything():
-    """Build model/optimizer/loader. Torch is imported lazily on purpose."""
-    import torch
-    import torch.nn as nn
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--backend", choices=("gloo", "nccl"), default="gloo")
+    parser.add_argument("--checkpoint-dir", default=os.getenv("MOEGAMBIT_CHECKPOINT_DIR", ""))
+    parser.add_argument("--checkpoint-interval", type=int,
+                        default=int(os.getenv("MOEGAMBIT_CHECKPOINT_INTERVAL", "5")))
+    args = parser.parse_args(argv)
+    if args.steps <= 0 or args.checkpoint_interval <= 0:
+        parser.error("steps and checkpoint interval must be positive")
+    return args
 
-    model = nn.Sequential(nn.Linear(16, 32), nn.ReLU(), nn.Linear(32, 2))
-    if os.environ.get("WORLD_SIZE") and torch.distributed.is_initialized():
-        model = torch.nn.parallel.DistributedDataParallel(model)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    batches = [(torch.randn(8, 16), torch.randint(0, 2, (8,))) for _ in range(20)]
-    return model, optimizer, batches
+
+def raw_model(model):
+    model = getattr(model, "current", model)
+    return getattr(model, "module", model)
 
 
-def load_cold_relaunch_checkpoint(torch, model, optimizer) -> None:
-    """Consume the NodeAgent checkpoint contract before training resumes."""
+def build_everything(torch, device, seed):
+    torch.manual_seed(seed)
+    model = torch.nn.Sequential(
+        torch.nn.Linear(16, 32), torch.nn.ReLU(), torch.nn.Linear(32, 2)
+    ).to(device)
+    if torch.distributed.is_initialized():
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[device.index] if device.type == "cuda" else None
+        )
+    return model, torch.optim.AdamW(model.parameters(), lr=1e-3)
 
-    if os.environ.get("MOEGAMBIT_CHECKPOINT_RELAUNCH", "0") != "1":
-        return
+
+def load_cold_relaunch_checkpoint(torch, model, optimizer, seed):
+    if os.environ.get("MOEGAMBIT_CHECKPOINT_RELAUNCH", "0").lower() not in {"1", "true", "yes", "on"}:
+        return 0
     locator = os.environ.get("MOEGAMBIT_CHECKPOINT_LOCATOR", "")
     if not locator:
         raise RuntimeError("cold relaunch has no checkpoint locator")
-    payload = torch.load(locator, map_location="cpu")
-    model.load_state_dict(payload["model"])
+    payload = torch.load(locator, map_location="cpu", weights_only=True)
+    resume_step = int(payload["resume_step"])
+    if resume_step < 0 or payload["seed"] != seed:
+        raise ValueError("checkpoint cursor or seed does not match this workload")
+    expected = os.environ.get("MOEGAMBIT_CHECKPOINT_STEP")
+    if expected is not None and int(expected) != resume_step:
+        raise ValueError("checkpoint step does not match the relaunch directive")
+    # The saved cursor is the number of committed updates, also the next batch.
+    os.environ["MOEGAMBIT_CHECKPOINT_STEP"] = str(resume_step)
+    raw_model(model).load_state_dict(payload["model"])
     optimizer.load_state_dict(payload["optimizer"])
+    return resume_step
 
 
-def commit_checkpoint(torch, runtime, model, optimizer, resume_step: int) -> None:
-    """Atomically publish a checkpoint, then make it eligible for fallback."""
-
-    directory = os.environ.get("MOEGAMBIT_CHECKPOINT_DIR", "")
-    interval = int(os.environ.get("MOEGAMBIT_CHECKPOINT_INTERVAL", "0"))
-    if not directory or interval <= 0 or resume_step % interval:
+def commit_checkpoint(torch, runtime, model, optimizer, resume_step, args):
+    if not args.checkpoint_dir or resume_step % args.checkpoint_interval:
         return
-    target_dir = Path(directory).expanduser().resolve()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"step-{resume_step}.pt"
-    temporary = target.with_suffix(".pt.tmp")
-    torch.save(
-        {
-            "resume_step": resume_step,
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-        },
-        temporary,
-    )
-    os.replace(temporary, target)
-    # This call happens only after the atomic rename.  A partially written
-    # file can therefore never become a relaunch target.
+    target = Path(args.checkpoint_dir).expanduser().resolve() / f"step-{resume_step}.pt"
+    distributed = torch.distributed.is_initialized()
+    rank = torch.distributed.get_rank() if distributed else 0
+    status = [None]
+    if rank == 0:
+        temporary = None
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=target.parent, prefix=target.name + ".", suffix=".tmp", delete=False) as stream:
+                temporary = Path(stream.name)
+                torch.save({"resume_step": resume_step, "seed": args.seed,
+                            "model": raw_model(model).state_dict(),
+                            "optimizer": optimizer.state_dict()}, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            directory_fd = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except Exception as exc:
+            status[0] = f"checkpoint publication failed: {type(exc).__name__}: {exc}"
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError as exc:
+                    status[0] = status[0] or f"checkpoint cleanup failed: {exc}"
+    if distributed:
+        # All ranks learn whether the single writer published before advertising it.
+        torch.distributed.broadcast_object_list(status, src=0)
+    if status[0] is not None:
+        raise RuntimeError(status[0])
     runtime.record_checkpoint(str(target), resume_step)
 
 
-def main() -> int:
+def main(argv=None):
+    args = parse_args(argv)
     try:
         import torch
-        import torch.nn.functional as F
+        import torch.nn.functional as functional
     except ImportError:
-        print("torch is not installed; this example needs it to run a real step.")
-        print("The hook *shape* below is what matters -- see the source.")
+        print("PyTorch is required; install moegambit[torch].", file=sys.stderr)
+        return 2
+
+    from moegambit.adapters.generic_ddp import RebindableModel, build_generic_ddp_adapter
+
+    device = torch.device("cpu")
+    if args.backend == "nccl":
+        if not torch.cuda.is_available():
+            raise RuntimeError("NCCL requires a CUDA-enabled PyTorch installation")
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+    owns_group = "RANK" in os.environ and not torch.distributed.is_initialized()
+    if owns_group:
+        torch.distributed.init_process_group(args.backend, timeout=timedelta(seconds=60))
+    try:
+        distributed = torch.distributed.is_initialized()
+        rank = torch.distributed.get_rank() if distributed else 0
+        world_size = torch.distributed.get_world_size() if distributed else 1
+        model, optimizer = build_everything(torch, device, args.seed)
+        cursor = load_cold_relaunch_checkpoint(torch, model, optimizer, args.seed)
+        if cursor > args.steps:
+            raise ValueError("checkpoint is beyond the requested total steps")
+        if distributed:
+            model = RebindableModel(model)
+        adapter = build_generic_ddp_adapter(module=model, optimizer=optimizer,
+                                            backend=args.backend, committed_step=cursor)
+        runtime = initialize(adapter=adapter, config=RuntimeConfig.from_env())
+        print(f"rank={rank} ddp={distributed} enabled={runtime.enabled} resume_step={cursor}", flush=True)
+        while cursor < args.steps:
+            # Steps are one-based committed update versions; cursor indexes batches.
+            step = runtime.iteration_boundary(cursor + 1)
+            generator = torch.Generator().manual_seed(args.seed + (step - 1) * world_size + rank)
+            inputs = torch.randn(8, 16, generator=generator).to(device)
+            targets = torch.randint(0, 2, (8,), generator=generator).to(device)
+            try:
+                optimizer.zero_grad(set_to_none=True)
+                loss = functional.cross_entropy(model(inputs), targets)
+                loss.backward()
+                runtime.before_optimizer_step(step)
+                optimizer.step()
+                runtime.after_optimizer_step(step, committed=True)
+                runtime.commit_iteration(step)
+            except RuntimeError as exc:
+                if not runtime.on_distributed_error(exc):
+                    raise
+                cursor = runtime.resume_step
+                continue
+            cursor = step
+            # A filesystem error must not replay an already committed optimizer step.
+            commit_checkpoint(torch, runtime, model, optimizer, cursor, args)
+            if rank == 0:
+                print(f"step {cursor} loss {loss.item():.4f}", flush=True)
+        digest = hashlib.sha256()
+        for tensor in raw_model(model).state_dict().values():
+            digest.update(bytes(tensor.detach().cpu().contiguous().view(torch.uint8).flatten().tolist()))
+        print("completed: " + json.dumps({"rank": rank, "ddp": distributed,
+              "completed_steps": cursor, "model_digest": digest.hexdigest()}), flush=True)
         return 0
-
-    from moegambit.adapters.generic_ddp import (
-        RebindableModel,
-        build_generic_ddp_adapter,
-    )
-
-    model, optimizer, batches = build_everything()
-    load_cold_relaunch_checkpoint(torch, model, optimizer)
-    if hasattr(model, "reducer"):
-        # DDP reconstruction creates a new wrapper/reducer.  The loop keeps a
-        # stable owner and therefore automatically calls the rebuilt wrapper.
-        old_optimizer = optimizer
-        model = RebindableModel(model)
-        optimizer = old_optimizer
-
-    config = RuntimeConfig.from_env()
-    adapter = build_generic_ddp_adapter(module=model, optimizer=optimizer)
-    runtime = initialize(adapter=adapter, config=config)
-
-    print(f"moegambit enabled={runtime.enabled} resume_step={runtime.resume_step}")
-
-    for step, (inputs, targets) in enumerate(
-        batches[runtime.resume_step :], start=runtime.resume_step
-    ):
-        # 1. Safe stopping point: no collective is in flight here.
-        step = runtime.iteration_boundary(step)
-
-        try:
-            optimizer.zero_grad(set_to_none=True)
-            loss = F.cross_entropy(model(inputs), targets)
-            loss.backward()
-
-            # 2. Last moment the pre-step state still exists.
-            runtime.before_optimizer_step(step)
-
-            optimizer.step()
-
-            # 3. New state exists -- publish its version.
-            runtime.after_optimizer_step(step, committed=True)
-
-            # 4. One full iteration done: commit the recovery epoch.
-            runtime.commit_iteration(step)
-
-            # The saved state resumes at the next loop cursor.  Publishing it
-            # after commit_iteration preserves optimizer/step consistency.
-            commit_checkpoint(
-                torch,
-                runtime,
-                model,
-                optimizer,
-                resume_step=step + 1,
-            )
-
-        except RuntimeError as exc:
-            # 5. Ask the runtime whether this was a recoverable failure.
-            #    Re-raising when it says no is the point: an unclassified error
-            #    is a bug, and swallowing it would hide that bug.
-            if not runtime.on_distributed_error(exc):
-                raise
-            continue
-
-        if step % 5 == 0:
-            print(f"step {step:>3}  loss {loss.item():.4f}")
-
-    print("done:", dict(runtime.describe()))
-    return 0
+    finally:
+        if owns_group and torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":

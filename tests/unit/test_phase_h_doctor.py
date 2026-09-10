@@ -39,3 +39,11 @@ def test_watcher_role_does_not_require_training_framework_modules(tmp_path):
 
     assert not any("torch" in item for item in result["errors"])
     assert result["role"] == "watcher"
+
+
+def test_doctor_recognizes_deepspeed_and_checks_its_dependencies(monkeypatch):
+    monkeypatch.setattr("moegambit.cli.doctor.importlib.util.find_spec", lambda name: None)
+    result = run_checks(RuntimeConfig(), framework="deepspeed")
+    assert "deepspeed" in result["available_adapters"]
+    assert not any("adapter 'deepspeed' is unavailable" in error for error in result["errors"])
+    assert any("missing runtime modules: torch, deepspeed" in error for error in result["errors"])

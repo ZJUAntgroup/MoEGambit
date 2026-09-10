@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
 from typing import Sequence
 
@@ -11,7 +10,7 @@ from moegambit.interfaces import (
     LaunchRequest,
     PreparedLaunch,
 )
-from moegambit.runtime.launch_environment import prepend_python_path
+from moegambit.runtime.launch_environment import prepend_python_path, repository_root
 
 
 def _enabled(environment: dict[str, str], name: str) -> bool:
@@ -38,8 +37,8 @@ class DeepSpeedEngineAdapter:
     def prepare_launch(self, request: LaunchRequest) -> PreparedLaunch:
         command = tuple(request.command)
         environment = dict(request.environment)
-        repository = Path(__file__).resolve().parents[4]
-        candidates = (
+        repository = repository_root(environment)
+        candidates = () if repository is None else (
             repository / "DeepSpeed",
             repository / "src" / "DeepSpeed",
         )

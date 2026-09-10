@@ -1,6 +1,3 @@
-import importlib.util
-from pathlib import Path
-import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -9,17 +6,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 
-MODULE_PATH = (
-    Path(__file__).parents[1]
-    / "Megatron-LM"
-    / "megatron"
-    / "training"
-    / "zero2_memory_checkpoint.py"
-)
-SPEC = importlib.util.spec_from_file_location("zero2_memory_checkpoint", MODULE_PATH)
-zero2 = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = zero2
-SPEC.loader.exec_module(zero2)
+from moegambit.replication import optimizer_memory as zero2
 
 
 class _EndpointRegistry:

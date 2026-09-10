@@ -312,8 +312,8 @@ export FAULT_INJECT_NODE=0
 export FAULT_INJECT_LOCAL_RANK=1
 export TRAIN_ITERS=100
 export SAVE_INTERVAL=10
-export DATA_PATH=/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
-export CKPT_DIR=/mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+export DATA_PATH=/shared/moegambit/data/train_text_document
+export CKPT_DIR=/shared/moegambit/checkpoints/megatron
 ```
 
 ### DeepSpeed
@@ -352,11 +352,11 @@ PP=8 与 ZeRO-2 的组合。
 
 ```bash
 DRY_RUN=1 NODE_RANK=0 \
-MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
+MASTER_ADDR=192.0.2.1 ELASTIC_WATCHER_ADDR=192.0.2.9 \
 bash examples/megatron/run_hot_spare.sh
 
 DRY_RUN=1 TEST_MODE=all NODE_RANK=8 \
-MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
+MASTER_ADDR=192.0.2.1 ELASTIC_WATCHER_ADDR=192.0.2.9 \
 bash examples/deepspeed/run_hot_spare.sh
 ```
 
@@ -497,22 +497,23 @@ print(
 PY
 ```
 
-### 已验证路径
+### 示例路径
 
-示例脚本目前有意保留验证集群使用的路径：
+以下为脱敏后的示例路径，不代表仓库附带数据或已有集群。
+请在所有训练节点和备用节点设置一致的共享挂载路径：
 
 ```text
 dataset:
-  /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
+  /shared/moegambit/data/train_text_document
 
 Megatron checkpoint:
-  /mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+  /shared/moegambit/checkpoints/megatron
 
 Megatron logs:
-  /mnt/ais-c1/dataset/zds/log/test_replace
+  /shared/moegambit/logs/megatron
 
 DeepSpeed run root:
-  /mnt/ais-c1/dataset/zds/89hotspare/deepspeed_real
+  /shared/moegambit/runs/deepspeed
 ```
 
 可通过 `DATA_PATH`、`TOKENIZER_DIR`、`MODEL_CONFIG`、`CKPT_DIR`、
@@ -596,6 +597,9 @@ python -m compileall -q src
 python -m pytest tests -q
 git diff --check
 ```
+
+CPU/GPU 冒烟测试、checkpoint 语义和 wheel 部署说明见
+[验证与部署](docs/VALIDATION.md)。CPU 测试成功不代表多机 CUDA/NCCL 恢复已验证。
 
 ## 常见问题
 

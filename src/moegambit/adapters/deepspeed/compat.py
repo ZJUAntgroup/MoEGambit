@@ -12,9 +12,10 @@ __all__ = ["launcher_main", "watcher_main"]
 def _with_mode(arguments: Sequence[str], expected: str) -> list[str]:
     values = list(arguments)
     selected = None
-    for index, value in enumerate(values):
+    options = values[:values.index("--")] if "--" in values else values
+    for index, value in enumerate(options):
         if value == "--mode":
-            if index + 1 >= len(values):
+            if index + 1 >= len(options):
                 raise SystemExit("--mode requires a value")
             selected = values[index + 1]
             break

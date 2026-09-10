@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
 from typing import Sequence
 
@@ -11,7 +10,7 @@ from ...interfaces import (
     LaunchRequest,
     PreparedLaunch,
 )
-from ...runtime.launch_environment import prepend_python_path
+from ...runtime.launch_environment import prepend_python_path, repository_root
 
 
 class MegatronEngineAdapter:
@@ -31,9 +30,10 @@ class MegatronEngineAdapter:
 
     def prepare_launch(self, request: LaunchRequest) -> PreparedLaunch:
         environment = dict(request.environment)
-        repository = Path(__file__).resolve().parents[4]
-        prepend_python_path(environment, repository / "Megatron-LM")
-        prepend_python_path(environment, repository / "src")
+        repository = repository_root(environment)
+        if repository is not None:
+            prepend_python_path(environment, repository / "Megatron-LM")
+            prepend_python_path(environment, repository / "src")
         environment.update(
             {
                 "MOEGAMBIT_MEGATRON_ADAPTER": "1",
@@ -62,10 +62,10 @@ class MegatronEngineAdapter:
     ) -> tuple[str, ...] | None:
         if not features.hot_swap:
             return None
-        repository = Path(__file__).resolve().parents[4]
         return (
             sys.executable,
-            str(repository / "elastic_watcher.py"),
+            "-m",
+            "moegambit.adapters.megatron.compat_watcher",
             *tuple(arguments),
         )
 

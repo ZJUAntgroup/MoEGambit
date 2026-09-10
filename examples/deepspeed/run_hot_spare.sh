@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Nine-node DeepSpeed validation: 8 active nodes + 1 hot-spare node.
 #
-# Run this file on every physical node. Only NODE_RANK changes. The paths below
-# intentionally match the currently validated cluster and have not been
-# anonymized.
+# Run this file on every physical node. Set NODE_RANK and routable addresses.
+# Paths below are public examples; override them with your shared mount paths.
 
 set -Eeuo pipefail
 
@@ -19,12 +18,12 @@ export MOEGAMBIT_HOT_SPARE_COORDINATOR_ADDR="${MOEGAMBIT_HOT_SPARE_COORDINATOR_A
 
 export TRAINING_NNODES="${TRAINING_NNODES:-8}"
 export NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
-export SPARE_NODE_RANK="${SPARE_NODE_RANK:-8}"
+export SPARE_NODE_RANK="${SPARE_NODE_RANK:-${TRAINING_NNODES}}"
 export TEST_MODE="${TEST_MODE:-hot_swap}"
 
 export MODEL_CONFIG="${MODEL_CONFIG:-${REPOSITORY_ROOT}/tokenizer}"
-export DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
-export RUN_ROOT="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/89hotspare/deepspeed_real}"
+export DATA_PATH="${DATA_PATH:-/shared/moegambit/data/train_text_document}"
+export RUN_ROOT="${RUN_ROOT:-/shared/moegambit/runs/deepspeed}"
 
 export TRAIN_ITERS="${TRAIN_ITERS:-100}"
 export SAVE_INTERVAL="${SAVE_INTERVAL:-10}"

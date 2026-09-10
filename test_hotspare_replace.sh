@@ -32,6 +32,7 @@ set -uo pipefail
 set -x
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
 DRY_RUN="${DRY_RUN:-0}"
 
 # =============================================================================
@@ -56,7 +57,22 @@ export MASTER_PORT="${MASTER_PORT:-20117}"
 export ELASTIC_WATCHER_PORT="${ELASTIC_WATCHER_PORT:-20200}"
 
 # Determine role
-TRAINING_NNODES=8
+TRAINING_NNODES="${TRAINING_NNODES:-8}"
+for name in TRAINING_NNODES NPROC_PER_NODE TP_SIZE PP_SIZE EP_SIZE CP_SIZE; do
+  if ! [[ "${!name}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "[test-replace] ERROR: ${name} must be a positive integer" >&2
+    exit 64
+  fi
+done
+if ! [[ "${NODE_RANK}" =~ ^[0-9]+$ ]] || (( NODE_RANK > TRAINING_NNODES )); then
+  echo "[test-replace] ERROR: NODE_RANK must be in 0..${TRAINING_NNODES}" >&2
+  exit 64
+fi
+world=$((TRAINING_NNODES * NPROC_PER_NODE))
+if (( world % (TP_SIZE * PP_SIZE * CP_SIZE) != 0 || world % (TP_SIZE * PP_SIZE * EP_SIZE) != 0 )); then
+  echo "[test-replace] ERROR: world size must be divisible by TP*PP*CP and TP*PP*EP" >&2
+  exit 64
+fi
 if [ "${NODE_RANK}" -ge "${TRAINING_NNODES}" ]; then
   IS_SPARE=1
 else
@@ -71,7 +87,9 @@ export ELASTIC_FAULT_DIR="${ELASTIC_FAULT_DIR:-/tmp/elastic_faults}"
 if [ "${DRY_RUN}" != "1" ] && [ "${ELASTIC_RESET_FAULT_DIR:-1}" = "1" ]; then
   rm -rf "${ELASTIC_FAULT_DIR}"
 fi
-mkdir -p "${ELASTIC_FAULT_DIR}"
+if [ "${DRY_RUN}" != "1" ]; then
+  mkdir -p "${ELASTIC_FAULT_DIR}"
+fi
 
 # ============================================================================
 # Fault injection: watcher 在 step N 时杀死目标节点的指定 local_rank
@@ -109,10 +127,10 @@ unset MOEGAMBIT_FAULT_INJECT_TYPE 2>/dev/null || true
 unset MOEGAMBIT_FAULT_INJECT_STEP 2>/dev/null || true
 
 # Checkpoint: 每 10 步保存一次（确保故障时有近期 checkpoint）
-export SAVE_INTERVAL=10
-export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/test_replace_ckpt}"
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
-export DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
+export SAVE_INTERVAL="${SAVE_INTERVAL:-10}"
+export CKPT_DIR="${CKPT_DIR:-/shared/moegambit/checkpoints/megatron}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/shared/moegambit/logs/megatron}"
+export DATA_PATH="${DATA_PATH:-/shared/moegambit/data/train_text_document}"
 export TOKENIZER_DIR="${TOKENIZER_DIR:-${SCRIPT_DIR}/tokenizer}"
 
 if [ "${ELASTIC_ZERO2_MEMORY_REPLICATION}" = "1" ] && \
@@ -219,7 +237,17 @@ export ELASTIC_NCCL_CLASSIFICATION_GRACE_SECONDS="${ELASTIC_NCCL_CLASSIFICATION_
 HOTSPARE_MAX_RETRIES=0
 HOTSPARE_RETRY_DELAY="${HOTSPARE_RETRY_DELAY:-30}"
 
+if ! [[ "${SAVE_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "[test-replace] ERROR: SAVE_INTERVAL must be positive" >&2
+  exit 64
+fi
 if [ "${DRY_RUN}" != "1" ]; then
+  for input in "${DATA_PATH}.idx" "${DATA_PATH}.bin" "${TOKENIZER_DIR}/tokenizer_config.json"; do
+    if [ ! -f "${input}" ]; then
+      echo "[test-replace] ERROR: missing input ${input}; configure shared paths on every node" >&2
+      exit 64
+    fi
+  done
   mkdir -p "${CKPT_DIR}" "${TRAIN_LOG_DIR}"
 fi
 
@@ -270,36 +298,6 @@ echo "[test-replace] R2 contract:      gap=[${MOEGAMBIT_DELTA_TIME_MIN_GAP},${MO
 echo "[test-replace] CKPT_DIR:        ${CKPT_DIR}"
 echo "[test-replace] =============================================="
 
-if [ "${DRY_RUN}" = "1" ]; then
-  if [ "${IS_SPARE}" = "1" ]; then
-    printf '[test-replace] DRY_RUN python3 %q' "${SCRIPT_DIR}/elastic_watcher.py"
-    printf ' %q' \
-      --port "${ELASTIC_WATCHER_PORT}" \
-      --training-nnodes "${TRAINING_NNODES}" \
-      --nproc-per-node "${NPROC_PER_NODE}" \
-      --master-addr "${MASTER_ADDR}" \
-      --master-port "${MASTER_PORT}" \
-      --fault-inject-step "${FAULT_INJECT_STEP}" \
-      --fault-inject-node "${FAULT_INJECT_NODE}" \
-      --fault-inject-local-rank "${FAULT_INJECT_LOCAL_RANK}"
-    printf '\n'
-  else
-    printf '[test-replace] DRY_RUN python3 %q' "${SCRIPT_DIR}/elastic_launcher.py"
-    printf ' %q' \
-      --nproc-per-node "${NPROC_PER_NODE}" \
-      --nnodes "${NNODES}" \
-      --node-rank "${NODE_RANK}" \
-      --master-addr "${MASTER_ADDR}" \
-      --master-port "${MASTER_PORT}" \
-      -- python3 "${SCRIPT_DIR}/Megatron-LM/pretrain_gpt.py" \
-      --data-path "${DATA_PATH}" \
-      --save "${CKPT_DIR}"
-    printf '\n'
-  fi
-  echo "[test-replace] dry run complete"
-  exit 0
-fi
-
 # =============================================================================
 # SPARE NODE: run watcher (with fault injection)
 # =============================================================================
@@ -307,7 +305,7 @@ fi
 if [ "${IS_SPARE}" = "1" ]; then
   echo "[test-replace] Starting elastic watcher on spare node..."
   echo "[test-replace] Fault injection: kill node ${FAULT_INJECT_NODE} local_rank ${FAULT_INJECT_LOCAL_RANK} at step ${FAULT_INJECT_STEP}"
-  python3 "${SCRIPT_DIR}/elastic_watcher.py" \
+  WATCHER_COMMAND=(python3 "${SCRIPT_DIR}/elastic_watcher.py" \
     --port "${ELASTIC_WATCHER_PORT}" \
     --training-nnodes "${TRAINING_NNODES}" \
     --nproc-per-node "${NPROC_PER_NODE}" \
@@ -321,6 +319,19 @@ if [ "${IS_SPARE}" = "1" ]; then
     --fault-inject-step "${FAULT_INJECT_STEP}" \
     --fault-inject-node "${FAULT_INJECT_NODE}" \
     --fault-inject-local-rank "${FAULT_INJECT_LOCAL_RANK}"
+  )
+  if [ "${DRY_RUN}" = "1" ]; then
+    printf '[test-replace] DRY_RUN'
+    printf ' %q' "${WATCHER_COMMAND[@]}"
+    printf '\n'
+    env LOCAL_RANK="${FAULT_INJECT_LOCAL_RANK}" \
+      RANK="$((FAULT_INJECT_NODE * NPROC_PER_NODE + FAULT_INJECT_LOCAL_RANK))" \
+      WORLD_SIZE="${TRAINING_WORLD_SIZE}" ELASTIC_REBUILD_MODE=1 \
+      CUDA_VISIBLE_DEVICES="${FAULT_INJECT_LOCAL_RANK}" \
+      bash "${SCRIPT_DIR}/run_spare_single_rank.sh"
+    exit $?
+  fi
+  "${WATCHER_COMMAND[@]}"
   exit $?
 fi
 
@@ -418,10 +429,12 @@ cleanup_elastic_attempt_files() {
 }
 
 run_training() {
-  if ! wait_for_watcher; then
-    return 70
+  if [ "${DRY_RUN}" != "1" ]; then
+    if ! wait_for_watcher; then
+      return 70
+    fi
+    cleanup_elastic_attempt_files
   fi
-  cleanup_elastic_attempt_files
 
   LOAD_ARGS=()
   if [ -f "${CKPT_DIR}/latest_checkpointed_iteration.txt" ] || ls "${CKPT_DIR}"/iter_* >/dev/null 2>&1; then
@@ -431,7 +444,7 @@ run_training() {
     echo "[test-replace] No checkpoint found; starting without --load"
   fi
 
-  python3 "${SCRIPT_DIR}/elastic_launcher.py" \
+  TRAINING_COMMAND=(python3 "${SCRIPT_DIR}/elastic_launcher.py" \
   --nproc-per-node "${NPROC_PER_NODE}" \
   --nnodes "${NNODES}" \
   --node-rank "${NODE_RANK}" \
@@ -491,7 +504,7 @@ run_training() {
   --moe-token-dispatcher-type alltoall \
   --distributed-timeout-minutes "${DISTRIBUTED_TIMEOUT_MINUTES}" \
   --distributed-timeout-seconds-after-init 60 \
-  "${ZERO2_ARGS[@]}" \
+  ${ZERO2_ARGS[@]+"${ZERO2_ARGS[@]}"} \
   "${MOEGAMBIT_ARGS[@]}" \
   --data-path "${DATA_PATH}" \
   --split 100,0,0 \
@@ -501,7 +514,15 @@ run_training() {
   --eval-interval 1000 \
   --eval-iters 0 \
   --log-interval 1 \
-  "${LOAD_ARGS[@]}"
+  ${LOAD_ARGS[@]+"${LOAD_ARGS[@]}"}
+  )
+  if [ "${DRY_RUN}" = "1" ]; then
+    printf '[test-replace] DRY_RUN'
+    printf ' %q' "${TRAINING_COMMAND[@]}"
+    printf '\n'
+    return 0
+  fi
+  "${TRAINING_COMMAND[@]}"
 }
 
 retry=0

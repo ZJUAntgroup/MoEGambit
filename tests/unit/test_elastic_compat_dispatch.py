@@ -90,3 +90,29 @@ def test_deepspeed_engine_adapter_selects_common_hot_spare_watcher():
         "--mode",
         "coordinator-agent",
     )
+
+
+def test_compat_launcher_preserves_training_adapter_argument():
+    arguments = ["--", "python", "train.py", "--adapter", "application"]
+    with patch("moegambit.adapters.megatron.compat_launcher.main", return_value=0) as selected:
+        assert launcher_main(arguments) == 0
+    selected.assert_called_once_with(arguments)
+
+
+def test_deepspeed_mode_belongs_to_launcher_only():
+    arguments = ["--", "python", "train.py", "--mode", "application"]
+    assert _with_mode(arguments, "agent") == ["--mode", "agent", *arguments]
+
+
+def test_compat_runtime_switch_after_separator_is_forwarded():
+    arguments = ["--", "python", "train.py", "--moegambit-runtime"]
+    with patch("moegambit.adapters.megatron.compat_launcher.main", return_value=0) as selected:
+        assert launcher_main(arguments) == 0
+    selected.assert_called_once_with(arguments)
+
+
+def test_megatron_watcher_runs_as_an_installed_module():
+    from moegambit.adapters.megatron.engine import MegatronEngineAdapter
+
+    command = MegatronEngineAdapter().watcher_command(FeatureSwitches(hot_swap=True), ("--help",))
+    assert command[1:] == ("-m", "moegambit.adapters.megatron.compat_watcher", "--help")

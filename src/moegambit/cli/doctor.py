@@ -12,6 +12,7 @@ from typing import Any, Mapping, Optional, Sequence
 from .. import PACKAGE_ROLE, __version__
 from ..adapters.registry import available_adapters
 from ..config import RuntimeConfig
+from ..runtime.discovery import discover_adapters
 
 __all__ = ["run_checks", "build_parser", "main"]
 
@@ -34,7 +35,7 @@ def run_checks(
     errors = list(config.validate())
     warnings = []
     selected = framework or config.framework
-    adapters = available_adapters()
+    adapters = tuple(sorted(set(available_adapters()) | set(discover_adapters())))
     if role == "worker" and selected not in adapters:
         errors.append(
             f"framework adapter {selected!r} is unavailable; choices={adapters}"
@@ -45,6 +46,8 @@ def run_checks(
         requirements.append("torch")
     elif role == "worker" and selected == "megatron":
         requirements.extend(("torch", "megatron"))
+    elif role == "worker" and selected == "deepspeed":
+        requirements.extend(("torch", "deepspeed"))
     missing = [name for name in requirements if importlib.util.find_spec(name) is None]
     if missing:
         errors.append(

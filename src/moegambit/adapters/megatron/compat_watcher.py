@@ -2873,8 +2873,18 @@ class ElasticWatcher:
         return env
 
     def _script_cmd(self):
-        repository = Path(__file__).resolve().parents[4]
-        return ["bash", str(repository / "run_spare_single_rank.sh")]
+        from ...runtime.launch_environment import repository_root
+
+        configured = os.environ.get("MOEGAMBIT_SPARE_SCRIPT")
+        repository = repository_root()
+        script = (Path(configured).expanduser().resolve() if configured else
+                  repository / "run_spare_single_rank.sh" if repository else None)
+        if script is None or not script.is_file():
+            raise RuntimeError(
+                "Megatron replacement requires MOEGAMBIT_SPARE_SCRIPT or "
+                "MOEGAMBIT_REPOSITORY_ROOT pointing to the source checkout"
+            )
+        return ["bash", str(script)]
 
     def _log_spare_output(self, proc, label):
         for line in iter(proc.stdout.readline, b""):

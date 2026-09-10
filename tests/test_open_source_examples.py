@@ -29,7 +29,7 @@ def test_example_scripts_are_executable_and_use_validated_entrypoints():
         assert os.access(script, os.X_OK)
         assert entrypoint in source
         assert "DRY_RUN" in source
-        assert "/mnt/ais-c1/dataset/zds/" in source
+        assert "/shared/moegambit/" in source
 
 
 def test_framework_neutral_package_has_one_source_root():

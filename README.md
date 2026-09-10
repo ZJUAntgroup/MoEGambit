@@ -323,8 +323,8 @@ export FAULT_INJECT_NODE=0
 export FAULT_INJECT_LOCAL_RANK=1
 export TRAIN_ITERS=100
 export SAVE_INTERVAL=10
-export DATA_PATH=/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
-export CKPT_DIR=/mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+export DATA_PATH=/shared/moegambit/data/train_text_document
+export CKPT_DIR=/shared/moegambit/checkpoints/megatron
 ```
 
 ### DeepSpeed
@@ -363,11 +363,11 @@ Generate commands without starting distributed workers:
 
 ```bash
 DRY_RUN=1 NODE_RANK=0 \
-MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
+MASTER_ADDR=192.0.2.1 ELASTIC_WATCHER_ADDR=192.0.2.9 \
 bash examples/megatron/run_hot_spare.sh
 
 DRY_RUN=1 TEST_MODE=all NODE_RANK=8 \
-MASTER_ADDR=10.0.0.1 ELASTIC_WATCHER_ADDR=10.0.0.9 \
+MASTER_ADDR=192.0.2.1 ELASTIC_WATCHER_ADDR=192.0.2.9 \
 bash examples/deepspeed/run_hot_spare.sh
 ```
 
@@ -513,23 +513,23 @@ print(
 PY
 ```
 
-### Validated paths
+### Example paths
 
-The example scripts intentionally retain the cluster paths used during current
-validation:
+These are anonymized example paths, not a bundled dataset or an existing
+cluster. Set them to the same shared mount on every active and spare node:
 
 ```text
 dataset:
-  /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
+  /shared/moegambit/data/train_text_document
 
 Megatron checkpoint:
-  /mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+  /shared/moegambit/checkpoints/megatron
 
 Megatron logs:
-  /mnt/ais-c1/dataset/zds/log/test_replace
+  /shared/moegambit/logs/megatron
 
 DeepSpeed run root:
-  /mnt/ais-c1/dataset/zds/89hotspare/deepspeed_real
+  /shared/moegambit/runs/deepspeed
 ```
 
 Override them with `DATA_PATH`, `TOKENIZER_DIR`, `MODEL_CONFIG`, `CKPT_DIR`,
@@ -613,6 +613,10 @@ python -m compileall -q src
 python -m pytest tests -q
 git diff --check
 ```
+
+For executable CPU/GPU smoke tests, checkpoint semantics and wheel deployment,
+see [Validation and deployment](docs/VALIDATION.md). CPU success does not prove
+multi-node CUDA/NCCL recovery.
 
 ## Troubleshooting
 
