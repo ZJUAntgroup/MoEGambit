@@ -356,8 +356,9 @@ Megatron-LM 和 DeepSpeed 均可使用 dense 模型。必须在所有训练节�
 Megatron-LM 使用常规 `pretrain_gpt.py` dense 配置：不传 `--num-experts`，
 设置 `EP_SIZE=1`，仍传 `--moe-moegambit-enable` 开启恢复 hook，并确保同一
 TP/PP/CP 分片有至少两个 DP 副本。替换 rank 从 checkpoint 构造基础状态，再从当前
-step 的 DP 同伴接收全部 dense 参数、持久化 buffer 和优化器状态。若没有有效同伴或
-checkpoint，则回退到 checkpoint relaunch；dense 路径不使用专家 sidecar。
+step 的 DP 同伴接收全部 dense 参数、持久化 buffer 和优化器状态。没有有效同伴时
+拒绝热修复；只有存在有效 checkpoint 时才能执行 checkpoint relaunch。dense 路径
+不使用专家 sidecar。
 
 DeepSpeed 使用相同的 `MOEGAMBIT_HOT_SWAP=1`、`MOEGAMBIT_ZERO2=1`
 （ZeRO-2 时）和 checkpoint 设置。模型参数、buffer 和 RNG 从同一步 DP 同伴恢复，
@@ -366,7 +367,9 @@ ZeRO-1/2 优化器 shard 从主机内存副本恢复。无需启用 packed-exper
 `rank_in_process_hybrid` 作为传输协议名；恢复结果的 `mode` 为
 `rank_in_process_peer`，`expert_staleness=0`。PP 与 ZeRO-2 的组合仍不受支持。
 
-自动化测试覆盖 dense 选择、状态源契约和错误配置；多机 GPU 故障恢复仍需在目标集群验收。
+自动化测试覆盖 dense 选择、状态源契约和错误配置。dense 路径已在目标集群通过多机
+GPU 故障恢复测试；运行清单和原始轨迹尚未收录在本仓库，因此这里不据此给出 dense
+模型的恢复耗时或质量数值结论。
 
 ### Dry run
 

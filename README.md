@@ -371,8 +371,8 @@ For Megatron-LM, run a normal dense `pretrain_gpt.py` configuration: omit
 hooks, and provide at least two DP replicas of each TP/PP/CP shard. A replacement
 loads a checkpoint base and receives all dense parameters, persistent buffers,
 and optimizer state from the current-step DP peer. It does not initialize expert
-components or use expert sidecars. Missing peer or checkpoint falls back to
-checkpoint relaunch.
+components or use expert sidecars. A missing peer rejects hot repair;
+checkpoint relaunch is possible only when a valid checkpoint exists.
 
 For DeepSpeed, retain `MOEGAMBIT_HOT_SWAP=1`, set `MOEGAMBIT_ZERO2=1` for
 ZeRO-2, and configure the same checkpoint settings. Model parameters, buffers,
@@ -383,8 +383,9 @@ recovery contract reports `mode=rank_in_process_peer` and
 `expert_staleness=0`. Pipeline parallelism with ZeRO-2 remains unsupported.
 
 Automated tests cover dense selection, state-source contracts, and configuration
-errors. Multi-node GPU failure recovery still requires validation on the target
-cluster.
+errors. The dense path has also passed multi-node GPU failure-recovery tests on
+the target cluster. The run manifests and raw traces are not yet included here,
+so this status does not establish a dense-model latency or quality result.
 
 ### Dry run
 
