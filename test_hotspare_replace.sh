@@ -110,9 +110,9 @@ unset MOEGAMBIT_FAULT_INJECT_STEP 2>/dev/null || true
 
 # Checkpoint: 每 10 步保存一次（确保故障时有近期 checkpoint）
 export SAVE_INTERVAL=10
-export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/hotspare/test_replace_ckpt}"
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
-export DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
+export CKPT_DIR="${CKPT_DIR:-${SCRIPT_DIR}/runs/megatron/checkpoints}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-${SCRIPT_DIR}/runs/megatron/logs}"
+export DATA_PATH="${DATA_PATH:-${SCRIPT_DIR}/data/text_document}"
 export TOKENIZER_DIR="${TOKENIZER_DIR:-${SCRIPT_DIR}/tokenizer}"
 
 if [ "${ELASTIC_ZERO2_MEMORY_REPLICATION}" = "1" ] && \

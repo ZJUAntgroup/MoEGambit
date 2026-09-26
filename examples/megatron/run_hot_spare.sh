@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Nine-node Megatron validation: 8 active nodes + 1 hot-spare node.
 #
-# Run this file on every physical node. Only NODE_RANK changes. The paths below
-# intentionally match the currently validated cluster and have not been
-# anonymized.
+# Run this file on every physical node. Only NODE_RANK changes. Supply your
+# own shared DATA_PATH and output directories; defaults are generic examples.
 
 set -Eeuo pipefail
 
@@ -23,10 +22,10 @@ export TP_SIZE="${TP_SIZE:-1}"
 export PP_SIZE="${PP_SIZE:-8}"
 export EP_SIZE="${EP_SIZE:-8}"
 
-export DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
+export DATA_PATH="${DATA_PATH:-${REPOSITORY_ROOT}/data/text_document}"
 export TOKENIZER_DIR="${TOKENIZER_DIR:-${REPOSITORY_ROOT}/tokenizer}"
-export CKPT_DIR="${CKPT_DIR:-/mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt}"
-export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-/mnt/ais-c1/dataset/zds/log/test_replace}"
+export CKPT_DIR="${CKPT_DIR:-${REPOSITORY_ROOT}/runs/megatron/checkpoints}"
+export TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-${REPOSITORY_ROOT}/runs/megatron/logs}"
 
 export TRAIN_ITERS="${TRAIN_ITERS:-100}"
 export SAVE_INTERVAL="${SAVE_INTERVAL:-10}"

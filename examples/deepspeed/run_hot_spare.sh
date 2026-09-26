@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Nine-node DeepSpeed validation: 8 active nodes + 1 hot-spare node.
 #
-# Run this file on every physical node. Only NODE_RANK changes. The paths below
-# intentionally match the currently validated cluster and have not been
-# anonymized.
+# Run this file on every physical node. Only NODE_RANK changes. Supply your
+# own shared DATA_PATH and RUN_ROOT; defaults are generic examples.
 
 set -Eeuo pipefail
 
@@ -23,8 +22,8 @@ export SPARE_NODE_RANK="${SPARE_NODE_RANK:-8}"
 export TEST_MODE="${TEST_MODE:-hot_swap}"
 
 export MODEL_CONFIG="${MODEL_CONFIG:-${REPOSITORY_ROOT}/tokenizer}"
-export DATA_PATH="${DATA_PATH:-/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document}"
-export RUN_ROOT="${RUN_ROOT:-/mnt/ais-c1/dataset/zds/89hotspare/deepspeed_real}"
+export DATA_PATH="${DATA_PATH:-${REPOSITORY_ROOT}/data/text_document}"
+export RUN_ROOT="${RUN_ROOT:-${REPOSITORY_ROOT}/runs/deepspeed}"
 
 export TRAIN_ITERS="${TRAIN_ITERS:-100}"
 export SAVE_INTERVAL="${SAVE_INTERVAL:-10}"

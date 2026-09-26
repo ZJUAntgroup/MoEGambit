@@ -323,8 +323,8 @@ export FAULT_INJECT_NODE=0
 export FAULT_INJECT_LOCAL_RANK=1
 export TRAIN_ITERS=100
 export SAVE_INTERVAL=10
-export DATA_PATH=/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
-export CKPT_DIR=/mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+export DATA_PATH=/shared/data/text_document
+export CKPT_DIR=/shared/runs/megatron/checkpoints
 ```
 
 ### DeepSpeed
@@ -362,9 +362,49 @@ does not claim PP=8 plus ZeRO-2 support.
 Megatron-LM and DeepSpeed can also recover dense models. Set
 `MOEGAMBIT_MODEL_KIND=dense` on every training and watcher/spare node, and use
 a model without expert layers. The training adapter rejects a mismatched model
-kind. Use your own dense training entry point with the same launcher, watcher,
-and checkpoint configuration; the Qwen3-MoE validation scripts above remain
-MoE-specific.
+kind. The two self-contained dense examples below use synthetic data; the
+Qwen3-MoE validation scripts above remain MoE-specific.
+
+Run each example on two one-GPU training nodes and a one-GPU spare. Install the
+dependencies described above, choose a new shared `RUN_ROOT`, and set the two
+routable addresses on every node. Start the spare (`NODE_RANK=2`) first, then
+training nodes `0` and `1`. Replace the documentation-only addresses below with
+your own; no private dataset, tokenizer, or model weights are needed.
+
+```bash
+export RUN_ROOT=/shared/runs/dense-example
+export MASTER_ADDR=192.0.2.10
+export ELASTIC_WATCHER_ADDR=192.0.2.12
+
+# On the spare node:
+NODE_RANK=2 bash examples/megatron/run_dense.sh
+# On training nodes 0 and 1, respectively:
+NODE_RANK=0 bash examples/megatron/run_dense.sh
+NODE_RANK=1 bash examples/megatron/run_dense.sh
+```
+
+For the DeepSpeed example, choose a separate `RUN_ROOT` and a unique `RUN_ID`
+for each run:
+
+```bash
+export RUN_ROOT=/shared/runs/dense-deepspeed-example
+export RUN_ID=dense-demo-001
+export MASTER_ADDR=192.0.2.10
+export ELASTIC_WATCHER_ADDR=192.0.2.12
+
+# On the spare node:
+NODE_RANK=2 bash examples/deepspeed/run_dense.sh
+# On training nodes 0 and 1, respectively:
+NODE_RANK=0 bash examples/deepspeed/run_dense.sh
+NODE_RANK=1 bash examples/deepspeed/run_dense.sh
+```
+
+The script writes `completed.json` and checks that recovery
+reached the final step with `mode=rank_in_process_peer` and zero expert
+staleness. Both scripts accept `DRY_RUN=1` to print the commands without GPUs.
+They inject a fail-stop fault at committed step 5 after checkpoint step 4 by
+default. These small synthetic runs exercise the recovery path and are not
+latency or training-quality benchmarks.
 
 For Megatron-LM, run a normal dense `pretrain_gpt.py` configuration: omit
 `--num-experts`, set `EP_SIZE=1`, retain `--moe-moegambit-enable` for recovery
@@ -543,23 +583,23 @@ print(
 PY
 ```
 
-### Validated paths
+### Example paths
 
-The example scripts intentionally retain the cluster paths used during current
-validation:
+The MoE example defaults are generic repository-local paths. For a multi-node
+run, point these variables to shared storage on your cluster:
 
 ```text
 dataset:
-  /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
+  /shared/data/text_document
 
 Megatron checkpoint:
-  /mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+  /shared/runs/megatron/checkpoints
 
 Megatron logs:
-  /mnt/ais-c1/dataset/zds/log/test_replace
+  /shared/runs/megatron/logs
 
 DeepSpeed run root:
-  /mnt/ais-c1/dataset/zds/89hotspare/deepspeed_real
+  /shared/runs/deepspeed
 ```
 
 Override them with `DATA_PATH`, `TOKENIZER_DIR`, `MODEL_CONFIG`, `CKPT_DIR`,
@@ -635,10 +675,13 @@ Development checks:
 ```bash
 bash -n \
   examples/megatron/run_hot_spare.sh \
+  examples/megatron/run_dense.sh \
   examples/deepspeed/run_hot_spare.sh \
+  examples/deepspeed/run_dense.sh \
   test_hotspare_replace.sh \
   test_deepspeed_hotspare_replace.sh
 
+python -m py_compile examples/deepspeed/dense_workload.py
 python -m compileall -q src
 python -m pytest tests -q
 git diff --check

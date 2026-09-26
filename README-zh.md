@@ -312,8 +312,8 @@ export FAULT_INJECT_NODE=0
 export FAULT_INJECT_LOCAL_RANK=1
 export TRAIN_ITERS=100
 export SAVE_INTERVAL=10
-export DATA_PATH=/mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
-export CKPT_DIR=/mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+export DATA_PATH=/shared/data/text_document
+export CKPT_DIR=/shared/runs/megatron/checkpoints
 ```
 
 ### DeepSpeed
@@ -350,8 +350,46 @@ PP=8 与 ZeRO-2 的组合。
 
 Megatron-LM 和 DeepSpeed 均可使用 dense 模型。必须在所有训练节点和 watcher/备用节点设置
 `MOEGAMBIT_MODEL_KIND=dense`，且使用不含专家层的模型。训练端会校验这个声明；
-误将带专家的模型声明为 dense 会直接报错。上面的 Qwen3-MoE 验证脚本仍是 MoE
-专用的；dense 作业应使用自己的训练命令，并沿用相同的 launcher、watcher 与 checkpoint 配置。
+误将带专家的模型声明为 dense 会直接报错。下面两个独立 dense 示例使用合成数据；
+上面的 Qwen3-MoE 验证脚本仍是 MoE 专用的。
+
+两个示例默认使用两个单 GPU 训练节点和一个单 GPU 备用节点。先按上文安装依赖，
+在所有节点设置相同的共享 `RUN_ROOT` 及可互通的地址。先启动备用节点
+（`NODE_RANK=2`），再启动训练节点 0、1。下面的地址仅用于文档示例，运行前须
+替换为实际可达地址；不需要私有数据集、tokenizer 或模型权重。
+
+```bash
+export RUN_ROOT=/shared/runs/dense-example
+export MASTER_ADDR=192.0.2.10
+export ELASTIC_WATCHER_ADDR=192.0.2.12
+
+# 备用节点：
+NODE_RANK=2 bash examples/megatron/run_dense.sh
+# 两个训练节点分别执行：
+NODE_RANK=0 bash examples/megatron/run_dense.sh
+NODE_RANK=1 bash examples/megatron/run_dense.sh
+```
+
+DeepSpeed 示例使用另一个 `RUN_ROOT`，每次运行设置不同的 `RUN_ID`：
+
+```bash
+export RUN_ROOT=/shared/runs/dense-deepspeed-example
+export RUN_ID=dense-demo-001
+export MASTER_ADDR=192.0.2.10
+export ELASTIC_WATCHER_ADDR=192.0.2.12
+
+# 备用节点：
+NODE_RANK=2 bash examples/deepspeed/run_dense.sh
+# 两个训练节点分别执行：
+NODE_RANK=0 bash examples/deepspeed/run_dense.sh
+NODE_RANK=1 bash examples/deepspeed/run_dense.sh
+```
+
+脚本写入
+`completed.json`，检查恢复后的最终 step、`mode=rank_in_process_peer` 与零专家
+陈旧度。两个脚本均可设置 `DRY_RUN=1`，只打印命令而不占用 GPU。默认在第 4 步
+checkpoint 之后、第 5 步已提交边界注入故障。这些小型合成任务仅检验恢复路径，
+不用于测量恢复耗时或训练质量。
 
 Megatron-LM 使用常规 `pretrain_gpt.py` dense 配置：不传 `--num-experts`，
 设置 `EP_SIZE=1`，仍传 `--moe-moegambit-enable` 开启恢复 hook，并确保同一
@@ -522,22 +560,22 @@ print(
 PY
 ```
 
-### 已验证路径
+### 示例路径
 
-示例脚本目前有意保留验证集群使用的路径：
+MoE 示例默认使用仓库内的通用路径。多机运行时，请将以下变量指向集群共享存储：
 
 ```text
 dataset:
-  /mnt/ais-c1/dataset/zds/bigdata/my_qwen3_data_text_document
+  /shared/data/text_document
 
 Megatron checkpoint:
-  /mnt/ais-c1/dataset/zds/731hotspare/test_replace_ckpt
+  /shared/runs/megatron/checkpoints
 
 Megatron logs:
-  /mnt/ais-c1/dataset/zds/log/test_replace
+  /shared/runs/megatron/logs
 
 DeepSpeed run root:
-  /mnt/ais-c1/dataset/zds/89hotspare/deepspeed_real
+  /shared/runs/deepspeed
 ```
 
 可通过 `DATA_PATH`、`TOKENIZER_DIR`、`MODEL_CONFIG`、`CKPT_DIR`、
@@ -613,10 +651,13 @@ python elastic_watcher.py --adapter deepspeed \
 ```bash
 bash -n \
   examples/megatron/run_hot_spare.sh \
+  examples/megatron/run_dense.sh \
   examples/deepspeed/run_hot_spare.sh \
+  examples/deepspeed/run_dense.sh \
   test_hotspare_replace.sh \
   test_deepspeed_hotspare_replace.sh
 
+python -m py_compile examples/deepspeed/dense_workload.py
 python -m compileall -q src
 python -m pytest tests -q
 git diff --check
