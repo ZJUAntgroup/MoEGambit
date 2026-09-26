@@ -346,6 +346,28 @@ DeepSpeed 验证模式：
 DeepSpeed `PipelineEngine` 不支持 ZeRO-2/3，因此本仓库不声明支持
 PP=8 与 ZeRO-2 的组合。
 
+### Dense 模型
+
+Megatron-LM 和 DeepSpeed 均可使用 dense 模型。必须在所有训练节点和 watcher/备用节点设置
+`MOEGAMBIT_MODEL_KIND=dense`，且使用不含专家层的模型。训练端会校验这个声明；
+误将带专家的模型声明为 dense 会直接报错。上面的 Qwen3-MoE 验证脚本仍是 MoE
+专用的；dense 作业应使用自己的训练命令，并沿用相同的 launcher、watcher 与 checkpoint 配置。
+
+Megatron-LM 使用常规 `pretrain_gpt.py` dense 配置：不传 `--num-experts`，
+设置 `EP_SIZE=1`，仍传 `--moe-moegambit-enable` 开启恢复 hook，并确保同一
+TP/PP/CP 分片有至少两个 DP 副本。替换 rank 从 checkpoint 构造基础状态，再从当前
+step 的 DP 同伴接收全部 dense 参数、持久化 buffer 和优化器状态。若没有有效同伴或
+checkpoint，则回退到 checkpoint relaunch；dense 路径不使用专家 sidecar。
+
+DeepSpeed 使用相同的 `MOEGAMBIT_HOT_SWAP=1`、`MOEGAMBIT_ZERO2=1`
+（ZeRO-2 时）和 checkpoint 设置。模型参数、buffer 和 RNG 从同一步 DP 同伴恢复，
+ZeRO-1/2 优化器 shard 从主机内存副本恢复。无需启用 packed-expert checkpoint。
+环境变量 `MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY` 仍使用
+`rank_in_process_hybrid` 作为传输协议名；恢复结果的 `mode` 为
+`rank_in_process_peer`，`expert_staleness=0`。PP 与 ZeRO-2 的组合仍不受支持。
+
+自动化测试覆盖 dense 选择、状态源契约和错误配置；多机 GPU 故障恢复仍需在目标集群验收。
+
 ### Dry run
 
 只生成命令，不启动分布式 worker：

@@ -42,11 +42,17 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def packed_expert_checkpoint_enabled() -> bool:
-    return _env_flag(PACKED_EXPERT_CHECKPOINT_ENV)
+    return (
+        os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower() != "dense"
+        and _env_flag(PACKED_EXPERT_CHECKPOINT_ENV)
+    )
 
 
 def packed_expert_cache_enabled() -> bool:
-    return _env_flag(PACKED_EXPERT_CACHE_ENV)
+    return (
+        os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower() != "dense"
+        and _env_flag(PACKED_EXPERT_CACHE_ENV)
+    )
 
 
 def packed_expert_checkpoint_name(

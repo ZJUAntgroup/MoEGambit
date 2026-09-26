@@ -91,6 +91,7 @@ def build_checkpoint_manifest(
     packed_required = (
         _env_enabled(_PACKED_EXPERT_ENV)
         and not zero3
+        and os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower() != "dense"
     )
     if packed_required:
         packed = sorted(tag_dir.glob(_PACKED_EXPERT_PATTERN))

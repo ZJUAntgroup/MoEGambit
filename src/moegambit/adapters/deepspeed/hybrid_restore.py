@@ -225,6 +225,25 @@ def _is_expert_buffer_name(name: str) -> bool:
     return ".experts." in f".{name}."
 
 
+def has_expert_state(engine: Any) -> bool:
+    """Conservatively reject a dense claim when a local shard has experts."""
+    module = engine.module
+    if any(
+        is_expert_parameter(parameter) or _is_expert_buffer_name(name)
+        for name, parameter in module.named_parameters()
+    ):
+        return True
+    if any(_is_expert_buffer_name(name) for name, _ in module.named_buffers()):
+        return True
+    optimizer = getattr(getattr(engine, "optimizer", None), "optimizer", None)
+    if optimizer is not None:
+        from .zero2 import _is_expert_group
+
+        if any(_is_expert_group(group) for group in optimizer.param_groups):
+            return True
+    return False
+
+
 def non_expert_model_tensors(module: Any) -> list[tuple[str, Any]]:
     tensors = [
         (name, parameter.data)
@@ -576,7 +595,7 @@ def restore_non_expert_model_from_peer(
             "source_ranks": [plan.source_rank for plan in plans],
         },
     )
-    return {
+    summary = {
         "expected_step": expected_step,
         "replacement_ranks": [plan.replacement_rank for plan in plans],
         "source_ranks": [plan.source_rank for plan in plans],
@@ -588,6 +607,9 @@ def restore_non_expert_model_from_peer(
         "peer_state_origin": "resident_live_peer",
         "two_phase": False,
     }
+    if os.environ.get("MOEGAMBIT_MODEL_KIND") == "dense":
+        summary["expert_source"] = "not_applicable"
+    return summary
 
 
 def _snapshot_tensor(
@@ -926,5 +948,8 @@ def restore_non_expert_optimizer_from_peer(
         "copied_scalars": copied_scalars,
         "copied_bytes": copied_bytes,
         "optimizer_source": "resident_peer_replica",
-        "restore_scope": "non_expert",
+        "restore_scope": (
+            "all" if os.environ.get("MOEGAMBIT_MODEL_KIND") == "dense"
+            else "non_expert"
+        ),
     }

@@ -206,6 +206,17 @@ class MegatronNativeHooks:
     def prepare_pretrain(self, args: Any) -> StartupState:
         """Prepare normal or replacement startup without leaking policy to Megatron."""
 
+        if getattr(args, "moe_moegambit_enable", False):
+            actual_kind = "moe" if getattr(args, "num_experts", None) else "dense"
+            configured_kind = os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower()
+            if configured_kind != actual_kind:
+                raise ValueError(
+                    "Megatron model kind mismatch: training arguments select "
+                    f"{actual_kind}, but MOEGAMBIT_MODEL_KIND={configured_kind!r}; "
+                    "set MOEGAMBIT_MODEL_KIND=dense on every training and "
+                    "watcher node for a dense job"
+                )
+
         from .elastic_client import (
             elastic_expert_sidecar_available,
             elastic_sanitize_recovery_env_for_startup,
@@ -222,7 +233,9 @@ class MegatronNativeHooks:
         state.saved_load = args.load
         state.saved_no_load_optim = args.no_load_optim
         state.saved_no_load_rng = args.no_load_rng
-        state.use_expert_sidecar = elastic_expert_sidecar_available()
+        state.use_expert_sidecar = bool(
+            getattr(args, "num_experts", None)
+        ) and elastic_expert_sidecar_available()
         args.no_load_optim = True
         args.no_load_rng = True
         if state.use_expert_sidecar:
@@ -231,11 +244,10 @@ class MegatronNativeHooks:
         args.moe_moegambit_weights_first_recovery = False
         args.moe_moegambit_async_recovery = False
         logger.warning(
-            "[elastic] REBUILD MODE: expert_restore=%s; dense/non-expert state "
-            "will be overwritten from a DP peer",
-            "packed_rank_sidecar"
-            if state.use_expert_sidecar
-            else "full_checkpoint_fallback",
+            "[elastic] REBUILD MODE: model=%s checkpoint_base=%s; "
+            "peer state will be synchronized at the current step",
+            "moe" if getattr(args, "num_experts", None) else "dense",
+            "packed_rank_sidecar" if state.use_expert_sidecar else "full_checkpoint",
         )
         return state
 
@@ -722,6 +734,10 @@ class MegatronNativeHooks:
         optimizer: Any,
         floating_point_operations: Any,
     ) -> None:
+        from .moe_integration import moegambit_is_initialized
+
+        if not moegambit_is_initialized():
+            return
         if os.environ.get("ELASTIC_EXPERT_SIDECAR", "0").lower() not in {
             "1",
             "true",
@@ -751,17 +767,18 @@ class MegatronNativeHooks:
             moegambit_save_manifest,
         )
 
-        if moegambit_is_initialized():
+        from .integration import get_runtime
+
+        runtime = get_runtime()
+        if runtime is not None or moegambit_is_initialized():
             self._step_transaction.begin_checkpoint_commit(iteration)
             try:
-                moegambit_save_manifest(save_dir, iteration)
+                if moegambit_is_initialized():
+                    moegambit_save_manifest(save_dir, iteration)
             except BaseException as exc:
                 self.checkpoint_failed(iteration, exc)
                 raise
             self._step_transaction.mark_checkpoint_committed(iteration)
-            from .integration import get_runtime
-
-            runtime = get_runtime()
             if runtime is not None:
                 runtime.record_checkpoint(
                     os.path.join(save_dir, f"iter_{int(iteration):07d}"),

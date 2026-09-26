@@ -357,6 +357,35 @@ DeepSpeed validation modes:
 DeepSpeed `PipelineEngine` does not support ZeRO-2/3; this repository therefore
 does not claim PP=8 plus ZeRO-2 support.
 
+### Dense models
+
+Megatron-LM and DeepSpeed can also recover dense models. Set
+`MOEGAMBIT_MODEL_KIND=dense` on every training and watcher/spare node, and use
+a model without expert layers. The training adapter rejects a mismatched model
+kind. Use your own dense training entry point with the same launcher, watcher,
+and checkpoint configuration; the Qwen3-MoE validation scripts above remain
+MoE-specific.
+
+For Megatron-LM, run a normal dense `pretrain_gpt.py` configuration: omit
+`--num-experts`, set `EP_SIZE=1`, retain `--moe-moegambit-enable` for recovery
+hooks, and provide at least two DP replicas of each TP/PP/CP shard. A replacement
+loads a checkpoint base and receives all dense parameters, persistent buffers,
+and optimizer state from the current-step DP peer. It does not initialize expert
+components or use expert sidecars. Missing peer or checkpoint falls back to
+checkpoint relaunch.
+
+For DeepSpeed, retain `MOEGAMBIT_HOT_SWAP=1`, set `MOEGAMBIT_ZERO2=1` for
+ZeRO-2, and configure the same checkpoint settings. Model parameters, buffers,
+and RNG come from a live DP peer; ZeRO-1/2 optimizer shards come from the host
+replica. Packed-expert checkpoints are unnecessary. The environment strategy
+name remains `rank_in_process_hybrid` for protocol compatibility, while the
+recovery contract reports `mode=rank_in_process_peer` and
+`expert_staleness=0`. Pipeline parallelism with ZeRO-2 remains unsupported.
+
+Automated tests cover dense selection, state-source contracts, and configuration
+errors. Multi-node GPU failure recovery still requires validation on the target
+cluster.
+
 ### Dry run
 
 Generate commands without starting distributed workers:
