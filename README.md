@@ -72,9 +72,9 @@ translate framework objects into one common recovery contract.
   and checkpoint records are admitted only when their versions are compatible.
 - **Phase-aware transactions:** failures in forward, backward, optimizer, and
   checkpoint publication have explicit replay or fallback semantics.
-- **Bounded hybrid repair:** the paper R2 policy admits stale-expert recovery
-  only while projected expert staleness density remains within its configured
-  budget.
+- **Quality-risk admission (opt-in):** the common coordinator can audit or enforce
+  the paper's `R <= 1` rule with qualified whole-run risk evidence. Existing engine
+  compatibility paths retain their legacy policies; see [audit tools](docs/ARTIFACT_AUDIT.md).
 - **Fail-closed behavior:** MoEGambit never rewinds only an iteration counter
   after parameters may already have changed.
 
@@ -258,15 +258,20 @@ For a fail-stop event `<r, t, c>`—failed logical rank `r`, current iteration
 9. Commit the epoch and transition
    `RECOVERING → REPAIRED → BARRIER → HEALTHY`.
 
-The R2 hybrid policy admits partial checkpoint restoration only when:
+The opt-in common-coordinator quality policy admits a candidate hybrid restore
+only when a qualified whole-run quality-risk upper bound satisfies `R <= 1`,
+with fixed `eta_final=0.005`, `eta_peak=0.01`, and `alpha_run=0.05`.
+It validates supported model/telemetry/policy versions and binds evidence to
+the exact fault, source snapshot and whole-run history. Missing or unsupported
+evidence selects checkpoint fallback (or abort if no complete source exists).
 
-```text
-Phi'(t) = (S(t) + |E_new| × Delta) / (N_expert × W_exp) <= Phi_max
-```
-
-where `Delta = t - c`, `S(t)` is accumulated stale-expert exposure,
-`|E_new|` is the number of newly stale experts, and `W_exp` is the exposure
-window. If the guard fails, the runtime selects a full checkpoint restart.
+`--policy quality-risk` defaults to audit-only. Enforce mode requires a trusted
+risk provider and externally qualified calibration; the repository does not
+supply a trained predictor or establish a cross-model statistical guarantee.
+`MoeHybridPolicy` and engine-specific compatibility policies remain legacy
+implementations and should not be described as the new paper risk rule.
+See [quality admission and evidence audits](docs/ARTIFACT_AUDIT.md) for rollout
+boundaries, state auditing, per-rank completion checks and compact FSE exports.
 
 ### Failure boundary semantics
 

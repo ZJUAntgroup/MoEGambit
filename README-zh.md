@@ -66,8 +66,9 @@ MoEGambit 将恢复策略和编排逻辑与训练框架解耦。Megatron-LM 与 
   和 checkpoint 记录版本兼容时执行恢复。
 - **阶段感知事务：** forward、backward、optimizer 和 checkpoint 发布阶段
   的故障均有明确的 replay 或 fallback 语义。
-- **有界混合恢复：** 论文中的 R2 策略仅在预计专家陈旧度密度未超过配置预算时，
-  才允许 stale-expert recovery。
+- **质量风险准入（可选）：** 公共协调器新增论文的 `R <= 1` 风险规则，支持审计与
+  执行模式；执行需要有效的整场训练风险证据。引擎兼容路径仍使用原有策略，详见
+  [审计工具说明](docs/ARTIFACT_AUDIT.md)。
 - **Fail-closed：** 参数可能已发生变化时，MoEGambit 不会只回退 iteration
   计数器而继续执行。
 
@@ -249,15 +250,17 @@ rollback/replay 策略、进程组重建状态和诊断逻辑均位于
 9. 提交 epoch，并执行状态转换
    `RECOVERING → REPAIRED → BARRIER → HEALTHY`。
 
-R2 混合恢复策略仅在满足下式时允许部分 checkpoint 恢复：
+公共协调器新增可选质量风险策略：只有经过校准的整场训练质量越界风险上界满足
+`R <= 1` 时，才允许候选混合恢复。默认目标固定为 `eta_final=0.005`、
+`eta_peak=0.01`、`alpha_run=0.05`，不以 checkpoint 年龄或专家密度作为准入阈值。
+证据绑定模型、遥测版本、策略版本、当前故障、状态来源和完整恢复历史。证据缺失、
+过期或超出验证范围时回退 checkpoint；完整 checkpoint 也不可用时中止。
 
-```text
-Phi'(t) = (S(t) + |E_new| × Delta) / (N_expert × W_exp) <= Phi_max
-```
-
-其中 `Delta = t - c`，`S(t)` 是累计 stale-expert exposure，
-`|E_new|` 是本次新增陈旧专家数量，`W_exp` 是 exposure window。
-如果 guard 不通过，runtime 将选择完整 checkpoint restart。
+`--policy quality-risk` 默认仅审计，不执行候选混合恢复。执行模式需要协调器管理的
+可信风险提供器及外部审核的校准证据。仓库没有附带已训练的风险预测器；填写 JSON
+不能构成统计保证。原 `MoeHybridPolicy` 和引擎兼容路径尚未迁移，不能据此宣称它们
+已经实现论文的新公式。新增状态比对、逐 rank 完成核验和小型证据导出使用
+`moegambit-audit`，详见 [使用说明与适用边界](docs/ARTIFACT_AUDIT.md)。
 
 ### 不同故障阶段的语义
 

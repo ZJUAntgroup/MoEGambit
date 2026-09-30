@@ -24,6 +24,7 @@ moegambit-launch = "moegambit.cli.launch:main"
 moegambit-watch = "moegambit.cli.watch:main"
 moegambit-watcher = "moegambit.cli.watcher:main"
 moegambit-doctor = "moegambit.cli.doctor:main"
+moegambit-audit = "moegambit.cli.audit:main"
 moegambit-elastic-launcher = "moegambit.cli.elastic_compat:launcher_main"
 moegambit-elastic-watcher = "moegambit.cli.elastic_compat:watcher_main"
 
