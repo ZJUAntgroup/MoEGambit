@@ -59,6 +59,12 @@ from the runtime's checkpoint-relaunch deployment contract.
 
 ## Source checkout and wheel installation
 
+The independent [MoC-System benchmark](../examples/moc_system/README.md) has CPU
+checks under `tests/moc_system`, included in the full CI suite. They exercise
+physical partial-state I/O, BF16/master/Adam mapping, immutable supervisor cache
+after producer exit, source coverage, bounded phase schedules and strict result
+summaries. They do not execute the 64-GPU workload or establish performance.
+
 The bundled framework examples use an editable source checkout. The runtime
 wheel does not bundle Megatron-LM, DeepSpeed, datasets or root example scripts.
 When installing the wheel with separately installed frameworks, provide

@@ -472,6 +472,23 @@ Generic DDP rank replacement requires PyTorch 2.7 or newer and can be installed
 with `python -m pip install -e '.[generic-ddp]'`. This requirement applies to DDP
 reconstruction; the bundled Megatron experiment's environment is listed below.
 
+### MoC-System comparison benchmark
+
+An independent physical PEC reproduction is included in
+[`examples/moc_system`](examples/moc_system/README.md). It provides a five-update
+component timing check and a 660-update end-to-end benchmark with real worker
+restart, state restoration and replay. Both use the existing native Megatron
+baseline, micro batch size 1 and built-in expert bias. Logs/results remain under
+`/personal`; completed jobs clean their own temporary checkpoints.
+
+```bash
+MASTER_ADDR=127.0.0.1 bash examples/moc_system/run_moc_e2e.sh --plan-only
+```
+
+This is a fixed-K mechanism port, separate from the original authors' ZeRO-2
+implementation and the legacy full-checkpoint PEC state overlay. See the
+benchmark instructions for GPU requirements and measurement boundaries.
+
 ## Paper Results
 
 The accompanying paper artifact reports **20.6%-55.0% lower raw recovery

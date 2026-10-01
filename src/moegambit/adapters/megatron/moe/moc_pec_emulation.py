@@ -1,36 +1,18 @@
-"""MoC-System (PEC) emulation — non-invasive accuracy-equivalent overlay.
+"""Legacy PEC checkpoint-state selection overlay.
 
-This module implements a *single-flag* emulation of MoC-System's Partial
-Experts Checkpointing (PEC) on top of MoEGuard. It is enabled by the
-environment variable ``MOEGAMBIT_MOC_PEC_EMULATE=1`` (no MoEGuard code path
-changes guarded behind anything else). When disabled, this module is
-inert — both ``write_pec_metadata`` and ``apply_pec_to_plan`` short-circuit
-to no-ops, so MoEGuard's runtime semantics are untouched.
+Enabled by ``MOEGAMBIT_MOC_PEC_EMULATE=1``. When disabled,
+``write_pec_metadata`` and ``apply_pec_to_plan`` are no-ops.
 
-Design (byte-identical accuracy emulation, no save-path mutation):
+This overlay leaves full checkpoint saving unchanged. A sidecar identifies the
+experts selected by a round-robin schedule and the earlier checkpoint directory
+for each remaining expert; recovery rewrites the expert load paths accordingly.
+It is a checkpoint-state experiment, not a physical PEC save/restore benchmark
+or the original MoC-System implementation. Its full-write path cannot measure
+partial-saving benefits or establish end-to-end performance.
 
-  1. Save side. MoEGuard already writes the full N-expert checkpoint at
-     every save-interval. We do NOT change that. Instead, we record a
-     side-car JSON ``moc_pec_metadata.json`` in each ``iter_XXXXXXX/``
-     directory that declares which K_pec experts are *fresh* for this
-     PEC round and, for every other expert, which earlier ``iter_***``
-     directory contains its last-fresh version.
-
-  2. Load side. At recovery time, MoEGuard calls
-     ``identify_experts_to_restore()`` followed by
-     ``restore_expert_weights(model, plan, load_fn=..., ...)``. We
-     mutate each ``ExpertRestoreEntry.checkpoint_dir`` in ``plan`` to
-     point at the iteration directory chosen by MoC-System's
-     round-robin PEC schedule. Because the checkpoint physically exists
-     at that directory (we never deleted it), ``_build_expert_load_fn``
-     succeeds and loads exactly the bytes MoC-System would have loaded.
-
-The accuracy comparison is therefore byte-identical to a faithful
-MoC-System implementation. Wall-clock recovery latency, however, is
-*not* representative — our save path writes the full state while a real
-MoC-System would only write K_pec experts. The paper uses MoC-System's
-own published recovery latency as a conservative upper bound on its
-advantage and discloses this in §Threats to Validity.
+For physical selected-expert I/O and a real-training restart/replay benchmark,
+see ``examples/moc_system/README.md``. Those independent fixed-K benchmarks run
+with this overlay disabled and report their own measured scope.
 
 Environment knobs (read once at module init):
 

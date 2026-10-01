@@ -447,6 +447,22 @@ torchrun --standalone --nproc-per-node=2 \
 故障替换流程请参阅
 [examples/generic_ddp/README.md](examples/generic_ddp/README.md)。
 
+### MoC-System 对比复现
+
+[`examples/moc_system`](examples/moc_system/README.md) 提供独立的物理 PEC
+机制复现，包括五步训练的保存/恢复计时，以及默认 660 次实际更新的端到端
+实验。后者包含真实训练、worker 与通信组重建、状态恢复和 replay。
+使用已有 Megatron baseline、micro batch size 1 和内置 expert bias，
+关闭辅助损失。日志、汇总和图表保存在 `/personal`，成功验证后清理本实验
+的临时 checkpoint。完整运行条件和测量边界见该目录说明。
+
+```bash
+MASTER_ADDR=127.0.0.1 bash examples/moc_system/run_moc_e2e.sh --plan-only
+```
+
+这是固定 K 的独立机制移植，不是原作者完整的 ZeRO-2 实现；旧 PEC overlay
+仍只模拟 checkpoint 状态选择，不能用于测量部分保存的性能。
+
 ## 论文结果
 
 配套论文 artifact 报告了 **20.6%-55.0% 的 raw recovery latency 降低**；

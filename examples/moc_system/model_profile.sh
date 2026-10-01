@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Frozen architecture profiles for comparable Megatron baseline/continuations.
+# Keep the original profile byte-for-byte compatible with earlier runs.
+moc_select_model_profile() {
+  MOC_MODEL_PROFILE="${MOC_MODEL_PROFILE:-qwen3_48x2048}"
+  case "$MOC_MODEL_PROFILE" in
+    qwen3_48x2048)
+      MOC_NUM_LAYERS=48 MOC_HIDDEN_SIZE=2048 MOC_FFN_HIDDEN_SIZE=6144
+      MOC_NUM_ATTENTION_HEADS=32 MOC_NUM_QUERY_GROUPS=4 MOC_KV_CHANNELS=128
+      MOC_MOE_FFN_HIDDEN_SIZE=768 MOC_SHARED_EXPERT_FFN_SIZE=0
+      MOC_USE_MLA=0 MOC_MOE_LAYER_FREQ=1
+      MOC_ROUTER_NUM_GROUPS=0 MOC_ROUTER_GROUP_TOPK=0 ;;
+    small_plain_24x1024|small_shared_24x1024)
+      MOC_NUM_LAYERS=24 MOC_HIDDEN_SIZE=1024 MOC_FFN_HIDDEN_SIZE=3072
+      MOC_NUM_ATTENTION_HEADS=16 MOC_NUM_QUERY_GROUPS=2 MOC_KV_CHANNELS=128
+      MOC_MOE_FFN_HIDDEN_SIZE=384 MOC_SHARED_EXPERT_FFN_SIZE=0
+      MOC_USE_MLA=0 MOC_MOE_LAYER_FREQ=1
+      MOC_ROUTER_NUM_GROUPS=0 MOC_ROUTER_GROUP_TOPK=0
+      [[ "$MOC_MODEL_PROFILE" != small_shared_24x1024 ]] || MOC_SHARED_EXPERT_FFN_SIZE=384 ;;
+    small_deepseek_mla_24x1024)
+      # Scaled DeepSeek-style structure, not an official pretrained checkpoint.
+      # Keep expert count, top-k and width matched to small_plain_24x1024.
+      MOC_NUM_LAYERS=24 MOC_HIDDEN_SIZE=1024 MOC_FFN_HIDDEN_SIZE=3072
+      MOC_NUM_ATTENTION_HEADS=16 MOC_NUM_QUERY_GROUPS=0 MOC_KV_CHANNELS=32
+      MOC_MOE_FFN_HIDDEN_SIZE=384 MOC_SHARED_EXPERT_FFN_SIZE=384
+      MOC_USE_MLA=1 MOC_MOE_LAYER_FREQ='([0]+[1]*23)'
+      MOC_ROUTER_NUM_GROUPS=8 MOC_ROUTER_GROUP_TOPK=4
+      MOC_KV_LORA_RANK=256 MOC_QK_HEAD_DIM=64
+      MOC_QK_POS_EMB_HEAD_DIM=32 MOC_V_HEAD_DIM=64 ;;
+    *) echo "unknown MOC_MODEL_PROFILE=$MOC_MODEL_PROFILE" >&2; return 2 ;;
+  esac
+}
