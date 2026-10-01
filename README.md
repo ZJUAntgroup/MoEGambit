@@ -72,9 +72,9 @@ translate framework objects into one common recovery contract.
   and checkpoint records are admitted only when their versions are compatible.
 - **Phase-aware transactions:** failures in forward, backward, optimizer, and
   checkpoint publication have explicit replay or fallback semantics.
-- **Bounded hybrid repair:** the paper R2 policy admits stale-expert recovery
-  only while projected expert staleness density remains within its configured
-  budget.
+- **Quality-risk admission (opt-in):** the common coordinator can audit or enforce
+  the paper's `R <= 1` rule with qualified whole-run risk evidence. Existing engine
+  compatibility paths retain their legacy policies; see [audit tools](docs/ARTIFACT_AUDIT.md).
 - **Fail-closed behavior:** MoEGambit never rewinds only an iteration counter
   after parameters may already have changed.
 
@@ -258,15 +258,20 @@ For a fail-stop event `<r, t, c>`—failed logical rank `r`, current iteration
 9. Commit the epoch and transition
    `RECOVERING → REPAIRED → BARRIER → HEALTHY`.
 
-The R2 hybrid policy admits partial checkpoint restoration only when:
+The opt-in common-coordinator quality policy admits a candidate hybrid restore
+only when a qualified whole-run quality-risk upper bound satisfies `R <= 1`,
+with fixed `eta_final=0.005`, `eta_peak=0.01`, and `alpha_run=0.05`.
+It validates supported model/telemetry/policy versions and binds evidence to
+the exact fault, source snapshot and whole-run history. Missing or unsupported
+evidence selects checkpoint fallback (or abort if no complete source exists).
 
-```text
-Phi'(t) = (S(t) + |E_new| × Delta) / (N_expert × W_exp) <= Phi_max
-```
-
-where `Delta = t - c`, `S(t)` is accumulated stale-expert exposure,
-`|E_new|` is the number of newly stale experts, and `W_exp` is the exposure
-window. If the guard fails, the runtime selects a full checkpoint restart.
+`--policy quality-risk` defaults to audit-only. Enforce mode requires a trusted
+risk provider and externally qualified calibration; the repository does not
+supply a trained predictor or establish a cross-model statistical guarantee.
+`MoeHybridPolicy` and engine-specific compatibility policies remain legacy
+implementations and should not be described as the new paper risk rule.
+See [quality admission and evidence audits](docs/ARTIFACT_AUDIT.md) for rollout
+boundaries, state auditing, per-rank completion checks and compact FSE exports.
 
 ### Failure boundary semantics
 
@@ -356,6 +361,76 @@ DeepSpeed validation modes:
 
 DeepSpeed `PipelineEngine` does not support ZeRO-2/3; this repository therefore
 does not claim PP=8 plus ZeRO-2 support.
+
+### Dense models
+
+Megatron-LM and DeepSpeed can also recover dense models. Set
+`MOEGAMBIT_MODEL_KIND=dense` on every training and watcher/spare node, and use
+a model without expert layers. The training adapter rejects a mismatched model
+kind. The two self-contained dense examples below use synthetic data; the
+Qwen3-MoE validation scripts above remain MoE-specific.
+
+Run each example on two one-GPU training nodes and a one-GPU spare. Install the
+dependencies described above, choose a new shared `RUN_ROOT`, and set the two
+routable addresses on every node. Start the spare (`NODE_RANK=2`) first, then
+training nodes `0` and `1`. Replace the documentation-only addresses below with
+your own; no private dataset, tokenizer, or model weights are needed.
+
+```bash
+export RUN_ROOT=/shared/runs/dense-example
+export MASTER_ADDR=192.0.2.10
+export ELASTIC_WATCHER_ADDR=192.0.2.12
+
+# On the spare node:
+NODE_RANK=2 bash examples/megatron/run_dense.sh
+# On training nodes 0 and 1, respectively:
+NODE_RANK=0 bash examples/megatron/run_dense.sh
+NODE_RANK=1 bash examples/megatron/run_dense.sh
+```
+
+For the DeepSpeed example, choose a separate `RUN_ROOT` and a unique `RUN_ID`
+for each run:
+
+```bash
+export RUN_ROOT=/shared/runs/dense-deepspeed-example
+export RUN_ID=dense-demo-001
+export MASTER_ADDR=192.0.2.10
+export ELASTIC_WATCHER_ADDR=192.0.2.12
+
+# On the spare node:
+NODE_RANK=2 bash examples/deepspeed/run_dense.sh
+# On training nodes 0 and 1, respectively:
+NODE_RANK=0 bash examples/deepspeed/run_dense.sh
+NODE_RANK=1 bash examples/deepspeed/run_dense.sh
+```
+
+The script writes `completed.json` and checks that recovery
+reached the final step with `mode=rank_in_process_peer` and zero expert
+staleness. Both scripts accept `DRY_RUN=1` to print the commands without GPUs.
+They inject a fail-stop fault at committed step 5 after checkpoint step 4 by
+default. These small synthetic runs exercise the recovery path and are not
+latency or training-quality benchmarks.
+
+For Megatron-LM, run a normal dense `pretrain_gpt.py` configuration: omit
+`--num-experts`, set `EP_SIZE=1`, retain `--moe-moegambit-enable` for recovery
+hooks, and provide at least two DP replicas of each TP/PP/CP shard. A replacement
+loads a checkpoint base and receives all dense parameters, persistent buffers,
+and optimizer state from the current-step DP peer. It does not initialize expert
+components or use expert sidecars. A missing peer rejects hot repair;
+checkpoint relaunch is possible only when a valid checkpoint exists.
+
+For DeepSpeed, retain `MOEGAMBIT_HOT_SWAP=1`, set `MOEGAMBIT_ZERO2=1` for
+ZeRO-2, and configure the same checkpoint settings. Model parameters, buffers,
+and RNG come from a live DP peer; ZeRO-1/2 optimizer shards come from the host
+replica. Packed-expert checkpoints are unnecessary. The environment strategy
+name remains `rank_in_process_hybrid` for protocol compatibility, while the
+recovery contract reports `mode=rank_in_process_peer` and
+`expert_staleness=0`. Pipeline parallelism with ZeRO-2 remains unsupported.
+
+Automated tests cover dense selection, state-source contracts, and configuration
+errors. The dense path has also passed multi-node GPU failure-recovery tests on
+the target cluster. The run manifests and raw traces are not yet included here,
+so this status does not establish a dense-model latency or quality result.
 
 ### Dry run
 
@@ -605,10 +680,13 @@ Development checks:
 ```bash
 bash -n \
   examples/megatron/run_hot_spare.sh \
+  examples/megatron/run_dense.sh \
   examples/deepspeed/run_hot_spare.sh \
+  examples/deepspeed/run_dense.sh \
   test_hotspare_replace.sh \
   test_deepspeed_hotspare_replace.sh
 
+python -m py_compile examples/deepspeed/dense_workload.py
 python -m compileall -q src
 python -m pytest tests -q
 git diff --check

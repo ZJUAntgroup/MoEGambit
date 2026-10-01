@@ -11,7 +11,8 @@ from ..config import RuntimeConfig
 from ..control.service import RecoveryCoordinatorService
 from ..control.state_store import InMemoryControlStore, SQLiteControlStore
 from ..control.watcher import ControlRequestProcessor, ControlServer
-from ..policy import MoeHybridPolicy, PeerOrCheckpointPolicy
+from ..policy import (MoeHybridPolicy, PeerOrCheckpointPolicy, QualityRiskPolicy,
+                      FileRiskEvidenceProvider)
 
 __all__ = ["build_parser", "main"]
 
@@ -43,8 +44,11 @@ def build_parser(config: Optional[RuntimeConfig] = None) -> argparse.ArgumentPar
         "--control-store-path", default=resolved.control_store.path
     )
     parser.add_argument(
-        "--policy", choices=("peer", "moe-hybrid"), default="peer"
+        "--policy", choices=("peer", "moe-hybrid", "quality-risk"), default="peer"
     )
+    parser.add_argument("--quality-mode", choices=("audit-only", "enforce"), default="audit-only")
+    parser.add_argument("--quality-calibration")
+    parser.add_argument("--quality-evidence")
     parser.add_argument("--rendezvous-host", required=True)
     parser.add_argument("--rendezvous-port", type=int, required=True)
     parser.add_argument("--rendezvous-prefix", default="moegambit")
@@ -56,6 +60,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser(config).parse_args(argv)
     if not 0 < int(args.rendezvous_port) <= 65535:
         raise SystemExit("--rendezvous-port must be between 1 and 65535")
+    if args.policy == "quality-risk":
+        if bool(args.quality_calibration) != bool(args.quality_evidence):
+            raise SystemExit("both --quality-calibration and --quality-evidence are required together")
+        if args.quality_mode == "enforce" and not args.quality_calibration:
+            raise SystemExit("quality enforce mode requires qualified calibration and prediction artifacts")
+        provider = (FileRiskEvidenceProvider(args.quality_calibration, args.quality_evidence)
+                    if args.quality_calibration else None)
+        policy = QualityRiskPolicy(provider, mode=args.quality_mode)
+    elif args.policy == "moe-hybrid":
+        policy = MoeHybridPolicy()
+    else:
+        policy = PeerOrCheckpointPolicy()
     if args.control_store == "sqlite":
         control_store = SQLiteControlStore(
             args.control_store_path,
@@ -64,7 +80,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     else:
         control_store = InMemoryControlStore()
-    policy = MoeHybridPolicy() if args.policy == "moe-hybrid" else PeerOrCheckpointPolicy()
     service = RecoveryCoordinatorService(
         store_provider=lambda payload: {
             "host": args.rendezvous_host,

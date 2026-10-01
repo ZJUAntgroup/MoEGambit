@@ -1790,6 +1790,37 @@ class ElasticWatcher:
             if current_step >= 0 and checkpoint_step >= 0
             else -1
         )
+        model_kind = os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower()
+        if model_kind not in ("dense", "moe"):
+            raise ValueError("MOEGAMBIT_MODEL_KIND must be dense or moe")
+        if model_kind == "dense":
+            if not peer_available:
+                reason = "no_peer"
+            elif checkpoint_step < 0:
+                reason = "no_checkpoint"
+            elif current_step < 0 or gap < 0:
+                reason = "no_safe_point"
+            else:
+                reason = "admit"
+            return {
+                "name": "moegambit_dense_full_peer",
+                "admitted": reason == "admit",
+                "reason": reason,
+                "peer_available": bool(peer_available),
+                "current_step": current_step,
+                "checkpoint_step": checkpoint_step,
+                "expert_staleness_delta": 0,
+                "delta_time_min_gap": 0,
+                "max_single_gap": 0,
+                "exposure_window_steps": 0,
+                "num_experts": 0,
+                "num_affected_experts": 0,
+                "window_expert_iteration_debt_before": 0,
+                "projected_expert_iteration_debt": 0,
+                "projected_expert_staleness_density": 0.0,
+                "max_expert_staleness_density": 0.0,
+                "two_phase_enabled": False,
+            }
         min_gap = self._env_int("MOEGAMBIT_DELTA_TIME_MIN_GAP", 32)
         max_gap = self._env_int("MOEGAMBIT_MAX_SINGLE_GAP", 192)
         window_steps = self._env_int("MOEGAMBIT_EXPOSURE_WINDOW_STEPS", 20000)
@@ -1874,6 +1905,8 @@ class ElasticWatcher:
             return
 
         contract = descriptor.get("contract", {}).get("R2", {})
+        if descriptor.get("model_kind", "moe") == "dense":
+            return
         if (
             descriptor.get("recovery_epoch") != recovery_epoch
             or not contract.get("admitted", False)
@@ -1950,6 +1983,7 @@ class ElasticWatcher:
             else -1
         )
         physical_spare_node = int(os.environ.get("NODE_RANK", str(self.training_nnodes)))
+        model_kind = os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower()
         parallel_layout = self._parallel_layout_from_env()
         dense_sizes = parallel_layout["dense"]
         expert_sizes = parallel_layout["expert"]
@@ -2008,7 +2042,11 @@ class ElasticWatcher:
             "killed_local_rank": killed_local_rank,
             "killed_global_rank": killed_global_rank,
             "resume_iteration": resume_iteration,
-            "version_semantics": "intentional_mixed_version",
+            "model_kind": model_kind,
+            "version_semantics": (
+                "full_current_step_peer" if model_kind == "dense"
+                else "intentional_mixed_version"
+            ),
             "checkpoint_step": r2_contract["checkpoint_step"],
             "expert_staleness_delta": r2_contract["expert_staleness_delta"],
             "checkpoint_dir": os.environ.get("CKPT_DIR", ""),
@@ -2055,14 +2093,16 @@ class ElasticWatcher:
                     "source_match": "same_dense_tp_cp_pp_identity_different_dp",
                     "candidate_ranks": dense_peer_candidates,
                 },
-                "expert_parameters": {
-                    "kind": "checkpoint_shard",
-                    "version_step": r2_contract["checkpoint_step"],
-                },
-                "expert_optimizer": {
-                    "kind": "checkpoint_shard",
-                    "version_step": r2_contract["checkpoint_step"],
-                },
+                **({
+                    "expert_parameters": {
+                        "kind": "checkpoint_shard",
+                        "version_step": r2_contract["checkpoint_step"],
+                    },
+                    "expert_optimizer": {
+                        "kind": "checkpoint_shard",
+                        "version_step": r2_contract["checkpoint_step"],
+                    },
+                } if model_kind == "moe" else {}),
                 "runtime_metadata": "recompute_from_descriptor",
             },
             "contract": {
@@ -2104,6 +2144,8 @@ class ElasticWatcher:
                 "state_validation": "fail_closed_before_train_ready",
                 "rank_version_validation": quiescence_proof.get("status", "pending"),
                 "optimizer_requirement": (
+                    "all_optimizer_state_from_current_step_peer"
+                    if model_kind == "dense" else
                     "all_expert_and_non_expert_state_ready_before_train_ready"
                     if not r2_contract["two_phase_enabled"]
                     else "expert_weights_ready_optimizer_commit_guarded"
@@ -2113,6 +2155,8 @@ class ElasticWatcher:
                 "I1_topology_consistency": "all ranks consume the same descriptor epoch",
                 "I2_shard_completeness": "one replacement owns the failed logical rank",
                 "I3_optimizer_availability": (
+                    "all optimizer state from current-step peer, validated before train_ready"
+                    if model_kind == "dense" else
                     "non_expert from DP peer and expert from checkpoint, "
                     "validated before train_ready"
                 ),
@@ -2701,7 +2745,7 @@ class ElasticWatcher:
             "resume_phases": ready_phases,
             "checkpoint_step": r2_contract.get("checkpoint_step", -1),
             "expert_staleness_delta": r2_contract.get("expert_staleness_delta", -1),
-            "recovery_mode": "intentional_mixed_version",
+            "recovery_mode": descriptor["version_semantics"],
             "two_phase_enabled": r2_contract.get("two_phase_enabled", False),
             "rank_quiescence": self.rank_quiescence_proof,
             "new_master_addr": self.master_addr,
@@ -2764,10 +2808,12 @@ class ElasticWatcher:
         env["ELASTIC_RECOVERY_EPOCH"] = str(recovery_epoch)
         env["ELASTIC_PG_GENERATION"] = str(recovery_epoch)
         env["ELASTIC_RECOVERY_DESCRIPTOR"] = str(self.recovery_descriptor_file)
+        recovery_mode = "intentional_mixed_version"
         try:
             with self.recovery_descriptor_file.open("r", encoding="utf-8") as f:
                 descriptor = json.load(f)
             r2_contract = descriptor.get("contract", {}).get("R2", {})
+            recovery_mode = descriptor.get("version_semantics", recovery_mode)
             env["ELASTIC_RECOVERY_DESCRIPTOR_SHA256"] = hashlib.sha256(
                 json.dumps(
                     descriptor, sort_keys=True, separators=(",", ":")
@@ -2779,7 +2825,7 @@ class ElasticWatcher:
         env["ELASTIC_EXPERT_STALENESS_DELTA"] = str(
             r2_contract.get("expert_staleness_delta", -1)
         )
-        env["ELASTIC_MOEGAMBIT_RECOVERY_MODE"] = "intentional_mixed_version"
+        env["ELASTIC_MOEGAMBIT_RECOVERY_MODE"] = recovery_mode
         env["ELASTIC_TWO_PHASE_RECOVERY"] = (
             "1" if r2_contract.get("two_phase_enabled", False) else "0"
         )
@@ -3032,6 +3078,7 @@ class ElasticWatcher:
                 "ELASTIC_CHECKPOINT_STEP",
                 "ELASTIC_EXPERT_STALENESS_DELTA",
                 "ELASTIC_MOEGAMBIT_RECOVERY_MODE",
+                "MOEGAMBIT_MODEL_KIND",
                 "ELASTIC_TWO_PHASE_RECOVERY",
                 "MASTER_ADDR",
                 "MASTER_PORT",

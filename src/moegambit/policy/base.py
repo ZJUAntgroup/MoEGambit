@@ -46,6 +46,8 @@ class RecoveryFacts:
     exposure_history: Sequence[ExposureEvent]
     capabilities: AdapterCapabilities
     state_catalog: Optional[StateCatalog] = None
+    quality_context: Mapping[str, Any] = field(default_factory=dict)
+    control_scope: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

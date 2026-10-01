@@ -777,13 +777,21 @@ def _validate_recovery_descriptor(rebuild_info: dict, world_size: int) -> dict:
             errors.append("survivor_quorum")
 
     state_sources = descriptor.get("state_sources", {})
+    model_kind = descriptor.get("model_kind", "moe")
+    if model_kind not in ("dense", "moe") or model_kind != os.environ.get(
+        "MOEGAMBIT_MODEL_KIND", "moe"
+    ).lower():
+        errors.append("model_kind")
     for state_name in ("non_expert_parameters", "non_expert_optimizer"):
         if int(state_sources.get(state_name, {}).get("version_step", -1)) != expected_iteration:
             errors.append(f"{state_name}_version")
     checkpoint_step = int(descriptor.get("checkpoint_step", -1))
-    for state_name in ("expert_parameters", "expert_optimizer"):
-        if int(state_sources.get(state_name, {}).get("version_step", -1)) != checkpoint_step:
-            errors.append(f"{state_name}_version")
+    if model_kind == "moe":
+        for state_name in ("expert_parameters", "expert_optimizer"):
+            if int(state_sources.get(state_name, {}).get("version_step", -1)) != checkpoint_step:
+                errors.append(f"{state_name}_version")
+    elif any(name in state_sources for name in ("expert_parameters", "expert_optimizer")):
+        errors.append("dense_descriptor_contains_expert_state")
 
     expected_digest = rebuild_info.get("descriptor_sha256")
     actual_digest = hashlib.sha256(
@@ -3319,8 +3327,12 @@ def elastic_replacement_sync_params(model, optimizer, opt_param_scheduler=None):
         ),
         pg_generation=int(os.environ.get("ELASTIC_PG_GENERATION", "-1")),
     )
-    expert_optimizer_summary = _load_expert_optimizer_state_from_checkpoint(
-        optimizer, model_param_to_name
+    model_kind = "moe" if getattr(args, "num_experts", None) else "dense"
+    if model_kind != os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower():
+        raise RuntimeError("[elastic] replacement model kind differs from recovery descriptor")
+    expert_optimizer_summary = (
+        _load_expert_optimizer_state_from_checkpoint(optimizer, model_param_to_name)
+        if model_kind == "moe" else None
     )
     elastic_report_recovery_phase("param_sync_start")
     peer_sync_summary = _sync_params_to_new_rank(
@@ -3339,11 +3351,13 @@ def elastic_replacement_sync_params(model, optimizer, opt_param_scheduler=None):
             "[elastic] state contract failed: no non-expert model params "
             "were received from the current-step peer"
         )
-    if peer_sync_summary["checkpoint_expert_model_params"] <= 0:
+    if model_kind == "moe" and peer_sync_summary["checkpoint_expert_model_params"] <= 0:
         raise RuntimeError(
             "[elastic] state contract failed: replacement model contains no "
             "checkpoint-restored expert params"
         )
+    if model_kind == "dense" and peer_sync_summary["checkpoint_expert_model_params"]:
+        raise RuntimeError("[elastic] dense model unexpectedly contains expert params")
     elastic_report_recovery_phase("param_sync_done")
     zero2_reconfigure_summary = elastic_zero2_reconfigure_after_rebuild(
         int(os.environ.get("ELASTIC_RESUME_ITERATION", "-1"))
@@ -5625,6 +5639,7 @@ def _sync_params_to_new_rank(
         model_param_to_name = _build_model_param_name_map(model)
     model_transfers = []
     expert_count = 0
+    buffer_count = 0
     for chunk_index, model_chunk in enumerate(model):
         for name, param in model_chunk.named_parameters():
             if _is_expert_model_param(name, param):
@@ -5632,7 +5647,13 @@ def _sync_params_to_new_rank(
                 continue
             label = f"dense-param:chunk{chunk_index}:{name}"
             model_transfers.append((label, param.data))
-    dense_count = len(model_transfers)
+        persistent_names = set(model_chunk.state_dict().keys())
+        for name, buffer in model_chunk.named_buffers():
+            if name not in persistent_names or _is_expert_param_name(name):
+                continue
+            model_transfers.append((f"dense-buffer:chunk{chunk_index}:{name}", buffer))
+            buffer_count += 1
+    dense_count = len(model_transfers) - buffer_count
     if not zero2_memory_enabled:
         optimizer_plan = _build_non_expert_optimizer_peer_plan(
             optimizer, model_param_to_name
@@ -5732,6 +5753,7 @@ def _sync_params_to_new_rank(
     )
     return {
         "dense_model_params": dense_count,
+        "dense_model_buffers": buffer_count,
         "checkpoint_expert_model_params": expert_count,
         "non_expert_optimizer": optimizer_summary,
         "source_rank": sync_src_rank,

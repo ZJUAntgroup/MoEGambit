@@ -66,8 +66,9 @@ MoEGambit 将恢复策略和编排逻辑与训练框架解耦。Megatron-LM 与 
   和 checkpoint 记录版本兼容时执行恢复。
 - **阶段感知事务：** forward、backward、optimizer 和 checkpoint 发布阶段
   的故障均有明确的 replay 或 fallback 语义。
-- **有界混合恢复：** 论文中的 R2 策略仅在预计专家陈旧度密度未超过配置预算时，
-  才允许 stale-expert recovery。
+- **质量风险准入（可选）：** 公共协调器新增论文的 `R <= 1` 风险规则，支持审计与
+  执行模式；执行需要有效的整场训练风险证据。引擎兼容路径仍使用原有策略，详见
+  [审计工具说明](docs/ARTIFACT_AUDIT.md)。
 - **Fail-closed：** 参数可能已发生变化时，MoEGambit 不会只回退 iteration
   计数器而继续执行。
 
@@ -249,15 +250,17 @@ rollback/replay 策略、进程组重建状态和诊断逻辑均位于
 9. 提交 epoch，并执行状态转换
    `RECOVERING → REPAIRED → BARRIER → HEALTHY`。
 
-R2 混合恢复策略仅在满足下式时允许部分 checkpoint 恢复：
+公共协调器新增可选质量风险策略：只有经过校准的整场训练质量越界风险上界满足
+`R <= 1` 时，才允许候选混合恢复。默认目标固定为 `eta_final=0.005`、
+`eta_peak=0.01`、`alpha_run=0.05`，不以 checkpoint 年龄或专家密度作为准入阈值。
+证据绑定模型、遥测版本、策略版本、当前故障、状态来源和完整恢复历史。证据缺失、
+过期或超出验证范围时回退 checkpoint；完整 checkpoint 也不可用时中止。
 
-```text
-Phi'(t) = (S(t) + |E_new| × Delta) / (N_expert × W_exp) <= Phi_max
-```
-
-其中 `Delta = t - c`，`S(t)` 是累计 stale-expert exposure，
-`|E_new|` 是本次新增陈旧专家数量，`W_exp` 是 exposure window。
-如果 guard 不通过，runtime 将选择完整 checkpoint restart。
+`--policy quality-risk` 默认仅审计，不执行候选混合恢复。执行模式需要协调器管理的
+可信风险提供器及外部审核的校准证据。仓库没有附带已训练的风险预测器；填写 JSON
+不能构成统计保证。原 `MoeHybridPolicy` 和引擎兼容路径尚未迁移，不能据此宣称它们
+已经实现论文的新公式。新增状态比对、逐 rank 完成核验和小型证据导出使用
+`moegambit-audit`，详见 [使用说明与适用边界](docs/ARTIFACT_AUDIT.md)。
 
 ### 不同故障阶段的语义
 
@@ -345,6 +348,69 @@ DeepSpeed 验证模式：
 
 DeepSpeed `PipelineEngine` 不支持 ZeRO-2/3，因此本仓库不声明支持
 PP=8 与 ZeRO-2 的组合。
+
+### Dense 模型
+
+Megatron-LM 和 DeepSpeed 均可使用 dense 模型。必须在所有训练节点和 watcher/备用节点设置
+`MOEGAMBIT_MODEL_KIND=dense`，且使用不含专家层的模型。训练端会校验这个声明；
+误将带专家的模型声明为 dense 会直接报错。下面两个独立 dense 示例使用合成数据；
+上面的 Qwen3-MoE 验证脚本仍是 MoE 专用的。
+
+两个示例默认使用两个单 GPU 训练节点和一个单 GPU 备用节点。先按上文安装依赖，
+在所有节点设置相同的共享 `RUN_ROOT` 及可互通的地址。先启动备用节点
+（`NODE_RANK=2`），再启动训练节点 0、1。下面的地址仅用于文档示例，运行前须
+替换为实际可达地址；不需要私有数据集、tokenizer 或模型权重。
+
+```bash
+export RUN_ROOT=/shared/runs/dense-example
+export MASTER_ADDR=192.0.2.10
+export ELASTIC_WATCHER_ADDR=192.0.2.12
+
+# 备用节点：
+NODE_RANK=2 bash examples/megatron/run_dense.sh
+# 两个训练节点分别执行：
+NODE_RANK=0 bash examples/megatron/run_dense.sh
+NODE_RANK=1 bash examples/megatron/run_dense.sh
+```
+
+DeepSpeed 示例使用另一个 `RUN_ROOT`，每次运行设置不同的 `RUN_ID`：
+
+```bash
+export RUN_ROOT=/shared/runs/dense-deepspeed-example
+export RUN_ID=dense-demo-001
+export MASTER_ADDR=192.0.2.10
+export ELASTIC_WATCHER_ADDR=192.0.2.12
+
+# 备用节点：
+NODE_RANK=2 bash examples/deepspeed/run_dense.sh
+# 两个训练节点分别执行：
+NODE_RANK=0 bash examples/deepspeed/run_dense.sh
+NODE_RANK=1 bash examples/deepspeed/run_dense.sh
+```
+
+脚本写入
+`completed.json`，检查恢复后的最终 step、`mode=rank_in_process_peer` 与零专家
+陈旧度。两个脚本均可设置 `DRY_RUN=1`，只打印命令而不占用 GPU。默认在第 4 步
+checkpoint 之后、第 5 步已提交边界注入故障。这些小型合成任务仅检验恢复路径，
+不用于测量恢复耗时或训练质量。
+
+Megatron-LM 使用常规 `pretrain_gpt.py` dense 配置：不传 `--num-experts`，
+设置 `EP_SIZE=1`，仍传 `--moe-moegambit-enable` 开启恢复 hook，并确保同一
+TP/PP/CP 分片有至少两个 DP 副本。替换 rank 从 checkpoint 构造基础状态，再从当前
+step 的 DP 同伴接收全部 dense 参数、持久化 buffer 和优化器状态。没有有效同伴时
+拒绝热修复；只有存在有效 checkpoint 时才能执行 checkpoint relaunch。dense 路径
+不使用专家 sidecar。
+
+DeepSpeed 使用相同的 `MOEGAMBIT_HOT_SWAP=1`、`MOEGAMBIT_ZERO2=1`
+（ZeRO-2 时）和 checkpoint 设置。模型参数、buffer 和 RNG 从同一步 DP 同伴恢复，
+ZeRO-1/2 优化器 shard 从主机内存副本恢复。无需启用 packed-expert checkpoint。
+环境变量 `MOEGAMBIT_DEEPSPEED_RECOVERY_STRATEGY` 仍使用
+`rank_in_process_hybrid` 作为传输协议名；恢复结果的 `mode` 为
+`rank_in_process_peer`，`expert_staleness=0`。PP 与 ZeRO-2 的组合仍不受支持。
+
+自动化测试覆盖 dense 选择、状态源契约和错误配置。dense 路径已在目标集群通过多机
+GPU 故障恢复测试；运行清单和原始轨迹尚未收录在本仓库，因此这里不据此给出 dense
+模型的恢复耗时或质量数值结论。
 
 ### Dry run
 
@@ -589,10 +655,13 @@ python elastic_watcher.py --adapter deepspeed \
 ```bash
 bash -n \
   examples/megatron/run_hot_spare.sh \
+  examples/megatron/run_dense.sh \
   examples/deepspeed/run_hot_spare.sh \
+  examples/deepspeed/run_dense.sh \
   test_hotspare_replace.sh \
   test_deepspeed_hotspare_replace.sh
 
+python -m py_compile examples/deepspeed/dense_workload.py
 python -m compileall -q src
 python -m pytest tests -q
 git diff --check

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 from urllib.parse import quote
 
@@ -51,6 +51,7 @@ def _stable_request_digest(payload: Mapping[str, Any]) -> str:
         "available_state_sources": payload.get("available_state_sources"),
         "latest_checkpoint_step": payload.get("latest_checkpoint_step"),
         "exposure_history": payload.get("exposure_history"),
+        "quality_context": payload.get("quality_context"),
     }
     try:
         blob = json.dumps(
@@ -408,6 +409,9 @@ class RecoveryCoordinatorService:
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 raise RecoveryRejected(f"invalid exposure event: {exc}") from exc
+        quality_context = payload.get("quality_context", {})
+        if not isinstance(quality_context, Mapping):
+            raise RecoveryRejected("quality_context must be an object")
         return RecoveryFacts(
             failed_ranks=failed_ranks,
             resume_step=int(payload["at_step"]),
@@ -415,6 +419,7 @@ class RecoveryCoordinatorService:
             available_state_sources=candidates,
             exposure_history=tuple(exposure),
             capabilities=capabilities,
+            quality_context=dict(quality_context),
         )
 
     def _reject_stale(self, scope: Tuple[str, str], epoch: int) -> None:
@@ -474,6 +479,12 @@ class RecoveryCoordinatorService:
                 return dict(existing.response)
 
             facts = self._facts(payload, failed_ranks, world_size, capabilities)
+            facts = replace(facts, control_scope={
+                "job_id": job_id, "attempt_id": attempt_id,
+                "recovery_epoch": epoch,
+                "topology_generation": payload["topology_generation"],
+                "group_manifest_hash": payload["group_manifest_hash"],
+            })
             decision = self.policy.decide(facts)
             if decision.mode is RecoveryMode.ABORT:
                 raise RecoveryRejected(

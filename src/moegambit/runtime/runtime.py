@@ -32,12 +32,14 @@ class RecoveryRuntime:
         executor: Optional[RecoveryExecutor] = None,
         fallback_controller: Optional[FallbackController] = None,
         metrics: Optional[RecoveryMetrics] = None,
+        event_sink: Any = None,
     ) -> None:
         self.adapter = adapter
         self.config = config or RuntimeConfig()
         self.coordinator = coordinator
         self.fallback_controller = fallback_controller
         self.metrics = metrics or RecoveryMetrics()
+        self.event_sink = event_sink
         self.epochs = RecoveryEpochTracker()
         self.executor = executor
         self._resume_step = 0
@@ -170,6 +172,7 @@ class RecoveryRuntime:
             if not self._last_record_observed:
                 self.metrics.observe_record(self._last_record)
                 self._last_record_observed = True
+                self._emit_record(self._last_record)
         return promoted or driver_committed
 
     def on_distributed_error(self, exc: BaseException) -> bool:
@@ -399,6 +402,15 @@ class RecoveryRuntime:
         self._last_record = record
         self.metrics.observe_record(record)
         self._last_record_observed = True
+        self._emit_record(record)
+
+    def _emit_record(self, record: RecoveryRecord) -> None:
+        if self.event_sink is not None:
+            try:
+                self.event_sink(record)
+            except Exception:
+                # Evidence I/O cannot undo a committed training iteration.
+                logger.exception("failed to publish recovery evidence for epoch %s", record.recovery_epoch)
 
     def _classify_error(self, exc: BaseException) -> FailureClassification:
         driver = getattr(self.adapter, "recovery_driver", None)
@@ -504,6 +516,7 @@ def initialize(
     fallback_controller: Optional[FallbackController] = None,
     state_source_resolver: Any = None,
     metrics: Optional[RecoveryMetrics] = None,
+    event_sink: Any = None,
     **overrides: object,
 ) -> RecoveryRuntime:
     resolved = config or RuntimeConfig.from_env()
@@ -567,6 +580,7 @@ def initialize(
         executor=executor,
         fallback_controller=fallback_controller,
         metrics=metrics,
+        event_sink=event_sink,
     )
     replacement_mode = os.environ.get("MOEGAMBIT_REPLACEMENT", "0").lower() in {
         "1",

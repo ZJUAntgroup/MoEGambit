@@ -491,3 +491,36 @@ def test_signed_control_plane_freezes_one_plan_for_survivor_and_replacement():
     snapshot = service.snapshot("job-e2e", "attempt-e2e")
     assert snapshot["latest_epoch"] == 1
     assert len(snapshot["assignments"]) == 1
+
+
+def test_event_sink_publishes_only_after_full_recovery_commit():
+    events = []
+    runtime = RecoveryRuntime(
+        _adapter([]), RuntimeConfig(enabled=True),
+        coordinator=StaticRecoveryCoordinator(_assignment()),
+        event_sink=lambda record: events.append(record.to_dict()),
+    )
+    assert runtime.on_distributed_error(_failure())
+    assert events == []  # Successful first forward is still provisional.
+    assert not runtime.commit_iteration(9)
+    assert events == []
+    assert runtime.commit_iteration(10)
+    assert len(events) == 1
+    assert events[0]["result"] == "committed"
+    assert events[0]["validation"]["committed_step"] == 10
+    runtime.commit_iteration(11)
+    assert len(events) == 1
+
+
+def test_event_sink_error_has_traceback_and_cannot_undo_commit(caplog):
+    def broken(record): raise OSError("No space left on device")
+    runtime = RecoveryRuntime(
+        _adapter([]), RuntimeConfig(enabled=True),
+        coordinator=StaticRecoveryCoordinator(_assignment()), event_sink=broken,
+    )
+    assert runtime.on_distributed_error(_failure())
+    assert runtime.commit_iteration(10)
+    assert runtime.epochs.state is EpochState.COMMITTED
+    assert any(record.exc_info and "publish recovery evidence" in record.message
+               for record in caplog.records)
+    assert "No space left on device" in caplog.text

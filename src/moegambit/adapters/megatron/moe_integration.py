@@ -466,6 +466,12 @@ def maybe_initialize_moegambit_moe(model, args, optimizer=None, opt_param_schedu
     if not getattr(args, 'moe_moegambit_enable', False):
         return False
 
+    # Dense Megatron jobs use the framework-neutral recovery runtime, but do
+    # not have expert groups, checkpoint shards, or a routing controller.
+    if not getattr(args, 'num_experts', None):
+        logger.info("MOEGAMBIT: dense model; skipping MoE-specific initialization")
+        return False
+
     rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
 
     logger.warning("[%s] MOEGAMBIT-MoE: initializing on rank %d ...", _ts(), rank)

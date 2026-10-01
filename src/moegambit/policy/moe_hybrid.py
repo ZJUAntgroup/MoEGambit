@@ -122,8 +122,7 @@ class MoeHybridPolicy:
             "resume_step": facts.resume_step,
             "latest_checkpoint_step": facts.latest_checkpoint_step,
             "state_sources": source_evidence(facts),
-            "staleness_threshold": self.max_expert_staleness_density,
-            "exposure_window_steps": self.exposure_window_steps,
+            **self._policy_evidence(),
         }
         checkpoint = checkpoint_version(facts)
         if not facts.available_state_sources:
@@ -219,6 +218,23 @@ class MoeHybridPolicy:
                 evidence,
                 "invalid_checkpoint_gap",
             )
+        evidence.update({
+            "dense_live_version": version_evidence(dense),
+            "expert_checkpoint_version": version_evidence(expert_checkpoint),
+            "unique_expert_identities": list(unique),
+            "checkpoint_gap": checkpoint_gap,
+        })
+        return self._admit_hybrid(facts, checkpoint, evidence, classified, unique)
+
+    def _policy_evidence(self) -> Mapping[str, Any]:
+        return {
+            "staleness_threshold": self.max_expert_staleness_density,
+            "exposure_window_steps": self.exposure_window_steps,
+        }
+
+    def _admit_hybrid(self, facts, checkpoint, evidence, classified, unique):
+        """Legacy density gate; subclasses reuse source checks, not this gate."""
+        checkpoint_gap = facts.resume_step - facts.latest_checkpoint_step
         window_start = facts.resume_step - self.exposure_window_steps
         historic_debt = 0
         for event in facts.exposure_history:
@@ -255,10 +271,6 @@ class MoeHybridPolicy:
         density = (historic_debt + current_debt) / denominator
         evidence.update(
             {
-                "dense_live_version": version_evidence(dense),
-                "expert_checkpoint_version": version_evidence(expert_checkpoint),
-                "unique_expert_identities": list(unique),
-                "checkpoint_gap": checkpoint_gap,
                 "historic_expert_step_debt": historic_debt,
                 "current_expert_step_debt": current_debt,
                 "projected_expert_staleness_density": density,

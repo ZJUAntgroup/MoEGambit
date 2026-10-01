@@ -19,6 +19,8 @@ from .resolver import (
     serialize_source_candidates,
 )
 from .moe_hybrid import MoeHybridPolicy
+from .quality_risk import (QualityRiskPolicy, RiskEvidenceProvider,
+                           FileRiskEvidenceProvider, risk_context_digest)
 
 __all__ = [
     "ExposureEvent",
@@ -36,4 +38,8 @@ __all__ = [
     "serialize_source_candidates",
     "parse_source_candidates",
     "MoeHybridPolicy",
+    "QualityRiskPolicy",
+    "RiskEvidenceProvider",
+    "FileRiskEvidenceProvider",
+    "risk_context_digest",
 ]

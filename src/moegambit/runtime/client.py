@@ -267,7 +267,12 @@ def build_recovery_request_payload(
     exposure_history: Sequence[Mapping[str, Any]] = ()
     if isinstance(adapter.state, RecoveryEvidenceProvider):
         exposure_history = adapter.state.recovery_exposure_history(query)
+    context_provider = getattr(adapter.state, "quality_recovery_context", None)
+    quality_context = context_provider(query) if callable(context_provider) else {}
+    if not isinstance(quality_context, Mapping):
+        raise ContractViolation("quality_recovery_context must return an object")
     return {
+        "quality_context": dict(quality_context),
         "at_step": request.at_step,
         "recovery_epoch": request.recovery_epoch,
         "topology_generation": request.topology_generation,

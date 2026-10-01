@@ -151,6 +151,17 @@ class DeepSpeedRecoveryRuntime:
         self.last_failure_decision: FailureDecision | None = None
 
     def start(self) -> "DeepSpeedRecoveryRuntime":
+        model_kind = os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower()
+        if model_kind not in ("dense", "moe"):
+            raise ValueError("MOEGAMBIT_MODEL_KIND must be dense or moe")
+        if model_kind == "dense":
+            from .hybrid_restore import has_expert_state
+
+            if has_expert_state(self.engine):
+                raise RuntimeError(
+                    "MOEGAMBIT_MODEL_KIND=dense, but the DeepSpeed model or "
+                    "optimizer contains expert state"
+                )
         needs_optimizer_replica = (
             self.settings.zero2 or self.settings.hybrid_restore
         )
@@ -369,13 +380,13 @@ class DeepSpeedRecoveryRuntime:
             },
         )
         self._report_rank_phase("recovery_state_commit_done")
+        dense = os.environ.get("MOEGAMBIT_MODEL_KIND", "moe").lower() == "dense"
         self.recovery_contract = {
-            "mode": "rank_in_process_hybrid",
+            "mode": "rank_in_process_peer" if dense else "rank_in_process_hybrid",
+            "model_kind": "dense" if dense else "moe",
             "checkpoint_step": checkpoint_step_value,
             "resume_step": failure_step,
-            "expert_staleness": (
-                failure_step - checkpoint_step_value
-            ),
+            "expert_staleness": 0 if dense else failure_step - checkpoint_step_value,
             "rollback_steps": 0,
             "survivor_state": "resident_cuda",
             "survivor_processes_restarted": 0,
@@ -385,8 +396,8 @@ class DeepSpeedRecoveryRuntime:
                 "current_step_peer_replica"
             ),
             "replacement_rng": "current_step_peer",
-            "replacement_expert_model": "checkpoint",
-            "replacement_expert_optimizer": "checkpoint",
+            "replacement_expert_model": "not_applicable" if dense else "checkpoint",
+            "replacement_expert_optimizer": "not_applicable" if dense else "checkpoint",
         }
         self._report_rank_phase("non_expert_peer_restore_done")
         logger.warning(
