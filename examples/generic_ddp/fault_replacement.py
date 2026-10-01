@@ -413,10 +413,19 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         import torch
-        import torch.multiprocessing as multiprocessing
     except ImportError:
         print("PyTorch is required for the real rank-replacement example.")
         return 2
+    if "init_sync" not in inspect.signature(
+        torch.nn.parallel.DistributedDataParallel
+    ).parameters:
+        print(
+            "Rank replacement requires PyTorch >=2.7 with DDP init_sync=False; "
+            "install the generic-ddp extra before running this example.",
+            file=sys.stderr,
+        )
+        return 2
+    import torch.multiprocessing as multiprocessing
     if args.backend == "nccl" and torch.cuda.device_count() < 2:
         print("--backend nccl requires at least two visible GPUs.")
         return 2

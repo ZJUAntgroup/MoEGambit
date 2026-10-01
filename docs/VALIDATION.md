@@ -7,7 +7,7 @@ recovery performance.
 ## Reproducible CPU smoke test
 
 ```bash
-python -m pip install -e '.[dev,torch]'
+python -m pip install -e '.[dev,generic-ddp]'
 python -m pytest tests -q
 python examples/generic_ddp/fault_replacement.py --fail-rank 0
 python examples/generic_ddp/fault_replacement.py --fail-rank 1
@@ -17,11 +17,14 @@ python tools/check_publication.py
 The test suite includes real two-process DDP with one checkpoint writer, checks
 that both ranks finish with the same model digest, and compares a cold resume
 against uninterrupted training. A missing PyTorch installation skips those
-checks, so install the `torch` extra before interpreting a green test result.
+checks, so install the `generic-ddp` extra before interpreting a green test result.
 That extra includes NumPy for optimizer memory transport.
 
 GitHub Actions runs the suite and both fail-stop cases on Linux with Python
-3.10/3.12 and CPU PyTorch 2.6.0. The workflow is a configured check; consult its
+3.10/3.12 and CPU PyTorch 2.7.1. Rank replacement requires DDP's `init_sync=False`
+option, which is available from PyTorch 2.7. The workflow limits CPU thread pools
+to avoid oversubscription in the two-process examples and retains JUnit results
+with failure annotations. The workflow is a configured check; consult its
 actual run status before claiming a CI result.
 
 On macOS, select the loopback interface if Gloo cannot resolve the host name:

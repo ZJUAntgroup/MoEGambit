@@ -7,10 +7,15 @@ buffers, AdamW slots, and optimizer param-group options from a survivor, then
 checks that both ranks finish with the same complete training-state digest.
 
 ```bash
-pip install -e '.[torch]'
+pip install -e '.[generic-ddp]'
 python examples/generic_ddp/fault_replacement.py
 python examples/generic_ddp/fault_replacement.py --fail-rank 0
 ```
+
+Rank replacement requires PyTorch 2.7 or newer: `init_sync=False` keeps a
+replacement rank from overwriting the surviving peer during DDP reconstruction.
+The example checks this capability before starting worker processes. Ordinary
+training and checkpoint relaunch do not require this constructor option.
 
 For NCCL, use a machine with two visible GPUs:
 
@@ -32,8 +37,10 @@ torchrun --nnodes=1 --nproc-per-node=2 \
 ```
 
 The loop initializes DDP when launched with rank environment variables, honors
-`--steps`, and reports each rank's final model digest. Only rank 0 writes the
-checkpoint; all ranks wait for successful publication before advertising it.
+`--steps`, and gathers each rank's final model digest for rank 0 to print. A
+single result writer prevents concurrent JSON records from sharing a log line.
+Only rank 0 writes the checkpoint; all ranks wait for successful publication
+before advertising it.
 Batches are deterministic by seed, logical rank and committed step, so a cold
 resume uses the same input stream. Use `--backend nccl` for CUDA; Gloo/CPU is the
 default. Ordinary training leaves recovery disabled unless `MOEGAMBIT_ENABLED=1`.

@@ -468,6 +468,10 @@ torchrun --standalone --nproc-per-node=2 \
 See [examples/generic_ddp/README.md](examples/generic_ddp/README.md) for the
 fault-replacement walkthrough.
 
+Generic DDP rank replacement requires PyTorch 2.7 or newer and can be installed
+with `python -m pip install -e '.[generic-ddp]'`. This requirement applies to DDP
+reconstruction; the bundled Megatron experiment's environment is listed below.
+
 ## Paper Results
 
 The accompanying paper artifact reports **20.6%-55.0% lower raw recovery

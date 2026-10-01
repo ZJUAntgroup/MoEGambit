@@ -2,15 +2,42 @@
 
 import json
 import os
+import runpy
 from pathlib import Path
 import shlex
 import socket
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("rank", [0, 1])
+def test_completed_records_have_one_writer_and_include_both_ranks(rank, capsys):
+    records = [{"rank": r, "model_digest": "same"} for r in (0, 1)]
+    calls = []
+
+    def gather(record, output, dst):
+        calls.append(record)
+        assert dst == 0
+        if rank == 0:
+            output[:] = records
+        else:
+            assert output is None
+
+    torch = SimpleNamespace(distributed=SimpleNamespace(
+        is_initialized=lambda: True, get_rank=lambda: rank,
+        get_world_size=lambda: 2, gather_object=gather))
+    script = runpy.run_path(str(ROOT / "examples/generic_ddp/train_loop.py"))
+    script["report_completion"](torch, records[rank])
+    assert calls == [records[rank]]
+    lines = capsys.readouterr().out.splitlines()
+    assert [json.loads(line.split("completed: ", 1)[1]) for line in lines] == (
+        records if rank == 0 else []
+    )
 
 
 def _free_port():

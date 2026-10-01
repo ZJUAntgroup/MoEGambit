@@ -34,6 +34,7 @@ deepspeed = "moegambit.adapters.deepspeed.engine:DeepSpeedEngineAdapter"
 
 [project.optional-dependencies]
 torch = ["torch>=2.0", "numpy"]
+generic-ddp = ["torch>=2.7", "numpy"]
 dev = ["pytest>=7.0"]
 
 [tool.setuptools]

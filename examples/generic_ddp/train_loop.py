@@ -114,6 +114,19 @@ def commit_checkpoint(torch, runtime, model, optimizer, resume_step, args):
     runtime.record_checkpoint(str(target), resume_step)
 
 
+def report_completion(torch, record):
+    """Collect both rank results and print them through a single stdout writer."""
+    records = [record]
+    if torch.distributed.is_initialized():
+        rank = torch.distributed.get_rank()
+        records = [None] * torch.distributed.get_world_size() if rank == 0 else None
+        torch.distributed.gather_object(record, records, dst=0)
+        if rank != 0:
+            return
+    for result in records:
+        print("completed: " + json.dumps(result), flush=True)
+
+
 def main(argv=None):
     args = parse_args(argv)
     try:
@@ -176,8 +189,8 @@ def main(argv=None):
         digest = hashlib.sha256()
         for tensor in raw_model(model).state_dict().values():
             digest.update(bytes(tensor.detach().cpu().contiguous().view(torch.uint8).flatten().tolist()))
-        print("completed: " + json.dumps({"rank": rank, "ddp": distributed,
-              "completed_steps": cursor, "model_digest": digest.hexdigest()}), flush=True)
+        report_completion(torch, {"rank": rank, "ddp": distributed,
+              "completed_steps": cursor, "model_digest": digest.hexdigest()})
         return 0
     finally:
         if owns_group and torch.distributed.is_initialized():

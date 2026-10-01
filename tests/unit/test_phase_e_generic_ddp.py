@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import runpy
 import subprocess
 import sys
 from contextlib import nullcontext
@@ -383,6 +384,19 @@ def test_cpu_and_gpu_conformance_programs_are_present_and_selectable():
     assert 'for field in ("model_digest", "optimizer_digest", "state_digest")' in source
     assert 'choices=(0, 1)' in source
     assert "optimizer_was_empty" in source
+
+
+def test_rank_replacement_rejects_unsupported_torch_before_spawning(monkeypatch, capsys):
+    def legacy_ddp(module, process_group=None):
+        raise AssertionError("DDP must not start in an unsupported environment")
+
+    torch = SimpleNamespace(
+        nn=SimpleNamespace(parallel=SimpleNamespace(DistributedDataParallel=legacy_ddp))
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    script = runpy.run_path(str(ROOT / "examples/generic_ddp/fault_replacement.py"))
+    assert script["main"](["--fail-rank", "0"]) == 2
+    assert "PyTorch >=2.7" in capsys.readouterr().err
 
 
 def test_peer_restore_does_not_depend_on_numpy_object_collectives():
