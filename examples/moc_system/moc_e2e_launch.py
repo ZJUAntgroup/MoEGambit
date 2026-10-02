@@ -121,6 +121,28 @@ def phase_command(command, cfg, job, phase, job_index):
     return argv + ["--load", str(load), "--ckpt-step", str(step), "--exit-interval", str(stop)]
 
 
+
+def worker_failure_details(phase_dir, node, orchestrator=None):
+    """Keep a bounded worker error excerpt in the launcher's own failure log."""
+    phase_dir = Path(phase_dir)
+    paths = [(phase_dir / f"node_{node}.log", 8192)]
+    errors = sorted((phase_dir / "worker_errors").glob("FAILED.rank_*.json"))
+    paths += [(path, 6144) for path in errors[:3]]
+    if orchestrator is not None:
+        paths += [(path, 4096) for path in sorted(Path(orchestrator).glob("FAILED.node_*.json"))[:1]]
+    parts = []
+    for path, limit in paths:
+        try:
+            with path.open('rb') as stream:
+                stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, stream.tell() - limit))
+                content = stream.read(limit).decode('utf-8', errors='replace')
+            parts.append(f"--- {path} (last {limit} bytes) ---\n{content}")
+        except OSError as error:
+            parts.append(f"--- {path} ---\nCannot read diagnostic: {error}")
+    return "\n".join(parts)
+
+
 def run():
     cfg = manifest()
     root, scratch = Path(cfg["result_dir"]), Path(cfg["scratch"])
@@ -203,13 +225,16 @@ def run():
                     deadline = time.monotonic() + 7200
                     while process.poll() is None:
                         if list((root / "orchestrator").glob("FAILED.node_*.json")):
-                            raise RuntimeError("another node failed during torchrun")
+                            raise RuntimeError("another node failed during torchrun\n" +
+                                               worker_failure_details(job_root / phase, node, root / "orchestrator"))
                         if time.monotonic() > deadline:
-                            raise TimeoutError("torchrun exceeded the two-hour per-phase deadline")
+                            raise TimeoutError("torchrun exceeded the two-hour per-phase deadline\n" +
+                                               worker_failure_details(job_root / phase, node))
                         time.sleep(1)
                     atomic_json(job_root / phase / f"resources.node_{node}.end.json", resource_snapshot(root, scratch))
                     if process.returncode:
-                        raise RuntimeError(f"torchrun exited {process.returncode}; see {job_root / phase / f'node_{node}.log'}")
+                        raise RuntimeError(f"torchrun exited {process.returncode}; see {job_root / phase / f'node_{node}.log'}\n" +
+                                           worker_failure_details(job_root / phase, node))
                 atomic_json(root / "orchestrator" / f"{job['id']}.{phase}.DONE.node_{node}.json",
                             {"time": time.time(), "returncode": 0, "torchrun_pid": process.pid})
                 wait(root, lambda: all((root / "orchestrator" / f"{job['id']}.{phase}.DONE.node_{i}.json").exists()

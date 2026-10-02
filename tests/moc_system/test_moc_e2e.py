@@ -12,7 +12,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from moc_e2e_launch import CacheServer, cache_request, phase_command
+from moc_e2e_launch import worker_failure_details, CacheServer, cache_request, phase_command
 from moc_e2e_plan import manifest
 from moc_e2e_summarize import validate_job, summarize
 from moc_timing_launch import atomic_json
@@ -20,6 +20,24 @@ from moc_e2e_pretrain import install_training_hooks
 
 
 class EndToEndTests(unittest.TestCase):
+    def test_launcher_failure_contains_worker_root_cause_and_bounded_log_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase = Path(tmp) / 'prefix'
+            errors = phase / 'worker_errors'
+            errors.mkdir(parents=True)
+            (phase / 'node_1.log').write_text('old log line\n' * 2000 + 'RuntimeError: checkpoint shard missing\n')
+            atomic_json(errors / 'FAILED.rank_8.json', {'traceback': 'FileNotFoundError: checkpoint.pt'})
+            control = Path(tmp) / 'orchestrator'
+            control.mkdir()
+            atomic_json(control / 'FAILED.node_0.json', {'traceback': 'first failing node'})
+            details = worker_failure_details(phase, 1, control)
+            self.assertIn('checkpoint shard missing', details)
+            self.assertIn('FileNotFoundError: checkpoint.pt', details)
+            self.assertIn('first failing node', details)
+            self.assertLess(len(details), 20000)
+            (phase / 'node_1.log').unlink()
+            self.assertIn('Cannot read diagnostic', worker_failure_details(phase, 1))
+
     def test_public_entrypoint_plan_is_portable_and_preserves_legacy_scratch_alias(self):
         script = Path(__file__).resolve().parents[2] / "examples/moc_system/run_moc_e2e.sh"
         with tempfile.TemporaryDirectory() as tmp:
