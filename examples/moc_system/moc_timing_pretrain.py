@@ -21,6 +21,8 @@ def main():
         import torch.distributed as dist
         from megatron.training import training, get_args
         from moc_timing_runtime import Suite
+        from moc_timing_data import install_timing_data_hook
+        install_timing_data_hook(training, get_args)
         setup = training.setup_model_and_optimizer
         step = training.train_step
         smoke = []

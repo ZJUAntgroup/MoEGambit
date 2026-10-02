@@ -196,5 +196,48 @@ class PhysicalTests(unittest.TestCase):
                     num_experts=8, num_layers=8, pipeline_model_parallel_size=8))
 
 
+
+class TimingDataTests(unittest.TestCase):
+    def fixture(self, eval_iters=0, full_validation=False, fail=False):
+        from types import SimpleNamespace
+        from moc_timing_data import install_timing_data_hook
+        settings = SimpleNamespace(eval_iters=eval_iters, full_validation=full_validation,
+                                   consumed_valid_samples=12800, consumed_train_samples=256000,
+                                   iteration=4000)
+        seen = []
+        def original(provider):
+            seen.append((settings.consumed_valid_samples, settings.consumed_train_samples,
+                         settings.iteration, provider))
+            if fail:
+                raise RuntimeError("loader failed")
+            return "loaders"
+        training = SimpleNamespace(build_train_valid_test_data_loaders=original,
+                                   print_rank_0=lambda message: None)
+        install_timing_data_hook(training, lambda: settings)
+        return training, settings, seen
+
+    def test_disabled_validation_preserves_checkpoint_and_train_cursor(self):
+        for counts in (0, [0, 0]):
+            with self.subTest(counts=counts):
+                training, settings, seen = self.fixture(eval_iters=counts)
+                self.assertEqual(training.build_train_valid_test_data_loaders("provider"), "loaders")
+                self.assertEqual(seen, [(0, 256000, 4000, "provider")])
+                self.assertEqual(settings.consumed_valid_samples, 12800)
+
+    def test_enabled_validation_is_unmodified(self):
+        for counts, full in ((20, False), ([0, 20], False), (0, True)):
+            with self.subTest(counts=counts, full=full):
+                training, settings, seen = self.fixture(counts, full)
+                training.build_train_valid_test_data_loaders("provider")
+                self.assertEqual(seen[0][0], 12800)
+                self.assertEqual(settings.consumed_valid_samples, 12800)
+
+    def test_counter_is_restored_on_loader_failure(self):
+        training, settings, seen = self.fixture(fail=True)
+        with self.assertRaisesRegex(RuntimeError, "loader failed"):
+            training.build_train_valid_test_data_loaders("provider")
+        self.assertEqual(settings.consumed_valid_samples, 12800)
+        self.assertEqual(settings.consumed_train_samples, 256000)
+
 if __name__ == "__main__":
     unittest.main()

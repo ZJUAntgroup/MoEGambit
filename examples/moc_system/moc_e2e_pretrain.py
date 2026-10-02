@@ -62,6 +62,8 @@ def main():
     checkpoint_metrics = {}
     pool = ThreadPoolExecutor(max_workers=1)
     original_setup, original_step, original_pretrain = training.setup_model_and_optimizer, training.train_step, training.pretrain
+    from moc_timing_data import install_timing_data_hook
+    install_timing_data_hook(training, get_args)
 
     def context(settings, data_iterator):
         state = {"step": cfg["checkpoint_step"],
