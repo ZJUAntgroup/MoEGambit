@@ -1,5 +1,9 @@
 """CPU tests for surviving cache, actual worker lifetime, and result integrity."""
 import copy
+import ast
+import logging
+import math
+from typing import Optional
 import importlib.util
 import json
 import os
@@ -16,10 +20,49 @@ from moc_e2e_launch import worker_failure_details, CacheServer, cache_request, p
 from moc_e2e_plan import manifest
 from moc_e2e_summarize import validate_job, summarize
 from moc_timing_launch import atomic_json
-from moc_e2e_pretrain import install_training_hooks
+from moc_e2e_pretrain import install_training_hooks, restore_checkpoint_scheduler
 
 
 class EndToEndTests(unittest.TestCase):
+    def test_native_scheduler_restore_overwrites_baseline_progress_and_matches_replay(self):
+        # Execute the actual vendored scheduler class without importing GPU
+        # frameworks. This reproduces load_state_dict's additive behavior.
+        source = Path(__file__).resolve().parents[2] / 'Megatron-LM/megatron/core/optimizer_param_scheduler.py'
+        tree = ast.parse(source.read_text())
+        definition = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                          and node.name == 'OptimizerParamScheduler')
+        namespace = {'logging': logging, 'logger': logging.getLogger('scheduler_test'),
+                     'math': math, 'Optional': Optional,
+                     'MegatronOptimizer': object, 'log_single_rank': lambda *args: None}
+        exec(compile(ast.Module(body=[definition], type_ignores=[]), str(source), 'exec'), namespace)
+        Scheduler = namespace['OptimizerParamScheduler']
+        def create():
+            optimizer = SimpleNamespace(param_groups=[{'lr_mult': 1.0, 'wd_mult': 1.0},
+                                                      {'lr_mult': 2.0, 'wd_mult': 0.0}])
+            return Scheduler(optimizer=optimizer, init_lr=0.0, max_lr=1e-4, min_lr=1e-5,
+                             lr_warmup_steps=320, lr_decay_steps=640000, lr_decay_style='cosine',
+                             start_wd=0.1, end_wd=0.1, wd_incr_steps=640000, wd_incr_style='constant')
+        prefix = create()
+        prefix.step(increment=4001 * 64)
+        state = copy.deepcopy(prefix.state_dict())
+        broken = create()
+        broken.step(increment=4000 * 64)
+        broken.load_state_dict(state)
+        self.assertEqual(broken.num_steps, (4000 + 4001) * 64)
+        self.assertNotEqual(broken.optimizer.param_groups[0]['lr'], prefix.optimizer.param_groups[0]['lr'])
+        resumed = create()
+        resumed.step(increment=4000 * 64)
+        for _ in range(2):
+            restore_checkpoint_scheduler(resumed, state)
+            self.assertEqual(resumed.num_steps, 4001 * 64)
+            self.assertEqual(resumed.state_dict(), prefix.state_dict())
+            self.assertEqual(resumed.optimizer.param_groups, prefix.optimizer.param_groups)
+        prefix.step(increment=64)
+        resumed.step(increment=64)
+        self.assertEqual(resumed.state_dict(), prefix.state_dict())
+        self.assertEqual(resumed.optimizer.param_groups, prefix.optimizer.param_groups)
+        self.assertEqual(state['num_steps'], 4001 * 64)
+
     def test_launcher_failure_contains_worker_root_cause_and_bounded_log_tail(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase = Path(tmp) / 'prefix'

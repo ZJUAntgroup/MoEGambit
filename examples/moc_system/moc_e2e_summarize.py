@@ -71,7 +71,9 @@ def validate_job(cfg, job, root):
             if row["step"] <= cfg["failure_step"]:
                 for field in ("consumed_samples_before", "learning_rates_before", "learning_rates_after"):
                     if row[field] != p_schedule[row["step"]][field]:
-                        raise ValueError(f"replay sample counter/LR schedule differs on rank {rank}")
+                        raise ValueError(f"replay sample counter/LR schedule differs on rank {rank}: "
+                                         f"step={row['step']}, field={field}, "
+                                         f"prefix={p_schedule[row['step']][field]!r}, resume={row[field]!r}")
                 for key, value in row["loss"].items():
                     baseline = p_losses[row["step"]][key]
                     replay_loss.append(abs(value - baseline) / max(abs(baseline), 1e-12))

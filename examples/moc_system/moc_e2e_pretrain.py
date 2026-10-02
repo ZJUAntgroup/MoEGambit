@@ -23,6 +23,25 @@ def tensor_digest(value):
     return hashlib.sha256(value.detach().cpu().contiguous().reshape(-1).view(__import__('torch').uint8).numpy().tobytes()).hexdigest()
 
 
+
+def restore_checkpoint_scheduler(scheduler, state):
+    """Restore absolute progress into an already baseline-loaded scheduler.
+
+    Megatron's load_state_dict calls step(increment=saved_num_steps); it does
+    not overwrite num_steps. Reset that accumulator before a second load.
+    """
+    expected = state.get("num_steps", state.get("num_iters"))
+    if expected is None or expected < 0 or not hasattr(scheduler, "num_steps"):
+        raise ValueError("unsupported checkpoint scheduler progress")
+    scheduler.num_steps = 0
+    scheduler.load_state_dict(copy.deepcopy(state))
+    # Megatron loads WD schedule fields after its initial step call. Refresh
+    # group LR/WD at the saved absolute position without advancing progress.
+    scheduler.step(increment=0)
+    if scheduler.num_steps != expected:
+        raise ValueError(f"scheduler restoration advanced progress: expected={expected}, actual={scheduler.num_steps}")
+
+
 def install_training_hooks(package, setup, step, pretrain):
     # pretrain_gpt imports the re-export, not training.training.pretrain.
     package.training.setup_model_and_optimizer = setup
@@ -92,7 +111,7 @@ def main():
         for key, value in metadata["counters"].items():
             setattr(settings, key, value)
         update_num_microbatches(consumed_samples=settings.consumed_train_samples, verbose=True)
-        scheduler.load_state_dict(metadata["scheduler"])
+        restore_checkpoint_scheduler(scheduler, metadata["scheduler"])
         if metadata["rerun"] is not None:
             get_rerun_state_machine().load_state_dict(metadata["rerun"])
         values = metadata["rng"]
@@ -163,7 +182,10 @@ def main():
                         {"rank": rank, "source": source, "verified_fields": checked,
                          "checkpoint_step": settings.iteration, "pid": os.getpid(),
                          "expert_units": sum(unit.startswith("expert/") for unit in overlay),
-                         "base_expert_step": cfg["step"], "selected_expert_step": cfg["checkpoint_step"]})
+                         "base_expert_step": cfg["step"], "selected_expert_step": cfg["checkpoint_step"],
+                         "scheduler_num_steps": scheduler.num_steps,
+                         "consumed_train_samples": settings.consumed_train_samples,
+                         "learning_rates": [float(group["lr"]) for group in optimizer.param_groups]})
         else:
             atomic_json(log_root / f"restore.rank_{rank:03d}.json",
                         {"rank": rank, "source": "native_full_checkpoint", "checkpoint_step": settings.iteration,
