@@ -33,7 +33,7 @@
        width="100%">
 </a>
 
-<sub>点击图片可查看原始分辨率大图。</sub>
+<sub>论文图 1：恢复架构。点击可查看原始分辨率大图。</sub>
 
 </div>
 
@@ -53,6 +53,16 @@ MoEGambit 能够保持分布式训练作业存活，激活常驻替补 worker，
 
 MoEGambit 将恢复策略和编排逻辑与训练框架解耦。Megatron-LM 与 DeepSpeed
 内部只保留生命周期 hook；对应 adapter 将框架对象转换到同一套恢复契约。
+
+### EDP distribution · 状态分布示意图
+
+![EDP=1 与 EDP=2 的状态布局：唯一专家分片与重复专家组。](docs/assets/paper-results/edp_distribution.png)
+
+[查看原始矢量 PDF](docs/assets/paper-results/edp_distribution.pdf)
+
+EDP=1 时，专家分片没有在线副本，但非专家状态仍有复制；EDP=2 时，
+另一个专家数据并行组可以提供当前专家状态。这是布局示意，不是普遍性
+统计图。主要实验的 64-GPU 布局使用 PP=8、EP=8、ETP=1，因此 EDP=1。
 
 ## 核心特性
 
@@ -483,121 +493,75 @@ micro batch size 为 1，运行时恢复 checkpoint 间隔为 200 step。
 | 下游任务质量 | 任务等权均值 **45.06% / 44.67% / 45.32%** | Restart / MoC PEC / MoEGambit；八项零样本任务，保留各任务 acc/acc_norm 指标 |
 | 无故障完整控制路径开销 | 20 次重复的平均 step 耗时变化 **−0.003%**，观测范围 **−0.09%～+0.07%** | 包含设备完成确认和 all-rank fence；范围不是置信区间 |
 
-**对照口径需区分。** FullLoad 仅给替换 rank 加载完整状态并在当前步继续；
-整作业 Restart 则让所有 rank 回滚并 replay。下图比较的是恢复加载耗时，
-不能将其比值当作包含 replay 的 35.6×。EDP=1 时从旧 checkpoint 取专家状态；
-EDP=2 时可以从在线副本取当前专家状态。
+### 当前论文 PDF 中的图
 
-<p align="center"><a href="docs/assets/paper-results/recovery_scaling.pdf"><img src="docs/assets/paper-results/recovery_scaling.png" alt="GPU 规模和四组 64-GPU 布局：MoEGambit、独立复现的两种 MoC PEC，相对 rank 局部 FullLoad 的恢复耗时比" width="95%"></a></p>
+按当前论文 PDF 的图号展示。**图 1：恢复架构**位于本 README 顶部；
+下方图 2–7 使用论文原图，已核对其内容与 PDF 内嵌图一致。
+EDP 示意图和下游任务准确率图单独标注为补充展示。
 
-MoC 的 PEC-sync、PEC 两级异步与 MoEGambit 共用各布局的 FullLoad 分母。
-另一个 controlled-restart 端到端实验中，full-sync / PEC-sync / PEC 两级异步
-的窗口耗时分别为 267.086 / 264.269 / 300.784 秒（每种一次运行）。
-这些整窗口时间不能直接与上图不含 replay 的恢复加载耗时比较。
+#### 图 2 · 十次故障下的训练 loss
 
-<details>
-<summary><strong>完整 Hybrid 质量：训练阶段、rank 数与专家数量</strong></summary>
+![Restart、MoC PEC 复现与完整状态 MoEGambit 的训练 loss。](docs/assets/paper-results/train_loss.png)
 
-<p align="center"><a href="docs/assets/paper-results/quality_checkpoint_study.pdf"><img src="docs/assets/paper-results/quality_checkpoint_study.png" alt="12 组恢复窗口和 3 组完成到第 10000 step 的验证损失结果，参照整作业 Restart" width="95%"></a></p>
-<p align="center"><a href="docs/assets/paper-results/quality_full_state_500.pdf"><img src="docs/assets/paper-results/quality_full_state_500.png" alt="恢复旧专家权重和 optimizer 的完整 Hybrid：64/128 专家、训练阶段与负载比较" width="95%"></a></p>
+[查看原始矢量 PDF](docs/assets/paper-results/train_loss.pdf)
 
-这些实验使用完整状态恢复。500-step 终点描述短期变化；最终损失容忍度
-在训练终点评估。旧专家 checkpoint 位于 200-step 的恢复网格上。
+Restart / MoC PEC / MoEGambit 最后 200 step 的平均训练 loss 为 **2.7919 / 2.8254 / 2.7910**。训练 loss 用于稳定性诊断；质量边界使用固定验证集 loss。
 
-</details>
+#### 图 3 · 训练阶段与故障 rank 数的质量结果
 
-<details>
-<summary><strong>完成质量、重复故障与不同 MoE 架构</strong></summary>
+![相对整作业 Restart 的十二组 500-step 续训和三组完成到第 10000 step 的结果。](docs/assets/paper-results/quality_checkpoint_study.png)
 
-<p align="center"><a href="docs/assets/paper-results/quality_full_state_terminal.pdf"><img src="docs/assets/paper-results/quality_full_state_terminal.png" alt="四条完整恢复轨迹完成到第 10000 step 的最终及采样峰值质量结果" width="95%"></a></p>
-<p align="center"><a href="docs/assets/paper-results/quality_architecture_transfer.pdf"><img src="docs/assets/paper-results/quality_architecture_transfer.png" alt="GQA MoE 与 DeepSeek 风格 MLA MoE 的固定验证集结果" width="95%"></a></p>
+[查看原始矢量 PDF](docs/assets/paper-results/quality_checkpoint_study.pdf)
 
-统一容忍度为最终损失退化 **0.5%**、采样峰值退化 **1%**，整场风险预算
-**α_run=0.05**，准入条件为 **R≤1**。架构比较同时改变了 shared expert、
-路由及层布局，不能解释成只改变 attention 的消融。短窗口与共享前缀实验
-用于报告轨迹质量，与独立整场风险审计分开。
+左图展示十二组恢复窗口；右图展示三组筛选出的长程续训结果。对照为整作业 Restart，最终/峰值损失容忍度为 **0.5% / 1%**。
 
-</details>
+#### 图 4 · 64/128 专家的完整 Hybrid 质量
 
-<details>
-<summary><strong>R2：候选决策与整场风险</strong></summary>
+![恢复旧专家权重及 optimizer state 的完整 Hybrid：训练阶段、负载和 rank 数比较。](docs/assets/paper-results/quality_full_state_500.png)
 
-<p align="center"><a href="docs/assets/paper-results/r2_audit.pdf"><img src="docs/assets/paper-results/r2_audit.png" alt="作者报告的 200-run 决策计数，以及分别重算的整场风险和准入条件风险上界" width="95%"></a></p>
+[查看原始矢量 PDF](docs/assets/paper-results/quality_full_state_500.pdf)
 
-实际策略轨迹在 200 次完整运行中有 3 次越界，单侧 95% 精确上界为
-**3.83%**。获准候选中有 3/132 越界，对应上界为 **5.77%**。
-两者分母不同：前者在审计条件下支持 5% 的边际整场风险目标，后者不能
-认证 5% 的准入条件风险目标。公开导出包含作者报告的计数及审计条件确认，
-未包含 200 次逐运行原始记录或训练好的预测器包。
+受影响专家同时恢复旧权重与 optimizer state。500-step 窗口最大采样峰值为 **0.393%**，低于 1% 峰值容忍度；窗口终点与整场训练终点需区分。
 
-</details>
+#### 图 5 · 完成质量与重复故障
 
-<details>
-<summary><strong>10k 训练与十次故障</strong></summary>
+![四条完整 Hybrid 恢复轨迹完成到第 10000 step 的质量及归一化结果。](docs/assets/paper-results/quality_full_state_terminal.png)
 
-<p align="center"><a href="docs/assets/paper-results/train_loss.pdf"><img src="docs/assets/paper-results/train_loss.png" alt="Restart、MoEGambit 和端到端 MoC PEC 复现的 10000-step 训练 loss 比较" width="95%"></a></p>
+[查看原始矢量 PDF](docs/assets/paper-results/quality_full_state_terminal.pdf)
 
-Restart / MoEGambit / MoC PEC 最后 200 step 的平均训练 loss 为
-**2.7919 / 2.7910 / 2.8254**。论文报告了完整端到端执行，MoEGambit 分支
-使用 R2 决策。训练 loss 是稳定性诊断；质量边界使用固定验证集 loss 评估。
+四条选定轨迹的最大最终退化为 **0.00306%**，采样峰值为 **0.00454%**。这些轨迹共享种子/前缀，与独立 R2 审计分开。
 
-</details>
+#### 图 6 · GPU 规模与并行布局
 
-### 恢复为何更快：机制消融与跨模型收益
+![不含 replay 的恢复结果：64/128 GPU 与四种 64-GPU 布局中的 MoEGambit 和两种 MoC PEC 复现模式。](docs/assets/paper-results/recovery_scaling.png)
 
-![每格 500 次事件的恢复耗时：FullLoad/Hybrid 与单阶段/两阶段交叉消融](docs/assets/paper-results/restoration_ablation.png)
+[查看原始矢量 PDF](docs/assets/paper-results/recovery_scaling.pdf)
 
-[查看矢量 PDF](docs/assets/paper-results/restoration_ablation.pdf)
-![Qwen3 与 DeepSeek-V2-Lite 两种配置的 rank 局部恢复耗时](docs/assets/paper-results/cross_model_restoration.png)
+各布局共用 **rank 局部 FullLoad** 分母。A/B 的 EDP=1，专家来自 checkpoint；C/D 的 EDP=2，可使用在线专家副本。这些加载耗时比与包含 replay、对照整作业 Restart 的 **35.6×** 不同。
 
-[查看矢量 PDF](docs/assets/paper-results/cross_model_restoration.pdf)
+#### 图 7 · GQA 与 DeepSeek 风格 MLA MoE
 
-选择性恢复和两阶段加载相对单阶段 FullLoad 共节省 **7.503 秒（20.6%）**。
-平衡 2×2 对比中，选择性恢复的边际差为 **5.50 秒**，加载阶段的边际差为
-**2.00 秒**；DeepSeek-V2-Lite 配置降低 **55.0%**。这些图展示不含 replay
-的实验单元均值，与包含 replay 的 35.6× 是不同口径。
+![小模型完整状态恢复：五个评测偏移点，分别对照 NoFault 与整作业 Restart。](docs/assets/paper-results/quality_architecture_transfer.png)
 
+[查看原始矢量 PDF](docs/assets/paper-results/quality_architecture_transfer.pdf)
 
-### 突发故障质量：专家年龄不能单独解释恢复结果
+100-step 窗口中，相对 Restart 的最大采样峰值为 GQA MoE **0.0893%**、MLA MoE **0.0230%**。两组配置还改变了 shared expert、路由与层布局。
 
-![完整状态恢复中，8/16/24 个故障 rank 与 50/100/150/200-step 专家年龄的质量偏差，单位为基线标准差](docs/assets/paper-results/burst_quality.png)
+### 补充图 · 八项下游任务（论文表 6）
 
-[查看矢量 PDF](docs/assets/paper-results/burst_quality.pdf)
-
-专家年龄为 50 step 时，各格均值均在一个基线标准差以内；年龄为
-150～200 step 时，16/24-rank 实验格达到 **1.42～1.98 个基线标准差**。
-图中是以**基线标准差**为单位的带符号验证损失偏差，不是相对 loss 百分比，
-也不是 R2 风险分数。同样的专家年龄在不同 rank 数下产生不同偏差，支持
-在决策中使用年龄以外的特征。
-
-
-### 第 10,000 step 的下游任务结果
-
-![八项零样本下游任务得分及相对 Restart 的百分点差，保留各任务的 acc/acc_norm 指标](docs/assets/paper-results/downstream_accuracy.png)
+![由论文表 6 转绘的八项零样本任务得分及相对 Restart 的百分点变化。](docs/assets/paper-results/downstream_accuracy.png)
 
 [查看矢量 PDF](docs/assets/paper-results/downstream_accuracy.pdf)
 
 Restart / MoC PEC / MoEGambit 的任务等权均值为
-**45.06% / 44.67% / 45.32%**，PEC 保留 128 个专家中的 16 个。
-右图用百分点展示相对 Restart 的变化，
-同时保留改善与退化。均值按各任务指定的 `acc` 或 `acc_norm` 计算，
-不是将所有样本合并的准确率，也不据此声称统计显著提升。
+**45.06% / 44.67% / 45.32%**；PEC 保留 128 个专家中的 16 个。
+图中保留各任务的 `acc`/`acc_norm` 指标，同时展示改善与退化。
 
+### R2 审计 · 报告计数
 
-### 完整控制路径开销与 MoC 端到端窗口
-
-![包含设备完成确认和 all-rank fence 的完整无故障路径：均值 -0.003%，观测范围 -0.09%～+0.07%](docs/assets/paper-results/control_path_overhead.png)
-
-[查看矢量 PDF](docs/assets/paper-results/control_path_overhead.pdf)
-![MoC 独立复现的三组方案：完整训练窗口和恢复加 replay 耗时分开展示](docs/assets/paper-results/moc_controlled_restart.png)
-
-[查看矢量 PDF](docs/assets/paper-results/moc_controlled_restart.pdf)
-
-开销图只展示报告的**均值与观测范围**，不生成 20 个重复样本点，也不把范围
-视作置信区间。`<6 µs` 只描述监控 hook；iteration 耗时比较覆盖完整无故障
-控制路径。MoC 图将完整训练窗口与恢复加 replay 分开，每种方案为一次运行、
-一个故障 rank，展示观测耗时，不据此推断统计显著性。
-
+独立冻结策略审计中，实际整场质量越界 **3/200**，单侧 95% 上界为
+**3.83%**。获准候选中有 **3/132** 越界，上界为 **5.77%**。
+整场风险与准入条件风险的分母不同，汇总复核方法与来源见结果包说明。
 
 ### 脚本与复核入口
 

@@ -1,0 +1,64 @@
+{
+  "manuscript_pdf_sha256": "07db0fc13bff8df942529b5bcd9ac232cb917c53549fd704837da978b583e3c6",
+  "paper_figures": [
+    {
+      "figure": 1,
+      "paper_pdf_page": 4,
+      "asset_pdf": "moegambit_runtime_architecture.pdf",
+      "content_stream_matches_paper": true,
+      "source_sha256": "60e58baa6b26d6a850ef1bac6a9c8a04bf07bbb3459b618b6e225434c3241d22"
+    },
+    {
+      "figure": 2,
+      "paper_pdf_page": 11,
+      "asset_pdf": "train_loss.pdf",
+      "content_stream_matches_paper": true,
+      "source_sha256": "d007af40656cea61dad3cb30a42d371a220cf2076fb3169524fbc9853d8672c8"
+    },
+    {
+      "figure": 3,
+      "paper_pdf_page": 12,
+      "asset_pdf": "quality_checkpoint_study.pdf",
+      "content_stream_matches_paper": true,
+      "source_sha256": "cd15a1a99f8ce779933f75c52f3f6b4e58856b65bb2e5b7f28d5d336ac0aa5e8"
+    },
+    {
+      "figure": 4,
+      "paper_pdf_page": 13,
+      "asset_pdf": "quality_full_state_500.pdf",
+      "content_stream_matches_paper": true,
+      "source_sha256": "13107816db0ba5a24c6b8bcb423d8ecc73df82ac2300f1e2e8dab84696ab2608"
+    },
+    {
+      "figure": 5,
+      "paper_pdf_page": 14,
+      "asset_pdf": "quality_full_state_terminal.pdf",
+      "content_stream_matches_paper": true,
+      "source_sha256": "eedc67d05cd1df9748020565e7f4670daf76127c9563b9285bd4980442f64762"
+    },
+    {
+      "figure": 6,
+      "paper_pdf_page": 15,
+      "asset_pdf": "recovery_scaling.pdf",
+      "content_stream_matches_paper": true,
+      "source_sha256": "f78cab32e62760875ee9149c0931bb7ce3b0ff79dfd16c1d60e2cd65ea6ba856"
+    },
+    {
+      "figure": 7,
+      "paper_pdf_page": 16,
+      "asset_pdf": "quality_architecture_transfer.pdf",
+      "content_stream_matches_paper": true,
+      "source_sha256": "b789fdd65676fc91876948638cee22a7586a39355f3c95f218be20ea3445f3b0"
+    }
+  ],
+  "additional_assets": [
+    {
+      "asset": "edp_distribution",
+      "kind": "User-requested state-layout schematic"
+    },
+    {
+      "asset": "downstream_accuracy",
+      "kind": "User-approved visualization of paper Table 6"
+    }
+  ]
+}

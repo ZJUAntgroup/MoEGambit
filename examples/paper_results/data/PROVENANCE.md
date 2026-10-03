@@ -14,13 +14,10 @@ values are unchanged.
 | `r2_audit_aggregate.json` | Author-reported new fixed-size 200-run audit and explicit independent/frozen-policy protocol confirmation on 2026-10-03. Earlier 50 tests are excluded. No per-run records, predictor class/package, calibration method or training/calibration sample counts are inferred. |
 | `moc_e2e_aggregate.csv` | Author-supplied physical MoC mechanism-port results: one controlled-restart window per arm, including recovery and replay. These are separate from the four replay-excluded layout means. |
 
-Additional conclusion plots use the current manuscript's RQ1 restoration
-2×2 table (`restoration_ablation.csv`), RQ2 burst table (`burst_cell_means.csv`),
-zero-shot downstream table (`downstream_accuracy.csv`), RQ3 cross-model
-restoration paragraph (`cross_model_restoration.csv`), and RQ4 reported
-mean/min/max (`control_path_overhead.json`). The burst CSV is copied from the
-supplied archived cell-mean export; the other figures are transcribed from the
-current manuscript's explicitly reported values. They do not add raw samples.
+The user-approved additional downstream plot uses the current manuscript's
+zero-shot table (`downstream_accuracy.csv`). Each task's `acc`/`acc_norm` metric
+and eight-task equal weighting are retained. Other additional table-derived
+conclusion plots have been withdrawn; no raw samples are added.
 
 The main README's 35.6× recovery speedup and 20-repeat overhead summary come from
 the authors' reported manuscript measurements. This bundle contains no raw

@@ -34,7 +34,7 @@ transactional recovery for Megatron-LM and DeepSpeed.
        width="100%">
 </a>
 
-<sub>Click the figure to open the full-resolution image.</sub>
+<sub>Paper Figure 1: recovery architecture. Click to view the full-resolution image.</sub>
 
 </div>
 
@@ -60,6 +60,17 @@ The key idea is hybrid recovery:
 MoEGambit separates recovery policy and orchestration from framework-specific
 code. Megatron-LM and DeepSpeed retain only lifecycle hooks; their adapters
 translate framework objects into one common recovery contract.
+
+### EDP distribution · State-layout schematic
+
+![State layout with EDP=1 versus EDP=2: unique expert shards versus replicated expert groups.](docs/assets/paper-results/edp_distribution.png)
+
+[View original vector PDF](docs/assets/paper-results/edp_distribution.pdf)
+
+At EDP=1, each expert shard has no live replica, while non-expert state remains
+replicated. At EDP=2, another expert-data-parallel group can supply current
+expert state. This is a placement schematic, rather than a prevalence statistic.
+The main 64-GPU layout has PP=8, EP=8 and ETP=1, giving EDP=1.
 
 ## Highlights
 
@@ -510,135 +521,79 @@ current replicated non-expert/router state came from healthy peers.
 | Downstream quality | **45.06% / 44.67% / 45.32%** equal-task means | Restart / MoC PEC / MoEGambit; eight zero-shot tasks, with per-task acc/acc_norm metrics |
 | Failure-free control path | Mean step-time change **−0.003%**, observed range **−0.09% to +0.07%** across 20 repetitions | Includes device-completion confirmation and all-rank fence; the range is not a confidence interval |
 
-**Keep the baselines distinct.** FullLoad restores only the replacement rank
-and continues at the current step; whole-job Restart rolls all ranks back and
-replays. The layout figure below measures restoration, so its ratios are not
-the 35.6× replay-inclusive result. At EDP=1, affected experts come from older
-checkpoints; at EDP=2, live expert replicas are available.
+### Figures from the current paper PDF
 
-<p align="center">
-  <a href="docs/assets/paper-results/recovery_scaling.pdf"><img src="docs/assets/paper-results/recovery_scaling.png" alt="GPU scaling and four 64-GPU layouts, comparing MoEGambit and two independently reproduced MoC PEC modes against rank-local FullLoad" width="95%"></a>
-</p>
+The seven numbered figures follow the current paper PDF. **Figure 1**, the
+recovery architecture, appears at the top of this README. Figures 2–7 below
+use the original figure assets; their content streams were checked against
+those embedded in the paper PDF. The EDP schematic and the downstream plot
+are separately identified additions.
 
-The MoC bars use the independent mechanism reproduction's PEC-sync and
-PEC two-level asynchronous modes. They share each layout's FullLoad denominator.
-The separate controlled-restart end-to-end experiment measured windows of
-267.086 / 264.269 / 300.784 seconds for full-sync / PEC-sync / PEC-2L async
-(one run per arm); those whole-window times must not be compared directly with
-the layout figure's replay-excluded restoration times.
+#### Figure 2 · Training through ten faults
 
-<details>
-<summary><strong>Full Hybrid quality: training phase, rank count and expert count</strong></summary>
+![Training loss for Restart, MoC PEC reproduction and full-state MoEGambit.](docs/assets/paper-results/train_loss.png)
 
-<p align="center"><a href="docs/assets/paper-results/quality_checkpoint_study.pdf"><img src="docs/assets/paper-results/quality_checkpoint_study.png" alt="Twelve recovery-window cases and three selected step-10000 outcomes relative to whole-job Restart" width="95%"></a></p>
-<p align="center"><a href="docs/assets/paper-results/quality_full_state_500.pdf"><img src="docs/assets/paper-results/quality_full_state_500.png" alt="Full Hybrid with old expert weights and optimizer state: 64 and 128 experts, phase and load comparisons" width="95%"></a></p>
+[View original vector PDF](docs/assets/paper-results/train_loss.pdf)
 
-These are full-state continuations, rather than weights-only substitutions.
-The 500-step endpoints describe transients; final-loss tolerance applies at the
-training endpoint. Older expert checkpoints are on the 200-step recovery grid.
+Last-200-step means were **2.7919 / 2.8254 / 2.7910** for Restart / MoC PEC / MoEGambit. Training loss is a stability diagnostic; the quality boundary uses fixed-validation loss.
 
-</details>
+#### Figure 3 · Quality across training stages and affected-rank counts
 
-<details>
-<summary><strong>Completion, repeated faults and another MoE architecture</strong></summary>
+![Twelve 500-step continuations and three selected step-10000 outcomes relative to whole-job Restart.](docs/assets/paper-results/quality_checkpoint_study.png)
 
-<p align="center"><a href="docs/assets/paper-results/quality_full_state_terminal.pdf"><img src="docs/assets/paper-results/quality_full_state_terminal.png" alt="Four selected full-state recovery histories through step 10000 and normalized final/peak quality outcomes" width="95%"></a></p>
-<p align="center"><a href="docs/assets/paper-results/quality_architecture_transfer.pdf"><img src="docs/assets/paper-results/quality_architecture_transfer.png" alt="Fixed-validation outcomes for GQA MoE and DeepSeek-style MLA MoE" width="95%"></a></p>
+[View original vector PDF](docs/assets/paper-results/quality_checkpoint_study.pdf)
 
-Fixed tolerances are **0.5% final loss increase** and **1% sampled peak increase**,
-with **α_run = 0.05** and admission at **R ≤ 1**. Architecture comparisons also
-change shared experts, routing and layer placement; they are not an isolated
-attention ablation. Short/shared-prefix studies report trajectory outcomes and
-are separate from the independent-run audit.
+Panel (a) covers twelve recovery-window cases; panel (b) reports three selected long continuations. The reference is whole-job Restart, with final/peak tolerances of **0.5% / 1%**.
 
-</details>
+#### Figure 4 · Full Hybrid quality with 64 and 128 experts
 
-<details>
-<summary><strong>R2: candidate decisions and complete-run risk</strong></summary>
+![Full Hybrid restores old expert weights and optimizer state: phase, load and rank-count comparisons.](docs/assets/paper-results/quality_full_state_500.png)
 
-<p align="center"><a href="docs/assets/paper-results/r2_audit.pdf"><img src="docs/assets/paper-results/r2_audit.png" alt="Author-reported 200-run candidate confusion matrix and separately recomputed run/admission risk upper limits" width="95%"></a></p>
+[View original vector PDF](docs/assets/paper-results/quality_full_state_500.pdf)
 
-The actual policy had 3 boundary violations in 200 complete runs; the exact
-one-sided 95% upper limit is **3.83%**. Among admitted candidates, 3/132 violated
-the boundary; its upper limit is **5.77%**. These have different denominators:
-the former supports the 5% marginal run-risk target under the audited
-conditions; the latter does not certify a 5% admission-conditional target.
-The public export contains author-reported counts and protocol confirmation,
-rather than the 200 raw records or a trained predictor package.
+Affected experts restored both old weights and optimizer state. The largest sampled 500-step peak was **0.393%**, below the 1% peak tolerance. A recovery-window endpoint is distinct from final training quality.
 
-</details>
+#### Figure 5 · Completion and repeated faults
 
-<details>
-<summary><strong>10k training through ten faults</strong></summary>
+![Four full-state Hybrid recovery histories through step 10000 and normalized quality outcomes.](docs/assets/paper-results/quality_full_state_terminal.png)
 
-<p align="center"><a href="docs/assets/paper-results/train_loss.pdf"><img src="docs/assets/paper-results/train_loss.png" alt="10000-step Restart, MoEGambit and end-to-end MoC PEC training-loss comparison" width="95%"></a></p>
+[View original vector PDF](docs/assets/paper-results/quality_full_state_terminal.pdf)
 
-Last-200-step training-loss means were **2.7919 / 2.7910 / 2.8254** for
-Restart / MoEGambit / MoC PEC. The manuscript reports full end-to-end execution
-and R2 decisions in the MoEGambit arm. Training loss is a stability diagnostic;
-quality-boundary evaluation uses fixed-validation loss.
+Across four selected histories, the largest final increase was **0.00306%**, and sampled peak **0.00454%**. These histories share a seed/prefixes; they are separate from the independent R2 audit.
 
-</details>
+#### Figure 6 · GPU scaling and parallel layouts
 
-### Why recovery is faster: mechanism ablation and cross-model gains
+![Recovery excluding replay: 64/128 GPUs and four 64-GPU layouts with MoEGambit and two MoC PEC reproduction modes.](docs/assets/paper-results/recovery_scaling.png)
 
-![Four 500-event restoration means: FullLoad/Hybrid crossed with single/two-phase attachment](docs/assets/paper-results/restoration_ablation.png)
+[View original vector PDF](docs/assets/paper-results/recovery_scaling.pdf)
 
-[View vector PDF](docs/assets/paper-results/restoration_ablation.pdf)
-![Rank-local restoration latency in Qwen3 and DeepSeek-V2-Lite configurations](docs/assets/paper-results/cross_model_restoration.png)
+All layout ratios use the same **rank-local FullLoad** denominator. A/B have EDP=1 and checkpointed experts; C/D have EDP=2 and can use live expert peers. These restoration ratios are separate from the **35.6×** replay-inclusive whole-job Restart result.
 
-[View vector PDF](docs/assets/paper-results/cross_model_restoration.pdf)
+#### Figure 7 · GQA and DeepSeek-style MLA MoE
 
-Selective restoration and two-phase attachment jointly saved **7.503 s (20.6%)**
-against single-phase FullLoad. The balanced 2×2 contrasts were **5.50 s** for
-selective restoration and **2.00 s** for attachment schedule. The DeepSeek-V2-Lite
-configuration showed a **55.0%** reduction. These figures exclude replay and
-show cell means; they are separate from the 35.6× replay-inclusive result.
+![Small-model full-state recovery: five evaluation offsets, NoFault and whole-job Restart references.](docs/assets/paper-results/quality_architecture_transfer.png)
 
+[View original vector PDF](docs/assets/paper-results/quality_architecture_transfer.pdf)
 
-### Burst-fault quality: expert age alone does not explain the outcome
+Relative to Restart, largest sampled peaks were **0.0893%** for GQA MoE and **0.0230%** for MLA MoE over the 100-step window. Shared experts, routing and layer placement also differ; this is a configuration comparison.
 
-![Full-state recovery: 8/16/24 affected ranks crossed with expert ages 50/100/150/200, in baseline-standard-deviation units](docs/assets/paper-results/burst_quality.png)
+### Additional plot · Eight downstream tasks (paper Table 6)
 
-[View vector PDF](docs/assets/paper-results/burst_quality.pdf)
-
-At age 50, all cell means were within one baseline standard deviation. At ages
-150–200, the 16-/24-rank means reached **1.42–1.98 baseline SD**. Values are
-signed validation-loss deviations in **baseline-SD units**, not percentage
-quality losses or R2 risk scores. Outcomes differ across rank counts at the
-same expert age, motivating features beyond age.
-
-
-### Downstream task outcomes at step 10,000
-
-![Eight zero-shot downstream scores and differences against Restart, retaining each task's accuracy or normalized-accuracy metric](docs/assets/paper-results/downstream_accuracy.png)
+![Eight zero-shot task scores and percentage-point changes vs Restart, from paper Table 6.](docs/assets/paper-results/downstream_accuracy.png)
 
 [View vector PDF](docs/assets/paper-results/downstream_accuracy.pdf)
 
 Equal-task means were **45.06% / 44.67% / 45.32%** for Restart / MoC PEC /
-MoEGambit; PEC retained 16 of 128 experts. The right panel shows percentage-point
-differences against Restart,
-including both improvements and regressions. The mean combines each task's
-specified `acc` or `acc_norm` metric; it is not a pooled example-level accuracy
-or a statistically established improvement.
+MoEGambit. PEC retained 16 of 128 experts. The plot preserves each task's
+`acc`/`acc_norm` metric and shows both improvements and regressions.
 
+### R2 audit · Reported counts
 
-### Complete control-path overhead and MoC end-to-end windows
-
-![Complete failure-free control path: mean -0.003% and observed range -0.09% to +0.07%, including device completion and all-rank fence](docs/assets/paper-results/control_path_overhead.png)
-
-[View vector PDF](docs/assets/paper-results/control_path_overhead.pdf)
-![Independent MoC port: end-to-end training-window seconds and recovery-plus-replay seconds shown separately for three arms](docs/assets/paper-results/moc_controlled_restart.png)
-
-[View vector PDF](docs/assets/paper-results/moc_controlled_restart.pdf)
-
-The overhead plot shows the reported **mean and observed range**, rather than
-20 invented repetition points or a confidence interval. The `<6 µs` figure
-covers monitoring hooks alone; the iteration-time comparison covers the
-complete failure-free path. The MoC plot separates the full training window
-from recovery plus replay; each arm had one run and one failed rank, so it
-supplies observed timings without a significance claim.
-
+The independent frozen-policy audit reported **3/200** actual-run quality
+violations; its one-sided 95% upper limit is **3.83%**. Among admitted
+candidates, **3/132** violated the boundary; its upper limit is **5.77%**.
+The run-level and admission-conditional denominators differ. Aggregate
+verification and provenance are documented in the result bundle.
 
 ### Scripts and reproducibility
 
