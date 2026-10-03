@@ -49,6 +49,10 @@ class RecoveryRuntime:
         self._last_record: Optional[RecoveryRecord] = None
         self._last_record_observed = False
         self._latest_checkpoint: Optional[tuple[str, int]] = None
+        self._quality_offloader = None
+        self._quality_feature_provider = None
+        self._quality_history_provider = None
+        self._quality_committed_optimizer_step = None
         configured_locator = os.environ.get("MOEGAMBIT_CHECKPOINT_LOCATOR", "")
         configured_step = os.environ.get("MOEGAMBIT_CHECKPOINT_STEP", "")
         if configured_locator and configured_step:
@@ -136,6 +140,7 @@ class RecoveryRuntime:
         if not self._enabled:
             return
         self.trace(LifecyclePhase.BEFORE_OPTIMIZER_STEP, step=step)
+        self._quality_committed_optimizer_step = None
         self.adapter.optimizer.before_step(int(step))
 
     def after_optimizer_step(self, step: int, committed: bool = True) -> None:
@@ -147,6 +152,46 @@ class RecoveryRuntime:
             committed=committed,
         )
         self.adapter.optimizer.after_step(int(step), bool(committed))
+        self._quality_committed_optimizer_step = int(step) if committed else None
+
+    def configure_quality_offload(self, offloader, feature_provider, *, history_provider) -> None:
+        """Attach precomputed telemetry to the normal committed-step hook.
+
+        feature_provider(step, checkpoint_step) returns compact features. It
+        must not compute a new sensitivity estimate from a failed rank. The
+        caller owns offloader.close() and periodically records durable checkpoints.
+        """
+        if not callable(feature_provider) or not callable(history_provider):
+            raise TypeError("quality feature/history providers must be callable")
+        self._quality_offloader = offloader
+        self._quality_feature_provider = feature_provider
+        self._quality_history_provider = history_provider
+        configure = getattr(self.coordinator, "configure_quality_identity", None)
+        if callable(configure):
+            configure(offloader.identity)
+
+    def _offload_quality_features(self, step: int) -> None:
+        if (self._quality_offloader is None or self._latest_checkpoint is None or
+                self._quality_committed_optimizer_step != int(step) or
+                self.epochs.state not in (EpochState.CLEAN, EpochState.COMMITTED)):
+            return
+        self._quality_committed_optimizer_step = None
+        try:
+            topology = self.adapter.topology.inspect()
+            checkpoint_step = self._latest_checkpoint[1]
+            features = self._quality_feature_provider(int(step), checkpoint_step)
+            pending = self._quality_offloader.submit(
+                features, committed_step=int(step), checkpoint_step=checkpoint_step,
+                topology_generation=topology.generation,
+                group_manifest_hash=topology.manifest_hash or topology.compute_manifest_hash(),
+                world_size=topology.world_size, recovery_epoch=self.recovery_epoch,
+                run_history=self._quality_history_provider(),
+            )
+            if pending is None:
+                logger.warning("quality CPU upload queue full at committed step %s", step)
+        except Exception:
+            # Training continues, but missing telemetry cannot authorize Hybrid.
+            logger.exception("quality CPU capture failed at committed step %s", step)
 
     def commit_iteration(self, step: int) -> bool:
         if not self._enabled:
@@ -156,6 +201,7 @@ class RecoveryRuntime:
         driver_committed = bool(driver.commit(int(step))) if driver is not None else False
         if not self.epochs.can_commit(int(step)):
             self.epochs.commit(int(step))
+            self._offload_quality_features(int(step))
             return driver_committed
         if self.coordinator is not None and self._last_assignment is not None:
             try:
@@ -165,6 +211,7 @@ class RecoveryRuntime:
                 self._request_fallback("recovery_commit_rejected", exc)
                 return False
         promoted = self.epochs.commit(int(step))
+        self._offload_quality_features(int(step))
         if promoted and self._last_record is not None:
             self._last_record.result = RecoveryOutcome.COMMITTED
             self._last_record.validation["provisional"] = False
@@ -499,6 +546,8 @@ class RecoveryRuntime:
         if self._last_record is not None:
             info["last_recovery"] = self._last_record.to_dict()
         info["metrics"] = self.metrics.snapshot()
+        if self._quality_offloader is not None:
+            info["quality_cpu_offload"] = self._quality_offloader.stats()
         if self._latest_checkpoint is not None:
             info["latest_checkpoint"] = {
                 "locator": self._latest_checkpoint[0],

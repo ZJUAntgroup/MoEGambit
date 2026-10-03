@@ -118,6 +118,11 @@ class ControlRequestProcessor:
             "job_id": envelope.job_id,
             "attempt_id": envelope.attempt_id,
         }
+        if envelope.type == MessageType.QUALITY_FEATURES:
+            return self.service.publish_quality_features(
+                envelope.payload, rank=self._rank(envelope),
+                recovery_epoch=envelope.recovery_epoch, **common,
+            )
         if envelope.type == MessageType.RECOVERY_REQUEST:
             return self.service.prepare(envelope.payload, **common)
         if envelope.type == MessageType.RECOVERY_ASSIGNMENT:

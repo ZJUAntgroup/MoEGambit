@@ -116,6 +116,8 @@ class QualityRiskPolicy(MoeHybridPolicy):
 
     def _validate(self, facts, prediction):
         context = facts.quality_context
+        if context.get("retained_features_complete", True) is not True:
+            raise ValueError("watcher has no complete exact-step quality feature snapshot")
         for key in ("model_id", "telemetry_version", "policy_version"):
             nonempty(context.get(key), key)
         if not isinstance(context.get("features"), Mapping):
@@ -183,6 +185,9 @@ class QualityRiskPolicy(MoeHybridPolicy):
     def _admit_hybrid(self, facts, checkpoint, evidence, classified, unique):
         try:
             evidence["context_digest"] = risk_context_digest(facts)
+            if facts.quality_context.get("retained_features_complete", True) is not True:
+                raise ValueError("watcher CPU features unavailable: " + str(
+                    facts.quality_context.get("feature_retention_error", "incomplete snapshot")))
             if self.provider is None:
                 raise ValueError("no calibrated risk provider is configured")
             prediction = self.provider.evaluate(facts)

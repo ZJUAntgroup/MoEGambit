@@ -172,6 +172,7 @@ class ControlClient:
 def build_recovery_request_payload(
     request: RecoveryRequest,
     adapter: FrameworkAdapter,
+    *, quality_identity: Optional[Mapping[str, str]] = None,
 ) -> Mapping[str, Any]:
     classification = request.classification
     topology = adapter.topology.inspect()
@@ -271,8 +272,15 @@ def build_recovery_request_payload(
     quality_context = context_provider(query) if callable(context_provider) else {}
     if not isinstance(quality_context, Mapping):
         raise ContractViolation("quality_recovery_context must return an object")
+    quality_context = dict(quality_context)
+    for key, value in (quality_identity or {}).items():
+        if key in quality_context and quality_context[key] != value:
+            raise ContractViolation("offloader and adapter quality identities differ")
+        quality_context[key] = value
     return {
         "quality_context": dict(quality_context),
+        "quality_source_topology_generation": int(topology.generation),
+        "quality_source_recovery_epoch": int(request.recovery_epoch) - 1,
         "at_step": request.at_step,
         "recovery_epoch": request.recovery_epoch,
         "topology_generation": request.topology_generation,
@@ -303,9 +311,14 @@ class WatcherRecoveryCoordinator(RecoveryCoordinator):
         client: ControlClient,
         *,
         source_resolver: Optional[StateSourceResolver] = None,
+        quality_identity: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.client = client
         self.source_resolver = source_resolver
+        self.quality_identity = dict(quality_identity or {})
+
+    def configure_quality_identity(self, identity: Mapping[str, str]) -> None:
+        self.quality_identity = dict(identity)
 
     def _assignment(self, response: Mapping[str, Any]) -> RecoveryAssignment:
         raw_plan = response.get("plan")
@@ -342,7 +355,7 @@ class WatcherRecoveryCoordinator(RecoveryCoordinator):
     ) -> RecoveryAssignment:
         response = self.client.request(
             "recovery_request",
-            build_recovery_request_payload(request, adapter),
+            build_recovery_request_payload(request, adapter, quality_identity=self.quality_identity),
             recovery_epoch=request.recovery_epoch,
         )
         assignment = self._assignment(response)

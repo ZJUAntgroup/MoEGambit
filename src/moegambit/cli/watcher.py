@@ -11,6 +11,7 @@ from ..config import RuntimeConfig
 from ..control.service import RecoveryCoordinatorService
 from ..control.state_store import InMemoryControlStore, SQLiteControlStore
 from ..control.watcher import ControlRequestProcessor, ControlServer
+from ..quality.store import CPUQualityFeatureStore
 from ..policy import (MoeHybridPolicy, PeerOrCheckpointPolicy, QualityRiskPolicy,
                       FileRiskEvidenceProvider)
 
@@ -49,6 +50,11 @@ def build_parser(config: Optional[RuntimeConfig] = None) -> argparse.ArgumentPar
     parser.add_argument("--quality-mode", choices=("audit-only", "enforce"), default="audit-only")
     parser.add_argument("--quality-calibration")
     parser.add_argument("--quality-evidence")
+    parser.add_argument("--quality-cpu-features", action="store_true",
+                        help="retain quality telemetry in independent watcher CPU RAM")
+    parser.add_argument("--quality-retain-steps", type=int, default=4)
+    parser.add_argument("--quality-max-bytes", type=int, default=67108864)
+    parser.add_argument("--quality-max-scopes", type=int, default=8)
     parser.add_argument("--rendezvous-host", required=True)
     parser.add_argument("--rendezvous-port", type=int, required=True)
     parser.add_argument("--rendezvous-prefix", default="moegambit")
@@ -60,6 +66,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser(config).parse_args(argv)
     if not 0 < int(args.rendezvous_port) <= 65535:
         raise SystemExit("--rendezvous-port must be between 1 and 65535")
+    if args.quality_cpu_features and args.policy != "quality-risk":
+        raise SystemExit("--quality-cpu-features requires --policy quality-risk")
     if args.policy == "quality-risk":
         if bool(args.quality_calibration) != bool(args.quality_evidence):
             raise SystemExit("both --quality-calibration and --quality-evidence are required together")
@@ -92,6 +100,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         },
         control_store=control_store,
         policy=policy,
+        quality_feature_store=(CPUQualityFeatureStore(
+            retain_steps=args.quality_retain_steps, max_total_bytes=args.quality_max_bytes,
+            max_scopes=args.quality_max_scopes,
+        ) if args.quality_cpu_features else None),
     )
     processor = ControlRequestProcessor(
         service,

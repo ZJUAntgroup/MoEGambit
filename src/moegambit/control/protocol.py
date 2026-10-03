@@ -28,6 +28,7 @@ __all__ = [
 
 class MessageType:
     HEARTBEAT = "heartbeat"
+    QUALITY_FEATURES = "quality_features"
     RECOVERY_REQUEST = "recovery_request"
     RECOVERY_ASSIGNMENT = "recovery_assignment"
     RECOVERY_COMMITTED = "recovery_committed"

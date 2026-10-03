@@ -208,3 +208,55 @@ def test_observed_peak_violation_cannot_be_erased_by_restart_or_predictor():
     assert result.evidence["risk_upper"] == 1
     assert result.evidence["R"] == 20
     assert result.evidence["would_admit"] is False
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_gate_reads_watcher_features_and_freezes_before_late_uploads(complete):
+    from moegambit.control.service import RecoveryCoordinatorService
+    from moegambit.policy import serialize_source_candidates
+    from moegambit.quality import CPUQualityFeatureStore
+    store = CPUQualityFeatureStore()
+    identity = {"model_id": "moe-a", "policy_version": "v1", "telemetry_version": "v1"}
+    def upload(rank):
+        store.publish({"schema_version": 1, **identity, "owner_rank": rank,
+                       "recovery_epoch": 0,
+                       "committed_step": 1000, "checkpoint_step": 200,
+                       "topology_generation": 0, "group_manifest_hash": "topology",
+                       "world_size": 2, "features": {"pre_failure_drift": rank + .01},
+                       "run_history": []}, job_id="job", attempt_id="a1", rank=rank)
+    upload(0)
+    if complete: upload(1)
+    evaluations = []
+    class Trusted:
+        def evaluate(self, normalized):
+            evaluations.append(normalized)
+            assert normalized.quality_context["features"]["by_rank"]["1"] == {"pre_failure_drift": 1.01}
+            assert normalized.quality_context["feature_snapshot"]["source_topology_generation"] == 0
+            return evidence(normalized)
+    f = facts()
+    payload = {"at_step": 1000, "recovery_epoch": 1, "world_size": 2,
+               "topology_generation": 1, "quality_source_topology_generation": 0,
+               "quality_source_recovery_epoch": 0,
+               "group_manifest_hash": "topology",
+               "classification": {"recoverable": True, "failed_ranks": [1]},
+               "capabilities": AdapterCapabilities(static_world_replacement=True,
+                    full_group_rebuild=True, peer_parameter_restore=True,
+                    moe_state_classification=True).as_dict(),
+               "latest_checkpoint_step": 200, "exposure_history": [],
+               "quality_context": {**identity, "features": {"forged": True}},
+               "available_state_sources": serialize_source_candidates(f.available_state_sources),
+               "state_catalog": [{"identity": name, "version": {"committed_step": 1000,
+                    "optimizer_generation": 1000}} for name in f.available_state_sources]}
+    service = RecoveryCoordinatorService(
+        store_provider=lambda payload: {"host": "127.0.0.1", "port": 23000},
+        policy=QualityRiskPolicy(Trusted(), mode="enforce"), quality_feature_store=store)
+    response = service.prepare(payload, job_id="job", attempt_id="a1")
+    assert response["plan"]["mode"] == ("hybrid" if complete else "checkpoint")
+    assert len(evaluations) == int(complete)
+    payload["quality_context"]["features"] = {"other_survivor_local_buffer": 99}
+    payload["quality_context"]["run_history"] = [{"worker_reset": True}]
+    assert service.prepare(payload, job_id="job", attempt_id="a1") == response
+    if not complete:
+        assert "exact_step_not_fully_acknowledged" in response["plan"]["policy_evidence"]["risk_evidence_error"]
+        upload(1)
+        assert service.prepare(payload, job_id="job", attempt_id="a1") == response

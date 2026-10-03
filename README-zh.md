@@ -272,6 +272,13 @@ rollback/replay 策略、进程组重建状态和诊断逻辑均位于
 已经实现论文的新公式。新增状态比对、逐 rank 完成核验和小型证据导出使用
 `moegambit-audit`，详见 [使用说明与适用边界](docs/ARTIFACT_AUDIT.md)。
 
+质量特征可在训练期间通过 `AsyncQualityOffloader` 后台上传到独立 watcher 的
+CPU 内存。开启 `--quality-cpu-features` 后，协调器使用故障前已确认的路由、
+敏感度、参数及 optimizer 漂移摘要和整场运行历史；训练 rank 进程退出后仍可读取。
+CUDA 特征先固定快照再异步复制，未传完、缺失、冲突或版本不匹配时回退 checkpoint。
+训练节点失效场景需要将 watcher 部署在其他主机。接入方式、故障边界和 CPU 验证
+脚本见 [CPU 特征保留说明](docs/QUALITY_CPU_OFFLOAD.md)。
+
 ### 不同故障阶段的语义
 
 最后一次已提交的 optimizer version 与当前正在执行的 iteration 是两个不同概念：

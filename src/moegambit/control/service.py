@@ -52,6 +52,8 @@ def _stable_request_digest(payload: Mapping[str, Any]) -> str:
         "latest_checkpoint_step": payload.get("latest_checkpoint_step"),
         "exposure_history": payload.get("exposure_history"),
         "quality_context": payload.get("quality_context"),
+        "quality_source_topology_generation": payload.get("quality_source_topology_generation"),
+        "quality_source_recovery_epoch": payload.get("quality_source_recovery_epoch"),
     }
     try:
         blob = json.dumps(
@@ -89,16 +91,27 @@ class RecoveryCoordinatorService:
         control_store: Optional[ControlStore] = None,
         policy: Optional[RecoveryPolicy] = None,
         source_planner: Optional[StateSourcePlanner] = None,
+        quality_feature_store: Any = None,
     ) -> None:
         self.store_provider = store_provider
         self.replacement_provider = replacement_provider or (lambda payload: {})
         self.control_store = control_store or InMemoryControlStore()
         self.policy = policy or PeerOrCheckpointPolicy()
         self.source_planner = source_planner or DeterministicStateSourcePlanner()
+        self.quality_feature_store = quality_feature_store
         self._assignments: Dict[Tuple[str, str, int], _FrozenAssignment] = {}
         self._latest_epochs: Dict[Tuple[str, str], int] = {}
         self._fallback_requests: Dict[Tuple[str, str], list] = {}
         self._lock = threading.RLock()
+
+    def publish_quality_features(self, payload, *, job_id, attempt_id, rank, recovery_epoch):
+        if self.quality_feature_store is None:
+            raise RecoveryRejected("watcher CPU quality retention is not enabled")
+        if payload.get("recovery_epoch") != recovery_epoch:
+            raise RecoveryRejected("feature epoch differs from its control envelope")
+        return self.quality_feature_store.publish(
+            payload, job_id=job_id, attempt_id=attempt_id, rank=rank,
+        )
 
     @staticmethod
     def _scope_token(scope: Tuple[str, str]) -> str:
@@ -466,6 +479,17 @@ class RecoveryCoordinatorService:
             capabilities = AdapterCapabilities.from_dict(raw_capabilities)
         except (TypeError, ValueError) as exc:
             raise RecoveryRejected(f"adapter capabilities are invalid: {exc}") from exc
+        if self.quality_feature_store is not None:
+            raw_context = payload.get("quality_context", {})
+            if not isinstance(raw_context, Mapping):
+                raise RecoveryRejected("quality_context must be an object")
+            # These are the only request-supplied quality selectors. Features
+            # and history come from the independent store; survivors may have
+            # different local buffers after a failure and need not agree on them.
+            payload = dict(payload, quality_context={
+                key: raw_context.get(key) for key in
+                ("model_id", "telemetry_version", "policy_version")
+            })
         request_digest = _stable_request_digest(payload)
 
         with self._lock:
@@ -479,6 +503,12 @@ class RecoveryCoordinatorService:
                 return dict(existing.response)
 
             facts = self._facts(payload, failed_ranks, world_size, capabilities)
+            if self.quality_feature_store is not None:
+                # Freeze the watcher snapshot once, together with the plan.
+                # Later uploads cannot change an already frozen decision.
+                facts = replace(facts, quality_context=self.quality_feature_store.recovery_context(
+                    payload, job_id=job_id, attempt_id=attempt_id,
+                ))
             facts = replace(facts, control_scope={
                 "job_id": job_id, "attempt_id": attempt_id,
                 "recovery_epoch": epoch,

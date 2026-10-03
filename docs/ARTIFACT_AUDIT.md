@@ -75,6 +75,13 @@ checkpoint experiments.
 
 ### Coordinator-owned evidence provider
 
+For inputs that must survive real rank state loss, enable the independent
+watcher's CPU feature store and publish immutable snapshots during training.
+See [CPU feature offload](QUALITY_CPU_OFFLOAD.md) for the committed-step hooks,
+feature provenance, asynchronous capture and missing-snapshot fallback.
+With retention enabled, the watcher replaces post-failure worker features and
+history with the complete pre-failure snapshot before evaluating risk.
+
 `QualityRiskPolicy` accepts an injected `RiskEvidenceProvider.evaluate(facts)`.
 A worker cannot authorize hybrid simply by sending a probability. The watcher
 owns the provider. An adapter may implement the optional

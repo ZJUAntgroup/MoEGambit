@@ -195,6 +195,34 @@ def _failure():
     return RecoverableDistributedError("rank 1 died", failed_ranks=(1,))
 
 
+def test_quality_offload_runs_only_after_committed_optimizer_and_durable_checkpoint():
+    runtime = RecoveryRuntime(_adapter([]), RuntimeConfig(enabled=True))
+    uploads = []
+    class Offloader:
+        identity = {"model_id": "test", "telemetry_version": "v1", "policy_version": "v1"}
+        def submit(self, features, **metadata):
+            uploads.append((features, metadata))
+            return object()
+    runtime.configure_quality_offload(Offloader(), lambda step, cp: {"step": step, "ref": cp},
+                                     history_provider=lambda: [{"previous": "hybrid"}])
+    runtime.after_optimizer_step(10, committed=True)
+    runtime.commit_iteration(10)
+    assert not uploads  # checkpoint is not yet durable
+    runtime.record_checkpoint("checkpoint://8", 8)
+    runtime.before_optimizer_step(11)
+    runtime.after_optimizer_step(11, committed=False)
+    runtime.commit_iteration(11)
+    assert not uploads
+    runtime.before_optimizer_step(12)
+    runtime.after_optimizer_step(12, committed=True)
+    runtime.commit_iteration(12)
+    runtime.commit_iteration(12)  # duplicate boundary must not submit twice
+    assert len(uploads) == 1
+    assert uploads[0][0] == {"step": 12, "ref": 8}
+    assert uploads[0][1]["topology_generation"] == 0
+    assert uploads[0][1]["run_history"] == [{"previous": "hybrid"}]
+
+
 def test_runtime_executes_frozen_plan_and_commits_after_full_iteration():
     calls = []
     coordinator = StaticRecoveryCoordinator(_assignment())

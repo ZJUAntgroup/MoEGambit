@@ -285,6 +285,15 @@ implementations and should not be described as the new paper risk rule.
 See [quality admission and evidence audits](docs/ARTIFACT_AUDIT.md) for rollout
 boundaries, state auditing, per-rank completion checks and compact FSE exports.
 
+Quality telemetry can now be retained outside training workers: enable
+`--quality-cpu-features` on the common quality watcher and connect
+`AsyncQualityOffloader` at the committed-step boundary. Immutable CUDA feature
+copies move to pinned CPU memory and upload in the background; the independent
+watcher retains routing, sensitivity, parameter/moment drift summaries and
+whole-run history after a worker exits. Missing, conflicting or mismatched
+snapshots select checkpoint fallback. See [CPU feature offload](docs/QUALITY_CPU_OFFLOAD.md)
+for setup, failure domains and the CPU-only worker-exit smoke run.
+
 ### Failure boundary semantics
 
 The last committed optimizer version is distinct from the currently executing
