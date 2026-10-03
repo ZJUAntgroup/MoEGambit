@@ -1,0 +1,7 @@
+panel,label,gpus,full_load_seconds,repair_seconds,edp,repair_path,pec_sync_seconds,pec_2level_async_seconds
+scale,64,64,36.4,28.9,1,hybrid,,
+scale,128,128,47.2,33.7,1,hybrid,,
+layout,A,64,36.4,28.9,1,hybrid,34.4,35.3
+layout,B,64,28.9,17.8,1,hybrid,27.46,27.94
+layout,C,64,75.3,21.4,2,full_peer,70.89,72.56
+layout,D,64,82.5,23.2,2,full_peer,78.38,79.91

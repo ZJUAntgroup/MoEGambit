@@ -10,7 +10,7 @@
 
 # MoEGambit
 
-### 面向混合专家训练的契约式混合恢复系统
+### 面向分布式混合专家训练的选择性状态修复
 
 为 Megatron-LM 与 DeepSpeed 提供框架无关的热替换、版本感知状态恢复和事务式故障恢复。
 
@@ -39,7 +39,7 @@
 
 ## 项目概览
 
-MoEGambit 是论文 **《MoEGambit: Contract-Based Hybrid Recovery for
+MoEGambit 是论文 **《MoEGambit: Selective State Repair for Distributed
 Mixture-of-Experts Training》** 的配套实现。发生 fail-stop rank 故障后，
 MoEGambit 能够保持分布式训练作业存活，激活常驻替补 worker，按确定性顺序
 重建通信组，并从当前最安全的状态源恢复训练状态。
@@ -47,8 +47,8 @@ MoEGambit 能够保持分布式训练作业存活，激活常驻替补 worker，
 系统的核心是混合恢复：
 
 - 从健康 peer 拉取处于当前已提交版本的非专家复制状态；
-- 当不存在在线专家副本时，从 checkpoint 恢复 rank 本地专家状态；
-- 从已经确认的主机内存副本恢复优化器状态；
+- 当不存在在线专家副本时，从 checkpoint 一起恢复专家权重与对应优化器状态；
+- 在 adapter 与版本校验支持时，使用在线专家副本和已确认的主机内存优化器副本；
 - 无法证明安全性的恢复路径会 fail closed，回退到 checkpoint relaunch。
 
 MoEGambit 将恢复策略和编排逻辑与训练框架解耦。Megatron-LM 与 DeepSpeed
@@ -465,38 +465,105 @@ MASTER_ADDR=127.0.0.1 bash examples/moc_system/run_moc_e2e.sh --plan-only
 
 ## 论文结果
 
-配套论文 artifact 报告了 **20.6%-55.0% 的 raw recovery latency 降低**；
-当 replay gap 为 100 个 iteration 时，报告的 replay-inclusive speedup 为
-**36.9×**。这些结果采用论文定义的 latency scope，不应被解释为对其他集群
-更强的端到端保证。
+当前论文为 **MoEGambit: Selective State Repair for Distributed
+Mixture-of-Experts Training**。主要实验在 64 张 NVIDIA H20 上训练
+Qwen3-30B-A3B，使用 Megatron 内置 expert bias，关闭辅助负载均衡损失，
+micro batch size 为 1，运行时恢复 checkpoint 间隔为 200 step。
+完整 Hybrid 恢复旧专家的**权重与对应 optimizer state**，从健康 peer
+获取当前非专家复制状态和 router 状态。
 
-<div align="center">
-  <a href="docs/assets/scalability.png">
-    <img src="docs/assets/scalability.png"
-         alt="64 和 128 GPU 上的恢复延迟"
-         width="68%">
-  </a>
-  <p><em>64 和 128 GPU 上的恢复延迟。Path P 表示 peer state，
-  Path C 表示 checkpoint expert state。点击图片可查看原始分辨率大图。</em></p>
-</div>
+| 结果 | 论文报告值 | 对照与测量范围 |
+| --- | --- | --- |
+| 选择性恢复与两阶段加载 | 延迟降低 **20.6%**；DeepSeek-V2-Lite 配置降低 **55.0%** | 替换 rank 就绪时间，相对 rank 局部 **FullLoad**，不含 replay |
+| 保留已提交训练进度 | checkpoint gap 为 100 iteration 时，恢复加速 **35.6×** | 对照整作业 **Restart**，包含恢复及 replay 到相同已提交进度 |
+| 64/128 专家完整状态质量 | 500-step 窗口的最大采样峰值退化 **0.393%**，低于 1% 容忍度 | 固定验证集，相对整作业 Restart；覆盖早中晚期、负载和 rank 数 |
+| 单次及重复故障后的完成质量 | 最大最终退化 **0.00306%**，采样峰值 **0.00454%** | 四条选定轨迹完成到第 10,000 step，共用种子/训练前缀 |
+| 架构比较 | GQA MoE 最大采样峰值 **0.0893%**；DeepSeek 风格 MLA MoE 为 **0.0230%** | 六条 Hybrid 分支，100-step 配对窗口，对照 Restart |
+| R2 策略审计 | 准入率 **66%**；危险候选拦截率 **95%**；实际整场轨迹越界 **3/200** | 作者报告的独立、冻结策略审计；单侧 95% 整场风险上界 **3.83%** |
+| 无故障完整控制路径开销 | 20 次重复的平均 step 耗时变化 **−0.003%**，观测范围 **−0.09%～+0.07%** | 包含设备完成确认和 all-rank fence；范围不是置信区间 |
+
+**对照口径需区分。** FullLoad 仅给替换 rank 加载完整状态并在当前步继续；
+整作业 Restart 则让所有 rank 回滚并 replay。下图比较的是恢复加载耗时，
+不能将其比值当作包含 replay 的 35.6×。EDP=1 时从旧 checkpoint 取专家状态；
+EDP=2 时可以从在线副本取当前专家状态。
+
+<p align="center"><a href="docs/assets/paper-results/recovery_scaling.pdf"><img src="docs/assets/paper-results/recovery_scaling.png" alt="GPU 规模和四组 64-GPU 布局：MoEGambit、独立复现的两种 MoC PEC，相对 rank 局部 FullLoad 的恢复耗时比" width="95%"></a></p>
+
+MoC 的 PEC-sync、PEC 两级异步与 MoEGambit 共用各布局的 FullLoad 分母。
+另一个 controlled-restart 端到端实验中，full-sync / PEC-sync / PEC 两级异步
+的窗口耗时分别为 267.086 / 264.269 / 300.784 秒（每种一次运行）。
+这些整窗口时间不能直接与上图不含 replay 的恢复加载耗时比较。
 
 <details>
-<summary><strong>注入故障后的训练 loss 对比</strong></summary>
-<br>
-<div align="center">
-  <a href="docs/assets/training-loss.png">
-    <img src="docs/assets/training-loss.png"
-         alt="注入故障后的训练 loss"
-         width="92%">
-  </a>
-  <p><em>Checkpoint restart、MoC-System 与 MoEGambit 的 loss 曲线。
-  竖向虚线表示注入的故障。点击图片可查看原始分辨率大图。</em></p>
-</div>
+<summary><strong>完整 Hybrid 质量：训练阶段、rank 数与专家数量</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/quality_checkpoint_study.pdf"><img src="docs/assets/paper-results/quality_checkpoint_study.png" alt="12 组恢复窗口和 3 组完成到第 10000 step 的验证损失结果，参照整作业 Restart" width="95%"></a></p>
+<p align="center"><a href="docs/assets/paper-results/quality_full_state_500.pdf"><img src="docs/assets/paper-results/quality_full_state_500.png" alt="恢复旧专家权重和 optimizer 的完整 Hybrid：64/128 专家、训练阶段与负载比较" width="95%"></a></p>
+
+这些实验使用完整状态恢复。500-step 终点描述短期变化；最终损失容忍度
+在训练终点评估。旧专家 checkpoint 位于 200-step 的恢复网格上。
+
 </details>
 
-论文主要实验使用 64 张 NVIDIA H20 GPU 训练 Qwen3-30B-A3B，
-跨模型实验使用 DeepSeek-V2-Lite。得出性能结论前，请在同等多机 GPU
-环境中复现实验。
+<details>
+<summary><strong>完成质量、重复故障与不同 MoE 架构</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/quality_full_state_terminal.pdf"><img src="docs/assets/paper-results/quality_full_state_terminal.png" alt="四条完整恢复轨迹完成到第 10000 step 的最终及采样峰值质量结果" width="95%"></a></p>
+<p align="center"><a href="docs/assets/paper-results/quality_architecture_transfer.pdf"><img src="docs/assets/paper-results/quality_architecture_transfer.png" alt="GQA MoE 与 DeepSeek 风格 MLA MoE 的固定验证集结果" width="95%"></a></p>
+
+统一容忍度为最终损失退化 **0.5%**、采样峰值退化 **1%**，整场风险预算
+**α_run=0.05**，准入条件为 **R≤1**。架构比较同时改变了 shared expert、
+路由及层布局，不能解释成只改变 attention 的消融。短窗口与共享前缀实验
+用于报告轨迹质量，与独立整场风险审计分开。
+
+</details>
+
+<details>
+<summary><strong>R2：候选决策与整场风险</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/r2_audit.pdf"><img src="docs/assets/paper-results/r2_audit.png" alt="作者报告的 200-run 决策计数，以及分别重算的整场风险和准入条件风险上界" width="95%"></a></p>
+
+实际策略轨迹在 200 次完整运行中有 3 次越界，单侧 95% 精确上界为
+**3.83%**。获准候选中有 3/132 越界，对应上界为 **5.77%**。
+两者分母不同：前者在审计条件下支持 5% 的边际整场风险目标，后者不能
+认证 5% 的准入条件风险目标。公开导出包含作者报告的计数及审计条件确认，
+未包含 200 次逐运行原始记录或训练好的预测器包。
+
+</details>
+
+<details>
+<summary><strong>10k 训练与十次故障</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/train_loss.pdf"><img src="docs/assets/paper-results/train_loss.png" alt="Restart、MoEGambit 和端到端 MoC PEC 复现的 10000-step 训练 loss 比较" width="95%"></a></p>
+
+Restart / MoEGambit / MoC PEC 最后 200 step 的平均训练 loss 为
+**2.7919 / 2.7910 / 2.8254**。论文报告了完整端到端执行，MoEGambit 分支
+使用 R2 决策。训练 loss 是稳定性诊断；质量边界使用固定验证集 loss 评估。
+
+</details>
+
+### 脚本与复核入口
+
+[**论文图表与结果复核说明**](examples/paper_results/README.md) 为每项结果
+列出输入、脚本、对照及测量范围，包含配对损失一致性检查、风险上界精确
+计算，以及恢复、质量、重复故障和架构比较图的重绘脚本：
+
+```bash
+python -m pip install matplotlib numpy
+export PAPER_RESULTS_DIR=/personal/moegambit/paper_results
+mkdir -p "$PAPER_RESULTS_DIR"
+nohup bash examples/paper_results/run_paper_results.sh \
+  >> "$PAPER_RESULTS_DIR/reproduce.log" 2>&1 &
+```
+
+此命令只使用 CPU，图表、报告及逐阶段日志均写入 `$PAPER_RESULTS_DIR`，
+不会重新启动训练。真实 GPU 实验入口见
+[MoC 保存/恢复计时与端到端脚本](examples/moc_system/README.md)、
+[Megatron 热替换示例](#多机运行示例) 和
+[DeepSpeed MoE/dense 示例](examples/deepspeed/run_hot_spare.sh)。
+[状态、运行完成及风险审计工具](docs/ARTIFACT_AUDIT.md) 用于核查新记录的证据。
+结果导出未附带论文专用的 checkpoint 拼接训练启动器和训练好的 R2 预测器；
+重绘成功不代表新配置下的训练复现已经完成。
 
 ## 环境与配置
 
@@ -744,8 +811,8 @@ watcher 和 replica 端口，并且不要将 watcher 直接暴露到公网。具
 
 ```bibtex
 @misc{moegambit,
-  title  = {MoEGambit: Contract-Based Hybrid Recovery for
-            Mixture-of-Experts Training},
+  title  = {MoEGambit: Selective State Repair for
+            Distributed Mixture-of-Experts Training},
   author = {MoEGambit Authors},
   year   = {2026},
   note   = {Software artifact},

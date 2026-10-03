@@ -1,0 +1,46 @@
+{
+  "source": "Author-reported cluster aggregate counts and explicit audit-protocol confirmation, 2026-10-03",
+  "raw_per_run_records_supplied_locally": false,
+  "included_batch": "New fixed-size 200-run audit only; earlier 50 tests excluded",
+  "n_runs": 200,
+  "run_exceedances": 3,
+  "run_safe": 197,
+  "candidate_decisions": {
+    "safe_admitted": 129,
+    "safe_rejected": 11,
+    "unsafe_admitted": 3,
+    "unsafe_rejected": 57
+  },
+  "author_confirmed_protocol": {
+    "independent_complete_runs": true,
+    "no_shared_prefixes": true,
+    "predictor_calibration_threshold_frozen_before_audit": true,
+    "faults_sampled_from_prespecified_distribution": true,
+    "not_outcome_quota_sampling": true,
+    "actual_policy_run_labels": true,
+    "fixed_audit_size_not_optional_stopping": true
+  },
+  "eta_final": 0.005,
+  "eta_peak": 0.01,
+  "alpha_run": 0.05,
+  "confidence_level": 0.95,
+  "derived_metrics": {
+    "accuracy": 0.93,
+    "admission_rate": 0.66,
+    "unsafe_interception_rate": 0.95,
+    "safe_rejection_rate": 0.07857142857142857,
+    "run_exceedance_rate": 0.015,
+    "run_upper_one_sided_95": 0.03830970849856935,
+    "admitted_candidate_exceedance_rate": 0.022727272727272728,
+    "admitted_candidate_upper_one_sided_95": 0.057689607687781586
+  },
+  "scope": "Frozen policy marginal complete-run risk under the audited distribution; no per-history conditional or untested-architecture guarantee",
+  "unknown_details": {
+    "predictor_model_class": null,
+    "training_run_count": null,
+    "calibration_run_count": null,
+    "calibration_algorithm": null,
+    "exact_fault_distribution": null,
+    "run_ids_seeds_and_validation_records": null
+  }
+}

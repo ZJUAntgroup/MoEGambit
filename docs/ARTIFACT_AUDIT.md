@@ -5,6 +5,12 @@ per-rank completion verification, and compact evidence exports. These tools do
 not fit a predictor or establish an unconditional statistical guarantee for a
 new model. Existing engine compatibility recovery paths remain available.
 
+The current paper's reported 200-run audit counts and reproducible figure/rate
+checks are in [paper results](../examples/paper_results/README.md). They support
+aggregate verification; they do not supply the trained predictor or a qualified
+online evidence provider. Shared-prefix quality studies remain separate from
+that independent-run audit.
+
 ## Installation and a CPU smoke run
 
 ```bash

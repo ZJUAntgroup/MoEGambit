@@ -1,0 +1,4 @@
+arm,failed_ranks,runs,window_seconds,recovery_replay_seconds,reported_window_speedup
+full_sync_native,1,1,267.086,144.907,1.000
+pec_sync,1,1,264.269,152.228,1.011
+pec_2level_async,1,1,300.784,167.505,0.888

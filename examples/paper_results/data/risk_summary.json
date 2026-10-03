@@ -1,0 +1,402 @@
+{
+  "alpha_run_target": 0.05,
+  "full_remaining_trajectory_nofault_control": [
+    {
+      "hybrid_loss": 2.8411002159118652,
+      "reference_loss": 2.8413400650024414,
+      "signed_relative_degradation": -8.441407402459789e-05,
+      "step": 8200
+    },
+    {
+      "hybrid_loss": 2.841520309448242,
+      "reference_loss": 2.841740131378174,
+      "signed_relative_degradation": -7.735469105861992e-05,
+      "step": 8210
+    },
+    {
+      "hybrid_loss": 2.838944911956787,
+      "reference_loss": 2.8389992713928223,
+      "signed_relative_degradation": -1.914739344349579e-05,
+      "step": 8300
+    },
+    {
+      "hybrid_loss": 2.8289034366607666,
+      "reference_loss": 2.8288915157318115,
+      "signed_relative_degradation": 4.213992968194214e-06,
+      "step": 8700
+    },
+    {
+      "hybrid_loss": 2.8212497234344482,
+      "reference_loss": 2.8211913108825684,
+      "signed_relative_degradation": 2.0704924070395388e-05,
+      "step": 9050
+    },
+    {
+      "hybrid_loss": 2.821160078048706,
+      "reference_loss": 2.821085214614868,
+      "signed_relative_degradation": 2.6537104746093574e-05,
+      "step": 9060
+    },
+    {
+      "hybrid_loss": 2.8194501399993896,
+      "reference_loss": 2.819413423538208,
+      "signed_relative_degradation": 1.3022730499581539e-05,
+      "step": 9150
+    },
+    {
+      "hybrid_loss": 2.812418222427368,
+      "reference_loss": 2.8123788833618164,
+      "signed_relative_degradation": 1.3987825674730324e-05,
+      "step": 9550
+    },
+    {
+      "hybrid_loss": 2.8059353828430176,
+      "reference_loss": 2.805901288986206,
+      "signed_relative_degradation": 1.215076843413897e-05,
+      "step": 10000
+    }
+  ],
+  "limitation": "Reused seed 1234 and selected histories do not constitute independent run-level risk calibration or a 5% risk certificate.",
+  "nofault_vs_saved_baseline": [
+    {
+      "hybrid_loss": 2.8413400650024414,
+      "reference_loss": 2.8413281440734863,
+      "signed_relative_degradation": 4.195548120671348e-06,
+      "step": 8200
+    },
+    {
+      "hybrid_loss": 2.8211913108825684,
+      "reference_loss": 2.8212311267852783,
+      "signed_relative_degradation": -1.4112953147277286e-05,
+      "step": 9050
+    },
+    {
+      "hybrid_loss": 2.805901288986206,
+      "reference_loss": 2.8058876991271973,
+      "signed_relative_degradation": 4.843336749726776e-06,
+      "step": 10000
+    }
+  ],
+  "optimizer_steps": 10450,
+  "results": [
+    {
+      "Y": 0.0029399836329581683,
+      "calibrated_run_risk": null,
+      "eta_final": 0.005,
+      "eta_peak": 0.01,
+      "failed_rank": 57,
+      "fault_steps": [
+        8200
+      ],
+      "final_signed_relative_degradation": 1.4699918164790842e-05,
+      "policy": "single",
+      "quality_boundary_exceeded": false,
+      "rows": [
+        {
+          "hybrid_loss": 2.8411002159118652,
+          "reference_loss": 2.841332197189331,
+          "signed_relative_degradation": -8.164524996242892e-05,
+          "step": 8200
+        },
+        {
+          "hybrid_loss": 2.841520309448242,
+          "reference_loss": 2.8417351245880127,
+          "signed_relative_degradation": -7.559294950181226e-05,
+          "step": 8210
+        },
+        {
+          "hybrid_loss": 2.838944911956787,
+          "reference_loss": 2.8390145301818848,
+          "signed_relative_degradation": -2.4521968576608896e-05,
+          "step": 8300
+        },
+        {
+          "hybrid_loss": 2.8289034366607666,
+          "reference_loss": 2.82887601852417,
+          "signed_relative_degradation": 9.692236922770402e-06,
+          "step": 8700
+        },
+        {
+          "hybrid_loss": 2.8212497234344482,
+          "reference_loss": 2.821226119995117,
+          "signed_relative_degradation": 8.36637629425306e-06,
+          "step": 9050
+        },
+        {
+          "hybrid_loss": 2.821160078048706,
+          "reference_loss": 2.8211357593536377,
+          "signed_relative_degradation": 8.62017894308324e-06,
+          "step": 9060
+        },
+        {
+          "hybrid_loss": 2.8194501399993896,
+          "reference_loss": 2.8194267749786377,
+          "signed_relative_degradation": 8.2871528919669e-06,
+          "step": 9150
+        },
+        {
+          "hybrid_loss": 2.812418222427368,
+          "reference_loss": 2.812342882156372,
+          "signed_relative_degradation": 2.6789148461984968e-05,
+          "step": 9550
+        },
+        {
+          "hybrid_loss": 2.8059353828430176,
+          "reference_loss": 2.805894136428833,
+          "signed_relative_degradation": 1.4699918164790842e-05,
+          "step": 10000
+        }
+      ],
+      "same_actual_training_sample_ids_proven": false,
+      "sampled_peak_signed_relative_degradation": 2.6789148461984968e-05,
+      "second_failed_rank": null,
+      "seed": 1234,
+      "state_treatment": "hybrid_full_state",
+      "terminal_step": 10000,
+      "validation_steps": [
+        8200,
+        8210,
+        8300,
+        8700,
+        9050,
+        9060,
+        9150,
+        9550,
+        10000
+      ]
+    },
+    {
+      "Y": 0.002294221501817788,
+      "calibrated_run_risk": null,
+      "eta_final": 0.005,
+      "eta_peak": 0.01,
+      "failed_rank": 57,
+      "fault_steps": [
+        9050
+      ],
+      "final_signed_relative_degradation": 1.1471107509088941e-05,
+      "policy": "late",
+      "quality_boundary_exceeded": false,
+      "rows": [
+        {
+          "hybrid_loss": 2.8211300373077393,
+          "reference_loss": 2.8212432861328125,
+          "signed_relative_degradation": -4.014146019589708e-05,
+          "step": 9050
+        },
+        {
+          "hybrid_loss": 2.8210480213165283,
+          "reference_loss": 2.8211376667022705,
+          "signed_relative_degradation": -3.177632442410272e-05,
+          "step": 9060
+        },
+        {
+          "hybrid_loss": 2.819425582885742,
+          "reference_loss": 2.8194024562835693,
+          "signed_relative_degradation": 8.202660858619022e-06,
+          "step": 9150
+        },
+        {
+          "hybrid_loss": 2.8123672008514404,
+          "reference_loss": 2.8123598098754883,
+          "signed_relative_degradation": 2.6280335560888485e-06,
+          "step": 9550
+        },
+        {
+          "hybrid_loss": 2.805908441543579,
+          "reference_loss": 2.8058762550354004,
+          "signed_relative_degradation": 1.1471107509088941e-05,
+          "step": 10000
+        }
+      ],
+      "same_actual_training_sample_ids_proven": false,
+      "sampled_peak_signed_relative_degradation": 1.1471107509088941e-05,
+      "second_failed_rank": null,
+      "seed": 1234,
+      "state_treatment": "hybrid_full_state",
+      "terminal_step": 10000,
+      "validation_steps": [
+        9050,
+        9060,
+        9150,
+        9550,
+        10000
+      ]
+    },
+    {
+      "Y": 0.00611793960030141,
+      "calibrated_run_risk": null,
+      "eta_final": 0.005,
+      "eta_peak": 0.01,
+      "failed_rank": 57,
+      "fault_steps": [
+        8200,
+        9050
+      ],
+      "final_signed_relative_degradation": 3.058969800150705e-05,
+      "policy": "repeat_same",
+      "quality_boundary_exceeded": false,
+      "rows": [
+        {
+          "hybrid_loss": 2.8411002159118652,
+          "reference_loss": 2.841332197189331,
+          "signed_relative_degradation": -8.164524996242892e-05,
+          "step": 8200
+        },
+        {
+          "hybrid_loss": 2.841520309448242,
+          "reference_loss": 2.8417351245880127,
+          "signed_relative_degradation": -7.559294950181226e-05,
+          "step": 8210
+        },
+        {
+          "hybrid_loss": 2.838944911956787,
+          "reference_loss": 2.8390145301818848,
+          "signed_relative_degradation": -2.4521968576608896e-05,
+          "step": 8300
+        },
+        {
+          "hybrid_loss": 2.8289034366607666,
+          "reference_loss": 2.82887601852417,
+          "signed_relative_degradation": 9.692236922770402e-06,
+          "step": 8700
+        },
+        {
+          "hybrid_loss": 2.8211565017700195,
+          "reference_loss": 2.821216344833374,
+          "signed_relative_degradation": -2.1211795211694983e-05,
+          "step": 9050
+        },
+        {
+          "hybrid_loss": 2.821093797683716,
+          "reference_loss": 2.8211684226989746,
+          "signed_relative_degradation": -2.6451811475826846e-05,
+          "step": 9060
+        },
+        {
+          "hybrid_loss": 2.8194568157196045,
+          "reference_loss": 2.819420099258423,
+          "signed_relative_degradation": 1.3022699664834609e-05,
+          "step": 9150
+        },
+        {
+          "hybrid_loss": 2.8124544620513916,
+          "reference_loss": 2.8123269081115723,
+          "signed_relative_degradation": 4.535530327268609e-05,
+          "step": 9550
+        },
+        {
+          "hybrid_loss": 2.805954933166504,
+          "reference_loss": 2.8058691024780273,
+          "signed_relative_degradation": 3.058969800150705e-05,
+          "step": 10000
+        }
+      ],
+      "same_actual_training_sample_ids_proven": false,
+      "sampled_peak_signed_relative_degradation": 4.535530327268609e-05,
+      "second_failed_rank": 57,
+      "seed": 1234,
+      "state_treatment": "hybrid_full_state",
+      "terminal_step": 10000,
+      "validation_steps": [
+        8200,
+        8210,
+        8300,
+        8700,
+        9050,
+        9060,
+        9150,
+        9550,
+        10000
+      ]
+    },
+    {
+      "Y": 0.006049962493631394,
+      "calibrated_run_risk": null,
+      "eta_final": 0.005,
+      "eta_peak": 0.01,
+      "failed_rank": 57,
+      "fault_steps": [
+        8200,
+        9050
+      ],
+      "final_signed_relative_degradation": 3.0249812468156973e-05,
+      "policy": "repeat_other",
+      "quality_boundary_exceeded": false,
+      "rows": [
+        {
+          "hybrid_loss": 2.8411002159118652,
+          "reference_loss": 2.841332197189331,
+          "signed_relative_degradation": -8.164524996242892e-05,
+          "step": 8200
+        },
+        {
+          "hybrid_loss": 2.841520309448242,
+          "reference_loss": 2.8417351245880127,
+          "signed_relative_degradation": -7.559294950181226e-05,
+          "step": 8210
+        },
+        {
+          "hybrid_loss": 2.838944911956787,
+          "reference_loss": 2.8390145301818848,
+          "signed_relative_degradation": -2.4521968576608896e-05,
+          "step": 8300
+        },
+        {
+          "hybrid_loss": 2.8289034366607666,
+          "reference_loss": 2.82887601852417,
+          "signed_relative_degradation": 9.692236922770402e-06,
+          "step": 8700
+        },
+        {
+          "hybrid_loss": 2.8212170600891113,
+          "reference_loss": 2.821216344833374,
+          "signed_relative_degradation": 2.535274328091034e-07,
+          "step": 9050
+        },
+        {
+          "hybrid_loss": 2.8211421966552734,
+          "reference_loss": 2.8211684226989746,
+          "signed_relative_degradation": -9.296163777447135e-06,
+          "step": 9060
+        },
+        {
+          "hybrid_loss": 2.819453477859497,
+          "reference_loss": 2.819420099258423,
+          "signed_relative_degradation": 1.1838817877122372e-05,
+          "step": 9150
+        },
+        {
+          "hybrid_loss": 2.812436819076538,
+          "reference_loss": 2.8123269081115723,
+          "signed_relative_degradation": 3.9081859455529505e-05,
+          "step": 9550
+        },
+        {
+          "hybrid_loss": 2.8059539794921875,
+          "reference_loss": 2.8058691024780273,
+          "signed_relative_degradation": 3.0249812468156973e-05,
+          "step": 10000
+        }
+      ],
+      "same_actual_training_sample_ids_proven": false,
+      "sampled_peak_signed_relative_degradation": 3.9081859455529505e-05,
+      "second_failed_rank": 7,
+      "seed": 1234,
+      "state_treatment": "hybrid_full_state",
+      "terminal_step": 10000,
+      "validation_steps": [
+        8200,
+        8210,
+        8300,
+        8700,
+        9050,
+        9060,
+        9150,
+        9550,
+        10000
+      ]
+    }
+  ],
+  "risk_calibrated": false
+}

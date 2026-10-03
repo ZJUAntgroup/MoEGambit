@@ -1,0 +1,129 @@
+# Paper figures and result checks
+
+This bundle accompanies **MoEGambit: Selective State Repair for Distributed
+Mixture-of-Experts Training**. It contains the supplied paper exports and CPU
+scripts to recompute aggregates, check paired losses, and redraw figures. It
+**does not launch GPU training**. The checked-in figures are exports of the
+current manuscript; no synthetic observations or per-run records are added.
+Input attribution and comparison-label changes are documented in
+[data/PROVENANCE.md](data/PROVENANCE.md).
+
+## One command
+
+```bash
+python -m pip install matplotlib numpy
+export PAPER_RESULTS_DIR=/personal/moegambit/paper_results
+mkdir -p "$PAPER_RESULTS_DIR"
+nohup bash examples/paper_results/run_paper_results.sh \
+  >> "$PAPER_RESULTS_DIR/reproduce.log" 2>&1 &
+```
+
+The command works from any current directory when invoked by its full path.
+Reports, PDF/PNG figures, and each stage's complete stdout/stderr go to
+`$PAPER_RESULTS_DIR`. Inputs remain unchanged. `reproduction_summary.json` is
+written only after all requested stages pass. For standard-library checks only:
+
+```bash
+python3 examples/paper_results/reproduce.py \
+  --no-plots --out-dir /personal/moegambit/paper_results_cpu
+```
+
+## Which script supports which result?
+
+| Result / comparison | Input | Script / output | Scope |
+| --- | --- | --- | --- |
+| 64/128-GPU restoration; four 64-GPU layouts with PEC-sync and PEC-2L async | `data/recovery_scaling.csv` | `scripts/plot_recovery_scaling.py` → `recovery_scaling.{pdf,png}` | FullLoad / repair; **rank-local, replay excluded**; rounded cell means |
+| Early/middle/late faults, 1–4 ranks; three step-10,000 endpoints | `data/checkpoint_results.csv` | `scripts/plot_checkpoint.py` → `quality_checkpoint_study.pdf`, `plot_checkpoint.png` | Full Hybrid / whole-job Restart; 12 recovery-window cases + 3 selected long continuations |
+| 64/128 experts, training phase and affected-rank load | `data/expert_count_results.csv`, `summary.json` | `scripts/plot_experts.py` → `quality_full_state_500.pdf`, `plot_experts.png`, `experts_analysis.json` | Ten paired 500-step outcomes; a transient endpoint is not the final training loss |
+| Completion and repeated faults | `data/risk_summary.json`, `risk_trajectory.csv` | `scripts/plot_terminal.py` → `quality_full_state_terminal.{pdf,png}`, `terminal_analysis.json` | Four histories, shared seed/prefixes; recomputes selected-history quality outcomes |
+| GQA MoE / DeepSeek-style MLA MoE | `data/architecture_summary.json`, `architecture_quality_results.csv` | `scripts/plot_architecture.py` → `quality_architecture_transfer.{pdf,png}`, `architecture_analysis.json` | Six Hybrid branches, Restart and NoFault diagnostics; 100-step window, multiple architectural differences |
+| Independent 200-run R2 audit | `data/r2_audit_aggregate.json` | `scripts/report_results.py`, `scripts/plot_r2_audit.py` → reports and `r2_audit.{pdf,png}` | Recomputes rates and exact one-sided 95% binomial upper limits from **author-reported counts** |
+| Controlled-restart MoC end-to-end window | `data/moc_e2e_aggregate.csv` | `scripts/report_results.py` → `aggregate_report.json` | Three arms, one run per arm; window and recovery-plus-replay are distinct from layout restoration times |
+| 10,000-step, ten-fault training-loss comparison | Supply one completed log per arm | `scripts/plot_training_loss.py` → `train_loss.{pdf,png}`, `training_loss_summary.json` | Checks steps 1–10,000, refuses conflicting duplicates; training loss is a stability diagnostic |
+
+All plots are reproduced together by `reproduce.py`. To run an individual plot,
+set `MOEGAMBIT_PAPER_RESULTS_OUT` to an output directory under `/personal` and
+invoke its script. `aggregate_report.json` includes SHA-256 hashes of the inputs.
+
+### Replot the 10k comparison from real logs
+
+The publication figure is available in
+[`docs/assets/paper-results/train_loss.pdf`](../../docs/assets/paper-results/train_loss.pdf).
+Its source logs are not bundled. Supply genuine complete logs to redraw it:
+
+```bash
+python3 examples/paper_results/scripts/plot_training_loss.py \
+  --restart-log /personal/my_run/restart.log \
+  --moc-log /personal/my_run/moc.log \
+  --moegambit-log /personal/my_run/moegambit.log \
+  --out-dir /personal/moegambit/training_loss
+```
+
+This uses the paper's ten-fault schedule and plotting smoothing. Tail means
+use the final **200 unique steps**, before smoothing. Identical duplicate log
+lines are deduplicated; conflicting values require a clean run export.
+
+## Measurement contract
+
+- **FullLoad** loads complete state into the replacement rank and resumes at the
+  current committed step, leaving survivors intact. **Whole-job Restart** rolls
+  all ranks back to a checkpoint and replays. A ratio against FullLoad cannot be
+  substituted for a replay-inclusive speedup against Restart.
+- **Full Hybrid** uses current replicated non-expert/router and unaffected
+  expert state. At EDP=1, affected experts use old weights and their corresponding
+  optimizer state (FP32 master parameters, Adam moments and update counters).
+  At EDP=2, current expert replicas can be transferred from live peers.
+- The reported experiments used built-in expert bias, auxiliary load-balancing
+  loss disabled, and micro batch size 1. Operational recovery checkpoints are
+  spaced 200 steps apart; additional saved states are evaluation anchors.
+- Quality uses fixed-validation paired losses aligned by committed progress,
+  relative to **whole-job Restart**. The fixed tolerances are final 0.5% and
+  sampled peak 1%, with a run-risk target of 5%. Short-window outcomes and shared
+  prefixes do not constitute independent complete-run risk trials.
+- The manuscript's **35.6×** replay-inclusive result at a 100-step gap is a
+  separate reported measurement. Rounded restoration aggregates here cannot
+  reconstruct its absolute intervals or per-event confidence intervals.
+
+## R2 audit: distinguish the denominators
+
+The reported candidate counts are 129 safe admissions, 11 safe rejections,
+3 unsafe admissions and 57 unsafe rejections. Admission is 132/200 = 66%;
+unsafe interception is 57/60 = 95%. Actual policy trajectories had 3 boundary
+violations in 200 runs, including Restart runs in that denominator. The exact
+one-sided 95% upper limit is **3.83%**, below the 5% marginal run-risk target.
+Among admitted candidates the rate is 3/132, whose upper limit is **5.77%**;
+this does not certify a 5% admission-conditional target.
+
+The 200-run counts and independent/frozen-policy audit conditions were reported
+by the authors on 2026-10-03. Raw per-run records, the trained predictor package,
+and its training/calibration specification are not included in this export.
+The scripts verify the arithmetic; the run-level interpretation assumes the
+reported independent, prespecified, fixed-size audit protocol. The separate
+short/shared-prefix studies are not pooled into these 200 trials.
+
+For **new real decision/run records**, use
+[`scripts/audit_r2.py`](scripts/audit_r2.py). It reads job-wide JSONL records,
+deduplicates identical records, rejects conflicts, and reports missing labels.
+See `python3 examples/paper_results/scripts/audit_r2.py --help`. For the runtime's
+state/run evidence checks and risk CLI, see
+[ARTIFACT_AUDIT.md](../../docs/ARTIFACT_AUDIT.md). Risk arithmetic is not a
+substitute for independently recorded decisions or an implemented predictor.
+
+## Run GPU experiments
+
+The executable public GPU entry points are separate from this replot bundle:
+
+- [MoC physical PEC component timing](../moc_system/README_timing.md):
+  `examples/moc_system/run_moc_timing_short.sh`.
+- [MoC controlled-restart end-to-end reproduction](../moc_system/README_e2e.md):
+  `examples/moc_system/run_moc_e2e.sh`. Includes real training, worker/communicator
+  restart, state restoration, and replay. It is an independent fixed-K mechanism
+  port, rather than the original authors' full ZeRO-2 implementation.
+- [Megatron hot replacement](../../README.md#multi-node-examples) and
+  [DeepSpeed hot replacement/dense](../deepspeed/run_hot_spare.sh).
+- [State provenance, completion and risk audits](../../docs/ARTIFACT_AUDIT.md).
+
+The public MoC runner's default 660-update workload is a short comparison; it
+is not the paper's 10k execution. The checkpoint-splice continuation launcher
+used to obtain the paper's quality exports is not included in this bundle.
+Do not treat CPU plot completion as successful execution of that training suite.

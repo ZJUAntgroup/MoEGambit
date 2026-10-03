@@ -141,7 +141,7 @@ Recovery is state restoration within already-running workers. Failure detection,
 process recreation, communication-group rebuild, scheduler/RNG/data-iterator
 reconstruction, rollback/replay and first-post-recovery-step latency are excluded;
 the native baseline's scheduler, RNG and iterator remain intact for the smoke
-check. No run-level or 36.9x end-to-end speedup follows from these measurements.
+check. No run-level or 35.6x end-to-end speedup follows from these measurements.
 
 GPU-to-CPU snapshot copying is blocking. Asynchronous **CPU persistence** is
 implemented; GPU snapshot overlap with forward/backward is not. Async enqueue

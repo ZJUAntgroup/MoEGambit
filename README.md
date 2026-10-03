@@ -10,7 +10,7 @@
 
 # MoEGambit
 
-### Contract-Based Hybrid Recovery for Mixture-of-Experts Training
+### Selective State Repair for Distributed Mixture-of-Experts Training
 
 Framework-neutral hot rank replacement, version-aware state restoration, and
 transactional recovery for Megatron-LM and DeepSpeed.
@@ -41,9 +41,9 @@ transactional recovery for Megatron-LM and DeepSpeed.
 ## Overview
 
 MoEGambit is the implementation accompanying
-**“MoEGambit: Contract-Based Hybrid Recovery for Mixture-of-Experts
-Training.”** It keeps the distributed training job alive after a fail-stop
-rank failure, activates a resident replacement worker, rebuilds communication
+**“MoEGambit: Selective State Repair for Distributed
+Mixture-of-Experts Training.”** It keeps the distributed training job alive after
+a fail-stop rank failure, activates a resident replacement worker, rebuilds communication
 groups in a deterministic order, and restores state from the safest available
 source.
 
@@ -51,9 +51,10 @@ The key idea is hybrid recovery:
 
 - replicated non-expert state is pulled from a healthy peer at the current
   committed version;
-- rank-local expert state is restored from a checkpoint when no live expert
-  replica exists;
-- optimizer state can be restored from acknowledged host-memory replicas;
+- when no live expert replica exists, expert weights and their corresponding
+  optimizer state are restored together from a checkpoint;
+- live expert replicas and acknowledged host-memory optimizer replicas are used
+  where the adapter and version checks support them;
 - unsafe or unprovable recovery paths fail closed to checkpoint relaunch.
 
 MoEGambit separates recovery policy and orchestration from framework-specific
@@ -491,39 +492,118 @@ benchmark instructions for GPU requirements and measurement boundaries.
 
 ## Paper Results
 
-The accompanying paper artifact reports **20.6%-55.0% lower raw recovery
-latency** and a **36.9× replay-inclusive speedup** for a 100-iteration replay
-gap. These figures use the paper's latency scope and should not be interpreted
-as stronger end-to-end guarantees for other clusters.
+The current paper is **MoEGambit: Selective State Repair for Distributed
+Mixture-of-Experts Training**. The main experiments used Qwen3-30B-A3B on
+64 NVIDIA H20 GPUs, with built-in expert bias, auxiliary load-balancing loss
+disabled, and micro batch size 1. Operational checkpoints were saved every
+200 steps. Full Hybrid restored affected expert **weights and optimizer state**;
+current replicated non-expert/router state came from healthy peers.
 
-<div align="center">
-  <a href="docs/assets/scalability.png">
-    <img src="docs/assets/scalability.png"
-         alt="Recovery latency at 64 and 128 GPUs"
-         width="68%">
-  </a>
-  <p><em>Recovery latency at 64 and 128 GPUs. Path P is peer state; Path C is
-  checkpoint expert state. Click the figure to view it at full resolution.</em></p>
-</div>
+| Result | Reported outcome | Comparison / scope |
+| --- | --- | --- |
+| Selective restoration + two-phase attachment | **20.6%** lower latency; **55.0%** in the DeepSeek-V2-Lite setting | Replacement-ready latency vs rank-local **FullLoad**, excluding replay |
+| Retaining committed progress | **35.6×** recovery speedup at a 100-iteration checkpoint gap | Whole-job **Restart**, including restoration and replay to the same committed progress |
+| Full-state quality, 64/128 experts | Largest sampled 500-step peak increase: **0.393%**, below the 1% tolerance | Fixed-validation loss vs whole-job Restart; early/middle/late, load and rank-count cases |
+| Completion with one/repeated faults | Maximum final increase **0.00306%**; sampled peak **0.00454%** | Four selected histories through step 10,000; shared seed/prefixes |
+| Architecture comparison | Largest sampled peak: **0.0893%** for GQA MoE, **0.0230%** for DeepSeek-style MLA MoE | Six Hybrid branches; 100-step paired windows vs Restart |
+| R2 policy audit | **66%** admission; **95%** interception of unsafe candidates; **3/200** actual-run violations | Author-reported independent, frozen-policy audit; one-sided 95% run-risk upper limit **3.83%** |
+| Failure-free control path | Mean step-time change **−0.003%**, observed range **−0.09% to +0.07%** across 20 repetitions | Includes device-completion confirmation and all-rank fence; the range is not a confidence interval |
+
+**Keep the baselines distinct.** FullLoad restores only the replacement rank
+and continues at the current step; whole-job Restart rolls all ranks back and
+replays. The layout figure below measures restoration, so its ratios are not
+the 35.6× replay-inclusive result. At EDP=1, affected experts come from older
+checkpoints; at EDP=2, live expert replicas are available.
+
+<p align="center">
+  <a href="docs/assets/paper-results/recovery_scaling.pdf"><img src="docs/assets/paper-results/recovery_scaling.png" alt="GPU scaling and four 64-GPU layouts, comparing MoEGambit and two independently reproduced MoC PEC modes against rank-local FullLoad" width="95%"></a>
+</p>
+
+The MoC bars use the independent mechanism reproduction's PEC-sync and
+PEC two-level asynchronous modes. They share each layout's FullLoad denominator.
+The separate controlled-restart end-to-end experiment measured windows of
+267.086 / 264.269 / 300.784 seconds for full-sync / PEC-sync / PEC-2L async
+(one run per arm); those whole-window times must not be compared directly with
+the layout figure's replay-excluded restoration times.
 
 <details>
-<summary><strong>Training-loss comparison under injected faults</strong></summary>
-<br>
-<div align="center">
-  <a href="docs/assets/training-loss.png">
-    <img src="docs/assets/training-loss.png"
-         alt="Training loss under injected faults"
-         width="92%">
-  </a>
-  <p><em>Loss trajectories for checkpoint restart, MoC-System, and
-  MoEGambit. The dotted vertical markers denote injected faults. Click the
-  figure to view it at full resolution.</em></p>
-</div>
+<summary><strong>Full Hybrid quality: training phase, rank count and expert count</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/quality_checkpoint_study.pdf"><img src="docs/assets/paper-results/quality_checkpoint_study.png" alt="Twelve recovery-window cases and three selected step-10000 outcomes relative to whole-job Restart" width="95%"></a></p>
+<p align="center"><a href="docs/assets/paper-results/quality_full_state_500.pdf"><img src="docs/assets/paper-results/quality_full_state_500.png" alt="Full Hybrid with old expert weights and optimizer state: 64 and 128 experts, phase and load comparisons" width="95%"></a></p>
+
+These are full-state continuations, rather than weights-only substitutions.
+The 500-step endpoints describe transients; final-loss tolerance applies at the
+training endpoint. Older expert checkpoints are on the 200-step recovery grid.
+
 </details>
 
-The paper's main setting uses Qwen3-30B-A3B on 64 NVIDIA H20 GPUs; the
-cross-model setting uses DeepSeek-V2-Lite. Reproduce claims on a comparable
-multi-node GPU environment before drawing performance conclusions.
+<details>
+<summary><strong>Completion, repeated faults and another MoE architecture</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/quality_full_state_terminal.pdf"><img src="docs/assets/paper-results/quality_full_state_terminal.png" alt="Four selected full-state recovery histories through step 10000 and normalized final/peak quality outcomes" width="95%"></a></p>
+<p align="center"><a href="docs/assets/paper-results/quality_architecture_transfer.pdf"><img src="docs/assets/paper-results/quality_architecture_transfer.png" alt="Fixed-validation outcomes for GQA MoE and DeepSeek-style MLA MoE" width="95%"></a></p>
+
+Fixed tolerances are **0.5% final loss increase** and **1% sampled peak increase**,
+with **α_run = 0.05** and admission at **R ≤ 1**. Architecture comparisons also
+change shared experts, routing and layer placement; they are not an isolated
+attention ablation. Short/shared-prefix studies report trajectory outcomes and
+are separate from the independent-run audit.
+
+</details>
+
+<details>
+<summary><strong>R2: candidate decisions and complete-run risk</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/r2_audit.pdf"><img src="docs/assets/paper-results/r2_audit.png" alt="Author-reported 200-run candidate confusion matrix and separately recomputed run/admission risk upper limits" width="95%"></a></p>
+
+The actual policy had 3 boundary violations in 200 complete runs; the exact
+one-sided 95% upper limit is **3.83%**. Among admitted candidates, 3/132 violated
+the boundary; its upper limit is **5.77%**. These have different denominators:
+the former supports the 5% marginal run-risk target under the audited
+conditions; the latter does not certify a 5% admission-conditional target.
+The public export contains author-reported counts and protocol confirmation,
+rather than the 200 raw records or a trained predictor package.
+
+</details>
+
+<details>
+<summary><strong>10k training through ten faults</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/train_loss.pdf"><img src="docs/assets/paper-results/train_loss.png" alt="10000-step Restart, MoEGambit and end-to-end MoC PEC training-loss comparison" width="95%"></a></p>
+
+Last-200-step training-loss means were **2.7919 / 2.7910 / 2.8254** for
+Restart / MoEGambit / MoC PEC. The manuscript reports full end-to-end execution
+and R2 decisions in the MoEGambit arm. Training loss is a stability diagnostic;
+quality-boundary evaluation uses fixed-validation loss.
+
+</details>
+
+### Scripts and reproducibility
+
+[**Paper figures and result checks**](examples/paper_results/README.md) maps
+each figure to its inputs, script, comparator and measurement scope. It includes
+loss-consistency checks, exact risk-bound arithmetic and scripts to redraw the
+new quality, architecture and recovery figures:
+
+```bash
+python -m pip install matplotlib numpy
+export PAPER_RESULTS_DIR=/personal/moegambit/paper_results
+mkdir -p "$PAPER_RESULTS_DIR"
+nohup bash examples/paper_results/run_paper_results.sh \
+  >> "$PAPER_RESULTS_DIR/reproduce.log" 2>&1 &
+```
+
+This command uses CPU only; all generated figures, reports and stage logs go to
+`$PAPER_RESULTS_DIR`. It verifies supplied exports and does not rerun training.
+For real GPU runs, use the
+[MoC component/end-to-end runners](examples/moc_system/README.md),
+[Megatron hot replacement](#multi-node-examples) and
+[DeepSpeed MoE/dense examples](examples/deepspeed/run_hot_spare.sh).
+[State, completion and risk audits](docs/ARTIFACT_AUDIT.md) check newly recorded
+evidence. The paper's private checkpoint-splice training launcher and trained
+R2 predictor are not bundled with the result exports; publication plots alone
+do not validate a new runtime configuration.
 
 ## Environment and Configuration
 
@@ -776,8 +856,8 @@ If you use MoEGambit, please cite the accompanying paper:
 
 ```bibtex
 @misc{moegambit,
-  title  = {MoEGambit: Contract-Based Hybrid Recovery for
-            Mixture-of-Experts Training},
+  title  = {MoEGambit: Selective State Repair for
+            Distributed Mixture-of-Experts Training},
   author = {MoEGambit Authors},
   year   = {2026},
   note   = {Software artifact},

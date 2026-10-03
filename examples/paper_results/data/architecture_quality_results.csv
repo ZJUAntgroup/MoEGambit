@@ -1,0 +1,13 @@
+profile,case_id,reference_arm,seed,fault_step,old_step,failed_rank,prior_route_share,state_treatment,terminal_step,step_100_signed_relative_degradation,sampled_peak_positive_relative_degradation,sampled_peak_exceeds_one_percent,whole_run_Y,calibrated_run_risk,same_actual_training_sample_ids_proven
+small_plain_24x1024,s1050_g50_one_matched_rank,nofault,1234,1050,1000,41,0.1258436409632365,hybrid_full_state,1150,-3.410719283319106e-05,1.7466650762821497e-05,False,,,False
+small_plain_24x1024,s1050_g50_one_matched_rank,restart,1234,1050,1000,41,0.1258436409632365,hybrid_full_state,1150,-0.001122212408276229,0.0008927461340645856,False,,,False
+small_plain_24x1024,s2450_g50_one_matched_rank,nofault,1234,2450,2400,24,0.1252897262573242,hybrid_full_state,2550,7.974907609882955e-05,7.974907609882955e-05,False,,,False
+small_plain_24x1024,s2450_g50_one_matched_rank,restart,1234,2450,2400,24,0.1252897262573242,hybrid_full_state,2550,3.4660174924216405e-05,3.4660174924216405e-05,False,,,False
+small_plain_24x1024,s4050_g50_one_matched_rank,nofault,1234,4050,4000,62,0.1252709182103475,hybrid_full_state,4150,-0.0001028310998823115,0,False,,,False
+small_plain_24x1024,s4050_g50_one_matched_rank,restart,1234,4050,4000,62,0.1252709182103475,hybrid_full_state,4150,-5.781648945069493e-06,0,False,,,False
+small_deepseek_mla_24x1024,s1050_g50_one_matched_rank,nofault,1234,1050,1000,41,0.12425719579060872,hybrid_full_state,1150,0.00010123111996474396,0.0001489327811404906,False,,,False
+small_deepseek_mla_24x1024,s1050_g50_one_matched_rank,restart,1234,1050,1000,41,0.12425719579060872,hybrid_full_state,1150,-6.969951572638454e-05,0.00022997775902713533,False,,,False
+small_deepseek_mla_24x1024,s2450_g50_one_matched_rank,nofault,1234,2450,2400,24,0.12475481510162353,hybrid_full_state,2550,-1.5186635865627067e-05,0,False,,,False
+small_deepseek_mla_24x1024,s2450_g50_one_matched_rank,restart,1234,2450,2400,24,0.12475481510162353,hybrid_full_state,2550,4.451067644788234e-05,4.451067644788234e-05,False,,,False
+small_deepseek_mla_24x1024,s4050_g50_one_matched_rank,nofault,1234,4050,4000,62,0.1252231280008952,hybrid_full_state,4150,-3.49118078856278e-07,0,False,,,False
+small_deepseek_mla_24x1024,s4050_g50_one_matched_rank,restart,1234,4050,4000,62,0.1252231280008952,hybrid_full_state,4150,-1.96898788227603e-05,0,False,,,False
