@@ -480,6 +480,7 @@ micro batch size 为 1，运行时恢复 checkpoint 间隔为 200 step。
 | 单次及重复故障后的完成质量 | 最大最终退化 **0.00306%**，采样峰值 **0.00454%** | 四条选定轨迹完成到第 10,000 step，共用种子/训练前缀 |
 | 架构比较 | GQA MoE 最大采样峰值 **0.0893%**；DeepSeek 风格 MLA MoE 为 **0.0230%** | 六条 Hybrid 分支，100-step 配对窗口，对照 Restart |
 | R2 策略审计 | 准入率 **66%**；危险候选拦截率 **95%**；实际整场轨迹越界 **3/200** | 作者报告的独立、冻结策略审计；单侧 95% 整场风险上界 **3.83%** |
+| 下游任务质量 | 任务等权均值 **45.06% / 44.67% / 45.32%** | Restart / MoC PEC / MoEGambit；八项零样本任务，保留各任务 acc/acc_norm 指标 |
 | 无故障完整控制路径开销 | 20 次重复的平均 step 耗时变化 **−0.003%**，观测范围 **−0.09%～+0.07%** | 包含设备完成确认和 all-rank fence；范围不是置信区间 |
 
 **对照口径需区分。** FullLoad 仅给替换 rank 加载完整状态并在当前步继续；
@@ -539,6 +540,58 @@ MoC 的 PEC-sync、PEC 两级异步与 MoEGambit 共用各布局的 FullLoad 分
 Restart / MoEGambit / MoC PEC 最后 200 step 的平均训练 loss 为
 **2.7919 / 2.7910 / 2.8254**。论文报告了完整端到端执行，MoEGambit 分支
 使用 R2 决策。训练 loss 是稳定性诊断；质量边界使用固定验证集 loss 评估。
+
+</details>
+
+<details>
+<summary><strong>恢复为何更快：机制消融与跨模型收益</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/restoration_ablation.pdf"><img src="docs/assets/paper-results/restoration_ablation.png" alt="每格 500 次事件的恢复耗时：FullLoad/Hybrid 与单阶段/两阶段交叉消融" width="90%"></a></p>
+<p align="center"><a href="docs/assets/paper-results/cross_model_restoration.pdf"><img src="docs/assets/paper-results/cross_model_restoration.png" alt="Qwen3 与 DeepSeek-V2-Lite 两种配置的 rank 局部恢复耗时" width="90%"></a></p>
+
+选择性恢复和两阶段加载相对单阶段 FullLoad 共节省 **7.503 秒（20.6%）**。
+平衡 2×2 对比中，选择性恢复的边际差为 **5.50 秒**，加载阶段的边际差为
+**2.00 秒**；DeepSeek-V2-Lite 配置降低 **55.0%**。这些图展示不含 replay
+的实验单元均值，与包含 replay 的 35.6× 是不同口径。
+
+</details>
+
+<details>
+<summary><strong>突发故障质量：专家年龄不能单独解释恢复结果</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/burst_quality.pdf"><img src="docs/assets/paper-results/burst_quality.png" alt="完整状态恢复中，8/16/24 个故障 rank 与 50/100/150/200-step 专家年龄的质量偏差，单位为基线标准差" width="90%"></a></p>
+
+专家年龄为 50 step 时，各格均值均在一个基线标准差以内；年龄为
+150～200 step 时，16/24-rank 实验格达到 **1.42～1.98 个基线标准差**。
+图中是以**基线标准差**为单位的带符号验证损失偏差，不是相对 loss 百分比，
+也不是 R2 风险分数。同样的专家年龄在不同 rank 数下产生不同偏差，支持
+在决策中使用年龄以外的特征。
+
+</details>
+
+<details>
+<summary><strong>第 10,000 step 的下游任务结果</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/downstream_accuracy.pdf"><img src="docs/assets/paper-results/downstream_accuracy.png" alt="八项零样本下游任务得分及相对 Restart 的百分点差，保留各任务的 acc/acc_norm 指标" width="100%"></a></p>
+
+Restart / MoC PEC / MoEGambit 的任务等权均值为
+**45.06% / 44.67% / 45.32%**，PEC 保留 128 个专家中的 16 个。
+右图用百分点展示相对 Restart 的变化，
+同时保留改善与退化。均值按各任务指定的 `acc` 或 `acc_norm` 计算，
+不是将所有样本合并的准确率，也不据此声称统计显著提升。
+
+</details>
+
+<details>
+<summary><strong>完整控制路径开销与 MoC 端到端窗口</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/control_path_overhead.pdf"><img src="docs/assets/paper-results/control_path_overhead.png" alt="包含设备完成确认和 all-rank fence 的完整无故障路径：均值 -0.003%，观测范围 -0.09%～+0.07%" width="95%"></a></p>
+<p align="center"><a href="docs/assets/paper-results/moc_controlled_restart.pdf"><img src="docs/assets/paper-results/moc_controlled_restart.png" alt="MoC 独立复现的三组方案：完整训练窗口和恢复加 replay 耗时分开展示" width="95%"></a></p>
+
+开销图只展示报告的**均值与观测范围**，不生成 20 个重复样本点，也不把范围
+视作置信区间。`<6 µs` 只描述监控 hook；iteration 耗时比较覆盖完整无故障
+控制路径。MoC 图将完整训练窗口与恢复加 replay 分开，每种方案为一次运行、
+一个故障 rank，展示观测耗时，不据此推断统计显著性。
 
 </details>
 

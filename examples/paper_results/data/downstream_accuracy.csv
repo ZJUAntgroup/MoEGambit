@@ -1,0 +1,9 @@
+task,metric,Restart,MoC PEC,MoEGambit
+ARC-E,acc,46.72,45.41,48.36
+BoolQ,acc,59.88,59.94,58.56
+MathQA,acc_norm,22.08,22.28,21.54
+OBQA,acc_norm,29.00,28.20,30.60
+PIQA,acc_norm,68.34,67.68,68.17
+RACE,acc,29.00,29.19,29.28
+SWAG,acc_norm,55.17,54.00,55.43
+WG,acc,50.28,50.67,50.59

@@ -1,7 +1,8 @@
 # Paper figure assets
 
-The recovery, quality and training-loss PDF/PNG assets are exports of the current
-manuscript. `r2_audit` visualizes the manuscript's author-reported 200-run decision
+The original recovery, quality and training-loss PDF/PNG assets are exports of
+the current manuscript. Additional ablation, burst, downstream, overhead, MoC
+window and cross-model figures are redraws of its reported tables/aggregates. `r2_audit` visualizes the manuscript's author-reported 200-run decision
 counts and the separately recomputed exact upper limits. Data provenance and
 redraw commands are in [examples/paper_results](../../../examples/paper_results/README.md).
 

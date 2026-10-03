@@ -507,6 +507,7 @@ current replicated non-expert/router state came from healthy peers.
 | Completion with one/repeated faults | Maximum final increase **0.00306%**; sampled peak **0.00454%** | Four selected histories through step 10,000; shared seed/prefixes |
 | Architecture comparison | Largest sampled peak: **0.0893%** for GQA MoE, **0.0230%** for DeepSeek-style MLA MoE | Six Hybrid branches; 100-step paired windows vs Restart |
 | R2 policy audit | **66%** admission; **95%** interception of unsafe candidates; **3/200** actual-run violations | Author-reported independent, frozen-policy audit; one-sided 95% run-risk upper limit **3.83%** |
+| Downstream quality | **45.06% / 44.67% / 45.32%** equal-task means | Restart / MoC PEC / MoEGambit; eight zero-shot tasks, with per-task acc/acc_norm metrics |
 | Failure-free control path | Mean step-time change **−0.003%**, observed range **−0.09% to +0.07%** across 20 repetitions | Includes device-completion confirmation and all-rank fence; the range is not a confidence interval |
 
 **Keep the baselines distinct.** FullLoad restores only the replacement rank
@@ -576,6 +577,62 @@ Last-200-step training-loss means were **2.7919 / 2.7910 / 2.8254** for
 Restart / MoEGambit / MoC PEC. The manuscript reports full end-to-end execution
 and R2 decisions in the MoEGambit arm. Training loss is a stability diagnostic;
 quality-boundary evaluation uses fixed-validation loss.
+
+</details>
+
+<details>
+<summary><strong>Why recovery is faster: mechanism ablation and cross-model gains</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/restoration_ablation.pdf"><img src="docs/assets/paper-results/restoration_ablation.png" alt="Four 500-event restoration means: FullLoad/Hybrid crossed with single/two-phase attachment" width="90%"></a></p>
+<p align="center"><a href="docs/assets/paper-results/cross_model_restoration.pdf"><img src="docs/assets/paper-results/cross_model_restoration.png" alt="Rank-local restoration latency in Qwen3 and DeepSeek-V2-Lite configurations" width="90%"></a></p>
+
+Selective restoration and two-phase attachment jointly saved **7.503 s (20.6%)**
+against single-phase FullLoad. The balanced 2×2 contrasts were **5.50 s** for
+selective restoration and **2.00 s** for attachment schedule. The DeepSeek-V2-Lite
+configuration showed a **55.0%** reduction. These figures exclude replay and
+show cell means; they are separate from the 35.6× replay-inclusive result.
+
+</details>
+
+<details>
+<summary><strong>Burst-fault quality: expert age alone does not explain the outcome</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/burst_quality.pdf"><img src="docs/assets/paper-results/burst_quality.png" alt="Full-state recovery: 8/16/24 affected ranks crossed with expert ages 50/100/150/200, in baseline-standard-deviation units" width="90%"></a></p>
+
+At age 50, all cell means were within one baseline standard deviation. At ages
+150–200, the 16-/24-rank means reached **1.42–1.98 baseline SD**. Values are
+signed validation-loss deviations in **baseline-SD units**, not percentage
+quality losses or R2 risk scores. Outcomes differ across rank counts at the
+same expert age, motivating features beyond age.
+
+</details>
+
+<details>
+<summary><strong>Downstream task outcomes at step 10,000</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/downstream_accuracy.pdf"><img src="docs/assets/paper-results/downstream_accuracy.png" alt="Eight zero-shot downstream scores and differences against Restart, retaining each task's accuracy or normalized-accuracy metric" width="100%"></a></p>
+
+Equal-task means were **45.06% / 44.67% / 45.32%** for Restart / MoC PEC /
+MoEGambit; PEC retained 16 of 128 experts. The right panel shows percentage-point
+differences against Restart,
+including both improvements and regressions. The mean combines each task's
+specified `acc` or `acc_norm` metric; it is not a pooled example-level accuracy
+or a statistically established improvement.
+
+</details>
+
+<details>
+<summary><strong>Complete control-path overhead and MoC end-to-end windows</strong></summary>
+
+<p align="center"><a href="docs/assets/paper-results/control_path_overhead.pdf"><img src="docs/assets/paper-results/control_path_overhead.png" alt="Complete failure-free control path: mean -0.003% and observed range -0.09% to +0.07%, including device completion and all-rank fence" width="95%"></a></p>
+<p align="center"><a href="docs/assets/paper-results/moc_controlled_restart.pdf"><img src="docs/assets/paper-results/moc_controlled_restart.png" alt="Independent MoC port: end-to-end training-window seconds and recovery-plus-replay seconds shown separately for three arms" width="95%"></a></p>
+
+The overhead plot shows the reported **mean and observed range**, rather than
+20 invented repetition points or a confidence interval. The `<6 µs` figure
+covers monitoring hooks alone; the iteration-time comparison covers the
+complete failure-free path. The MoC plot separates the full training window
+from recovery plus replay; each arm had one run and one failed rank, so it
+supplies observed timings without a significance claim.
 
 </details>
 

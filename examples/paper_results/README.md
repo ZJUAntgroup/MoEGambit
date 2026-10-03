@@ -41,6 +41,24 @@ python3 examples/paper_results/reproduce.py \
 | Controlled-restart MoC end-to-end window | `data/moc_e2e_aggregate.csv` | `scripts/report_results.py` → `aggregate_report.json` | Three arms, one run per arm; window and recovery-plus-replay are distinct from layout restoration times |
 | 10,000-step, ten-fault training-loss comparison | Supply one completed log per arm | `scripts/plot_training_loss.py` → `train_loss.{pdf,png}`, `training_loss_summary.json` | Checks steps 1–10,000, refuses conflicting duplicates; training loss is a stability diagnostic |
 
+### Additional conclusion figures
+
+[`scripts/plot_conclusions.py`](scripts/plot_conclusions.py) turns the current
+manuscript's tables and reported aggregates into six additional figures:
+
+| Figure | Source | Interpretation |
+| --- | --- | --- |
+| `restoration_ablation` | `data/restoration_ablation.csv` | Four 500-event means; selective restoration + two-phase attachment saved 7.503 s (20.6%), replay excluded |
+| `burst_quality` | `data/burst_cell_means.csv` | 8/16/24 affected ranks crossed with expert age; signed baseline-SD deviations, not loss percentages |
+| `downstream_accuracy` | `data/downstream_accuracy.csv` | Eight zero-shot tasks; absolute scores and percentage-point differences vs Restart; preserves each task's acc/acc_norm metric |
+| `control_path_overhead` | `data/control_path_overhead.json` | Author-reported mean/min/max across 20 × 1,000-step repetitions; includes device completion and all-rank fence; range is not a CI |
+| `moc_controlled_restart` | `data/moc_e2e_aggregate.csv` | Whole training window and recovery+replay shown separately; one run per arm |
+| `cross_model_restoration` | `data/cross_model_restoration.csv` | Qwen3 and DeepSeek-V2-Lite configurations: rank-local recovery gains, not replay-inclusive ratios |
+
+Each produces PDF/PNG files plus a shared `conclusions_report.json`. The default
+one-command runner includes this stage. These plots use supplied means/tables;
+no per-event uncertainties, per-repeat samples or significance tests are invented.
+
 All plots are reproduced together by `reproduce.py`. To run an individual plot,
 set `MOEGAMBIT_PAPER_RESULTS_OUT` to an output directory under `/personal` and
 invoke its script. `aggregate_report.json` includes SHA-256 hashes of the inputs.

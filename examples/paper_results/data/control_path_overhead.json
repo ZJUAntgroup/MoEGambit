@@ -1,0 +1,14 @@
+{
+  "source": "Current manuscript RQ4; author-reported aggregate of 20 complete-control-path repetitions",
+  "repetitions": 20,
+  "steps_per_repetition": 1000,
+  "mean_step_time_change_percent": -0.003,
+  "minimum_step_time_change_percent": -0.09,
+  "maximum_step_time_change_percent": 0.07,
+  "monitoring_hook_upper_microseconds": 6,
+  "monitoring_hook_bound_is_strict": true,
+  "device_completion_confirmation_included": true,
+  "all_rank_fence_included": true,
+  "range_is_confidence_interval": false,
+  "raw_per_repetition_samples_included": false
+}

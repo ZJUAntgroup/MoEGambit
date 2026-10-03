@@ -1,0 +1,5 @@
+path,attachment,events,mean_seconds
+FullLoad,Single-phase,500,36.417
+FullLoad,Two-phase,500,34.238
+Hybrid,Single-phase,500,30.743
+Hybrid,Two-phase,500,28.914
