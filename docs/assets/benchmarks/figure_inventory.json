@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "asset_pdf": "moegambit_runtime_architecture.pdf",
+      "sha256": "60e58baa6b26d6a850ef1bac6a9c8a04bf07bbb3459b618b6e225434c3241d22"
+    },
+    {
+      "asset_pdf": "train_loss.pdf",
+      "sha256": "d007af40656cea61dad3cb30a42d371a220cf2076fb3169524fbc9853d8672c8"
+    },
+    {
+      "asset_pdf": "quality_checkpoint_study.pdf",
+      "sha256": "cd15a1a99f8ce779933f75c52f3f6b4e58856b65bb2e5b7f28d5d336ac0aa5e8"
+    },
+    {
+      "asset_pdf": "quality_full_state_500.pdf",
+      "sha256": "13107816db0ba5a24c6b8bcb423d8ecc73df82ac2300f1e2e8dab84696ab2608"
+    },
+    {
+      "asset_pdf": "quality_full_state_terminal.pdf",
+      "sha256": "eedc67d05cd1df9748020565e7f4670daf76127c9563b9285bd4980442f64762"
+    },
+    {
+      "asset_pdf": "recovery_scaling.pdf",
+      "sha256": "f78cab32e62760875ee9149c0931bb7ce3b0ff79dfd16c1d60e2cd65ea6ba856"
+    },
+    {
+      "asset_pdf": "quality_architecture_transfer.pdf",
+      "sha256": "b789fdd65676fc91876948638cee22a7586a39355f3c95f218be20ea3445f3b0"
+    },
+    {
+      "asset_pdf": "edp_distribution.pdf",
+      "description": "Expert state placement schematic",
+      "sha256": "5f0431d0a048bc2cc80f4744504ba22f45c56c5bc970db0f18813c997874f061"
+    },
+    {
+      "asset_pdf": "downstream_accuracy.pdf",
+      "description": "Eight-task accuracy comparison",
+      "sha256": "dc33e2d9259cc2953f0b1607046087766bf1513c98aec1356f8d422c9eb3b4d8"
+    },
+    {
+      "asset_pdf": "web_update_pipeline.pdf",
+      "description": "Cold-start model-update workflow",
+      "sha256": "a94e8bcc1ec217e197763f88326c3a727cdf3e72731ed5b2ef98c817c4403955",
+      "r2_enabled": false,
+      "harness": "cold_start_checkpoint_state_loss_simulation"
+    },
+    {
+      "asset_pdf": "fiqa_reranking_quality.pdf",
+      "description": "FiQA reranking score differences",
+      "sha256": "e75987b215cd5d9e2134f096a71b7de0ef390eaddf55101b6a7844e73671bc7f",
+      "r2_enabled": false,
+      "harness": "cold_start_checkpoint_state_loss_simulation"
+    }
+  ]
+}

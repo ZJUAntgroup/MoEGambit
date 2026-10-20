@@ -2,7 +2,7 @@
 
 This directory contains an independent fixed-K port of partial-expert
 checkpointing (PEC), based on the
-[MoC-System paper (ASPLOS 2025)](https://jyhuang91.github.io/papers/asplos2025-moc-system.pdf).
+[MoC-System reference implementation description](https://jyhuang91.github.io/papers/asplos2025-moc-system.pdf).
 It writes actual selected-expert state and includes CPU regression tests. It
 is not the original authors' implementation or a drop-in production backend.
 

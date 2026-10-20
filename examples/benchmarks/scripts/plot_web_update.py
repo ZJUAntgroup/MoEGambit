@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replot measured Web update and FiQA exports, without starting training.
 
-Outputs use MOEGAMBIT_PAPER_RESULTS_OUT (default /personal/moegambit/paper_results).
+Outputs use MOEGAMBIT_BENCHMARK_RESULTS_OUT (default /personal/moegambit/benchmarks).
 Reported query-bootstrap intervals are retained, not inferred from means.
 """
 import csv

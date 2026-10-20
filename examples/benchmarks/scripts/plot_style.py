@@ -1,4 +1,4 @@
-"""Shared typography and colors for the paper's aggregate-data figures."""
+"""Shared typography and colors for benchmark aggregate-data figures."""
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter

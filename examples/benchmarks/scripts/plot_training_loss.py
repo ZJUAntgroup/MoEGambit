@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a clean training-loss figure for paper.tex.
+"""Render a clean training-loss benchmark figure.
 
 Design (v3):
 - single full-width axes; tail comparison via an inset, not a second panel

@@ -25,7 +25,7 @@
 
 [项目概览](#项目概览) · [快速开始](#快速开始) ·
 [系统架构](#系统架构) · [运行示例](#多机运行示例) ·
-[恢复契约](#恢复契约) · [论文结果](#论文结果)
+[恢复契约](#恢复契约) · [实验结果](#实验结果)
 
 <a href="docs/assets/moegambit-runtime-architecture.png">
   <img src="docs/assets/moegambit-runtime-architecture.png"
@@ -33,13 +33,13 @@
        width="100%">
 </a>
 
-<sub>原 FSE 版本图 1：恢复架构。点击可查看原始分辨率大图。</sub>
+<sub>恢复架构。点击查看原始分辨率大图。</sub>
 
 </div>
 
 ## 项目概览
 
-MoEGambit 是论文 **《MoEGambit: Quality-Aware Recovery for Web-Based Distributed MoE Training》** 的配套实现。发生 fail-stop rank 故障后，
+MoEGambit 是面向分布式MoE与dense训练的选择性恢复runtime。发生fail-stop rank故障后，
 MoEGambit 能够保持分布式训练作业存活，激活常驻替补 worker，按确定性顺序
 重建通信组，并从当前最安全的状态源恢复训练状态。
 
@@ -55,9 +55,9 @@ MoEGambit 将恢复策略和编排逻辑与训练框架解耦。Megatron-LM 与 
 
 ### EDP distribution · 状态分布示意图
 
-![EDP=1 与 EDP=2 的状态布局：唯一专家分片与重复专家组。](docs/assets/paper-results/edp_distribution.png)
+![EDP=1 与 EDP=2 的状态布局：唯一专家分片与重复专家组。](docs/assets/benchmarks/edp_distribution.png)
 
-[查看原始矢量 PDF](docs/assets/paper-results/edp_distribution.pdf)
+[查看原始矢量 PDF](docs/assets/benchmarks/edp_distribution.pdf)
 
 EDP=1 时，专家分片没有在线副本，但非专家状态仍有复制；EDP=2 时，
 另一个专家数据并行组可以提供当前专家状态。主要实验的 64-GPU 布局使用 PP=8、EP=8、ETP=1，因此 EDP=1。
@@ -74,7 +74,7 @@ EDP=1 时，专家分片没有在线副本，但非专家状态仍有复制；ED
   和 checkpoint 记录版本兼容时执行恢复。
 - **阶段感知事务：** forward、backward、optimizer 和 checkpoint 发布阶段
   的故障均有明确的 replay 或 fallback 语义。
-- **质量风险准入（可选）：** 公共协调器新增论文的 `R <= 1` 风险规则，支持审计与
+- **质量风险准入（可选）：** 公共协调器使用 `R <= 1` 质量风险规则，支持审计与
   执行模式；执行需要有效的整场训练风险证据。引擎兼容路径仍使用原有策略，详见
   [审计工具说明](docs/ARTIFACT_AUDIT.md)。
 - **提交完整性：** 部分 optimizer 更新需恢复 model 和 optimizer 状态后再 replay。
@@ -421,7 +421,7 @@ ZeRO-1/2 优化器 shard 从主机内存副本恢复。无需启用 packed-exper
 `rank_in_process_peer`，`expert_staleness=0`。PP 与 ZeRO-2 的组合仍不受支持。
 
 dense 路径已在目标集群通过多机 GPU 故障恢复测试；自动化测试覆盖 dense 选择、
-状态源契约和错误配置。论文的定量延迟与质量比较使用[论文结果](#论文结果)列出的MoE配置。
+状态源契约和错误配置。定量延迟与质量比较使用[实验结果](#实验结果)列出的MoE配置。
 
 ### Dry run
 
@@ -474,15 +474,15 @@ MASTER_ADDR=127.0.0.1 bash examples/moc_system/run_moc_e2e.sh --plan-only
 该实验将固定 K 的 PEC 检查点与恢复机制独立移植到 Megatron。实验说明区分物理部分保存、
 原作者的 ZeRO-2 实现和旧 checkpoint 状态 overlay，并列出GPU要求及各段计时范围。
 
-## 论文结果
+## 实验结果
 
-WWW 稿件为 **MoEGambit: Quality-Aware Recovery for Web-Based Distributed MoE Training**。主要实验在 64 张 NVIDIA H20 上训练
+主要实验在64张NVIDIA H20上训练
 Qwen3-30B-A3B，使用 Megatron 内置 expert bias，关闭辅助负载均衡损失，
 micro batch size 为 1，运行时恢复 checkpoint 间隔为 200 step。
 完整 Hybrid 恢复旧专家的**权重与对应 optimizer state**，从健康 peer
 获取当前非专家复制状态和 router 状态。
 
-| 结果 | 论文报告值 | 对照与测量范围 |
+| 结果 | 实测结果 | 对照与测量范围 |
 | --- | --- | --- |
 | 选择性恢复与两阶段加载 | 延迟降低 **20.6%**；DeepSeek-V2-Lite 配置降低 **55.0%** | 替换 rank 就绪时间，相对 rank 局部 **FullLoad**，不含 replay |
 | 保留已提交训练进度 | checkpoint gap 为 100 iteration 时，恢复加速 **35.6×** | 对照整作业 **Restart**，包含恢复及 replay 到相同已提交进度 |
@@ -494,65 +494,64 @@ micro batch size 为 1，运行时恢复 checkpoint 间隔为 200 step。
 | 无故障完整控制路径开销 | 20 次重复的平均 step 耗时变化 **−0.003%**，观测范围 **−0.09%～+0.07%** | 包含设备完成确认和 all-rank fence；范围不是置信区间 |
 | Web模型更新流程 | **1.13–1.53×**加速，分配GPU小时减少 **11.3%–34.8%** | 六组64卡冷启动Hybrid／Restart配对；R2关闭、检查点模拟状态丢失 |
 
-### 原 FSE 版本论文图
+### 实验图表
 
-以下保留原 FSE 版本的图号。**图 1：恢复架构**位于本 README 顶部；
-下方图 2–7 使用论文原图，已核对其内容与 PDF 内嵌图一致。
-EDP 示意图和下游任务准确率图单独标注为补充展示。
+以下图表展示训练稳定性、恢复质量、模型配置与状态恢复性能。恢复架构位于本页顶部；
+每项结果均提供矢量图与测量说明。
 
-#### 图 2 · 十次故障下的训练 loss
+#### 十次故障下的训练 loss
 
-![Restart、MoC PEC 复现与完整状态 MoEGambit 的训练 loss。](docs/assets/paper-results/train_loss.png)
+![Restart、MoC PEC 复现与完整状态 MoEGambit 的训练 loss。](docs/assets/benchmarks/train_loss.png)
 
-[查看原始矢量 PDF](docs/assets/paper-results/train_loss.pdf)
+[查看原始矢量 PDF](docs/assets/benchmarks/train_loss.pdf)
 
 Restart / MoC PEC / MoEGambit 最后 200 step 的平均训练 loss 为 **2.7919 / 2.8254 / 2.7910**。训练 loss 用于稳定性诊断；质量边界使用固定验证集 loss。
 
-#### 图 3 · 训练阶段与故障 rank 数的质量结果
+#### 训练阶段与故障 rank 数的质量结果
 
-![相对整作业 Restart 的十二组 500-step 续训和三组完成到第 10000 step 的结果。](docs/assets/paper-results/quality_checkpoint_study.png)
+![相对整作业 Restart 的十二组 500-step 续训和三组完成到第 10000 step 的结果。](docs/assets/benchmarks/quality_checkpoint_study.png)
 
-[查看原始矢量 PDF](docs/assets/paper-results/quality_checkpoint_study.pdf)
+[查看原始矢量 PDF](docs/assets/benchmarks/quality_checkpoint_study.pdf)
 
 左图展示十二组恢复窗口；右图展示三组筛选出的长程续训结果。对照为整作业 Restart，最终/峰值损失容忍度为 **0.5% / 1%**。
 
-#### 图 4 · 64/128 专家的完整 Hybrid 质量
+#### 64/128 专家的完整 Hybrid 质量
 
-![恢复旧专家权重及 optimizer state 的完整 Hybrid：训练阶段、负载和 rank 数比较。](docs/assets/paper-results/quality_full_state_500.png)
+![恢复旧专家权重及 optimizer state 的完整 Hybrid：训练阶段、负载和 rank 数比较。](docs/assets/benchmarks/quality_full_state_500.png)
 
-[查看原始矢量 PDF](docs/assets/paper-results/quality_full_state_500.pdf)
+[查看原始矢量 PDF](docs/assets/benchmarks/quality_full_state_500.pdf)
 
 受影响专家同时恢复旧权重与 optimizer state。500-step 窗口最大采样峰值为 **0.393%**，低于 1% 峰值容忍度；窗口终点与整场训练终点需区分。
 
-#### 图 5 · 完成质量与重复故障
+#### 完成质量与重复故障
 
-![四条完整 Hybrid 恢复轨迹完成到第 10000 step 的质量及归一化结果。](docs/assets/paper-results/quality_full_state_terminal.png)
+![四条完整 Hybrid 恢复轨迹完成到第 10000 step 的质量及归一化结果。](docs/assets/benchmarks/quality_full_state_terminal.png)
 
-[查看原始矢量 PDF](docs/assets/paper-results/quality_full_state_terminal.pdf)
+[查看原始矢量 PDF](docs/assets/benchmarks/quality_full_state_terminal.pdf)
 
 四条选定轨迹的最大最终退化为 **0.00306%**，采样峰值为 **0.00454%**。这些轨迹共享种子/前缀，与独立 R2 审计分开。
 
-#### 图 6 · GPU 规模与并行布局
+#### GPU 规模与并行布局
 
-![不含 replay 的恢复结果：64/128 GPU 与四种 64-GPU 布局中的 MoEGambit 和两种 MoC PEC 复现模式。](docs/assets/paper-results/recovery_scaling.png)
+![不含 replay 的恢复结果：64/128 GPU 与四种 64-GPU 布局中的 MoEGambit 和两种 MoC PEC 复现模式。](docs/assets/benchmarks/recovery_scaling.png)
 
-[查看原始矢量 PDF](docs/assets/paper-results/recovery_scaling.pdf)
+[查看原始矢量 PDF](docs/assets/benchmarks/recovery_scaling.pdf)
 
 各布局共用 **rank 局部 FullLoad** 分母。A/B 的 EDP=1，专家来自 checkpoint；C/D 的 EDP=2，可使用在线专家副本。这些加载耗时比与包含 replay、对照整作业 Restart 的 **35.6×** 不同。
 
-#### 图 7 · GQA 与 DeepSeek 风格 MLA MoE
+#### GQA 与 DeepSeek 风格 MLA MoE
 
-![小模型完整状态恢复：五个评测偏移点，分别对照 NoFault 与整作业 Restart。](docs/assets/paper-results/quality_architecture_transfer.png)
+![小模型完整状态恢复：五个评测偏移点，分别对照 NoFault 与整作业 Restart。](docs/assets/benchmarks/quality_architecture_transfer.png)
 
-[查看原始矢量 PDF](docs/assets/paper-results/quality_architecture_transfer.pdf)
+[查看原始矢量 PDF](docs/assets/benchmarks/quality_architecture_transfer.pdf)
 
 100-step 窗口中，相对 Restart 的最大采样峰值为 GQA MoE **0.0893%**、MLA MoE **0.0230%**。两组配置还改变了 shared expert、路由与层布局。
 
-### 补充图 · 八项下游任务（论文表 6）
+### 八项下游任务
 
-![由论文表 6 转绘的八项零样本任务得分及相对 Restart 的百分点变化。](docs/assets/paper-results/downstream_accuracy.png)
+![八项零样本任务得分及相对 Restart 的百分点变化。](docs/assets/benchmarks/downstream_accuracy.png)
 
-[查看矢量 PDF](docs/assets/paper-results/downstream_accuracy.pdf)
+[查看矢量 PDF](docs/assets/benchmarks/downstream_accuracy.pdf)
 
 Restart / MoC PEC / MoEGambit 的任务等权均值为
 **45.06% / 44.67% / 45.32%**；PEC 保留 128 个专家中的 16 个。
@@ -562,9 +561,9 @@ Restart / MoC PEC / MoEGambit 的任务等权均值为
 
 #### 冷启动模型更新流程
 
-![六组64卡案例中Restart与完整Hybrid从请求到首次HTTP响应的耗时。](docs/assets/paper-results/web_update_pipeline.png)
+![六组64卡案例中Restart与完整Hybrid从请求到首次HTTP响应的耗时。](docs/assets/benchmarks/web_update_pipeline.png)
 
-[矢量 PDF](docs/assets/paper-results/web_update_pipeline.pdf) · [SVG](docs/assets/paper-results/web_update_pipeline.svg)
+[矢量 PDF](docs/assets/benchmarks/web_update_pipeline.pdf) · [SVG](docs/assets/benchmarks/web_update_pipeline.svg)
 
 专家年龄 **50／100／150 步**，交叉 **1／4 个受影响 rank**，共六组。
 两臂均完成100次新更新，再进行验证、模型加载及首次真实HTTP重排响应；
@@ -574,19 +573,19 @@ Hybrid耗时 **892–916秒**，Restart为 **1,017–1,367秒**。
 
 #### FiQA 重排序质量
 
-![FiQA MRR@10与nDCG@10相对Restart的百分点差异及95%成对查询区间。](docs/assets/paper-results/fiqa_reranking_quality.png)
+![FiQA MRR@10与nDCG@10相对Restart的百分点差异及95%成对查询区间。](docs/assets/benchmarks/fiqa_reranking_quality.png)
 
-[矢量 PDF](docs/assets/paper-results/fiqa_reranking_quality.pdf) · [SVG](docs/assets/paper-results/fiqa_reranking_quality.svg)
+[矢量 PDF](docs/assets/benchmarks/fiqa_reranking_quality.pdf) · [SVG](docs/assets/benchmarks/fiqa_reranking_quality.svg)
 
 两组案例使用 **500个固定FiQA查询** 和BM25 top-20候选，分别评测恢复时点及
 继续100次更新后。图中保留原汇总的 **95%成对查询bootstrap区间**（2,000次重采样）。
 全部四个窗口终点区间跨0；专家年龄150步／4rank的初始差异为正。
 候选查询覆盖率为56.6%，平均候选召回36.8%。区间量化查询抽样不确定性；等价检验还需预先规定任务差异容限。
 
-两图对应 **WWW稿件图9的两个子图**，在README中独立展示。
+两张图分别展示模型更新完成时间和检索质量。
 实验恢复完整旧专家权重及optimizer state，采用 **冷启动、检查点模拟状态丢失、R2关闭**；
 HTTP probe在loopback上执行真实推理。更新流程收益与35.6×热恢复加速、独立R2审计分别解释。
-[数据、协议与重绘命令](examples/paper_results/README.md#web-update-and-fiqa-experiments-2026-10-20)。
+[数据、协议与重绘命令](examples/benchmarks/README.md#web-update-and-fiqa-experiments-2026-10-20)。
 
 ### R2 审计 · 报告计数
 
@@ -596,19 +595,19 @@ HTTP probe在loopback上执行真实推理。更新流程收益与35.6×热恢�
 
 ### 脚本与复核入口
 
-[**论文图表与结果复核说明**](examples/paper_results/README.md) 为每项结果
+[**实验图表与结果复核说明**](examples/benchmarks/README.md) 为每项结果
 列出输入、脚本、对照及测量范围，包含配对损失一致性检查、风险上界精确
 计算，以及恢复、质量、重复故障和架构比较图的重绘脚本：
 
 ```bash
 python -m pip install matplotlib numpy
-export PAPER_RESULTS_DIR=/personal/moegambit/paper_results
-mkdir -p "$PAPER_RESULTS_DIR"
-nohup bash examples/paper_results/run_paper_results.sh \
-  >> "$PAPER_RESULTS_DIR/reproduce.log" 2>&1 &
+export BENCHMARK_RESULTS_DIR=/personal/moegambit/benchmarks
+mkdir -p "$BENCHMARK_RESULTS_DIR"
+nohup bash examples/benchmarks/run_benchmarks.sh \
+  >> "$BENCHMARK_RESULTS_DIR/reproduce.log" 2>&1 &
 ```
 
-该CPU流程核对已有结果导出，并将图表、报告及逐阶段日志写入 `$PAPER_RESULTS_DIR`。
+该CPU流程核对已有结果导出，并将图表、报告及逐阶段日志写入 `$BENCHMARK_RESULTS_DIR`。
 GPU实验使用 [MoC保存／恢复与端到端脚本](examples/moc_system/README.md)、
 [Megatron热替换示例](#多机运行示例) 和
 [DeepSpeed MoE/dense示例](examples/deepspeed/run_hot_spare.sh)。
@@ -854,22 +853,16 @@ export MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE=0
 watcher 和 replica 端口，并且不要将 watcher 直接暴露到公网。具体配置请参阅
 `moegambit.config.SecurityConfig`。
 
-## 引用
+## 软件引用
 
-如果 MoEGambit 对你的工作有帮助，请引用配套论文：
+引用软件时，使用仓库URL，并注明实际使用的commit或release版本：
 
 ```bibtex
 @misc{moegambit,
-  title  = {MoEGambit: Selective State Repair for
-            Distributed Mixture-of-Experts Training},
-  author = {MoEGambit Authors},
-  year   = {2026},
-  note   = {Software artifact},
-  url    = {https://github.com/ZJUAntgroup/MoEGambit}
+  title = {MoEGambit},
+  url   = {https://github.com/ZJUAntgroup/MoEGambit}
 }
 ```
-
-正式归档引用前，请使用最终发表信息替换 author 和 venue 占位内容。
 
 ## 许可证
 

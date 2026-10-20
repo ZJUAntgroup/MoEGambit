@@ -43,7 +43,7 @@ def manifest():
                cpu_cache="node supervisor survives worker relaunch; failed-rank expert cache is discarded",
                replay="all workers restart at globally committed checkpoint; healthy snapshot-PEC, failed persist-PEC",
                clock="node-0 monotonic clock; fault boundary to first resumed commit, caught-up commit, and endpoint",
-               cadence_note="paper cadence" if cadence == 200 else "compressed timing smoke; not paper cadence")
+               cadence_note="200-step operational cadence" if cadence == 200 else "compressed timing smoke cadence")
     root = Path(__file__).resolve().parents[2]
     files = [root / "examples/moc_system/run_moc_e2e.sh", *sorted((root / "examples/moc_system").glob("moc_e2e_*.py"))]
     cfg["source_sha256"].update({str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files})

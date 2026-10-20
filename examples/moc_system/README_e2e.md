@@ -4,7 +4,7 @@ Entry point: `examples/moc_system/run_moc_e2e.sh`. This extends the fixed-state 
 real Megatron training, GPU snapshot overlap, actual worker/communication-group
 relaunch, restoration of optimizer/scheduler/RNG, data-iterator rebuilding and
 actual replay, following the mechanisms in the
-[MoC-System paper](https://jyhuang91.github.io/papers/asplos2025-moc-system.pdf).
+[MoC-System mechanism description](https://jyhuang91.github.io/papers/asplos2025-moc-system.pdf).
 This is an **independent fixed-K mechanism port**, not the original
 authors' Megatron-DeepSpeed/ZeRO-2 artifact. Dynamic-K and physical failure
 detection/replacement-node scheduling are excluded. Do not label its results as
@@ -13,7 +13,7 @@ the complete original MoC-System implementation.
 ## Default workload and measured quantities
 
 - Existing native baseline checkpoint: step 4000, read-only.
-- Train to 4200; save **one** checkpoint per arm (paper cadence: 200 steps).
+- Train to 4200; save **one** checkpoint per arm (checkpoint cadence: 200 steps).
 - Continue to 4205; wait for global durable completion, then exit all training
   workers normally at a safe boundary. No SIGKILL during NCCL collectives.
 - Supervisors stay alive. Discard failed-rank CPU cache (default one rank).
@@ -81,7 +81,7 @@ intervals, quality acceptance or `alpha_run` guarantees.
 
 Optional initial smoke: `MOC_CKPT_INTERVAL=10` with a new run ID (90 updates).
 The manifest explicitly marks this as a compressed timing smoke and **not** the
-paper's 200-step checkpoint cadence. Default experiments use 200.
+200-step checkpoint cadence. Default experiments use 200.
 
 ## Results, storage and failures
 

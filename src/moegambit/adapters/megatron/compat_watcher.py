@@ -1782,7 +1782,7 @@ class ElasticWatcher:
         return [event for event in events if isinstance(event, dict)]
 
     def _evaluate_moegambit_contract(self, resume_iteration, peer_available):
-        """Evaluate paper contract R2 before any replacement process starts."""
+        """Evaluate recovery contract R2 before any replacement process starts."""
         checkpoint_step = self._latest_checkpoint_iteration()
         current_step = int(resume_iteration)
         gap = (

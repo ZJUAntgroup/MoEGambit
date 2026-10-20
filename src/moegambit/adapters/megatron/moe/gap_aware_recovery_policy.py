@@ -259,7 +259,7 @@ class RecoveryDecision:
     rank_stale_exposure_after: float = 0.0
     max_rank_stale_exposure: float = -1.0
 
-    # --- Paper contract R2: Phi'(t) = (S(t) + |E_new| * Delta) / (N * W) ---
+    # --- Legacy exposure policy: Phi'(t) = (S(t) + |E_new| * Delta) / (N * W) ---
     num_affected_experts: int = 0
     num_experts: int = 0
     window_expert_iteration_debt_before: int = 0
@@ -650,7 +650,7 @@ class RankExposureGuardedConfig:
     max_single_gap: int = 192
     exposure_window_steps: int = 20000
     # Kept under the old field name for CLI/checkpoint compatibility.  It now
-    # bounds the paper's global expert staleness density Phi, not one rank's
+    # bounds global expert staleness density Phi, not one rank's
     # unweighted stale-iteration ratio.
     max_rank_stale_exposure: float = 0.1
 
@@ -831,7 +831,7 @@ class RankExposureGuardedPolicy(RecoveryPolicyBase):
         density_after = debt_after / denominator if denominator > 0 else 0.0
 
         # Preserve the old fields as aliases so existing telemetry consumers
-        # continue to work while the decision uses the paper's expert-weighted
+        # continue to work while the decision uses expert-weighted
         # global debt.
         stale_iters_before = debt_before
         stale_iters_after = debt_after

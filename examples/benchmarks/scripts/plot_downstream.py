@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot the user-approved eight-task comparison from the manuscript table."""
+"""Plot the measured eight-task accuracy comparison."""
 import csv
 import json
 import math
@@ -42,7 +42,7 @@ def downstream():
     metrics={arm:float(v.mean()) for arm,v in values.items()}
     for arm, expected in zip(arms,(45.06,44.67,45.32)):
         if abs(metrics[arm]-expected) > .00501:
-            raise ValueError('Downstream means do not match rounded manuscript values')
+            raise ValueError('Downstream means do not match rounded benchmark values')
     fig,(ax,bx)=plt.subplots(1,2,figsize=(10.2,3.1),layout='constrained',gridspec_kw={'width_ratios':[1.5,1]})
     x=np.arange(8)
     for arm,color,offset in zip(arms,colors,(-.24,0,.24)):

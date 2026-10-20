@@ -81,7 +81,7 @@ bx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.25), ncol=2,
 grid(bx, axis="x")
 
 fig.savefig(OUT)
-# Keep the standalone vector artifact and the manuscript asset synchronized.
+# Keep the standalone vector artifact and the displayed asset synchronized.
 export = OUT.parent / "output/pdf/recovery_scaling.pdf"
 export.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(export)

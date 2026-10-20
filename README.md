@@ -26,7 +26,7 @@ transactional recovery for Megatron-LM and DeepSpeed.
 
 [Overview](#overview) · [Quick Start](#quick-start) ·
 [Architecture](#architecture) · [Examples](#multi-node-examples) ·
-[Recovery Contract](#recovery-contract) · [Paper Results](#paper-results)
+[Recovery Contract](#recovery-contract) · [Benchmarks](#benchmarks)
 
 <a href="docs/assets/moegambit-runtime-architecture.png">
   <img src="docs/assets/moegambit-runtime-architecture.png"
@@ -34,14 +34,13 @@ transactional recovery for Megatron-LM and DeepSpeed.
        width="100%">
 </a>
 
-<sub>Original FSE Figure 1: recovery architecture. Click to view the full-resolution image.</sub>
+<sub>Recovery architecture. Click to view the full-resolution image.</sub>
 
 </div>
 
 ## Overview
 
-MoEGambit is the implementation accompanying
-**“MoEGambit: Quality-Aware Recovery for Web-Based Distributed MoE Training.”**
+MoEGambit is a selective recovery runtime for distributed MoE and dense training.
 It keeps the distributed training job alive after
 a fail-stop rank failure, activates a resident replacement worker, rebuilds communication
 groups in a deterministic order, and restores state from the safest available
@@ -63,9 +62,9 @@ translate framework objects into one common recovery contract.
 
 ### EDP distribution · State-layout schematic
 
-![State layout with EDP=1 versus EDP=2: unique expert shards versus replicated expert groups.](docs/assets/paper-results/edp_distribution.png)
+![State layout with EDP=1 versus EDP=2: unique expert shards versus replicated expert groups.](docs/assets/benchmarks/edp_distribution.png)
 
-[View original vector PDF](docs/assets/paper-results/edp_distribution.pdf)
+[View original vector PDF](docs/assets/benchmarks/edp_distribution.pdf)
 
 At EDP=1, each expert shard has no live replica, while non-expert state remains
 replicated. At EDP=2, another expert-data-parallel group can supply current
@@ -84,7 +83,7 @@ expert state. The main 64-GPU layout has PP=8, EP=8 and ETP=1, giving EDP=1.
 - **Phase-aware transactions:** failures in forward, backward, optimizer, and
   checkpoint publication have explicit replay or fallback semantics.
 - **Quality-risk admission (opt-in):** the common coordinator can audit or enforce
-  the paper's `R <= 1` rule with qualified whole-run risk evidence. Existing engine
+  the `R <= 1` quality-risk rule with qualified whole-run risk evidence. Existing engine
   compatibility paths retain their legacy policies; see [audit tools](docs/ARTIFACT_AUDIT.md).
 - **Commit integrity:** partial optimizer updates require model-and-optimizer
   restoration before replay.
@@ -426,7 +425,7 @@ The script writes `completed.json` and checks the final step,
 `mode=rank_in_process_peer`, and zero expert staleness. `DRY_RUN=1` prints the
 commands. By default, these synthetic recovery checks inject a fail-stop fault
 at committed step 5 after checkpoint step 4; latency and quality measurements
-are reported in [Paper Results](#paper-results).
+are reported in [Benchmarks](#benchmarks).
 
 For Megatron-LM, run a normal dense `pretrain_gpt.py` configuration: omit
 `--num-experts`, set `EP_SIZE=1`, retain `--moe-moegambit-enable` for recovery
@@ -445,8 +444,8 @@ recovery contract reports `mode=rank_in_process_peer` and
 
 The dense path passed multi-node GPU failure-recovery tests on the target
 cluster. Automated tests cover dense selection, state-source contracts, and
-configuration errors. The paper's quantitative latency and quality comparisons
-use the MoE configurations listed in [Paper Results](#paper-results).
+configuration errors. Quantitative latency and quality comparisons
+use the MoE configurations listed in [Benchmarks](#benchmarks).
 
 ### Dry run
 
@@ -506,10 +505,9 @@ Megatron. Its instructions distinguish physical partial checkpointing, the
 original ZeRO-2 implementation, and the checkpoint-state overlay, and specify
 the GPU requirements and measured intervals.
 
-## Paper Results
+## Benchmarks
 
-The WWW manuscript is **MoEGambit: Quality-Aware Recovery for Web-Based
-Distributed MoE Training**. The main experiments used Qwen3-30B-A3B on
+The main benchmarks used Qwen3-30B-A3B on
 64 NVIDIA H20 GPUs, with built-in expert bias, auxiliary load-balancing loss
 disabled, and micro batch size 1. Operational checkpoints were saved every
 200 steps. Full Hybrid restored affected expert **weights and optimizer state**;
@@ -527,67 +525,65 @@ current replicated non-expert/router state came from healthy peers.
 | Failure-free control path | Mean step-time change **−0.003%**, observed range **−0.09% to +0.07%** across 20 repetitions | Includes device-completion confirmation and all-rank fence; the range is not a confidence interval |
 | Web model-update workflow | **1.13–1.53×** faster; **11.3–34.8%** fewer allocated GPU-hours | Six 64-GPU cold-start Hybrid/Restart pairs; R2 disabled, checkpoint-simulated state loss |
 
-### Original FSE paper figures
+### Benchmark visualizations
 
-The seven numbered figures below retain the original FSE version's numbering. **Figure 1**, the
-recovery architecture, appears at the top of this README. Figures 2–7 below
-use the original figure assets; their content streams were checked against
-those embedded in the paper PDF. The EDP schematic and the downstream plot
-are separately identified additions.
+The gallery covers training stability, recovery quality, model configurations
+and restoration performance. The recovery architecture appears above; each
+result below links to its vector asset and measurement description.
 
-#### Figure 2 · Training through ten faults
+#### Training through ten faults
 
-![Training loss for Restart, MoC PEC reproduction and full-state MoEGambit.](docs/assets/paper-results/train_loss.png)
+![Training loss for Restart, MoC PEC reproduction and full-state MoEGambit.](docs/assets/benchmarks/train_loss.png)
 
-[View original vector PDF](docs/assets/paper-results/train_loss.pdf)
+[View original vector PDF](docs/assets/benchmarks/train_loss.pdf)
 
 Last-200-step means were **2.7919 / 2.8254 / 2.7910** for Restart / MoC PEC / MoEGambit. Training loss is a stability diagnostic; the quality boundary uses fixed-validation loss.
 
-#### Figure 3 · Quality across training stages and affected-rank counts
+#### Quality across training stages and affected-rank counts
 
-![Twelve 500-step continuations and three selected step-10000 outcomes relative to whole-job Restart.](docs/assets/paper-results/quality_checkpoint_study.png)
+![Twelve 500-step continuations and three selected step-10000 outcomes relative to whole-job Restart.](docs/assets/benchmarks/quality_checkpoint_study.png)
 
-[View original vector PDF](docs/assets/paper-results/quality_checkpoint_study.pdf)
+[View original vector PDF](docs/assets/benchmarks/quality_checkpoint_study.pdf)
 
 Panel (a) covers twelve recovery-window cases; panel (b) reports three selected long continuations. The reference is whole-job Restart, with final/peak tolerances of **0.5% / 1%**.
 
-#### Figure 4 · Full Hybrid quality with 64 and 128 experts
+#### Full Hybrid quality with 64 and 128 experts
 
-![Full Hybrid restores old expert weights and optimizer state: phase, load and rank-count comparisons.](docs/assets/paper-results/quality_full_state_500.png)
+![Full Hybrid restores old expert weights and optimizer state: phase, load and rank-count comparisons.](docs/assets/benchmarks/quality_full_state_500.png)
 
-[View original vector PDF](docs/assets/paper-results/quality_full_state_500.pdf)
+[View original vector PDF](docs/assets/benchmarks/quality_full_state_500.pdf)
 
 Affected experts restored both old weights and optimizer state. The largest sampled 500-step peak was **0.393%**, below the 1% peak tolerance. A recovery-window endpoint is distinct from final training quality.
 
-#### Figure 5 · Completion and repeated faults
+#### Completion and repeated faults
 
-![Four full-state Hybrid recovery histories through step 10000 and normalized quality outcomes.](docs/assets/paper-results/quality_full_state_terminal.png)
+![Four full-state Hybrid recovery histories through step 10000 and normalized quality outcomes.](docs/assets/benchmarks/quality_full_state_terminal.png)
 
-[View original vector PDF](docs/assets/paper-results/quality_full_state_terminal.pdf)
+[View original vector PDF](docs/assets/benchmarks/quality_full_state_terminal.pdf)
 
 Across four selected histories, the largest final increase was **0.00306%**, and sampled peak **0.00454%**. These histories share a seed/prefixes; they are separate from the independent R2 audit.
 
-#### Figure 6 · GPU scaling and parallel layouts
+#### GPU scaling and parallel layouts
 
-![Recovery excluding replay: 64/128 GPUs and four 64-GPU layouts with MoEGambit and two MoC PEC reproduction modes.](docs/assets/paper-results/recovery_scaling.png)
+![Recovery excluding replay: 64/128 GPUs and four 64-GPU layouts with MoEGambit and two MoC PEC reproduction modes.](docs/assets/benchmarks/recovery_scaling.png)
 
-[View original vector PDF](docs/assets/paper-results/recovery_scaling.pdf)
+[View original vector PDF](docs/assets/benchmarks/recovery_scaling.pdf)
 
 All layout ratios use the same **rank-local FullLoad** denominator. A/B have EDP=1 and checkpointed experts; C/D have EDP=2 and can use live expert peers. These restoration ratios are separate from the **35.6×** replay-inclusive whole-job Restart result.
 
-#### Figure 7 · GQA and DeepSeek-style MLA MoE
+#### GQA and DeepSeek-style MLA MoE
 
-![Small-model full-state recovery: five evaluation offsets, NoFault and whole-job Restart references.](docs/assets/paper-results/quality_architecture_transfer.png)
+![Small-model full-state recovery: five evaluation offsets, NoFault and whole-job Restart references.](docs/assets/benchmarks/quality_architecture_transfer.png)
 
-[View original vector PDF](docs/assets/paper-results/quality_architecture_transfer.pdf)
+[View original vector PDF](docs/assets/benchmarks/quality_architecture_transfer.pdf)
 
 Relative to Restart, largest sampled peaks were **0.0893%** for GQA MoE and **0.0230%** for MLA MoE over the 100-step window. Shared experts, routing and layer placement also differ; this is a configuration comparison.
 
-### Additional plot · Eight downstream tasks (paper Table 6)
+### Eight downstream tasks
 
-![Eight zero-shot task scores and percentage-point changes vs Restart, from paper Table 6.](docs/assets/paper-results/downstream_accuracy.png)
+![Eight zero-shot task scores and percentage-point changes vs Restart.](docs/assets/benchmarks/downstream_accuracy.png)
 
-[View vector PDF](docs/assets/paper-results/downstream_accuracy.pdf)
+[View vector PDF](docs/assets/benchmarks/downstream_accuracy.pdf)
 
 Equal-task means were **45.06% / 44.67% / 45.32%** for Restart / MoC PEC /
 MoEGambit. PEC retained 16 of 128 experts. The plot preserves each task's
@@ -597,9 +593,9 @@ MoEGambit. PEC retained 16 of 128 experts. The plot preserves each task's
 
 #### Cold-start model-update workflow
 
-![Restart and full-state Hybrid request-to-first-HTTP-response times across six 64-GPU cases.](docs/assets/paper-results/web_update_pipeline.png)
+![Restart and full-state Hybrid request-to-first-HTTP-response times across six 64-GPU cases.](docs/assets/benchmarks/web_update_pipeline.png)
 
-[Vector PDF](docs/assets/paper-results/web_update_pipeline.pdf) · [SVG](docs/assets/paper-results/web_update_pipeline.svg)
+[Vector PDF](docs/assets/benchmarks/web_update_pipeline.pdf) · [SVG](docs/assets/benchmarks/web_update_pipeline.svg)
 
 Across expert ages **50/100/150 steps** and **1/4 affected ranks**, Hybrid
 completed 100 new updates plus validation/model loading and the first real HTTP
@@ -610,9 +606,9 @@ allocated 64-GPU hours. Endpoint validation-loss changes were
 
 #### FiQA reranking quality
 
-![FiQA MRR at 10 and nDCG at 10 differences, Hybrid minus Restart, with paired-query 95 percent intervals.](docs/assets/paper-results/fiqa_reranking_quality.png)
+![FiQA MRR at 10 and nDCG at 10 differences, Hybrid minus Restart, with paired-query 95 percent intervals.](docs/assets/benchmarks/fiqa_reranking_quality.png)
 
-[Vector PDF](docs/assets/paper-results/fiqa_reranking_quality.pdf) · [SVG](docs/assets/paper-results/fiqa_reranking_quality.svg)
+[Vector PDF](docs/assets/benchmarks/fiqa_reranking_quality.pdf) · [SVG](docs/assets/benchmarks/fiqa_reranking_quality.svg)
 
 Two cases used **500 fixed FiQA queries** and BM25 top-20 candidates at offsets
 0 and 100 new updates. The plot retains the reported **95% paired-query
@@ -621,12 +617,12 @@ the initial age-150/four-rank differences are positive. Top-20 query coverage wa
 56.6% and mean candidate recall 36.8%. The intervals quantify query-sampling
 uncertainty; equivalence testing additionally requires a prespecified task margin.
 
-These are the two panels of **WWW Figure 9**, exported separately for readability.
+The two charts show update completion and retrieval quality separately.
 Both experiments use **full expert weights/optimizer restoration, cold starts,
 checkpoint-simulated state loss, and R2 disabled**. The HTTP probe invokes real
 inference over loopback. The workflow gains are distinct from the 35.6× hot
 recovery result and the independent R2 audit. See the
-[data, protocol and redraw command](examples/paper_results/README.md#web-update-and-fiqa-experiments-2026-10-20).
+[data, protocol and redraw command](examples/benchmarks/README.md#web-update-and-fiqa-experiments-2026-10-20).
 
 ### R2 audit · Reported counts
 
@@ -638,21 +634,21 @@ verification and provenance are documented in the result bundle.
 
 ### Scripts and reproducibility
 
-[**Paper figures and result checks**](examples/paper_results/README.md) maps
+[**Benchmark plots and result checks**](examples/benchmarks/README.md) maps
 each figure to its inputs, script, comparator and measurement scope. It includes
 loss-consistency checks, exact risk-bound arithmetic and scripts to redraw the
 new quality, architecture and recovery figures:
 
 ```bash
 python -m pip install matplotlib numpy
-export PAPER_RESULTS_DIR=/personal/moegambit/paper_results
-mkdir -p "$PAPER_RESULTS_DIR"
-nohup bash examples/paper_results/run_paper_results.sh \
-  >> "$PAPER_RESULTS_DIR/reproduce.log" 2>&1 &
+export BENCHMARK_RESULTS_DIR=/personal/moegambit/benchmarks
+mkdir -p "$BENCHMARK_RESULTS_DIR"
+nohup bash examples/benchmarks/run_benchmarks.sh \
+  >> "$BENCHMARK_RESULTS_DIR/reproduce.log" 2>&1 &
 ```
 
 This CPU workflow verifies the supplied exports and writes figures, reports
-and stage logs to `$PAPER_RESULTS_DIR`. GPU experiment entry points are the
+and stage logs to `$BENCHMARK_RESULTS_DIR`. GPU experiment entry points are the
 [MoC component/end-to-end runners](examples/moc_system/README.md),
 [Megatron hot replacement](#multi-node-examples) and
 [DeepSpeed MoE/dense examples](examples/deepspeed/run_hot_spare.sh).
@@ -904,23 +900,17 @@ token, restrict watcher and replica ports with firewall rules, and never expose
 the watcher directly to the public Internet. See
 `moegambit.config.SecurityConfig`.
 
-## Citation
+## Citing the Software
 
-If you use MoEGambit, please cite the accompanying paper:
+To reference this software, use its repository URL and the commit or release
+version used in your work:
 
 ```bibtex
 @misc{moegambit,
-  title  = {MoEGambit: Selective State Repair for
-            Distributed Mixture-of-Experts Training},
-  author = {MoEGambit Authors},
-  year   = {2026},
-  note   = {Software artifact},
-  url    = {https://github.com/ZJUAntgroup/MoEGambit}
+  title = {MoEGambit},
+  url   = {https://github.com/ZJUAntgroup/MoEGambit}
 }
 ```
-
-Replace the placeholder author and venue fields with the final publication
-metadata before archival citation.
 
 ## License
 

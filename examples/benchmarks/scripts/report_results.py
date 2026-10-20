@@ -84,7 +84,7 @@ def main():
         source_hashes={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                        for p in sorted(DATA.glob('*')) if p.suffix in ('.json', '.csv')},
         recovery=recovery, moc_controlled_restart=moc, r2=r2,
-        timing_note='FullLoad is rank-local; 35.6x is a separate replay-inclusive manuscript result. These rounded means cannot reconstruct per-event confidence intervals.',
+        timing_note='FullLoad is rank-local; 35.6x is a separate replay-inclusive benchmark result. These rounded means cannot reconstruct per-event confidence intervals.',
         quality_note='Short/shared-prefix quality cases are trajectory diagnostics; only the separate independent-run audit uses a binomial run-risk bound.',
     )
     (OUT / 'aggregate_report.json').write_text(json.dumps(result, indent=2) + '\n')

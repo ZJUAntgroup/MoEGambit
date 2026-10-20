@@ -1,7 +1,7 @@
 # MoC-System core-mechanism timing port (short experiment)
 
 This is an independently implemented, **physical PEC timing port**, based on
-[MoC-System, ASPLOS 2025](https://jyhuang91.github.io/papers/asplos2025-moc-system.pdf),
+[MoC-System mechanism description](https://jyhuang91.github.io/papers/asplos2025-moc-system.pdf),
 Sections 3.2, 4, and 5. It is not the authors' implementation. It does not use the
 old `MOEGAMBIT_MOC_PEC_EMULATE` overlay, which still writes full checkpoints and
 cannot measure PEC's saving-time benefit.
@@ -128,7 +128,7 @@ Set `MOC_KEEP_SCRATCH=1` to preserve all materialized state for inspection.
 `MOC_FSYNC=1` includes file/directory fsync in persistence timings. Set it to 0
 only for an explicitly labeled buffered-write study, consistently on all nodes.
 
-## What the paper can report
+## Measurement interpretation
 
 Report this as **a MoC-inspired core-mechanism timing port on the same model and
 cluster**, with actual bytes and the reproduced subset specified. Do not label
@@ -136,7 +136,7 @@ it the original MoC-System, or apply its timings to the published implementation
 
 The full comparator uses the same nonredundant unit format and sharding, so it
 isolates PEC and persistence scheduling. It is not native Megatron checkpoint
-format, the original MoC baseline, or RQ1's rank-local FullLoad.
+format, the original MoC baseline, or rank-local FullLoad.
 Recovery is state restoration within already-running workers. Failure detection,
 process recreation, communication-group rebuild, scheduler/RNG/data-iterator
 reconstruction, rollback/replay and first-post-recovery-step latency are excluded;
@@ -150,8 +150,6 @@ No synthetic sleeps or fabricated compute overlap are used. Dynamic-K, adaptive
 configuration, load-aware expert selection and ZeRO-2 training integration are
 not reproduced. OS/storage caches are uncontrolled, with no cold-cache claim.
 
-The old paper's limitation concerning no same-cluster reference implementation
-can be updated once this port actually completes, while retaining this scope.
 # End-to-end extension
 
 For real training, GPU snapshot overlap, worker/communication-group relaunch and

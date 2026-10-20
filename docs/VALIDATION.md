@@ -73,7 +73,7 @@ When installing the wheel with separately installed frameworks, provide
 must run the same workload and consume the watcher-provided rank environment.
 The watcher itself runs as a Python module, including from a wheel installation.
 
-## Publication hygiene
+## Release hygiene
 
 Example paths under `/shared/moegambit` and documentation addresses under
 `192.0.2.0/24` are placeholders. Replace them locally with routable addresses and

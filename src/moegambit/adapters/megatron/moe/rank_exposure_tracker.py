@@ -68,7 +68,7 @@ class HybridRecoveryEvent:
 
     @property
     def expert_iteration_debt(self) -> int:
-        """Return this event's contribution to the paper's S(t)."""
+        """Return this event's contribution to the exposure score S(t)."""
         return self.gap * self.num_affected_experts
 
     def to_dict(self) -> Dict[str, Any]:

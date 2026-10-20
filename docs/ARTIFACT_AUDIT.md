@@ -5,8 +5,8 @@ per-rank completion verification, and compact evidence exports. These tools do
 not fit a predictor or establish an unconditional statistical guarantee for a
 new model. Existing engine compatibility recovery paths remain available.
 
-The current paper's reported 200-run audit counts and reproducible figure/rate
-checks are in [paper results](../examples/paper_results/README.md). They support
+The reported 200-run audit counts and reproducible figure/rate
+checks are in [benchmark results](../examples/benchmarks/README.md). They support
 aggregate verification; they do not supply the trained predictor or a qualified
 online evidence provider. Shared-prefix quality studies remain separate from
 that independent-run audit.
@@ -26,7 +26,7 @@ moegambit-audit collect \
 
 Use a fresh log directory. The smoke run contains synthetic scalar state and
 synthetic completion records; it checks the tooling, not GPU recovery or model
-quality. Output paths are explicit and portable. For the FSE cluster, keep all
+quality. Output paths are explicit and portable. Keep all
 logs/results under `/personal`; checkpoint payloads can use a separate
 `CKPT_DIR` on `/zds`. No audit command copies checkpoint tensors.
 
@@ -40,7 +40,7 @@ Without installation, replace `moegambit-audit` with
 | Common watcher `--policy peer` (default) | Complete compatible live restore, otherwise complete checkpoint fallback |
 | Common watcher `--policy quality-risk --quality-mode audit-only` | Validate/log the new rule; never execute a candidate hybrid restore |
 | Common watcher `--policy quality-risk --quality-mode enforce` | Execute a candidate hybrid only with qualified, supported, context-bound whole-run risk evidence |
-| Common watcher `--policy moe-hybrid` | Legacy expert-staleness density policy; not the new paper's quality-risk rule |
+| Common watcher `--policy moe-hybrid` | Legacy expert-staleness density policy; separate from the quality-risk rule |
 | Vendored Megatron/DeepSpeed compatibility examples and watchers | Existing adapter-specific policies; not automatically migrated by selecting the common watcher policy |
 
 All common policies retain source completeness, version consistency and adapter
@@ -260,10 +260,10 @@ continuity or measure end-to-end speedup by itself.
 
 ```bash
 moegambit-audit collect --root "$QUALITY_DIR" \
-  --output /personal/fse_evidence_bundle
+  --output /personal/moegambit_evidence_bundle
 ```
 
-The collector recognizes existing FSE summary CSVs, paired-quality JSONs,
+The collector recognizes existing experiment summary CSVs, paired-quality JSONs,
 training-loss/replay diagnostics and selected case manifests, plus independent state manifests and the new
 rank/recovery evidence. Older pipelines without the new run manifest can still
 be exported; verification is explicitly marked incomplete. Checkpoint trees,

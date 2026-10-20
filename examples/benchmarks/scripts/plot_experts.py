@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot ten full-state Hybrid/Restart publication comparisons.
+"""Plot ten full-state Hybrid/Restart benchmark comparisons.
 
 Uses author-confirmed rerun protocol and existing Restart rows for duplicate
 middle/high-load comparisons. Does not infer missing raw trajectories or a
