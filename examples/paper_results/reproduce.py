@@ -27,7 +27,8 @@ def main():
     stages = ['report_results.py']
     if not args.no_plots:
         stages += ['plot_recovery_scaling.py', 'plot_checkpoint.py', 'plot_experts.py',
-                   'plot_terminal.py', 'plot_architecture.py', 'plot_downstream.py']
+                   'plot_terminal.py', 'plot_architecture.py', 'plot_downstream.py',
+                   'plot_web_update.py']
     completed = []
     for stage in stages:
         log = logs / (Path(stage).stem + '.log')

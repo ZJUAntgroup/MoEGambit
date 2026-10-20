@@ -1,6 +1,6 @@
 # Figures displayed in the READMEs
 
-The main READMEs display the current paper PDF's seven original numbered figures.
+The main READMEs retain the original FSE PDF's seven numbered figures.
 Their source content streams were verified against the PDF's embedded figures.
 [figure_inventory.json](figure_inventory.json) records the correspondence.
 
@@ -16,9 +16,21 @@ Their source content streams were verified against the PDF's embedded figures.
 
 Two separately requested additions are the original [EDP distribution schematic](edp_distribution.pdf)
 and the [eight-task plot](downstream_accuracy.pdf) drawn from paper Table 6.
-Other table-derived conclusion charts are withdrawn. Data and redraw instructions
+Other historical table-derived conclusion charts are withdrawn. Data and redraw instructions
 are in [examples/paper_results](../../../examples/paper_results/README.md).
 
 The architecture retains its original five-panel organization. Checkpoint, guard,
 replay and resume icons use Lucide assets under their
 [license notice](../licenses/Lucide-LICENSE).
+
+
+## Additional WWW experiments (2026-10-20)
+
+- [Web update pipeline PDF](web_update_pipeline.pdf) / [PNG](web_update_pipeline.png) / [SVG](web_update_pipeline.svg): six cold-start 64-GPU full-state Hybrid/Restart pairs; 1.13–1.53× workflow speedup.
+- [FiQA quality PDF](fiqa_reranking_quality.pdf) / [PNG](fiqa_reranking_quality.png) / [SVG](fiqa_reranking_quality.svg): 500 fixed queries, two cases/two offsets, reported 95% paired-query intervals.
+
+These independently displayed figures correspond to the two panels of WWW
+Figure 9. They are redrawn from the original supplied numerical exports, rather
+than claimed as byte-identical copies of the combined figure. R2 was disabled;
+cold-start workflow timing is separate from the hot-recovery and R2 audit
+results. Reproduce with `examples/paper_results/scripts/plot_web_update.py`.

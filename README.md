@@ -34,15 +34,15 @@ transactional recovery for Megatron-LM and DeepSpeed.
        width="100%">
 </a>
 
-<sub>Paper Figure 1: recovery architecture. Click to view the full-resolution image.</sub>
+<sub>Original FSE Figure 1: recovery architecture. Click to view the full-resolution image.</sub>
 
 </div>
 
 ## Overview
 
 MoEGambit is the implementation accompanying
-**“MoEGambit: Selective State Repair for Distributed
-Mixture-of-Experts Training.”** It keeps the distributed training job alive after
+**“MoEGambit: Quality-Aware Recovery for Web-Based Distributed MoE Training.”**
+It keeps the distributed training job alive after
 a fail-stop rank failure, activates a resident replacement worker, rebuilds communication
 groups in a deterministic order, and restores state from the safest available
 source.
@@ -512,8 +512,8 @@ benchmark instructions for GPU requirements and measurement boundaries.
 
 ## Paper Results
 
-The current paper is **MoEGambit: Selective State Repair for Distributed
-Mixture-of-Experts Training**. The main experiments used Qwen3-30B-A3B on
+The WWW manuscript is **MoEGambit: Quality-Aware Recovery for Web-Based
+Distributed MoE Training**. The main experiments used Qwen3-30B-A3B on
 64 NVIDIA H20 GPUs, with built-in expert bias, auxiliary load-balancing loss
 disabled, and micro batch size 1. Operational checkpoints were saved every
 200 steps. Full Hybrid restored affected expert **weights and optimizer state**;
@@ -529,10 +529,11 @@ current replicated non-expert/router state came from healthy peers.
 | R2 policy audit | **66%** admission; **95%** interception of unsafe candidates; **3/200** actual-run violations | Author-reported independent, frozen-policy audit; one-sided 95% run-risk upper limit **3.83%** |
 | Downstream quality | **45.06% / 44.67% / 45.32%** equal-task means | Restart / MoC PEC / MoEGambit; eight zero-shot tasks, with per-task acc/acc_norm metrics |
 | Failure-free control path | Mean step-time change **−0.003%**, observed range **−0.09% to +0.07%** across 20 repetitions | Includes device-completion confirmation and all-rank fence; the range is not a confidence interval |
+| Web model-update workflow | **1.13–1.53×** faster; **11.3–34.8%** fewer allocated GPU-hours | Six 64-GPU cold-start Hybrid/Restart pairs; R2 disabled, checkpoint-simulated state loss |
 
-### Figures from the current paper PDF
+### Original FSE paper figures
 
-The seven numbered figures follow the current paper PDF. **Figure 1**, the
+The seven numbered figures below retain the original FSE version's numbering. **Figure 1**, the
 recovery architecture, appears at the top of this README. Figures 2–7 below
 use the original figure assets; their content streams were checked against
 those embedded in the paper PDF. The EDP schematic and the downstream plot
@@ -595,6 +596,41 @@ Relative to Restart, largest sampled peaks were **0.0893%** for GQA MoE and **0.
 Equal-task means were **45.06% / 44.67% / 45.32%** for Restart / MoC PEC /
 MoEGambit. PEC retained 16 of 128 experts. The plot preserves each task's
 `acc`/`acc_norm` metric and shows both improvements and regressions.
+
+### Additional Web experiments · Update pipeline and FiQA quality
+
+#### Cold-start model-update workflow
+
+![Restart and full-state Hybrid request-to-first-HTTP-response times across six 64-GPU cases.](docs/assets/paper-results/web_update_pipeline.png)
+
+[Vector PDF](docs/assets/paper-results/web_update_pipeline.pdf) · [SVG](docs/assets/paper-results/web_update_pipeline.svg)
+
+Across expert ages **50/100/150 steps** and **1/4 affected ranks**, Hybrid
+completed 100 new updates plus validation/model loading and the first real HTTP
+rerank response in **892–916 s**, compared with Restart's **1,017–1,367 s**.
+The measured workflow speedup was **1.13–1.53×**, saving **11.3–34.8%** of
+allocated 64-GPU hours. Endpoint validation-loss changes were
+**−0.0628% to +0.0355%**. Each case has one measured timing pair.
+
+#### FiQA reranking quality
+
+![FiQA MRR at 10 and nDCG at 10 differences, Hybrid minus Restart, with paired-query 95 percent intervals.](docs/assets/paper-results/fiqa_reranking_quality.png)
+
+[Vector PDF](docs/assets/paper-results/fiqa_reranking_quality.pdf) · [SVG](docs/assets/paper-results/fiqa_reranking_quality.svg)
+
+Two cases used **500 fixed FiQA queries** and BM25 top-20 candidates at offsets
+0 and 100 new updates. The plot retains the reported **95% paired-query
+bootstrap intervals** (2,000 resamples). All four endpoint intervals cross zero;
+the initial age-150/four-rank differences are positive. Top-20 query coverage was
+56.6% and mean candidate recall 36.8%. This measures the observed task differences;
+it does not establish task equivalence.
+
+These are the two panels of **WWW Figure 9**, exported separately for readability.
+Both experiments use **full expert weights/optimizer restoration, cold starts,
+checkpoint-simulated state loss, and R2 disabled**. The HTTP probe invokes real
+inference over loopback. The workflow gains are distinct from the 35.6× hot
+recovery result and the independent R2 audit. See the
+[data, protocol and redraw command](examples/paper_results/README.md#web-update-and-fiqa-experiments-2026-10-20).
 
 ### R2 audit · Reported counts
 

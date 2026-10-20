@@ -59,6 +59,25 @@
     {
       "asset": "downstream_accuracy",
       "kind": "User-approved visualization of paper Table 6"
+    },
+    {
+      "asset": "web_update_pipeline",
+      "kind": "Measured WWW supplemental experiment from 1020result",
+      "www_figure": 9,
+      "panel": "a",
+      "r2_enabled": false,
+      "harness": "cold_start_checkpoint_state_loss_simulation",
+      "source_sha256": "a94e8bcc1ec217e197763f88326c3a727cdf3e72731ed5b2ef98c817c4403955"
+    },
+    {
+      "asset": "fiqa_reranking_quality",
+      "kind": "Measured WWW supplemental experiment from 1020result",
+      "www_figure": 9,
+      "panel": "b",
+      "r2_enabled": false,
+      "harness": "cold_start_checkpoint_state_loss_simulation",
+      "source_sha256": "e75987b215cd5d9e2134f096a71b7de0ef390eaddf55101b6a7844e73671bc7f"
     }
-  ]
+  ],
+  "numbering_scope": "Original FSE manuscript snapshot; WWW additional plots identify their own panel mapping."
 }

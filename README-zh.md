@@ -33,14 +33,13 @@
        width="100%">
 </a>
 
-<sub>论文图 1：恢复架构。点击可查看原始分辨率大图。</sub>
+<sub>原 FSE 版本图 1：恢复架构。点击可查看原始分辨率大图。</sub>
 
 </div>
 
 ## 项目概览
 
-MoEGambit 是论文 **《MoEGambit: Selective State Repair for Distributed
-Mixture-of-Experts Training》** 的配套实现。发生 fail-stop rank 故障后，
+MoEGambit 是论文 **《MoEGambit: Quality-Aware Recovery for Web-Based Distributed MoE Training》** 的配套实现。发生 fail-stop rank 故障后，
 MoEGambit 能够保持分布式训练作业存活，激活常驻替补 worker，按确定性顺序
 重建通信组，并从当前最安全的状态源恢复训练状态。
 
@@ -482,8 +481,7 @@ MASTER_ADDR=127.0.0.1 bash examples/moc_system/run_moc_e2e.sh --plan-only
 
 ## 论文结果
 
-当前论文为 **MoEGambit: Selective State Repair for Distributed
-Mixture-of-Experts Training**。主要实验在 64 张 NVIDIA H20 上训练
+WWW 稿件为 **MoEGambit: Quality-Aware Recovery for Web-Based Distributed MoE Training**。主要实验在 64 张 NVIDIA H20 上训练
 Qwen3-30B-A3B，使用 Megatron 内置 expert bias，关闭辅助负载均衡损失，
 micro batch size 为 1，运行时恢复 checkpoint 间隔为 200 step。
 完整 Hybrid 恢复旧专家的**权重与对应 optimizer state**，从健康 peer
@@ -499,10 +497,11 @@ micro batch size 为 1，运行时恢复 checkpoint 间隔为 200 step。
 | R2 策略审计 | 准入率 **66%**；危险候选拦截率 **95%**；实际整场轨迹越界 **3/200** | 作者报告的独立、冻结策略审计；单侧 95% 整场风险上界 **3.83%** |
 | 下游任务质量 | 任务等权均值 **45.06% / 44.67% / 45.32%** | Restart / MoC PEC / MoEGambit；八项零样本任务，保留各任务 acc/acc_norm 指标 |
 | 无故障完整控制路径开销 | 20 次重复的平均 step 耗时变化 **−0.003%**，观测范围 **−0.09%～+0.07%** | 包含设备完成确认和 all-rank fence；范围不是置信区间 |
+| Web模型更新流程 | **1.13–1.53×**加速，分配GPU小时减少 **11.3%–34.8%** | 六组64卡冷启动Hybrid／Restart配对；R2关闭、检查点模拟状态丢失 |
 
-### 当前论文 PDF 中的图
+### 原 FSE 版本论文图
 
-按当前论文 PDF 的图号展示。**图 1：恢复架构**位于本 README 顶部；
+以下保留原 FSE 版本的图号。**图 1：恢复架构**位于本 README 顶部；
 下方图 2–7 使用论文原图，已核对其内容与 PDF 内嵌图一致。
 EDP 示意图和下游任务准确率图单独标注为补充展示。
 
@@ -563,6 +562,36 @@ Restart / MoC PEC / MoEGambit 最后 200 step 的平均训练 loss 为 **2.7919 
 Restart / MoC PEC / MoEGambit 的任务等权均值为
 **45.06% / 44.67% / 45.32%**；PEC 保留 128 个专家中的 16 个。
 图中保留各任务的 `acc`/`acc_norm` 指标，同时展示改善与退化。
+
+### 补充 Web 实验 · 模型更新流程与 FiQA 质量
+
+#### 冷启动模型更新流程
+
+![六组64卡案例中Restart与完整Hybrid从请求到首次HTTP响应的耗时。](docs/assets/paper-results/web_update_pipeline.png)
+
+[矢量 PDF](docs/assets/paper-results/web_update_pipeline.pdf) · [SVG](docs/assets/paper-results/web_update_pipeline.svg)
+
+专家年龄 **50／100／150 步**，交叉 **1／4 个受影响 rank**，共六组。
+两臂均完成100次新更新，再进行验证、模型加载及首次真实HTTP重排响应；
+Hybrid耗时 **892–916秒**，Restart为 **1,017–1,367秒**。
+更新流程加速 **1.13–1.53×**，分配的64卡GPU小时降低 **11.3%–34.8%**。
+窗口终点相对验证loss变化为 **−0.0628%至+0.0355%**，每个案例一组成对计时。
+
+#### FiQA 重排序质量
+
+![FiQA MRR@10与nDCG@10相对Restart的百分点差异及95%成对查询区间。](docs/assets/paper-results/fiqa_reranking_quality.png)
+
+[矢量 PDF](docs/assets/paper-results/fiqa_reranking_quality.pdf) · [SVG](docs/assets/paper-results/fiqa_reranking_quality.svg)
+
+两组案例使用 **500个固定FiQA查询** 和BM25 top-20候选，分别评测恢复时点及
+继续100次更新后。图中保留原汇总的 **95%成对查询bootstrap区间**（2,000次重采样）。
+全部四个窗口终点区间跨0；专家年龄150步／4rank的初始差异为正。
+候选查询覆盖率为56.6%，平均候选召回36.8%。这些结果描述任务差异，不作为质量等价证明。
+
+两图对应 **WWW稿件图9的两个子图**，在README中独立展示。
+实验恢复完整旧专家权重及optimizer state，采用 **冷启动、检查点模拟状态丢失、R2关闭**；
+HTTP probe在loopback上执行真实推理。更新流程收益与35.6×热恢复加速、独立R2审计分别解释。
+[数据、协议与重绘命令](examples/paper_results/README.md#web-update-and-fiqa-experiments-2026-10-20)。
 
 ### R2 审计 · 报告计数
 
