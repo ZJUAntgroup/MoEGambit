@@ -15,7 +15,6 @@
 Framework-neutral hot rank replacement, version-aware state restoration, and
 transactional recovery for Megatron-LM and DeepSpeed.
 
-[![GitHub Stars](https://img.shields.io/github/stars/ZJUAntgroup/MoEGambit?style=flat-square&logo=github)](https://github.com/ZJUAntgroup/MoEGambit/stargazers)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![Megatron Core](https://img.shields.io/badge/Megatron_Core-0.15.3-76B900?style=flat-square)](Megatron-LM)
@@ -96,8 +95,8 @@ Python 3.10 or newer is required. Install a CUDA-enabled PyTorch build that
 matches the cluster before installing MoEGambit.
 
 ```bash
-git clone https://github.com/ZJUAntgroup/MoEGambit.git
-cd MoEGambit
+# From a local checkout or extracted source archive.
+cd /path/to/MoEGambit
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -899,18 +898,6 @@ The control plane is designed for a trusted training network. Use a per-job
 token, restrict watcher and replica ports with firewall rules, and never expose
 the watcher directly to the public Internet. See
 `moegambit.config.SecurityConfig`.
-
-## Citing the Software
-
-To reference this software, use its repository URL and the commit or release
-version used in your work:
-
-```bibtex
-@misc{moegambit,
-  title = {MoEGambit},
-  url   = {https://github.com/ZJUAntgroup/MoEGambit}
-}
-```
 
 ## License
 

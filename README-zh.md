@@ -14,7 +14,6 @@
 
 为 Megatron-LM 与 DeepSpeed 提供框架无关的热替换、版本感知状态恢复和事务式故障恢复。
 
-[![GitHub Stars](https://img.shields.io/github/stars/ZJUAntgroup/MoEGambit?style=flat-square&logo=github)](https://github.com/ZJUAntgroup/MoEGambit/stargazers)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![Megatron Core](https://img.shields.io/badge/Megatron_Core-0.15.3-76B900?style=flat-square)](Megatron-LM)
@@ -87,8 +86,8 @@ EDP=1 时，专家分片没有在线副本，但非专家状态仍有复制；ED
 CUDA 版 PyTorch。
 
 ```bash
-git clone https://github.com/ZJUAntgroup/MoEGambit.git
-cd MoEGambit
+# 进入本地检出或解压后的源码目录。
+cd /path/to/MoEGambit
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -852,17 +851,6 @@ export MOEGAMBIT_STANDBY_PACKED_EXPERT_CACHE=0
 控制面只应运行在可信训练网络中。请使用每个作业独立的 token，通过防火墙限制
 watcher 和 replica 端口，并且不要将 watcher 直接暴露到公网。具体配置请参阅
 `moegambit.config.SecurityConfig`。
-
-## 软件引用
-
-引用软件时，使用仓库URL，并注明实际使用的commit或release版本：
-
-```bibtex
-@misc{moegambit,
-  title = {MoEGambit},
-  url   = {https://github.com/ZJUAntgroup/MoEGambit}
-}
-```
 
 ## 许可证
 

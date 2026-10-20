@@ -197,7 +197,7 @@ def test_peer_endpoint_prefers_advertised_host_over_connection_source():
                 "node_rank": 8,
                 "rank": 1,
                 "peer_id": peer_id,
-                "host": "33.181.106.20",
+                "host": "192.0.2.20",
                 "port": 33895,
                 "src_rank": 0,
                 "dst_rank": 1,
@@ -207,7 +207,7 @@ def test_peer_endpoint_prefers_advertised_host_over_connection_source():
         )
 
         endpoint = watcher.peer_sync_endpoints[peer_id]
-        assert endpoint["host"] == "33.181.106.20"
+        assert endpoint["host"] == "192.0.2.20"
         assert endpoint["port"] == 33895
 
 
