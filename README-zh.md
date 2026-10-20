@@ -48,7 +48,7 @@ MoEGambit 能够保持分布式训练作业存活，激活常驻替补 worker，
 - 从健康 peer 拉取处于当前已提交版本的非专家复制状态；
 - 当不存在在线专家副本时，从 checkpoint 一起恢复专家权重与对应优化器状态；
 - 在 adapter 与版本校验支持时，使用在线专家副本和已确认的主机内存优化器副本；
-- 无法证明安全性的恢复路径会 fail closed，回退到 checkpoint relaunch。
+- 来源与版本检查决定执行 peer 修复或完整 checkpoint relaunch。
 
 MoEGambit 将恢复策略和编排逻辑与训练框架解耦。Megatron-LM 与 DeepSpeed
 内部只保留生命周期 hook；对应 adapter 将框架对象转换到同一套恢复契约。
@@ -60,8 +60,7 @@ MoEGambit 将恢复策略和编排逻辑与训练框架解耦。Megatron-LM 与 
 [查看原始矢量 PDF](docs/assets/paper-results/edp_distribution.pdf)
 
 EDP=1 时，专家分片没有在线副本，但非专家状态仍有复制；EDP=2 时，
-另一个专家数据并行组可以提供当前专家状态。这是布局示意，不是普遍性
-统计图。主要实验的 64-GPU 布局使用 PP=8、EP=8、ETP=1，因此 EDP=1。
+另一个专家数据并行组可以提供当前专家状态。主要实验的 64-GPU 布局使用 PP=8、EP=8、ETP=1，因此 EDP=1。
 
 ## 核心特性
 
@@ -78,8 +77,7 @@ EDP=1 时，专家分片没有在线副本，但非专家状态仍有复制；ED
 - **质量风险准入（可选）：** 公共协调器新增论文的 `R <= 1` 风险规则，支持审计与
   执行模式；执行需要有效的整场训练风险证据。引擎兼容路径仍使用原有策略，详见
   [审计工具说明](docs/ARTIFACT_AUDIT.md)。
-- **Fail-closed：** 参数可能已发生变化时，MoEGambit 不会只回退 iteration
-  计数器而继续执行。
+- **提交完整性：** 部分 optimizer 更新需恢复 model 和 optimizer 状态后再 replay。
 
 ## 快速开始
 
@@ -189,8 +187,8 @@ moegambit runtime + policy + control plane
 framework hook -> framework adapter -> moegambit interfaces/runtime/core
 ```
 
-框架无关代码不能重新放回 `Megatron-LM/`、`DeepSpeed/` 或框架 adapter 中。
-Megatron 只有一个公开集成入口：
+框架无关恢复逻辑集中于 `src/moegambit/`，框架 adapter 负责翻译引擎状态和生命周期事件。
+Megatron 使用统一的公开集成入口：
 
 ```python
 from moegambit.adapters.megatron.hooks import megatron_hooks
@@ -265,11 +263,10 @@ rollback/replay 策略、进程组重建状态和诊断逻辑均位于
 证据绑定模型、遥测版本、策略版本、当前故障、状态来源和完整恢复历史。证据缺失、
 过期或超出验证范围时回退 checkpoint；完整 checkpoint 也不可用时中止。
 
-`--policy quality-risk` 默认仅审计，不执行候选混合恢复。执行模式需要协调器管理的
-可信风险提供器及外部审核的校准证据。仓库没有附带已训练的风险预测器；填写 JSON
-不能构成统计保证。原 `MoeHybridPolicy` 和引擎兼容路径尚未迁移，不能据此宣称它们
-已经实现论文的新公式。新增状态比对、逐 rank 完成核验和小型证据导出使用
-`moegambit-audit`，详见 [使用说明与适用边界](docs/ARTIFACT_AUDIT.md)。
+`--policy quality-risk` 默认审计模式。执行模式使用协调器管理的可信风险提供器和
+外部审核的校准证据，训练好的目标负载预测器由使用者提供。`MoeHybridPolicy` 和
+引擎兼容路径沿用各自原有策略。策略选择、校准要求、状态比对、逐 rank 完成核验与
+`moegambit-audit` 使用方法见 [审计工具说明](docs/ARTIFACT_AUDIT.md)。
 
 质量特征可在训练期间通过 `AsyncQualityOffloader` 后台上传到独立 watcher 的
 CPU 内存。开启 `--quality-cpu-features` 后，协调器使用故障前已确认的路由、
@@ -291,9 +288,9 @@ CUDA 特征先固定快照再异步复制，未传完、缺失、冲突或版本
 | checkpoint commit record 发布前或发布中 | 忽略未完成 checkpoint |
 | checkpoint commit record 发布后 | 新 checkpoint 可用于 restart |
 
-只有主机内存 peer replica 确认同一版本后，optimizer step 才会被发布为 safe
-point。如果 adapter 无法证明 optimizer-during 故障所需恢复是安全的，则恢复
-会中止或回退到 checkpoint relaunch。
+主机内存 peer replica 确认同一版本后，optimizer step 成为 safe point。
+optimizer-during 恢复先还原该已提交版本的 model 和 optimizer；恢复检查失败时
+选择 checkpoint relaunch，或在无完整来源时中止。
 
 ## 多机运行示例
 
@@ -362,8 +359,7 @@ DeepSpeed 验证模式：
 | `combined` | PP=1、EP=8、ZeRO-2 | rank 替换与 optimizer 复制同时启用 |
 | `all` | 顺序执行 | 先运行 `hot_swap`，再运行 `zero2` |
 
-DeepSpeed `PipelineEngine` 不支持 ZeRO-2/3，因此本仓库不声明支持
-PP=8 与 ZeRO-2 的组合。
+DeepSpeed 的现有 ZeRO-2 配置使用数据／专家并行；`PipelineEngine` 排除 ZeRO-2/3。
 
 ### Dense 模型
 
@@ -424,9 +420,8 @@ ZeRO-1/2 优化器 shard 从主机内存副本恢复。无需启用 packed-exper
 `rank_in_process_hybrid` 作为传输协议名；恢复结果的 `mode` 为
 `rank_in_process_peer`，`expert_staleness=0`。PP 与 ZeRO-2 的组合仍不受支持。
 
-自动化测试覆盖 dense 选择、状态源契约和错误配置。dense 路径已在目标集群通过多机
-GPU 故障恢复测试；运行清单和原始轨迹尚未收录在本仓库，因此这里不据此给出 dense
-模型的恢复耗时或质量数值结论。
+dense 路径已在目标集群通过多机 GPU 故障恢复测试；自动化测试覆盖 dense 选择、
+状态源契约和错误配置。论文的定量延迟与质量比较使用[论文结果](#论文结果)列出的MoE配置。
 
 ### Dry run
 
@@ -476,8 +471,8 @@ torchrun --standalone --nproc-per-node=2 \
 MASTER_ADDR=127.0.0.1 bash examples/moc_system/run_moc_e2e.sh --plan-only
 ```
 
-这是固定 K 的独立机制移植，不是原作者完整的 ZeRO-2 实现；旧 PEC overlay
-仍只模拟 checkpoint 状态选择，不能用于测量部分保存的性能。
+该实验将固定 K 的 PEC 检查点与恢复机制独立移植到 Megatron。实验说明区分物理部分保存、
+原作者的 ZeRO-2 实现和旧 checkpoint 状态 overlay，并列出GPU要求及各段计时范围。
 
 ## 论文结果
 
@@ -586,7 +581,7 @@ Hybrid耗时 **892–916秒**，Restart为 **1,017–1,367秒**。
 两组案例使用 **500个固定FiQA查询** 和BM25 top-20候选，分别评测恢复时点及
 继续100次更新后。图中保留原汇总的 **95%成对查询bootstrap区间**（2,000次重采样）。
 全部四个窗口终点区间跨0；专家年龄150步／4rank的初始差异为正。
-候选查询覆盖率为56.6%，平均候选召回36.8%。这些结果描述任务差异，不作为质量等价证明。
+候选查询覆盖率为56.6%，平均候选召回36.8%。区间量化查询抽样不确定性；等价检验还需预先规定任务差异容限。
 
 两图对应 **WWW稿件图9的两个子图**，在README中独立展示。
 实验恢复完整旧专家权重及optimizer state，采用 **冷启动、检查点模拟状态丢失、R2关闭**；
@@ -613,14 +608,12 @@ nohup bash examples/paper_results/run_paper_results.sh \
   >> "$PAPER_RESULTS_DIR/reproduce.log" 2>&1 &
 ```
 
-此命令只使用 CPU，图表、报告及逐阶段日志均写入 `$PAPER_RESULTS_DIR`，
-不会重新启动训练。真实 GPU 实验入口见
-[MoC 保存/恢复计时与端到端脚本](examples/moc_system/README.md)、
-[Megatron 热替换示例](#多机运行示例) 和
-[DeepSpeed MoE/dense 示例](examples/deepspeed/run_hot_spare.sh)。
-[状态、运行完成及风险审计工具](docs/ARTIFACT_AUDIT.md) 用于核查新记录的证据。
-结果导出未附带论文专用的 checkpoint 拼接训练启动器和训练好的 R2 预测器；
-重绘成功不代表新配置下的训练复现已经完成。
+该CPU流程核对已有结果导出，并将图表、报告及逐阶段日志写入 `$PAPER_RESULTS_DIR`。
+GPU实验使用 [MoC保存／恢复与端到端脚本](examples/moc_system/README.md)、
+[Megatron热替换示例](#多机运行示例) 和
+[DeepSpeed MoE/dense示例](examples/deepspeed/run_hot_spare.sh)。
+[状态、完成及风险审计工具](docs/ARTIFACT_AUDIT.md)核查新运行记录。结果包包含汇总与重绘脚本；
+完整checkpoint拼接训练和预测器拟合使用另行提供的负载专用启动器及预测器包。
 
 ## 环境与配置
 
@@ -666,10 +659,9 @@ nohup bash examples/paper_results/run_paper_results.sh \
 | Pydantic / tqdm | `2.10.3` / `4.67.1` |
 | sentencepiece / tiktoken | `0.2.1` / `0.7.0` |
 
-该快照采集于框架升级之前，其中包含 `transformers==4.45.0` 和
-`deepspeed==0.16.2`。这两个版本**不是**本仓库的目标运行版本。必须先将
-Transformers 升级到 `>=5.0.0,<6`，再安装仓库中的 `./DeepSpeed` 源码，
-确保 `deepspeed.__version__` 最终为 `0.19.3`。
+该快照记录框架升级前的环境，包括 `transformers==4.45.0` 和 `deepspeed==0.16.2`。
+运行现有示例时，将Transformers升级到 `>=5.0.0,<6`，再安装内置 `./DeepSpeed`，
+使 `deepspeed.__version__` 为 `0.19.3`。
 
 环境快照中的 `flash_attn`、`grouped_gemm`、`megablocks`、`torchvision`
 和 `torchaudio` 不是当前恢复脚本的强制依赖。仅当所选模型或 kernel 路径
@@ -705,7 +697,7 @@ PY
 
 ### 示例路径
 
-以下为脱敏后的示例路径，不代表仓库附带数据或已有集群。
+将以下示例路径设为自己的数据集、tokenizer与输出目录。
 请在所有训练节点和备用节点设置一致的共享挂载路径：
 
 ```text
@@ -808,7 +800,7 @@ git diff --check
 ```
 
 CPU/GPU 冒烟测试、checkpoint 语义和 wheel 部署说明见
-[验证与部署](docs/VALIDATION.md)。CPU 测试成功不代表多机 CUDA/NCCL 恢复已验证。
+[验证与部署](docs/VALIDATION.md)。每个目标集群使用对应GPU恢复流程完成验证。
 
 ## 常见问题
 

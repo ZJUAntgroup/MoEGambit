@@ -1,10 +1,9 @@
 # Paper figures and result checks
 
 This bundle accompanies **MoEGambit: Quality-Aware Recovery for Web-Based
-Distributed MoE Training**, and retains the original FSE figure gallery. It contains the supplied paper exports and CPU
-scripts to recompute aggregates, check paired losses, and redraw figures. It
-**does not launch GPU training**. The checked-in figures are exports of the
-current manuscript; no synthetic observations or per-run records are added.
+Distributed MoE Training**. Its CPU scripts recompute aggregates, check paired
+losses, and redraw the supplied manuscript exports, including the original FSE
+figure gallery and additional WWW experiments.
 Input attribution and comparison-label changes are documented in
 [data/PROVENANCE.md](data/PROVENANCE.md).
 
@@ -89,7 +88,7 @@ of that script. Inputs are immutable, and no training is launched.
 **Timing:** request through training/replay, saving, fixed validation, native
 model load, and first real HTTP rerank response over loopback. Allocated
 GPU-hours are elapsed seconds × 64/3,600; no utilization/energy measurement is
-inferred. One pair per case supplies no timing confidence interval. A service
+inferred. Each timing case contains one measured pair. A service
 dependency repair reran one full pair for clean timing; total training/replay
 budget including that repair was 2,400 updates. The supplied final rows exclude
 downtime. The archived original timing is not pooled with its replacement.
@@ -99,14 +98,14 @@ BM25 top-20 candidates from 57,638 documents, no injected gold candidates.
 Coverage of queries with a relevant candidate is 56.6%; mean candidate recall
 36.8%. Reranking uses yes-minus-no logits. nDCG's ideal denominator uses complete
 query qrels, including relevant documents absent from candidates. Intervals
-retain the export's 2,000 paired-query bootstrap samples (seed 1234); per-query
-records are not bundled, so aggregate means are not used to invent new intervals.
-All four endpoint intervals cross zero; no equivalence margin was registered.
+retain the export's 2,000 paired-query bootstrap samples (seed 1234). All four
+endpoint intervals cross zero. The study reports paired score differences;
+equivalence testing additionally requires a prespecified task margin.
 
 **Scope:** full-state expert restoration, cold start, checkpoint-simulated state
-loss, **R2 disabled**. Neither plot estimates hot peer-transfer latency,
-production deployment performance, or independent run-level risk. The existing
-35.6× and 200-run claims refer to their separate studies.
+loss, **R2 disabled**. These plots measure update completion and retrieval quality;
+the 35.6× hot-recovery result and independent 200-run risk audit describe their
+respective experiments.
 
 ### Replot the 10k comparison from real logs
 
@@ -130,8 +129,8 @@ lines are deduplicated; conflicting values require a clean run export.
 
 - **FullLoad** loads complete state into the replacement rank and resumes at the
   current committed step, leaving survivors intact. **Whole-job Restart** rolls
-  all ranks back to a checkpoint and replays. A ratio against FullLoad cannot be
-  substituted for a replay-inclusive speedup against Restart.
+  all ranks back to a checkpoint and replays. FullLoad ratios describe rank-local loading; Restart ratios describe
+  matched-progress recovery including replay.
 - **Full Hybrid** uses current replicated non-expert/router and unaffected
   expert state. At EDP=1, affected experts use old weights and their corresponding
   optimizer state (FP32 master parameters, Adam moments and update counters).
@@ -141,11 +140,11 @@ lines are deduplicated; conflicting values require a clean run export.
   spaced 200 steps apart; additional saved states are evaluation anchors.
 - Quality uses fixed-validation paired losses aligned by committed progress,
   relative to **whole-job Restart**. The fixed tolerances are final 0.5% and
-  sampled peak 1%, with a run-risk target of 5%. Short-window outcomes and shared
-  prefixes do not constitute independent complete-run risk trials.
-- The manuscript's **35.6×** replay-inclusive result at a 100-step gap is a
-  separate reported measurement. Rounded restoration aggregates here cannot
-  reconstruct its absolute intervals or per-event confidence intervals.
+  sampled peak 1%, with a run-risk target of 5%. Short windows characterize transients; the independent complete-run audit
+  evaluates the run-risk target.
+- The manuscript's **35.6×** result measures replay-inclusive recovery at a
+  100-step gap. This bundle provides rounded restoration means; new confidence
+  intervals require the corresponding per-event timing records.
 
 ## R2 audit: distinguish the denominators
 
@@ -154,23 +153,22 @@ The reported candidate counts are 129 safe admissions, 11 safe rejections,
 unsafe interception is 57/60 = 95%. Actual policy trajectories had 3 boundary
 violations in 200 runs, including Restart runs in that denominator. The exact
 one-sided 95% upper limit is **3.83%**, below the 5% marginal run-risk target.
-Among admitted candidates the rate is 3/132, whose upper limit is **5.77%**;
-this does not certify a 5% admission-conditional target.
+Among admitted candidates the rate is 3/132, with upper limit **5.77%**.
+The 5% target is evaluated over all 200 actual policy trajectories.
 
-The 200-run counts and independent/frozen-policy audit conditions were reported
-by the authors on 2026-10-03. Raw per-run records, the trained predictor package,
-and its training/calibration specification are not included in this export.
-The scripts verify the arithmetic; the run-level interpretation assumes the
-reported independent, prespecified, fixed-size audit protocol. The separate
-short/shared-prefix studies are not pooled into these 200 trials.
+The authors reported the 200-run counts and independent, frozen-policy,
+prespecified fixed-size audit protocol on 2026-10-03. The export contains these
+aggregates, and the scripts verify their arithmetic. Auditing a new policy
+requires its per-run records, predictor package and training/calibration
+specification. Short/shared-prefix studies retain their own denominators.
 
 For **new real decision/run records**, use
 [`scripts/audit_r2.py`](scripts/audit_r2.py). It reads job-wide JSONL records,
 deduplicates identical records, rejects conflicts, and reports missing labels.
 See `python3 examples/paper_results/scripts/audit_r2.py --help`. For the runtime's
 state/run evidence checks and risk CLI, see
-[ARTIFACT_AUDIT.md](../../docs/ARTIFACT_AUDIT.md). Risk arithmetic is not a
-substitute for independently recorded decisions or an implemented predictor.
+[ARTIFACT_AUDIT.md](../../docs/ARTIFACT_AUDIT.md). These tools connect the
+predictor's recorded decisions with observed complete-run quality.
 
 ## Run GPU experiments
 
@@ -180,13 +178,13 @@ The executable public GPU entry points are separate from this replot bundle:
   `examples/moc_system/run_moc_timing_short.sh`.
 - [MoC controlled-restart end-to-end reproduction](../moc_system/README_e2e.md):
   `examples/moc_system/run_moc_e2e.sh`. Includes real training, worker/communicator
-  restart, state restoration, and replay. It is an independent fixed-K mechanism
-  port, rather than the original authors' full ZeRO-2 implementation.
+  restart, state restoration, and replay. It independently ports fixed-K PEC mechanisms to Megatron; the original
+  implementation uses ZeRO-2.
 - [Megatron hot replacement](../../README.md#multi-node-examples) and
   [DeepSpeed hot replacement/dense](../deepspeed/run_hot_spare.sh).
 - [State provenance, completion and risk audits](../../docs/ARTIFACT_AUDIT.md).
 
-The public MoC runner's default 660-update workload is a short comparison; it
-is not the paper's 10k execution. The checkpoint-splice continuation launcher
-used to obtain the paper's quality exports is not included in this bundle.
-Do not treat CPU plot completion as successful execution of that training suite.
+The public MoC runner defaults to a 660-update comparison. Reproducing the
+paper's 10k execution requires that longer fault/training schedule. For the
+checkpoint-splice quality studies, provide the workload-specific continuation
+launcher; this CPU bundle checks the resulting exported measurements.

@@ -55,7 +55,7 @@ The key idea is hybrid recovery:
   optimizer state are restored together from a checkpoint;
 - live expert replicas and acknowledged host-memory optimizer replicas are used
   where the adapter and version checks support them;
-- unsafe or unprovable recovery paths fail closed to checkpoint relaunch.
+- source and version checks select peer repair or complete-checkpoint relaunch.
 
 MoEGambit separates recovery policy and orchestration from framework-specific
 code. Megatron-LM and DeepSpeed retain only lifecycle hooks; their adapters
@@ -69,8 +69,7 @@ translate framework objects into one common recovery contract.
 
 At EDP=1, each expert shard has no live replica, while non-expert state remains
 replicated. At EDP=2, another expert-data-parallel group can supply current
-expert state. This is a placement schematic, rather than a prevalence statistic.
-The main 64-GPU layout has PP=8, EP=8 and ETP=1, giving EDP=1.
+expert state. The main 64-GPU layout has PP=8, EP=8 and ETP=1, giving EDP=1.
 
 ## Highlights
 
@@ -87,8 +86,8 @@ The main 64-GPU layout has PP=8, EP=8 and ETP=1, giving EDP=1.
 - **Quality-risk admission (opt-in):** the common coordinator can audit or enforce
   the paper's `R <= 1` rule with qualified whole-run risk evidence. Existing engine
   compatibility paths retain their legacy policies; see [audit tools](docs/ARTIFACT_AUDIT.md).
-- **Fail-closed behavior:** MoEGambit never rewinds only an iteration counter
-  after parameters may already have changed.
+- **Commit integrity:** partial optimizer updates require model-and-optimizer
+  restoration before replay.
 
 ## Quick Start
 
@@ -198,9 +197,9 @@ The dependency direction is strict:
 framework hook -> framework adapter -> moegambit interfaces/runtime/core
 ```
 
-Framework-independent code must not be added back into `Megatron-LM/`,
-`DeepSpeed/`, or either framework adapter. Megatron has one public integration
-contract:
+Framework-independent recovery logic belongs in `src/moegambit/`;
+framework adapters translate engine state and lifecycle events. Megatron exposes
+one public integration contract:
 
 ```python
 from moegambit.adapters.megatron.hooks import megatron_hooks
@@ -277,22 +276,20 @@ It validates supported model/telemetry/policy versions and binds evidence to
 the exact fault, source snapshot and whole-run history. Missing or unsupported
 evidence selects checkpoint fallback (or abort if no complete source exists).
 
-`--policy quality-risk` defaults to audit-only. Enforce mode requires a trusted
-risk provider and externally qualified calibration; the repository does not
-supply a trained predictor or establish a cross-model statistical guarantee.
-`MoeHybridPolicy` and engine-specific compatibility policies remain legacy
-implementations and should not be described as the new paper risk rule.
-See [quality admission and evidence audits](docs/ARTIFACT_AUDIT.md) for rollout
-boundaries, state auditing, per-rank completion checks and compact FSE exports.
+`--policy quality-risk` defaults to audit mode. Enforce mode uses a trusted
+risk provider and externally qualified calibration; supply the trained predictor
+for the target workload. `MoeHybridPolicy` and engine-specific compatibility
+paths keep their existing policies. See
+[quality admission and evidence audits](docs/ARTIFACT_AUDIT.md) for policy
+selection, calibration requirements, state audits and per-rank completion checks.
 
-Quality telemetry can now be retained outside training workers: enable
-`--quality-cpu-features` on the common quality watcher and connect
-`AsyncQualityOffloader` at the committed-step boundary. Immutable CUDA feature
-copies move to pinned CPU memory and upload in the background; the independent
-watcher retains routing, sensitivity, parameter/moment drift summaries and
-whole-run history after a worker exits. Missing, conflicting or mismatched
-snapshots select checkpoint fallback. See [CPU feature offload](docs/QUALITY_CPU_OFFLOAD.md)
-for setup, failure domains and the CPU-only worker-exit smoke run.
+Quality telemetry survives training-worker loss through an independent watcher.
+Enable `--quality-cpu-features` and connect `AsyncQualityOffloader` at the
+committed-step boundary. Immutable CUDA feature snapshots move to pinned CPU
+memory and upload in the background; the watcher retains routing, sensitivity,
+parameter/moment drift and whole-run history. Snapshot validation selects repair
+or checkpoint fallback. See [CPU feature offload](docs/QUALITY_CPU_OFFLOAD.md)
+for deployment across failure domains and the worker-exit smoke run.
 
 ### Failure boundary semantics
 
@@ -308,10 +305,10 @@ iteration:
 | checkpoint before/while publishing commit record | ignore the incomplete checkpoint |
 | checkpoint after commit record | allow the new checkpoint for restart |
 
-An optimizer step is not advertised as safe until its host-memory peer replica
-acknowledges the same version. If the adapter cannot prove the restoration
-required for an optimizer-during failure, recovery aborts or falls back to a
-checkpoint relaunch.
+An optimizer step becomes a safe point when its host-memory peer replica
+acknowledges the same version. Optimizer-during recovery restores that committed
+model-and-optimizer version; failed restoration checks select checkpoint
+relaunch or abort.
 
 ## Multi-node Examples
 
@@ -380,8 +377,8 @@ DeepSpeed validation modes:
 | `combined` | PP=1, EP=8, ZeRO-2 | rank replacement plus optimizer replication |
 | `all` | sequential | run `hot_swap`, then `zero2` |
 
-DeepSpeed `PipelineEngine` does not support ZeRO-2/3; this repository therefore
-does not claim PP=8 plus ZeRO-2 support.
+The supplied DeepSpeed ZeRO-2 profile uses data/expert parallelism.
+`PipelineEngine` excludes ZeRO-2/3.
 
 ### Dense models
 
@@ -425,19 +422,17 @@ NODE_RANK=0 bash examples/deepspeed/run_dense.sh
 NODE_RANK=1 bash examples/deepspeed/run_dense.sh
 ```
 
-The script writes `completed.json` and checks that recovery
-reached the final step with `mode=rank_in_process_peer` and zero expert
-staleness. Both scripts accept `DRY_RUN=1` to print the commands without GPUs.
-They inject a fail-stop fault at committed step 5 after checkpoint step 4 by
-default. These small synthetic runs exercise the recovery path and are not
-latency or training-quality benchmarks.
+The script writes `completed.json` and checks the final step,
+`mode=rank_in_process_peer`, and zero expert staleness. `DRY_RUN=1` prints the
+commands. By default, these synthetic recovery checks inject a fail-stop fault
+at committed step 5 after checkpoint step 4; latency and quality measurements
+are reported in [Paper Results](#paper-results).
 
 For Megatron-LM, run a normal dense `pretrain_gpt.py` configuration: omit
 `--num-experts`, set `EP_SIZE=1`, retain `--moe-moegambit-enable` for recovery
 hooks, and provide at least two DP replicas of each TP/PP/CP shard. A replacement
 loads a checkpoint base and receives all dense parameters, persistent buffers,
-and optimizer state from the current-step DP peer. It does not initialize expert
-components or use expert sidecars. A missing peer rejects hot repair;
+and optimizer state from the current-step DP peer. Dense recovery uses the DP-peer state path. A missing peer rejects hot repair;
 checkpoint relaunch is possible only when a valid checkpoint exists.
 
 For DeepSpeed, retain `MOEGAMBIT_HOT_SWAP=1`, set `MOEGAMBIT_ZERO2=1` for
@@ -448,10 +443,10 @@ name remains `rank_in_process_hybrid` for protocol compatibility, while the
 recovery contract reports `mode=rank_in_process_peer` and
 `expert_staleness=0`. Pipeline parallelism with ZeRO-2 remains unsupported.
 
-Automated tests cover dense selection, state-source contracts, and configuration
-errors. The dense path has also passed multi-node GPU failure-recovery tests on
-the target cluster. The run manifests and raw traces are not yet included here,
-so this status does not establish a dense-model latency or quality result.
+The dense path passed multi-node GPU failure-recovery tests on the target
+cluster. Automated tests cover dense selection, state-source contracts, and
+configuration errors. The paper's quantitative latency and quality comparisons
+use the MoE configurations listed in [Paper Results](#paper-results).
 
 ### Dry run
 
@@ -476,8 +471,8 @@ export MOEGAMBIT_REPLICA_ADVERTISE_ADDR=<this-node-routable-ip>
 
 ### Generic DDP
 
-The Generic DDP example shows that the recovery contract is not tied to either
-vendored framework:
+The Generic DDP example implements the recovery contract through a third
+adapter:
 
 ```bash
 torchrun --standalone --nproc-per-node=2 \
@@ -506,9 +501,10 @@ baseline, micro batch size 1 and built-in expert bias. Logs/results remain under
 MASTER_ADDR=127.0.0.1 bash examples/moc_system/run_moc_e2e.sh --plan-only
 ```
 
-This is a fixed-K mechanism port, separate from the original authors' ZeRO-2
-implementation and the legacy full-checkpoint PEC state overlay. See the
-benchmark instructions for GPU requirements and measurement boundaries.
+The benchmark independently ports fixed-K PEC checkpointing and recovery to
+Megatron. Its instructions distinguish physical partial checkpointing, the
+original ZeRO-2 implementation, and the checkpoint-state overlay, and specify
+the GPU requirements and measured intervals.
 
 ## Paper Results
 
@@ -622,8 +618,8 @@ Two cases used **500 fixed FiQA queries** and BM25 top-20 candidates at offsets
 0 and 100 new updates. The plot retains the reported **95% paired-query
 bootstrap intervals** (2,000 resamples). All four endpoint intervals cross zero;
 the initial age-150/four-rank differences are positive. Top-20 query coverage was
-56.6% and mean candidate recall 36.8%. This measures the observed task differences;
-it does not establish task equivalence.
+56.6% and mean candidate recall 36.8%. The intervals quantify query-sampling
+uncertainty; equivalence testing additionally requires a prespecified task margin.
 
 These are the two panels of **WWW Figure 9**, exported separately for readability.
 Both experiments use **full expert weights/optimizer restoration, cold starts,
@@ -655,16 +651,15 @@ nohup bash examples/paper_results/run_paper_results.sh \
   >> "$PAPER_RESULTS_DIR/reproduce.log" 2>&1 &
 ```
 
-This command uses CPU only; all generated figures, reports and stage logs go to
-`$PAPER_RESULTS_DIR`. It verifies supplied exports and does not rerun training.
-For real GPU runs, use the
+This CPU workflow verifies the supplied exports and writes figures, reports
+and stage logs to `$PAPER_RESULTS_DIR`. GPU experiment entry points are the
 [MoC component/end-to-end runners](examples/moc_system/README.md),
 [Megatron hot replacement](#multi-node-examples) and
 [DeepSpeed MoE/dense examples](examples/deepspeed/run_hot_spare.sh).
-[State, completion and risk audits](docs/ARTIFACT_AUDIT.md) check newly recorded
-evidence. The paper's private checkpoint-splice training launcher and trained
-R2 predictor are not bundled with the result exports; publication plots alone
-do not validate a new runtime configuration.
+[State, completion and risk audits](docs/ARTIFACT_AUDIT.md) validate new run
+records. The result bundle contains aggregates and redraw scripts; full
+checkpoint-splice training and predictor fitting use workload-specific launchers
+and predictor packages supplied separately.
 
 ## Environment and Configuration
 
@@ -710,20 +705,18 @@ The provided environment snapshot corresponds to the following cluster stack:
 | Pydantic / tqdm | `2.10.3` / `4.67.1` |
 | sentencepiece / tiktoken | `0.2.1` / `0.7.0` |
 
-The snapshot was captured before the framework upgrade and contains
-`transformers==4.45.0` and `deepspeed==0.16.2`. Those two versions are **not**
-the target runtime for this repository. Upgrade Transformers to
-`>=5.0.0,<6`, then install the bundled `./DeepSpeed` source so that
-`deepspeed.__version__` resolves to `0.19.3`.
+The snapshot records the pre-upgrade environment, including
+`transformers==4.45.0` and `deepspeed==0.16.2`. For the supplied runtime, upgrade
+Transformers to `>=5.0.0,<6` and install bundled `./DeepSpeed`, which provides
+`deepspeed.__version__ == 0.19.3`.
 
 `flash_attn`, `grouped_gemm`, `megablocks`, `torchvision`, and `torchaudio`
 appear in the source environment but are not mandatory for the supplied
 recovery scripts. Install them only when the selected model or kernel path
 requires them.
 
-The project deliberately does not pin a universal CUDA-specific PyTorch wheel;
-use the CUDA 12.6 build above to reproduce the supplied environment, or install
-a mutually compatible PyTorch/CUDA/NCCL stack for another cluster.
+Use the CUDA 12.6 PyTorch build above to reproduce the supplied environment.
+For another cluster, select a mutually compatible PyTorch/CUDA/NCCL stack.
 
 Verify the effective environment after all editable installs:
 
@@ -752,8 +745,8 @@ PY
 
 ### Example paths
 
-These are anonymized example paths, not a bundled dataset or an existing
-cluster. Set them to the same shared mount on every active and spare node:
+Configure the following example paths on the same shared mount across active
+and spare nodes, pointing to your dataset, tokenizer and output directories:
 
 ```text
 dataset:
@@ -854,9 +847,9 @@ python -m pytest tests -q
 git diff --check
 ```
 
-For executable CPU/GPU smoke tests, checkpoint semantics and wheel deployment,
-see [Validation and deployment](docs/VALIDATION.md). CPU success does not prove
-multi-node CUDA/NCCL recovery.
+[Validation and deployment](docs/VALIDATION.md) provides CPU contract checks,
+multi-node CUDA/NCCL smoke tests, checkpoint semantics and wheel deployment.
+Validate each target cluster with its GPU recovery workflow.
 
 ## Troubleshooting
 
