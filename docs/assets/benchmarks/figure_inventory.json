@@ -42,16 +42,20 @@
     {
       "asset_pdf": "web_update_pipeline.pdf",
       "description": "Cold-start model-update workflow",
-      "sha256": "a94e8bcc1ec217e197763f88326c3a727cdf3e72731ed5b2ef98c817c4403955",
-      "r2_enabled": false,
-      "harness": "cold_start_checkpoint_state_loss_simulation"
+      "sha256": "d772f95696d6b7570a9b9cc7011a4f1b216842a516c3d57e6237154c0ee8fc49",
+      "r2_enabled": true,
+      "harness": "cold_start_checkpoint_state_loss_simulation",
+      "r2_admission_stage": "before_hybrid_restoration",
+      "protocol_correction": "examples/benchmarks/data/web_protocol_correction.json"
     },
     {
       "asset_pdf": "fiqa_reranking_quality.pdf",
       "description": "FiQA reranking score differences",
-      "sha256": "e75987b215cd5d9e2134f096a71b7de0ef390eaddf55101b6a7844e73671bc7f",
-      "r2_enabled": false,
-      "harness": "cold_start_checkpoint_state_loss_simulation"
+      "sha256": "b80dd9252e06346bde26eee323e1a2c9e3542adf13b1031810f8fced5ad18100",
+      "r2_enabled": true,
+      "harness": "cold_start_checkpoint_state_loss_simulation",
+      "r2_admission_stage": "before_hybrid_restoration",
+      "protocol_correction": "examples/benchmarks/data/web_protocol_correction.json"
     }
   ]
 }

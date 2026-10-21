@@ -522,7 +522,7 @@ current replicated non-expert/router state came from healthy peers.
 | R2 policy audit | **66%** admission; **95%** interception of unsafe candidates; **3/200** actual-run violations | Author-reported independent, frozen-policy audit; one-sided 95% run-risk upper limit **3.83%** |
 | Downstream quality | **45.06% / 44.67% / 45.32%** equal-task means | Restart / MoC PEC / MoEGambit; eight zero-shot tasks, with per-task acc/acc_norm metrics |
 | Failure-free control path | Mean step-time change **−0.003%**, observed range **−0.09% to +0.07%** across 20 repetitions | Includes device-completion confirmation and all-rank fence; the range is not a confidence interval |
-| Web model-update workflow | **1.13–1.53×** faster; **11.3–34.8%** fewer allocated GPU-hours | Six 64-GPU cold-start Hybrid/Restart pairs; R2 disabled, checkpoint-simulated state loss |
+| Web model-update workflow | **1.13–1.53×** faster; **11.3–34.8%** fewer allocated GPU-hours | Six 64-GPU cold-start Hybrid/Restart pairs; R2 admission before Hybrid restoration, checkpoint-simulated state loss |
 
 ### Benchmark visualizations
 
@@ -592,7 +592,7 @@ MoEGambit. PEC retained 16 of 128 experts. The plot preserves each task's
 
 #### Cold-start model-update workflow
 
-![Restart and full-state Hybrid request-to-first-HTTP-response times across six 64-GPU cases.](docs/assets/benchmarks/web_update_pipeline.png)
+![Restart and R2-admitted full-state Hybrid request-to-first-HTTP-response times across six 64-GPU cases.](docs/assets/benchmarks/web_update_pipeline.png)
 
 [Vector PDF](docs/assets/benchmarks/web_update_pipeline.pdf) · [SVG](docs/assets/benchmarks/web_update_pipeline.svg)
 
@@ -618,9 +618,11 @@ uncertainty; equivalence testing additionally requires a prespecified task margi
 
 The two charts show update completion and retrieval quality separately.
 Both experiments use **full expert weights/optimizer restoration, cold starts,
-checkpoint-simulated state loss, and R2 disabled**. The HTTP probe invokes real
-inference over loopback. The workflow gains are distinct from the 35.6× hot
-recovery result and the independent R2 audit. See the
+checkpoint-simulated state loss, and R2 admission before Hybrid restoration**.
+The HTTP probe invokes real inference over loopback. The workflow gains are
+distinct from the 35.6× hot recovery result and the independent R2 audit.
+The author confirmed the R2-enabled rerun retained these numerical outcomes;
+the benchmark bundle records the protocol correction and original exports. See the
 [data, protocol and redraw command](examples/benchmarks/README.md#web-update-and-fiqa-experiments-2026-10-20).
 
 ### R2 audit · Reported counts

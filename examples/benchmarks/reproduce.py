@@ -24,7 +24,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     logs = out / 'logs'; logs.mkdir(exist_ok=True)
     env = dict(os.environ, MOEGAMBIT_BENCHMARK_RESULTS_OUT=str(out), MPLBACKEND='Agg', PYTHONUNBUFFERED='1')
-    stages = ['report_results.py']
+    stages = ['report_results.py', 'web_protocol.py']
     if not args.no_plots:
         stages += ['plot_recovery_scaling.py', 'plot_checkpoint.py', 'plot_experts.py',
                    'plot_terminal.py', 'plot_architecture.py', 'plot_downstream.py',

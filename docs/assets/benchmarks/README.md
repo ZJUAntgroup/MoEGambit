@@ -20,8 +20,10 @@ measurement definitions, and redraw commands are in
 | FiQA reranking quality | [PDF](fiqa_reranking_quality.pdf) / [PNG](fiqa_reranking_quality.png) / [SVG](fiqa_reranking_quality.svg) |
 
 The Web update and FiQA experiments use cold starts, checkpoint-simulated full
-expert-state loss, and R2 disabled. Update time includes the first real HTTP
+expert-state loss, and R2 admission before Hybrid restoration. Update time includes the first real HTTP
 rerank response; query intervals describe retrieval evaluation uncertainty.
+The active exports include the author-confirmed protocol correction, with
+original export bytes retained in the benchmark data archive.
 
 Architecture icons use Lucide assets under the
 [license notice](../licenses/Lucide-LICENSE).

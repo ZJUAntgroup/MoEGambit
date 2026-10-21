@@ -11,6 +11,13 @@ aggregate verification; they do not supply the trained predictor or a qualified
 online evidence provider. Shared-prefix quality studies remain separate from
 that independent-run audit.
 
+The Web model-update and FiQA rerun enabled R2 admission before Hybrid
+restoration, as confirmed by the authors. The benchmark bundle preserves the
+original exports and a machine-checked protocol correction. Its matched Restart
+arm is an experimental reference, not a recorded R2 rejection. Those figures
+report workflow/quality outcomes; online action records are audited separately
+with the tools below.
+
 ## Installation and a CPU smoke run
 
 ```bash

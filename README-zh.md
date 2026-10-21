@@ -491,7 +491,7 @@ micro batch size 为 1，运行时恢复 checkpoint 间隔为 200 step。
 | R2 策略审计 | 准入率 **66%**；危险候选拦截率 **95%**；实际整场轨迹越界 **3/200** | 作者报告的独立、冻结策略审计；单侧 95% 整场风险上界 **3.83%** |
 | 下游任务质量 | 任务等权均值 **45.06% / 44.67% / 45.32%** | Restart / MoC PEC / MoEGambit；八项零样本任务，保留各任务 acc/acc_norm 指标 |
 | 无故障完整控制路径开销 | 20 次重复的平均 step 耗时变化 **−0.003%**，观测范围 **−0.09%～+0.07%** | 包含设备完成确认和 all-rank fence；范围不是置信区间 |
-| Web模型更新流程 | **1.13–1.53×**加速，分配GPU小时减少 **11.3%–34.8%** | 六组64卡冷启动Hybrid／Restart配对；R2关闭、检查点模拟状态丢失 |
+| Web模型更新流程 | **1.13–1.53×**加速，分配GPU小时减少 **11.3%–34.8%** | 六组64卡冷启动Hybrid／Restart配对；Hybrid恢复前启用R2准入、检查点模拟状态丢失 |
 
 ### 实验图表
 
@@ -560,7 +560,7 @@ Restart / MoC PEC / MoEGambit 的任务等权均值为
 
 #### 冷启动模型更新流程
 
-![六组64卡案例中Restart与完整Hybrid从请求到首次HTTP响应的耗时。](docs/assets/benchmarks/web_update_pipeline.png)
+![六组64卡案例中Restart与R2准入后的完整Hybrid从请求到首次HTTP响应的耗时。](docs/assets/benchmarks/web_update_pipeline.png)
 
 [矢量 PDF](docs/assets/benchmarks/web_update_pipeline.pdf) · [SVG](docs/assets/benchmarks/web_update_pipeline.svg)
 
@@ -582,8 +582,8 @@ Hybrid耗时 **892–916秒**，Restart为 **1,017–1,367秒**。
 候选查询覆盖率为56.6%，平均候选召回36.8%。区间量化查询抽样不确定性；等价检验还需预先规定任务差异容限。
 
 两张图分别展示模型更新完成时间和检索质量。
-实验恢复完整旧专家权重及optimizer state，采用 **冷启动、检查点模拟状态丢失、R2关闭**；
-HTTP probe在loopback上执行真实推理。更新流程收益与35.6×热恢复加速、独立R2审计分别解释。
+实验恢复完整旧专家权重及optimizer state，采用 **冷启动、检查点模拟状态丢失、Hybrid恢复前启用R2准入**；
+HTTP probe在loopback上执行真实推理。作者确认启用R2的重跑保留了这些数值结果；结果包记录了协议更正及原始导出。更新流程收益与35.6×热恢复加速、独立R2审计分别解释。
 [数据、协议与重绘命令](examples/benchmarks/README.md#web-update-and-fiqa-experiments-2026-10-20)。
 
 ### R2 审计 · 报告计数

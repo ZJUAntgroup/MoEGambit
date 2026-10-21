@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "web-r2-protocol-20261021",
+  "date": "2026-10-21",
+  "source": "Direct author confirmation: the Web rerun enabled R2 before Hybrid restoration and retained the reported workflow and quality outcomes.",
+  "confirmation_type": "author_reported_protocol_correction",
+  "superseded_r2_enabled": false,
+  "r2_enabled": true,
+  "r2_admission_stage": "before_hybrid_restoration",
+  "restart_role": "matched whole-job Restart reference; not an observed R2 rejection/fallback count",
+  "r2_decision_records_bundled": false,
+  "numerical_measurements_changed": false,
+  "archived_inputs_sha256": {
+    "archive/web_update_20261020/web_update_pipeline.csv": "9dc5e82fc666c6bbbc07e9248903ad56f0d141e46ae344509d3d03257d7a8f8f",
+    "archive/web_update_20261020/web_update_plan.json": "82302fde65fa0932d3ea588d81a53f23b490b45cb0dee5956790a824100bec18"
+  },
+  "original_cluster_config_hash": "0072370f48f4117d2338f388f5c476127775df6c98a4292c84b1f2f9ac8d54a6",
+  "normalized_plan_sha256": "374abfca77024559b34ee86cc3c6a25f0e84f444e80e61ca3f6b8ef9ae926c52",
+  "corrected_input_sha256": {
+    "web_update_pipeline.csv": "d62fea4894ac6e9dc7f6812af5b8634b822f4088ba6ff8b8df0c9d22b8000c8c",
+    "web_update_plan.json": "b93c0d32b552db42b12121aecd932be0334c7a367ad20776436f627e3cb20a0f"
+  },
+  "unchanged_task_export_sha256": "37459545a8ef90e3612a4893336aad42d831ed8690dea63c3d4a9e034d3040cd",
+  "scope": "Corrected protocol metadata accompanies the retained numerical exports. It does not add predictor artifacts, risk scores, decision counts, or an independent run-risk certificate."
+}

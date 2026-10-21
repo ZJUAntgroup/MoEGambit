@@ -64,9 +64,11 @@ continued from public Qwen3-30B-A3B weights for 350 steps, with TP1/PP8/EP8,
 
 | Export | Role |
 | --- | --- |
-| `data/web_update_pipeline.csv` | Original twelve-arm timing, allocated GPU-hours, replay counts, and endpoint loss |
+| `data/web_update_pipeline.csv` | Twelve-arm timing, allocated GPU-hours, replay counts, and endpoint loss; R2 protocol flags corrected from author confirmation, numerical fields unchanged |
 | `data/fiqa_quality.csv` | Eight metric rows: two cases × two offsets × MRR@10/nDCG@10, with reported paired-query intervals |
-| `data/web_update_plan.json` | Completed six-case plan/configuration; private cluster archive path removed, measurements unchanged |
+| `data/web_update_plan.json` | Completed six-case plan, corrected R2 protocol, archived configuration identifier and normalized-plan hash |
+| `data/web_protocol_correction.json`, `data/archive/web_update_20261020/` | Author-confirmed protocol correction and original export hashes/bytes; no generated decisions or risk estimates |
+| `scripts/web_protocol.py` | Checks the R2 protocol correction, original export hashes, unchanged measurements, and matched Restart roles; emits `web_protocol_report.json` |
 | `scripts/plot_web_update.py` | Validates pair completeness, timing/GPU accounting, task differences, and interval endpoints; emits both figures, derived pairs, hashes and `web_update_report.json` |
 
 The standard one-command runner includes both figures. To redraw only these:
@@ -78,7 +80,7 @@ MOEGAMBIT_BENCHMARK_RESULTS_OUT=/personal/moegambit/web_update \
 
 Outputs: `web_update_pipeline.{pdf,png,svg}` and
 `fiqa_reranking_quality.{pdf,png,svg}`. The README images are checked-in exports
-of that script. Inputs are immutable, and no training is launched.
+of that script. Redrawing does not modify inputs or launch training.
 
 **Timing:** request through training/replay, saving, fixed validation, native
 model load, and first real HTTP rerank response over loopback. Allocated
@@ -98,7 +100,11 @@ endpoint intervals cross zero. The study reports paired score differences;
 equivalence testing additionally requires a prespecified task margin.
 
 **Scope:** full-state expert restoration, cold start, checkpoint-simulated state
-loss, **R2 disabled**. These plots measure update completion and retrieval quality;
+loss, **R2 admission enabled before Hybrid restoration**. The author confirmed
+that the R2-enabled rerun retained the supplied numerical outcomes. The active
+CSV/plan correct the old protocol flag; original export bytes and hashes remain
+in the archive. Restart is the matched reference arm, not a count of R2
+rejections. These plots measure update completion and retrieval quality;
 the 35.6× hot-recovery result and independent 200-run risk audit describe their
 respective experiments.
 

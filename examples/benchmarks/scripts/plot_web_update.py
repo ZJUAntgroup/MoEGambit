@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from paths import DATA, OUT
+from web_protocol import load_web_exports
 
 
 def read_csv(name):
@@ -28,15 +29,14 @@ def checked(condition, message):
 
 
 def load_results():
-    meta = json.loads((DATA / 'web_update_plan.json').read_text())
+    meta, raw, correction = load_web_exports(DATA)
     checked((meta['completed_arms'], meta['completed_paired_cases'],
              meta['expected_all_cases']) == (12, 6, 6), 'Incomplete experiment')
     checked(meta['w1_completed'] and meta['w2_all_cases_completed'], 'Incomplete suite')
     plan = meta['plan']
-    checked(plan['world_size'] == 64 and plan['r2_enabled'] is False,
-            'Expected 64 GPUs with R2 disabled')
+    checked(plan['world_size'] == 64 and plan['r2_enabled'] is True,
+            'Expected 64 GPUs with R2 admission enabled')
     checked(plan['state_treatment'] == 'hybrid_full_state', 'Expected full-state Hybrid')
-    raw = read_csv('web_update_pipeline.csv')
     index = {(r['case_id'], r['arm']): r for r in raw}
     expected = {(c['id'], a) for c in plan['cases'] for a in ('restart', 'hybrid')}
     checked(len(raw) == len(index) == 12 and set(index) == expected,
@@ -45,7 +45,7 @@ def load_results():
     for case in plan['cases']:
         restart, hybrid = [index[(case['id'], arm)] for arm in ('restart', 'hybrid')]
         for row in (restart, hybrid):
-            checked(row['r2_enabled'] == 'False' and
+            checked(row['r2_enabled'] == 'True' and
                     row['harness'] == plan['harness'], 'Measurement scope mismatch')
             checked(int(row['failed_ranks']) == len(case['ranks']) and
                     int(row['age']) == case['step'] - case['source'] and
@@ -56,6 +56,8 @@ def load_results():
             checked(math.isclose(float(row['gpu_hours']),
                                  float(row['update_seconds']) * 64 / 3600),
                     'GPU-hours differ from allocated time')
+        checked(restart['r2_role'] == 'restart_reference' and
+                hybrid['r2_role'] == 'quality_admission', 'Incorrect R2 arm roles')
         age = int(restart['age'])
         checked(int(restart['replayed_updates']) == age and
                 int(hybrid['replayed_updates']) == 0, 'Wrong replay accounting')
@@ -66,6 +68,7 @@ def load_results():
             gpu_hours_restart=float(restart['gpu_hours']),
             gpu_hours_hybrid=float(hybrid['gpu_hours']),
             saved_percent=100 * (1 - ht / rt),
+            r2_enabled=True, r2_admission_stage=plan['r2_admission_stage'],
             loss_change_percent=100 * (float(hybrid['validation_loss']) /
                                        float(restart['validation_loss']) - 1)))
     quality = read_csv('fiqa_quality.csv')
@@ -94,8 +97,10 @@ def load_results():
 
 def save(fig, name):
     for extension in ('pdf', 'svg', 'png'):
-        fig.savefig(OUT / f'{name}.{extension}', dpi=200,
-                    bbox_inches='tight', pad_inches=.10)
+        target = OUT / f'{name}.{extension}'
+        fig.savefig(target, dpi=200, bbox_inches='tight', pad_inches=.10)
+        if extension == 'svg':
+            target.write_text('\n'.join(line.rstrip() for line in target.read_text().splitlines()) + '\n')
     plt.close(fig)
 
 
@@ -103,7 +108,7 @@ def plot_timing(pairs):
     fig, ax = plt.subplots(figsize=(6.5, 2.7), layout='constrained')
     x = np.arange(len(pairs)); width = .34
     for offset, field, label, color in [(-width / 2, 'restart_seconds', 'Restart', '#B4BDC6'),
-                                       (width / 2, 'hybrid_seconds', 'Full-state Hybrid', '#246B92')]:
+                                       (width / 2, 'hybrid_seconds', 'R2-admitted Hybrid', '#246B92')]:
         ax.bar(x + offset, [r[field] / 60 for r in pairs], width,
                color=color, label=label, edgecolor='#50616E', linewidth=.4)
     for i, row in enumerate(pairs):
@@ -134,7 +139,7 @@ def plot_quality(quality, groups):
     ax.set_yticks(range(4), ['50 steps / 1 rank · offset 0', '50 steps / 1 rank · offset 100',
                               '150 steps / 4 ranks · offset 0', '150 steps / 4 ranks · offset 100'])
     ax.set_ylim(3.5, -.7); ax.set_xlim(-3.5, 5.5)
-    ax.set_xlabel('Hybrid − Restart (percentage points)')
+    ax.set_xlabel('R2-admitted Hybrid − Restart (percentage points)')
     ax.axvline(0, color='#78848D', linestyle='--', linewidth=.9)
     ax.grid(axis='x', color='#E1E5E9', linewidth=.5); ax.set_axisbelow(True)
     ax.legend(loc='lower right', bbox_to_anchor=(1, 1.01), ncol=2, frameon=False)
@@ -152,17 +157,23 @@ def main():
     with (OUT / 'web_update_pairs.csv').open('w', newline='') as stream:
         writer = csv.DictWriter(stream, fieldnames=list(pairs[0]))
         writer.writeheader(); writer.writerows(pairs)
-    names = ('web_update_pipeline.csv', 'fiqa_quality.csv', 'web_update_plan.json')
+    names = ('web_update_pipeline.csv', 'fiqa_quality.csv', 'web_update_plan.json',
+             'web_protocol_correction.json', 'archive/web_update_20261020/web_update_pipeline.csv',
+             'archive/web_update_20261020/web_update_plan.json')
     report = dict(input_sha256={n: hashlib.sha256((DATA / n).read_bytes()).hexdigest() for n in names},
         config_hash=meta['config_hash'], completed_pairs=6, timing_repeats_per_case=1,
-        state_treatment='hybrid_full_state', r2_enabled=False, harness=meta['plan']['harness'],
+        state_treatment='hybrid_full_state', r2_enabled=True, harness=meta['plan']['harness'],
+        r2_admission_stage=meta['plan']['r2_admission_stage'],
+        protocol_correction_id=json.loads((DATA / 'web_protocol_correction.json').read_text())['id'],
+        protocol_evidence='author_reported_protocol_correction', r2_decision_records_bundled=False,
+        config_hash_scope=meta['config_hash_scope'], normalized_plan_sha256=meta['normalized_plan_sha256'],
         timing_scope=meta['plan']['timing_scope'],
         speedup_range=[min(r['speedup'] for r in pairs), max(r['speedup'] for r in pairs)],
         saved_gpu_hours_percent_range=[min(r['saved_percent'] for r in pairs), max(r['saved_percent'] for r in pairs)],
         endpoint_loss_change_percent_range=[min(r['loss_change_percent'] for r in pairs), max(r['loss_change_percent'] for r in pairs)],
         endpoint_task_intervals_cross_zero=all(r['low95'] <= 0 <= r['high95'] for r in quality if r['offset'] == 100),
         task_uncertainty='Reported 2000-replicate paired-query bootstrap intervals; 500 fixed queries',
-        scope='Cold-start checkpoint-simulated update workflow; no hot-recovery or R2 risk estimate')
+        scope='Cold-start checkpoint-simulated update workflow with R2 admission before Hybrid restoration; separate from hot-recovery timing and independent run-risk audit')
     (OUT / 'web_update_report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
 

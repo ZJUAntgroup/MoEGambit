@@ -1,0 +1,111 @@
+{
+  "config_hash": "0072370f48f4117d2338f388f5c476127775df6c98a4292c84b1f2f9ac8d54a6",
+  "plan": {
+    "schema_version": 1,
+    "model": "Qwen/Qwen3-30B-A3B",
+    "baseline_updates": 350,
+    "baseline_save_steps": [
+      200,
+      250,
+      300,
+      350
+    ],
+    "cases": [
+      {
+        "id": "s250_g50_one",
+        "source": 200,
+        "step": 250,
+        "ranks": [
+          57
+        ],
+        "endpoint": 350,
+        "web_quality": true
+      },
+      {
+        "id": "s250_g50_four",
+        "source": 200,
+        "step": 250,
+        "ranks": [
+          9,
+          25,
+          41,
+          57
+        ],
+        "endpoint": 350,
+        "web_quality": false
+      },
+      {
+        "id": "s300_g100_one",
+        "source": 200,
+        "step": 300,
+        "ranks": [
+          57
+        ],
+        "endpoint": 400,
+        "web_quality": false
+      },
+      {
+        "id": "s300_g100_four",
+        "source": 200,
+        "step": 300,
+        "ranks": [
+          9,
+          25,
+          41,
+          57
+        ],
+        "endpoint": 400,
+        "web_quality": false
+      },
+      {
+        "id": "s350_g150_one",
+        "source": 200,
+        "step": 350,
+        "ranks": [
+          57
+        ],
+        "endpoint": 450,
+        "web_quality": false
+      },
+      {
+        "id": "s350_g150_four",
+        "source": 200,
+        "step": 350,
+        "ranks": [
+          9,
+          25,
+          41,
+          57
+        ],
+        "endpoint": 450,
+        "web_quality": true
+      }
+    ],
+    "training_updates": 2150,
+    "world_size": 64,
+    "pp": 8,
+    "ep": 8,
+    "tp": 1,
+    "micro_batch_size": 1,
+    "state_treatment": "hybrid_full_state",
+    "r2_enabled": false,
+    "harness": "cold_start_checkpoint_state_loss_simulation",
+    "maximum_complete_checkpoints": 6,
+    "timing_scope": "request -> training/replay -> fixed validation -> native model load -> first real HTTP rerank response",
+    "not_measured": [
+      "physical rank-loss detection",
+      "hot peer-transfer recovery latency",
+      "production Web deployment",
+      "independent run-level risk"
+    ]
+  },
+  "completed_arms": 12,
+  "completed_paired_cases": 6,
+  "expected_all_cases": 6,
+  "w1_completed": true,
+  "w2_all_cases_completed": true,
+  "interpret_as": "Cold-start update workflow with checkpoint-simulated loss; no hot-recovery speedup or R2 claims",
+  "dependency_repair_id": "jinja01",
+  "extra_training_updates_for_timing_repair": 250,
+  "planned_total_training_updates_including_repair": 2400
+}

@@ -88,7 +88,7 @@
     "tp": 1,
     "micro_batch_size": 1,
     "state_treatment": "hybrid_full_state",
-    "r2_enabled": false,
+    "r2_enabled": true,
     "harness": "cold_start_checkpoint_state_loss_simulation",
     "maximum_complete_checkpoints": 6,
     "timing_scope": "request -> training/replay -> fixed validation -> native model load -> first real HTTP rerank response",
@@ -97,15 +97,19 @@
       "hot peer-transfer recovery latency",
       "production Web deployment",
       "independent run-level risk"
-    ]
+    ],
+    "r2_admission_stage": "before_hybrid_restoration"
   },
   "completed_arms": 12,
   "completed_paired_cases": 6,
   "expected_all_cases": 6,
   "w1_completed": true,
   "w2_all_cases_completed": true,
-  "interpret_as": "Cold-start update workflow with checkpoint-simulated loss; no hot-recovery speedup or R2 claims",
+  "interpret_as": "Cold-start model-update workflow with checkpoint-simulated full-state loss and R2 admission before Hybrid restoration; separate from hot-recovery timing and the independent run-risk audit",
   "dependency_repair_id": "jinja01",
   "extra_training_updates_for_timing_repair": 250,
-  "planned_total_training_updates_including_repair": 2400
+  "planned_total_training_updates_including_repair": 2400,
+  "config_hash_scope": "Archived cluster export identifier; retained for traceability, not evidence of the corrected R2 configuration",
+  "normalized_plan_sha256": "374abfca77024559b34ee86cc3c6a25f0e84f444e80e61ca3f6b8ef9ae926c52",
+  "protocol_correction_file": "web_protocol_correction.json"
 }

@@ -30,14 +30,29 @@ The accompanying scripts compute source hashes, reject incompatible grids or
 conflicting records, and never synthesize missing trajectories.
 
 
-## Additional Web update exports (2026-10-20)
+## Web update exports and R2 protocol correction (2026-10-21)
 
-`web_update_pipeline.csv` and `fiqa_quality.csv` are byte-for-byte copies of
-`1020result/update_pipeline.log` and `1020result/webquality.log`. The JSON plan
-is `1020result/summary.log` with only the private `original_quality_archive`
-path removed. Completed arms/pairs, configuration hash, scientific parameters,
-measurement boundaries and dependency-repair metadata are unchanged.
-No generated observations, query-level rows, timing repeats, or uncertainty
-estimates are added. Input SHA256 values are exported by `plot_web_update.py`.
-FiQA intervals are copied directly from the original summary, not reconstructed
-from aggregate means. See the bundle README for protocol and study boundaries.
+The original `1020result/update_pipeline.log` timing export and the sanitized
+`1020result/summary.log` plan are preserved byte-for-byte in
+`archive/web_update_20261020/`. The original plan had only the private
+`original_quality_archive` path removed. Their historical `r2_enabled=false`
+flag is superseded by the author's confirmation that the Web rerun enabled R2
+admission **before Hybrid restoration** and retained the reported workflow and
+quality outcomes.
+
+The active `web_update_pipeline.csv` changes only the R2 flag and adds the arm's
+R2 role. Every timing, GPU-hour, replay-count, endpoint-loss and speedup value is
+unchanged. The active plan records the corrected protocol and its normalized
+SHA-256. Its original cluster `config_hash` remains an archival identifier, not
+proof of the corrected runtime configuration. `web_protocol_correction.json`
+records the author confirmation, both original file hashes, corrected file
+hashes, and the unchanged FiQA export hash. `scripts/web_protocol.py` verifies
+that numerical measurements and non-R2 scientific parameters were preserved.
+
+`fiqa_quality.csv` remains a byte-for-byte copy of
+`1020result/webquality.log`. Its reported 2,000-replicate paired-query intervals
+are retained rather than reconstructed from aggregate means. No query-level
+rows, timing repeats, predictor parameters, risk scores, or action counts are
+added by this correction. The forced Restart reference arm must not be counted
+as an R2 rejection. The Web outcome study remains separate from the independent
+200-run risk audit. See the bundle README for protocol and measurement scope.
